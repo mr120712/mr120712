@@ -69,3 +69,53 @@ export function soundcloudSearchUrl(title: string, artist: string | null) {
   const query = `${artist ?? ''} ${title}`.replace(/\s+/g, ' ').trim();
   return `https://soundcloud.com/search/sounds?q=${encodeURIComponent(query)}`;
 }
+
+/** Deezer's own search page (plain link: no Deezer API, SDK or previews inside Solco). */
+export function deezerSearchUrl(title: string, artist: string | null) {
+  const query = `${artist ?? ''} ${title}`.replace(/\s+/g, ' ').trim();
+  return `https://www.deezer.com/search/${encodeURIComponent(query)}`;
+}
+
+/** TIDAL's own search page (plain link: no TIDAL API or Player SDK inside Solco). */
+export function tidalSearchUrl(title: string, artist: string | null) {
+  const query = `${artist ?? ''} ${title}`.replace(/\s+/g, ' ').trim();
+  return `https://tidal.com/search?q=${encodeURIComponent(query)}`;
+}
+
+const YOUTUBE_VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
+
+/**
+ * YouTube Music: the same video when the track is a YouTube video, otherwise a search. Listeners
+ * with a YouTube (Music) Premium subscription can keep listening there in the background.
+ */
+export function youtubeMusicUrl(title: string, artist: string | null, videoId?: string | null) {
+  if (videoId && YOUTUBE_VIDEO_ID.test(videoId)) {
+    return `https://music.youtube.com/watch?v=${videoId}`;
+  }
+  const query = `${artist ?? ''} ${title}`.replace(/\s+/g, ' ').trim();
+  return `https://music.youtube.com/search?q=${encodeURIComponent(query)}`;
+}
+
+export type ListenElsewhereLink = { id: string; label: string; href: string };
+
+/** The "Ascolta altrove" menu: plain links to the same song on other services. */
+export function listenElsewhereLinks(input: {
+  title: string;
+  artist: string | null;
+  youtubeVideoId?: string | null;
+}): ListenElsewhereLink[] {
+  const title = input.title.replace(/\s+/g, ' ').trim();
+  if (!title) return [];
+  const artist = input.artist?.replace(/\s+/g, ' ').trim() || null;
+  return [
+    { id: 'spotify', label: 'Apri in Spotify', href: spotifySearchUrl(title, artist) },
+    {
+      id: 'youtube-music',
+      label: input.youtubeVideoId ? 'Apri in YouTube Music' : 'Cerca su YouTube Music',
+      href: youtubeMusicUrl(title, artist, input.youtubeVideoId),
+    },
+    { id: 'soundcloud', label: 'Cerca su SoundCloud', href: soundcloudSearchUrl(title, artist) },
+    { id: 'deezer', label: 'Cerca su Deezer', href: deezerSearchUrl(title, artist) },
+    { id: 'tidal', label: 'Cerca su TIDAL', href: tidalSearchUrl(title, artist) },
+  ];
+}
