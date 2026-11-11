@@ -2,6 +2,7 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { consumePlayForCurrentUser, playDeniedResponse } from '@/lib/business/play-quota.server';
+import { enforceRateLimit, getRateLimitIdentity } from '@/lib/business/rate-limit.server';
 import {
   createAudiusPlaybackService,
   playbackFailureStatus,
@@ -29,6 +30,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ trac
 
   const service = createAudiusPlaybackService();
   if (!service.configured) return jsonError('source_inactive', 503);
+  // Ogni richiesta (anche Range) costa due chiamate alla coda Audius condivisa: limite per IP
+  // d'ingresso, prima di contare l'ascolto. Senza un IP affidabile (sviluppo locale, test) non limita.
+  const identity = getRateLimitIdentity(null, request.headers);
+  const limited = identity ? await enforceRateLimit('music.catalog', identity) : null;
+  if (limited) {
+    for (const [name, value] of Object.entries(privateHeaders)) limited.headers.set(name, value);
+    return limited;
+  }
   // Free accounts: 40 full plays a month (sign-in required); Premium is unlimited.
   // A replay of the same track within the replay window (and range requests) is not counted again.
   const play = await consumePlayForCurrentUser(`audius:${trackId}`);

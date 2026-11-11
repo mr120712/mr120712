@@ -11,6 +11,7 @@ import { AudiusArtistCard, AudiusPlaylistCard } from '@/components/custom/music/
 import { type MusicPlayerTrack, useMusicPlayer } from '@/components/custom/music/music-player';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
+import { apiErrorMessage } from '@/lib/business/api-error-message';
 import {
   type AudiusTrackSearchResult,
   CollectionMutationResponseSchema,
@@ -337,7 +338,13 @@ export function MusicSearch({
           : null;
       if (cause?.error === 'Unauthorized')
         toast.error('Accedi per salvare gli elementi nei preferiti.');
-      else toast.error('Impossibile salvare questo elemento. La fonte deve confermare i metadati.');
+      else
+        toast.error(
+          apiErrorMessage(
+            error,
+            'Impossibile salvare questo elemento. La fonte deve confermare i metadati.',
+          ),
+        );
     }
   }
 
@@ -359,8 +366,8 @@ export function MusicSearch({
       });
       setCollections(saved.collections);
       toast.success('Aggiunto alla playlist.');
-    } catch {
-      toast.error('Impossibile aggiungere questo elemento alla playlist.');
+    } catch (error) {
+      toast.error(apiErrorMessage(error, 'Impossibile aggiungere questo elemento alla playlist.'));
     }
   }
 

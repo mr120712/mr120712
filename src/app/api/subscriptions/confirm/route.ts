@@ -1,6 +1,7 @@
 // @polsia:user-owned — conferma lato server il checkout completato (verifica su Stripe).
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { enforceRateLimit, getRateLimitIdentity } from '@/lib/business/rate-limit.server';
 import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
 import { evaluateRewards } from '@/lib/business/rewards.server';
 import {
@@ -26,6 +27,12 @@ export async function POST(request: Request) {
   }
   const auth = await signedIn(request);
   if ('response' in auth) return auth.response;
+  // Each call reaches Stripe/PayPal: cap repeated confirmations per account.
+  const limited = await enforceRateLimit(
+    'subscriptions.sync',
+    getRateLimitIdentity(auth.user.id, request.headers),
+  );
+  if (limited) return limited;
   const payload = await readJsonLimited(request, 1024);
   if (!payload.ok) return limitedJsonError(payload);
   const body = SubscriptionConfirmRequestSchema.safeParse(payload.value);

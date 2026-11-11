@@ -12,6 +12,8 @@ import { prisma } from '@/lib/db';
 import { getSessionUser } from '@/lib/require-auth';
 
 export const dynamic = 'force-dynamic';
+// The response depends on the viewer (own private profile, isSelf, isFollowing).
+const privateHeaders = { 'Cache-Control': 'private, no-store', Vary: 'Cookie' };
 
 export async function GET(
   _request: Request,
@@ -65,6 +67,7 @@ export async function GET(
           isSelf,
         },
       }),
+      { headers: privateHeaders },
     );
   } catch {
     return NextResponse.json({ error: 'profile_unavailable' }, { status: 500 });

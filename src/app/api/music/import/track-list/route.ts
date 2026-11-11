@@ -9,13 +9,13 @@ import { parseTrackList } from '@/lib/business/track-list-import';
 import { songSourceId } from '@/lib/business/track-list-import.server';
 import { TrackListImportResponseSchema, TrackListImportSchema } from '@/lib/contracts/library';
 import { prisma } from '@/lib/db';
-import { isFavoritesName } from '@/lib/music/collections.server';
+import { isFavoritesName, MAX_PLAYLISTS_PER_USER } from '@/lib/music/collections.server';
 import { requireAuth, type SessionUser } from '@/lib/require-auth';
 import { sameOrigin } from '@/lib/same-origin';
 
 export const dynamic = 'force-dynamic';
 
-const MAX_PLAYLISTS = 100;
+const MAX_PLAYLISTS = MAX_PLAYLISTS_PER_USER;
 
 const privateHeaders = {
   'Cache-Control': 'private, no-store, no-cache, must-revalidate',
@@ -88,7 +88,9 @@ export async function POST(request: Request) {
   }
 
   // Keep each library bounded: the whole library is loaded on every visit.
-  const playlists = await prisma.userMusicCollection.count({ where: { userId: auth.user.id } });
+  const playlists = await prisma.userMusicCollection.count({
+    where: { userId: auth.user.id, kind: 'playlist' },
+  });
   if (playlists >= MAX_PLAYLISTS) {
     return NextResponse.json(
       {

@@ -8,6 +8,8 @@ import { prisma } from '@/lib/db';
 
 const STRIPE_API = 'https://api.stripe.com/v1';
 const RECHECK_MS = 60 * 60 * 1000;
+/** Abbonamento scaduto (o verifica fallita): al massimo una chiamata a Stripe ogni 5 minuti. */
+const EXPIRED_RECHECK_MS = 5 * 60 * 1000;
 const ACTIVE_STATUSES = new Set(['active', 'trialing', 'past_due']);
 
 export class StripeSubscriptionError extends Error {
@@ -252,6 +254,23 @@ export function isSubscriptionActive(
   return !row.currentPeriodEnd || row.currentPeriodEnd.getTime() > now.getTime();
 }
 
+/**
+ * Serve una nuova verifica su Stripe? Ogni ora; per un abbonamento scaduto subito dopo la
+ * scadenza (rinnovo) e poi al massimo ogni pochi minuti, non a ogni richiesta.
+ * `checkedAt` è l'ultimo tentativo di sincronizzazione.
+ */
+export function needsStripeRecheck(
+  row: { checkedAt: Date; currentPeriodEnd: Date | null },
+  now = new Date(),
+) {
+  const checkedAt = row.checkedAt.getTime();
+  const sinceCheck = now.getTime() - checkedAt;
+  if (sinceCheck > RECHECK_MS) return true;
+  const periodEnd = row.currentPeriodEnd?.getTime();
+  if (periodEnd === undefined || periodEnd > now.getTime()) return false;
+  return checkedAt <= periodEnd || sinceCheck > EXPIRED_RECHECK_MS;
+}
+
 /** Ultimo abbonamento dell'utente; riverifica con Stripe se scaduto o non controllato da un'ora. */
 export async function getUserSubscription(
   userId: string,
@@ -263,10 +282,7 @@ export async function getUserSubscription(
     orderBy: { createdAt: 'desc' },
   });
   if (!row || !subscriptionsEnabled()) return row;
-  const stale =
-    now.getTime() - row.checkedAt.getTime() > RECHECK_MS ||
-    (row.currentPeriodEnd !== null && row.currentPeriodEnd.getTime() <= now.getTime());
-  if (!stale) return row;
+  if (!needsStripeRecheck(row, now)) return row;
   try {
     const raw = await stripeRequest(
       'GET',
@@ -295,7 +311,14 @@ export async function getUserSubscription(
       },
     });
   } catch {
-    // Stripe unreachable: keep the stored state rather than locking the user out.
+    // Stripe unreachable: keep the stored state rather than locking the user out, but record
+    // the attempt so the next call to Stripe waits EXPIRED_RECHECK_MS instead of every request.
+    const expired =
+      row.currentPeriodEnd !== null && row.currentPeriodEnd.getTime() <= now.getTime();
+    const attemptedAt = expired ? now : new Date(now.getTime() - RECHECK_MS + EXPIRED_RECHECK_MS);
+    await prisma.solcoSubscription
+      .updateMany({ where: { id: row.id }, data: { checkedAt: attemptedAt } })
+      .catch(() => undefined);
     return row;
   }
 }

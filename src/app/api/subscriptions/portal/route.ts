@@ -1,6 +1,7 @@
 // @polsia:user-owned — portale Stripe per cambiare piano, metodo di pagamento o disdire.
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { enforceRateLimit, getRateLimitIdentity } from '@/lib/business/rate-limit.server';
 import {
   createBillingPortal,
   getUserSubscription,
@@ -25,6 +26,12 @@ export async function POST(request: Request) {
   }
   const auth = await signedIn(request);
   if ('response' in auth) return auth.response;
+  // Each call opens a Stripe portal session: cap repeated requests per account.
+  const limited = await enforceRateLimit(
+    'subscriptions.sync',
+    getRateLimitIdentity(auth.user.id, request.headers),
+  );
+  if (limited) return limited;
   try {
     const row = await getUserSubscription(auth.user.id);
     if (!row) {

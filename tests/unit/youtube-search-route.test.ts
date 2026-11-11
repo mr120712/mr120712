@@ -74,7 +74,9 @@ describe('route di ricerca musicale per fonte', () => {
     const body = await response.json();
     expect(response.status).toBe(200);
     expect(mocks.searchMusic).toHaveBeenCalledOnce();
-    expect(mocks.searchMusic).toHaveBeenCalledWith('youtube', 'Khruangbin');
+    expect(mocks.searchMusic).toHaveBeenCalledWith('youtube', 'Khruangbin', {
+      youtubeIdentity: expect.anything(),
+    });
     expect(body).toMatchObject({ source: 'youtube', outcome: 'results', videos: [video] });
     expect(JSON.stringify(body)).not.toContain('test-secret');
     expect(JSON.stringify(body)).not.toMatch(/streamUrl|downloadUrl|mediaBytes/i);

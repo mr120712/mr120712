@@ -8,7 +8,11 @@ import {
   YouTubePlaylistImportSchema,
 } from '@/lib/contracts/library';
 import { prisma } from '@/lib/db';
-import { isFavoritesName, youtubeMetadataExpiry } from '@/lib/music/collections.server';
+import {
+  isFavoritesName,
+  MAX_PLAYLISTS_PER_USER,
+  youtubeMetadataExpiry,
+} from '@/lib/music/collections.server';
 import { readYouTubeApiKey } from '@/lib/music/music-api.server';
 import {
   fetchYouTubePlaylist,
@@ -65,6 +69,20 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: 'invalid_url', message: 'Incolla il link di una playlist YouTube pubblica.' },
       { status: 400, headers: privateHeaders },
+    );
+  }
+
+  // Same cap as creating a playlist by hand, checked before calling YouTube.
+  const playlists = await prisma.userMusicCollection.count({
+    where: { userId: auth.user.id, kind: 'playlist' },
+  });
+  if (playlists >= MAX_PLAYLISTS_PER_USER) {
+    return NextResponse.json(
+      {
+        error: 'limit_reached',
+        message: `Hai raggiunto il limite di ${MAX_PLAYLISTS_PER_USER} playlist. Eliminane una per importarne un'altra.`,
+      },
+      { status: 409, headers: privateHeaders },
     );
   }
 

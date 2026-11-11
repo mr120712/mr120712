@@ -1,12 +1,16 @@
 // @polsia:user-owned
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { enforceRateLimit, getRateLimitIdentity } from '@/lib/business/rate-limit.server';
+import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
 import { ListeningEntryResponseSchema, UpdateListeningEntrySchema } from '@/lib/contracts/music';
 import { prisma } from '@/lib/db';
 import { requireAuth, type SessionUser } from '@/lib/require-auth';
 import { sameOrigin } from '@/lib/same-origin';
 
 export const dynamic = 'force-dynamic';
+// Note (2,000 characters), rating, date and context; leaves room for multi-byte text.
+const MAX_BODY_BYTES = 16 * 1024;
 
 function serializeEntry(entry: {
   id: string;
@@ -60,11 +64,18 @@ export async function PATCH(
   }
 
   const { entryId } = await params;
-  const payload = await request.json().catch(() => null);
-  const parsed = UpdateListeningEntrySchema.safeParse(payload);
+  const payload = await readJsonLimited(request, MAX_BODY_BYTES);
+  if (!payload.ok) return limitedJsonError(payload);
+  const parsed = UpdateListeningEntrySchema.safeParse(payload.value);
   if (!parsed.success) {
     return NextResponse.json({ error: 'Controlla i campi da aggiornare.' }, { status: 400 });
   }
+
+  const limited = await enforceRateLimit(
+    'listening.write',
+    getRateLimitIdentity(user.id, request.headers),
+  );
+  if (limited) return limited;
 
   const data = {
     ...parsed.data,

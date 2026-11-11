@@ -12,6 +12,10 @@ const COUNTRY = 'it';
 const TIMEOUT_MS = 8000;
 const MAX_FEED_BYTES = 6 * 1024 * 1024;
 const MAX_EPISODES = 100;
+// Il feed è input non fidato: oltre al parsing lineare, tetto agli item esaminati
+// (anche quelli scartati) e al tempo complessivo del parsing.
+const MAX_ITEMS_SCANNED = 1000;
+const PARSE_BUDGET_MS = 1000;
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const CACHE_MAX = 150;
 
@@ -251,27 +255,73 @@ const entities: Record<string, string> = {
   nbsp: ' ',
 };
 
+// Tutte le scansioni del feed procedono solo in avanti (indexOf, oppure regex a lunghezza
+// fissa con lastIndex): un feed ostile con migliaia di tag non chiusi resta lineare.
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Primo indice >= from in cui `pattern` (flag g, match a lunghezza fissa) trova un match, o -1. */
+function indexOfPattern(source: string, pattern: RegExp, from: number) {
+  pattern.lastIndex = from;
+  return pattern.exec(source)?.index ?? -1;
+}
+
+const CDATA_OPEN = '<![CDATA[';
+const CDATA_CLOSE = ']]>';
+
+function unwrapCdata(value: string) {
+  let start = value.indexOf(CDATA_OPEN);
+  if (start < 0) return value;
+  const parts: string[] = [];
+  let cursor = 0;
+  while (start >= 0) {
+    const end = value.indexOf(CDATA_CLOSE, start + CDATA_OPEN.length);
+    // Nessuna chiusura dopo questa apertura: neanche le successive possono chiudersi.
+    if (end < 0) break;
+    parts.push(value.slice(cursor, start), value.slice(start + CDATA_OPEN.length, end));
+    cursor = end + CDATA_CLOSE.length;
+    start = value.indexOf(CDATA_OPEN, cursor);
+  }
+  parts.push(value.slice(cursor));
+  return parts.join('');
+}
+
 export function decodeXmlText(value: string) {
-  return value
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
-    .replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/gi, (match, code: string) => {
-      if (code[0] === '#') {
-        const point =
-          code[1]?.toLowerCase() === 'x'
-            ? Number.parseInt(code.slice(2), 16)
-            : Number.parseInt(code.slice(1), 10);
-        return Number.isFinite(point) && point > 0 && point <= 0x10ffff
-          ? String.fromCodePoint(point)
-          : '';
-      }
-      return entities[code.toLowerCase()] ?? match;
-    });
+  return unwrapCdata(value).replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/gi, (match, code: string) => {
+    if (code[0] === '#') {
+      const point =
+        code[1]?.toLowerCase() === 'x'
+          ? Number.parseInt(code.slice(2), 16)
+          : Number.parseInt(code.slice(1), 10);
+      return Number.isFinite(point) && point > 0 && point <= 0x10ffff
+        ? String.fromCodePoint(point)
+        : '';
+    }
+    return entities[code.toLowerCase()] ?? match;
+  });
+}
+
+/** Sostituisce ogni `<...>` con uno spazio; un `<` senza `>` successivo resta com'è. */
+function stripTags(value: string) {
+  const parts: string[] = [];
+  let cursor = 0;
+  while (cursor < value.length) {
+    const open = value.indexOf('<', cursor);
+    if (open < 0) break;
+    const close = value.indexOf('>', open + 1);
+    if (close < 0) break;
+    parts.push(value.slice(cursor, open), ' ');
+    cursor = close + 1;
+  }
+  parts.push(value.slice(cursor));
+  return parts.join('');
 }
 
 function plainText(value: string | null, max: number) {
   if (!value) return null;
-  const decoded = decodeXmlText(value)
-    .replace(/<[^>]*>/g, ' ')
+  const decoded = stripTags(decodeXmlText(value))
     .replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/gi, (match) => decodeXmlText(match))
     .replace(/\s+/g, ' ')
     .trim();
@@ -280,15 +330,21 @@ function plainText(value: string | null, max: number) {
 }
 
 function tagContent(xml: string, tag: string) {
-  const escaped = tag.replace(':', '\\:');
-  const match = new RegExp(`<${escaped}(?:\\s[^>]*)?>([\\s\\S]*?)</${escaped}>`, 'i').exec(xml);
-  return match?.[1] ?? null;
+  const name = escapeRegExp(tag);
+  const start = indexOfPattern(xml, new RegExp(`<${name}[\\s>]`, 'gi'), 0);
+  if (start < 0) return null;
+  const open = xml.indexOf('>', start + tag.length + 1);
+  if (open < 0) return null;
+  const close = indexOfPattern(xml, new RegExp(`</${name}>`, 'gi'), open + 1);
+  return close < 0 ? null : xml.slice(open + 1, close);
 }
 
 function tagAttribute(xml: string, tag: string, attribute: string) {
-  const escaped = tag.replace(':', '\\:');
-  const element = new RegExp(`<${escaped}\\s[^>]*>`, 'i').exec(xml)?.[0];
-  if (!element) return null;
+  const start = indexOfPattern(xml, new RegExp(`<${escapeRegExp(tag)}\\s`, 'gi'), 0);
+  if (start < 0) return null;
+  const end = xml.indexOf('>', start + tag.length + 2);
+  if (end < 0) return null;
+  const element = xml.slice(start, end + 1);
   const value = new RegExp(`\\s${attribute}\\s*=\\s*("([^"]*)"|'([^']*)')`, 'i').exec(element);
   const raw = value?.[2] ?? value?.[3];
   return raw ? decodeXmlText(raw).trim() : null;
@@ -310,45 +366,65 @@ export function episodeKeyFor(identity: string) {
 
 export type ParsedEpisode = PodcastEpisode & { audioUrl: string };
 
-/** Estrae gli episodi riproducibili (enclosure audio HTTPS) da un feed RSS podcast. */
+function parseItem(item: string): ParsedEpisode | null {
+  const audioUrl = httpsOrNull(tagAttribute(item, 'enclosure', 'url'));
+  const type = tagAttribute(item, 'enclosure', 'type') ?? 'audio/mpeg';
+  const title = plainText(tagContent(item, 'title'), 400);
+  if (!audioUrl || !title || !type.toLowerCase().startsWith('audio/')) return null;
+  const guid = plainText(tagContent(item, 'guid'), 500);
+  const published = plainText(tagContent(item, 'pubDate'), 100);
+  const publishedDate = published ? new Date(published) : null;
+  const duration = parseDuration(tagContent(item, 'itunes:duration'));
+  return {
+    key: episodeKeyFor(guid ?? audioUrl),
+    title,
+    publishedAt:
+      publishedDate && !Number.isNaN(publishedDate.valueOf()) ? publishedDate.toISOString() : null,
+    durationSeconds:
+      duration !== null && duration >= 0 && duration <= 86_400 ? Math.floor(duration) : null,
+    description: plainText(
+      tagContent(item, 'itunes:summary') ?? tagContent(item, 'description'),
+      600,
+    ),
+    artworkUrl: httpsOrNull(tagAttribute(item, 'itunes:image', 'href')),
+    audioUrl,
+  };
+}
+
+const ITEM_OPEN = /<item[\s>]/gi;
+const ITEM_OPEN_LENGTH = '<item>'.length;
+const ITEM_CLOSE = /<\/item>/gi;
+const ITEM_CLOSE_LENGTH = '</item>'.length;
+
+/**
+ * Estrae gli episodi riproducibili (enclosure audio HTTPS) da un feed RSS podcast.
+ * Tempo lineare nella dimensione del feed, con tetto a dimensione, item esaminati e durata.
+ */
 export function parsePodcastFeed(xml: string): {
   artworkUrl: string | null;
   episodes: ParsedEpisode[];
 } {
-  const channelHead = xml.split(/<item[\s>]/i)[0] ?? '';
+  const deadline = Date.now() + PARSE_BUDGET_MS;
+  const source = xml.length > MAX_FEED_BYTES ? xml.slice(0, MAX_FEED_BYTES) : xml;
+  const firstItem = indexOfPattern(source, ITEM_OPEN, 0);
+  const channelHead = firstItem < 0 ? source : source.slice(0, firstItem);
   const channelArt = httpsOrNull(tagAttribute(channelHead, 'itunes:image', 'href'));
   const episodes: ParsedEpisode[] = [];
   const seen = new Set<string>();
-  const items = xml.match(/<item[\s>][\s\S]*?<\/item>/gi) ?? [];
-  for (const item of items) {
-    if (episodes.length >= MAX_EPISODES) break;
-    const audioUrl = httpsOrNull(tagAttribute(item, 'enclosure', 'url'));
-    const type = tagAttribute(item, 'enclosure', 'type') ?? 'audio/mpeg';
-    const title = plainText(tagContent(item, 'title'), 400);
-    if (!audioUrl || !title || !type.toLowerCase().startsWith('audio/')) continue;
-    const guid = plainText(tagContent(item, 'guid'), 500);
-    const key = episodeKeyFor(guid ?? audioUrl);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const published = plainText(tagContent(item, 'pubDate'), 100);
-    const publishedDate = published ? new Date(published) : null;
-    const duration = parseDuration(tagContent(item, 'itunes:duration'));
-    episodes.push({
-      key,
-      title,
-      publishedAt:
-        publishedDate && !Number.isNaN(publishedDate.valueOf())
-          ? publishedDate.toISOString()
-          : null,
-      durationSeconds:
-        duration !== null && duration >= 0 && duration <= 86_400 ? Math.floor(duration) : null,
-      description: plainText(
-        tagContent(item, 'itunes:summary') ?? tagContent(item, 'description'),
-        600,
-      ),
-      artworkUrl: httpsOrNull(tagAttribute(item, 'itunes:image', 'href')),
-      audioUrl,
-    });
+  let cursor = firstItem;
+  let scanned = 0;
+  while (cursor >= 0 && episodes.length < MAX_EPISODES && scanned < MAX_ITEMS_SCANNED) {
+    if (Date.now() > deadline) break;
+    const close = indexOfPattern(source, ITEM_CLOSE, cursor + ITEM_OPEN_LENGTH);
+    // Un item senza chiusura: nessun item successivo può chiudersi, il feed finisce qui.
+    if (close < 0) break;
+    const item = source.slice(cursor, close + ITEM_CLOSE_LENGTH);
+    cursor = indexOfPattern(source, ITEM_OPEN, close + ITEM_CLOSE_LENGTH);
+    scanned += 1;
+    const episode = parseItem(item);
+    if (!episode || seen.has(episode.key)) continue;
+    seen.add(episode.key);
+    episodes.push(episode);
   }
   return { artworkUrl: channelArt, episodes };
 }

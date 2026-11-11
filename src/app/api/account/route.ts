@@ -2,6 +2,7 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { deleteAccountData } from '@/lib/business/account-deletion';
+import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
 import {
   AccountDeletionRequestSchema,
   AccountDeletionResponseSchema,
@@ -11,6 +12,9 @@ import { requireAuth, type SessionUser } from '@/lib/require-auth';
 import { sameOrigin } from '@/lib/same-origin';
 
 export const dynamic = 'force-dynamic';
+
+// The only accepted body is the short confirmation phrase.
+const MAX_BODY_BYTES = 1024;
 
 export async function DELETE(request: Request) {
   if (!sameOrigin(request)) {
@@ -24,8 +28,9 @@ export async function DELETE(request: Request) {
     return response as Response;
   }
 
-  const payload = await request.json().catch(() => null);
-  if (!AccountDeletionRequestSchema.safeParse(payload).success) {
+  const payload = await readJsonLimited(request, MAX_BODY_BYTES);
+  if (!payload.ok && payload.status === 413) return limitedJsonError(payload);
+  if (!payload.ok || !AccountDeletionRequestSchema.safeParse(payload.value).success) {
     return NextResponse.json({ error: 'confirmation_required' }, { status: 400 });
   }
 

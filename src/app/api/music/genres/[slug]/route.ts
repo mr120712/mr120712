@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { MusicSearchResponseSchema } from '@/lib/contracts/music';
 import { findGenre } from '@/lib/music/genre-catalog';
 import { readYouTubeApiKey } from '@/lib/music/music-api.server';
+import { withYouTubeSearchBudget } from '@/lib/music/youtube-budget.server';
 import { searchYouTubeMusic } from '@/lib/music/youtube-search.server';
 import { storedYouTubeSearch } from '@/lib/music/youtube-search-store.server';
 
@@ -13,8 +14,11 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
   const { slug } = await params;
   const genre = findGenre(slug);
   if (!genre) return NextResponse.json({ error: 'genre_not_found' }, { status: 404 });
-  const result = await storedYouTubeSearch(genre.query, 25, () =>
-    searchYouTubeMusic(genre.query, readYouTubeApiKey(), fetch, 25),
+  // Shared daily budget: when it is used up, the last saved result (up to 7 days) is served.
+  const result = await storedYouTubeSearch(
+    genre.query,
+    25,
+    withYouTubeSearchBudget(() => searchYouTubeMusic(genre.query, readYouTubeApiKey(), fetch, 25)),
   );
   const body = {
     source: 'youtube' as const,

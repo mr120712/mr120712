@@ -59,7 +59,15 @@ export async function GET() {
           : {}),
       }),
     });
-    return NextResponse.json(body, { headers: { 'Cache-Control': 'private, no-store' } });
+    // Same catalogue for everyone: the CDN absorbs repeats, so Audius is not asked on every visit.
+    return NextResponse.json(body, {
+      headers: {
+        'Cache-Control':
+          outcome === 'unavailable'
+            ? 'private, no-store'
+            : 'public, s-maxage=300, stale-while-revalidate=300',
+      },
+    });
   } catch {
     const body = MusicTrendingResponseSchema.parse({
       outcome: 'unavailable',

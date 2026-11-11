@@ -6,6 +6,7 @@ import { solcoProEntitlementStatusSchema } from '@/lib/contracts/solco-pro';
 import { requireAuth } from '@/lib/require-auth';
 
 export const dynamic = 'force-dynamic';
+const privateHeaders = { 'Cache-Control': 'private, no-store', Vary: 'Cookie' };
 
 export async function GET(request: Request) {
   let user: Awaited<ReturnType<typeof requireAuth>>;
@@ -31,9 +32,7 @@ export async function GET(request: Request) {
           }
         : null,
     });
-    return NextResponse.json(result, {
-      headers: { 'Cache-Control': 'private, no-store' },
-    });
+    return NextResponse.json(result, { headers: privateHeaders });
   } catch {
     return NextResponse.json(
       solcoProEntitlementStatusSchema.parse({
@@ -41,7 +40,7 @@ export async function GET(request: Request) {
         validUntil: null,
         purchase: null,
       }),
-      { status: 503, headers: { 'Cache-Control': 'private, no-store' } },
+      { status: 503, headers: privateHeaders },
     );
   }
 }

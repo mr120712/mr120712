@@ -19,11 +19,13 @@
 // `prisma/schema/profile.prisma` (model UserProfile { userId String @unique /* fields */ },
 // scalar userId) and create the row at signup:
 //   import { prisma } from '@/lib/db';
+import { unsafeAuthRedirectField } from '@/lib/security/safe-auth-redirect';
 //   databaseHooks: { user: { create: { after: async (user) => {
 //     await prisma.userProfile.create({ data: { userId: user.id } }).catch(() => {});
 //   } } } },
 
-import type { BetterAuthOptions } from 'better-auth';
+import type { BetterAuthOptions, BetterAuthPlugin } from 'better-auth';
+import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { after } from 'next/server';
 import { getDesignatedAdminUserId } from '@/lib/business/admin-account-identity';
 import { resolveInitialSignupRole } from '@/lib/business/admin-account-policy';
@@ -47,6 +49,8 @@ const appleCredentials = appleOAuthCredentials(
   }),
 );
 
+const MAX_USER_NAME_LENGTH = 80;
+
 async function persistCanonicalRole(user: { id: string; email: string; emailVerified: boolean }) {
   if (resolveInitialSignupRole(user, getDesignatedAdminUserId()) !== 'admin') return;
   if (!user.emailVerified) return;
@@ -57,7 +61,33 @@ async function persistCanonicalRole(user: { id: string; email: string; emailVeri
   });
 }
 
+/**
+ * After sign-in, sign-up or email verification better-auth sends people to `callbackURL` (and
+ * similar fields). The framework trusts every *.polsia.app / *.polsia.io site, which belong to
+ * other apps too: only internal paths and Solco's exact origins are accepted here.
+ */
+export const safeAuthRedirects: BetterAuthPlugin = {
+  id: 'solco-safe-auth-redirects',
+  hooks: {
+    before: [
+      {
+        matcher: () => true,
+        handler: createAuthMiddleware(async (ctx) => {
+          const field = unsafeAuthRedirectField([
+            ctx.body as Record<string, unknown> | undefined,
+            ctx.query as Record<string, unknown> | undefined,
+          ]);
+          if (field) {
+            throw new APIError('FORBIDDEN', { message: `Invalid ${field}` });
+          }
+        }),
+      },
+    ],
+  },
+};
+
 export const authConfig: BetterAuthOptions = {
+  plugins: [safeAuthRedirects],
   // Apple posts back from https://appleid.apple.com: that origin is listed in
   // BETTER_AUTH_TRUSTED_ORIGINS (the framework owns trustedOrigins).
   ...(appleCredentials ? { socialProviders: { apple: appleCredentials } } : {}),
@@ -80,11 +110,15 @@ export const authConfig: BetterAuthOptions = {
   databaseHooks: {
     user: {
       create: {
-        before: async () => ({
+        before: async (user) => ({
           data: {
             // The framework owner-email hook also runs; create.after below
             // enforces the canonical User.id policy after that hook completes.
             role: 'user',
+            // The name is chosen by whoever signs up: keep it short (by code point).
+            ...(typeof user.name === 'string'
+              ? { name: Array.from(user.name).slice(0, MAX_USER_NAME_LENGTH).join('') }
+              : {}),
           },
         }),
         after: async (user) => {

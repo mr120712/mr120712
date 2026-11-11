@@ -12,6 +12,7 @@ import {
 } from '@/components/custom/music/music-player';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
+import { apiErrorMessage } from '@/lib/business/api-error-message';
 import {
   CollectionMutationResponseSchema,
   type MusicCollection,
@@ -229,8 +230,8 @@ export function MusicCollections({
       setCollections(response.collections);
       setName('');
       toast.success('Playlist creata.');
-    } catch {
-      toast.error('Playlist non creata. Usa un nome nuovo e riprova.');
+    } catch (error) {
+      toast.error(apiErrorMessage(error, 'Playlist non creata. Usa un nome nuovo e riprova.'));
     }
   }
 

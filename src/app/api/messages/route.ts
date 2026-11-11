@@ -18,6 +18,7 @@ import { requireAuth, type SessionUser } from '@/lib/require-auth';
 import { sameOrigin } from '@/lib/same-origin';
 
 export const dynamic = 'force-dynamic';
+const privateHeaders = { 'Cache-Control': 'private, no-store', Vary: 'Cookie' };
 
 async function authenticatedUser(request: Request): Promise<SessionUser | Response> {
   try {
@@ -64,11 +65,13 @@ export async function GET(request: Request) {
       ];
     });
 
-    return NextResponse.json(MessagesInboxResponseSchema.parse({ conversations: items }));
+    return NextResponse.json(MessagesInboxResponseSchema.parse({ conversations: items }), {
+      headers: privateHeaders,
+    });
   } catch {
     return NextResponse.json(
       { error: 'Non è stato possibile caricare i messaggi.' },
-      { status: 500 },
+      { status: 500, headers: privateHeaders },
     );
   }
 }

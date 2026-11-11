@@ -1,6 +1,7 @@
 // @polsia:user-owned
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { enforceRateLimit, getRateLimitIdentity } from '@/lib/business/rate-limit.server';
 import { YouTubeVideoEligibilitySchema } from '@/lib/contracts/music';
 import { readYouTubeApiKey } from '@/lib/music/music-api.server';
 import { getYouTubeVideoDetails } from '@/lib/music/youtube-search.server';
@@ -8,14 +9,26 @@ import { getYouTubeVideoDetails } from '@/lib/music/youtube-search.server';
 export const dynamic = 'force-dynamic';
 
 const privateHeaders = { 'Cache-Control': 'private, no-store, no-cache, must-revalidate' };
+// Dettagli confermati da YouTube: uguali per tutti, quindi la CDN li serve senza spendere quota.
+const publicHeaders = {
+  'Cache-Control': 'public, max-age=600, s-maxage=3600, stale-while-revalidate=3600',
+};
 
-export async function GET(_request: Request, { params }: { params: Promise<{ videoId: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ videoId: string }> }) {
   const { videoId } = await params;
   if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
     return NextResponse.json(
       { error: 'invalid_video_id' },
       { status: 400, headers: privateHeaders },
     );
+  }
+
+  // Route anonima che spende quota YouTube: limite per IP d'ingresso (senza IP affidabile non limita).
+  const identity = getRateLimitIdentity(null, request.headers);
+  const limited = identity ? await enforceRateLimit('music.catalog', identity) : null;
+  if (limited) {
+    for (const [name, value] of Object.entries(privateHeaders)) limited.headers.set(name, value);
+    return limited;
   }
 
   const result = await getYouTubeVideoDetails(videoId, readYouTubeApiKey());
@@ -58,7 +71,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ vid
           'YouTube indica che questo video è destinato ai bambini; Solco non carica il player.',
         video: result.details.video,
       }),
-      { headers: privateHeaders },
+      { headers: publicHeaders },
     );
   }
   if (result.details.madeForKids !== false) {
@@ -81,6 +94,6 @@ export async function GET(_request: Request, { params }: { params: Promise<{ vid
         'Apri il player ufficiale YouTube. I controlli, il branding e gli annunci restano gestiti da YouTube.',
       video: result.details.video,
     }),
-    { headers: privateHeaders },
+    { headers: publicHeaders },
   );
 }

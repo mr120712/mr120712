@@ -7,6 +7,7 @@ import { createListeningUsage, getListeningCalendarMonth } from '@/lib/music/lis
 import { requireAuth, type SessionUser } from '@/lib/require-auth';
 
 export const dynamic = 'force-dynamic';
+const privateHeaders = { 'Cache-Control': 'private, no-store', Vary: 'Cookie' };
 
 export async function GET(request: Request) {
   let user: SessionUser;
@@ -27,11 +28,12 @@ export async function GET(request: Request) {
     });
     return NextResponse.json(
       ListeningUsageResponseSchema.parse({ usage: createListeningUsage(used, now) }),
+      { headers: privateHeaders },
     );
   } catch {
     return NextResponse.json(
       { error: 'Non è stato possibile verificare il limite mensile.' },
-      { status: 500 },
+      { status: 500, headers: privateHeaders },
     );
   }
 }

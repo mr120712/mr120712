@@ -8,6 +8,7 @@ import {
   searchAudiusPlaylists,
 } from '@/lib/music/audius-source.server';
 import { sourceStatus } from '@/lib/music/source-policy';
+import { withYouTubeSearchBudget } from '@/lib/music/youtube-budget.server';
 import { searchYouTubeMusic, type YouTubeSearchResult } from '@/lib/music/youtube-search.server';
 import {
   createYouTubeSearchCache,
@@ -48,7 +49,15 @@ export function getMusicSourceStatuses(
   ] satisfies MusicSearchSource[];
 }
 
-export async function searchMusic(source: MusicSource, query: string) {
+/**
+ * `youtubeIdentity` is the rate-limit identity of the person searching: YouTube searches that miss
+ * the cache count against their daily share and the app-wide pool (see youtube-budget.server.ts).
+ */
+export async function searchMusic(
+  source: MusicSource,
+  query: string,
+  options: { youtubeIdentity?: string | null } = {},
+) {
   if (source === 'audius') {
     const activation = getAudiusActivation();
     if (!activation.active) {
@@ -117,7 +126,14 @@ export async function searchMusic(source: MusicSource, query: string) {
     };
   }
   const result = await youtubeSearchCache.get(query, () =>
-    storedYouTubeSearch(query, 10, () => searchYouTubeMusic(query, apiKey)),
+    storedYouTubeSearch(
+      query,
+      10,
+      withYouTubeSearchBudget(
+        () => searchYouTubeMusic(query, apiKey),
+        options.youtubeIdentity ?? null,
+      ),
+    ),
   );
   const status = getMusicSourceStatuses({ youtube: result.outcome })[1];
   return {

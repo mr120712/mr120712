@@ -19,6 +19,7 @@ vi.mock('@/lib/require-auth', () => ({
 }));
 vi.mock('@/lib/business/rate-limit.server', () => ({ enforceRateLimit: mocks.limited }));
 vi.mock('@/lib/music/collections.server', () => ({
+  MAX_PLAYLISTS_PER_USER: 100,
   isFavoritesName: (n: string) => n === 'Preferiti',
 }));
 vi.mock('@/lib/db', () => ({

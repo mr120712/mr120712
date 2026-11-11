@@ -9,6 +9,7 @@ import { useLibrary } from '@/components/custom/music/library-context';
 import { videoToTrack, type YouTubeVideoLike } from '@/components/custom/music/live-tracks';
 import { trackStreamPath, useMusicPlayer } from '@/components/custom/music/music-player';
 import { apiFetch } from '@/lib/api-client';
+import { apiErrorMessage } from '@/lib/business/api-error-message';
 import styles from './discover.module.css';
 
 function duration(seconds: number | null | undefined) {
@@ -53,8 +54,8 @@ export function YouTubeVideoList({
         body: JSON.stringify({ action: 'favorite', source: 'youtube', sourceId: video.videoId }),
       });
       toast.success('Aggiunto ai Preferiti.');
-    } catch {
-      toast.error('Non è stato possibile aggiungerlo ai Preferiti.');
+    } catch (error) {
+      toast.error(apiErrorMessage(error, 'Non è stato possibile aggiungerlo ai Preferiti.'));
     }
   };
 

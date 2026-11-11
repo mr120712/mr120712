@@ -10,6 +10,9 @@ import { getYouTubeVideoDetails } from '@/lib/music/youtube-search.server';
 export const YOUTUBE_METADATA_RETENTION_DAYS = 29;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const FAVORITES_NAME = 'Preferiti';
+/** Limiti per utente: playlist create (Preferiti escluso) ed elementi per raccolta. */
+export const MAX_PLAYLISTS_PER_USER = 100;
+export const MAX_ITEMS_PER_COLLECTION = 500;
 
 export class MusicCollectionError extends Error {
   constructor(

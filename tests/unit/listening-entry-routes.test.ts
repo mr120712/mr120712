@@ -35,6 +35,11 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('server-only', () => ({}));
+vi.mock('@/lib/business/rate-limit.server', () => ({
+  enforceRateLimit: vi.fn(async () => null),
+  consumeRateLimit: vi.fn(async () => ({ allowed: true })),
+  getRateLimitIdentity: (id: string | null) => (id ? `user:${id}` : null),
+}));
 vi.mock('@/lib/require-auth', () => ({ requireAuth: mocks.requireAuth }));
 vi.mock('@/lib/same-origin', () => ({ sameOrigin: mocks.sameOrigin }));
 vi.mock('@/lib/db', () => ({

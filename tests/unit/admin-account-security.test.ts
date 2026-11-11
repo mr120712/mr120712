@@ -1,4 +1,11 @@
+// @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
+
+vi.hoisted(() => {
+  process.env.SKIP_ENV_VALIDATION = '1';
+});
+vi.mock('server-only', () => ({}));
+
 import { authConfig } from '@/lib/auth-config';
 import {
   normalizePersistedAdminRoles,

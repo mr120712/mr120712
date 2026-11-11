@@ -9,6 +9,8 @@ import { getSessionUser } from '@/lib/require-auth';
 export const dynamic = 'force-dynamic';
 
 const PAGE_SIZE = 24;
+// The response depends on the viewer (own private lists, isFollowing).
+const privateHeaders = { 'Cache-Control': 'private, no-store', Vary: 'Cookie' };
 const MAX_OFFSET = 10_000;
 
 export async function GET(
@@ -91,6 +93,7 @@ export async function GET(
         }),
         nextOffset: connections.length > PAGE_SIZE ? offset + PAGE_SIZE : null,
       }),
+      { headers: privateHeaders },
     );
   } catch {
     return NextResponse.json({ error: 'connections_unavailable' }, { status: 500 });

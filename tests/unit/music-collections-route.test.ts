@@ -35,9 +35,18 @@ function ownedCollection(id: string, userId: string) {
 }
 
 vi.mock('server-only', () => ({}));
+vi.mock('@/lib/business/rate-limit.server', () => ({
+  enforceRateLimit: vi.fn(async () => null),
+}));
 vi.mock('@/lib/db', () => ({
   prisma: {
     userMusicCollection: {
+      count: vi.fn(
+        async ({ where }: { where: { userId: string; kind?: string } }) =>
+          memory.collections.filter(
+            (item) => item.userId === where.userId && (!where.kind || item.kind === where.kind),
+          ).length,
+      ),
       findFirst: vi.fn(
         async ({ where }: { where: { id?: string; userId?: string; name?: string } }) =>
           memory.collections.find(
@@ -63,6 +72,10 @@ vi.mock('@/lib/db', () => ({
       ),
     },
     userMusicCollectionItem: {
+      count: vi.fn(
+        async ({ where }: { where: { collectionId: string } }) =>
+          memory.items.filter((item) => item.collectionId === where.collectionId).length,
+      ),
       findFirst: vi.fn(
         async ({
           where,
@@ -131,6 +144,8 @@ vi.mock('@/lib/require-auth', () => ({
 }));
 vi.mock('@/lib/same-origin', () => ({ sameOrigin: () => memory.sameOrigin }));
 vi.mock('@/lib/music/collections.server', () => ({
+  MAX_PLAYLISTS_PER_USER: 100,
+  MAX_ITEMS_PER_COLLECTION: 500,
   MusicCollectionError: class MusicCollectionError extends Error {},
   ensureFavoritesCollection: vi.fn(async (userId: string) => {
     const existing = memory.collections.find(

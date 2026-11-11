@@ -162,6 +162,10 @@ export async function POST(
 
   const limited = await enforceRateLimit('product.check.start', `user:${session.user.id}`);
   if (limited) return limited;
+  // App-wide ceiling: many accounts together must not exhaust the company web-read quota.
+  // Checked after the per-account limit, so one blocked account cannot spend global slots.
+  const globalLimited = await enforceRateLimit('product.check.global', 'global');
+  if (globalLimited) return globalLimited;
 
   const expected = {
     priceCents: product.expectedPriceCents,

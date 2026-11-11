@@ -1,6 +1,8 @@
 // @polsia:user-owned
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { enforceRateLimit } from '@/lib/business/rate-limit.server';
+import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
 import {
   CollectionMutationResponseSchema,
   CollectionMutationSchema,
@@ -11,6 +13,8 @@ import {
   ensureFavoritesCollection,
   getUserMusicCollections,
   isFavoritesName,
+  MAX_ITEMS_PER_COLLECTION,
+  MAX_PLAYLISTS_PER_USER,
   MusicCollectionError,
   resolveCollectionItem,
 } from '@/lib/music/collections.server';
@@ -50,7 +54,12 @@ export async function POST(request: Request) {
   }
   const auth = await signedIn(request);
   if ('response' in auth) return auth.response;
-  const body = CollectionMutationSchema.safeParse(await request.json().catch(() => null));
+  // Ogni aggiunta interroga YouTube/Audius: limite per utente prima di leggere il corpo.
+  const limited = await enforceRateLimit('library.write', `user:${auth.user.id}`);
+  if (limited) return limited;
+  const payload = await readJsonLimited(request, 4 * 1024);
+  if (!payload.ok) return limitedJsonError(payload);
+  const body = CollectionMutationSchema.safeParse(payload.value);
   if (!body.success) {
     return NextResponse.json(
       { errors: { body: 'Controlla i dati della raccolta.' } },
@@ -76,6 +85,18 @@ export async function POST(request: Request) {
           { error: 'duplicate_name' },
           { status: 409, headers: privateHeaders },
         );
+      const playlistCount = await prisma.userMusicCollection.count({
+        where: { userId, kind: 'playlist' },
+      });
+      if (playlistCount >= MAX_PLAYLISTS_PER_USER) {
+        return NextResponse.json(
+          {
+            error: 'limit_reached',
+            message: `Hai raggiunto il limite di ${MAX_PLAYLISTS_PER_USER} playlist. Eliminane una per crearne una nuova.`,
+          },
+          { status: 409, headers: privateHeaders },
+        );
+      }
       await prisma.userMusicCollection.create({
         data: { userId, name: action.name, kind: 'playlist' },
       });
@@ -104,6 +125,32 @@ export async function POST(request: Request) {
             });
       if (!collection)
         return NextResponse.json({ error: 'not_found' }, { status: 404, headers: privateHeaders });
+      // Il limite si controlla prima di chiamare YouTube/Audius; aggiornare un elemento già
+      // presente resta possibile anche a raccolta piena.
+      const itemCount = await prisma.userMusicCollectionItem.count({
+        where: { collectionId: collection.id },
+      });
+      if (itemCount >= MAX_ITEMS_PER_COLLECTION) {
+        const alreadySaved = await prisma.userMusicCollectionItem.findUnique({
+          where: {
+            collectionId_source_sourceId: {
+              collectionId: collection.id,
+              source: action.source,
+              sourceId: action.sourceId,
+            },
+          },
+          select: { id: true },
+        });
+        if (!alreadySaved) {
+          return NextResponse.json(
+            {
+              error: 'limit_reached',
+              message: `${collection.kind === 'favorites' ? 'I Preferiti hanno' : 'Questa playlist ha'} raggiunto il limite di ${MAX_ITEMS_PER_COLLECTION} elementi. Rimuovine uno per aggiungerne altri.`,
+            },
+            { status: 409, headers: privateHeaders },
+          );
+        }
+      }
       const metadata = await resolveCollectionItem(action.source, action.sourceId);
       await prisma.userMusicCollectionItem.upsert({
         where: {

@@ -1,6 +1,7 @@
 // @polsia:user-owned
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 import { loadMessageProfiles, serializeMessage } from '@/lib/business/messages.server';
 import { enforceRateLimit } from '@/lib/business/rate-limit.server';
 import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
@@ -14,6 +15,28 @@ import { requireAuth, type SessionUser } from '@/lib/require-auth';
 import { sameOrigin } from '@/lib/same-origin';
 
 export const dynamic = 'force-dynamic';
+
+// A thread opens on its most recent messages; older ones are read with ?before=<message id>.
+const THREAD_PAGE_SIZE = 200;
+const privateHeaders = { 'Cache-Control': 'private, no-store', Vary: 'Cookie' };
+const BeforeCursorSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
+const MessageThreadPageSchema = MessageThreadResponseSchema.extend({
+  hasMore: z.boolean(),
+  nextBefore: z.string().min(1).nullable(),
+});
+
+function participantFilter(userId: string) {
+  return [{ participantAId: userId }, { participantBId: userId }];
+}
+
+function chronological(
+  left: { createdAt: Date; id: string },
+  right: { createdAt: Date; id: string },
+) {
+  const byTime = left.createdAt.getTime() - right.createdAt.getTime();
+  if (byTime !== 0) return byTime;
+  return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+}
 
 async function authenticatedUser(request: Request): Promise<SessionUser | Response> {
   try {
@@ -31,16 +54,58 @@ export async function GET(
   if (user instanceof Response) return user;
   const { conversationId } = await params;
 
+  const before = new URL(request.url).searchParams.get('before');
+  if (before !== null && !BeforeCursorSchema.safeParse(before).success) {
+    return NextResponse.json(
+      { error: 'Il punto di partenza dei messaggi non è valido.' },
+      { status: 400, headers: privateHeaders },
+    );
+  }
+
   try {
+    // The cursor must be a message of this conversation, visible to this participant.
+    const cursor =
+      before === null
+        ? null
+        : await prisma.message.findFirst({
+            where: {
+              id: before,
+              conversation: { id: conversationId, OR: participantFilter(user.id) },
+            },
+            select: { id: true, createdAt: true },
+          });
+    if (before !== null && !cursor) {
+      return NextResponse.json(
+        { error: 'Il punto di partenza dei messaggi non è valido.' },
+        { status: 400, headers: privateHeaders },
+      );
+    }
+
     const conversation = await prisma.conversation.findFirst({
       where: {
         id: conversationId,
-        OR: [{ participantAId: user.id }, { participantBId: user.id }],
+        OR: participantFilter(user.id),
       },
-      include: { messages: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] } },
+      include: {
+        messages: {
+          where: cursor
+            ? {
+                OR: [
+                  { createdAt: { lt: cursor.createdAt } },
+                  { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+                ],
+              }
+            : undefined,
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: THREAD_PAGE_SIZE + 1,
+        },
+      },
     });
     if (!conversation)
-      return NextResponse.json({ error: 'Conversazione non disponibile.' }, { status: 404 });
+      return NextResponse.json(
+        { error: 'Conversazione non disponibile.' },
+        { status: 404, headers: privateHeaders },
+      );
 
     const participantId =
       conversation.participantAId === user.id
@@ -49,19 +114,30 @@ export async function GET(
     const people = await loadMessageProfiles([participantId]);
     const participant = people.get(participantId);
     if (!participant)
-      return NextResponse.json({ error: 'Conversazione non disponibile.' }, { status: 404 });
+      return NextResponse.json(
+        { error: 'Conversazione non disponibile.' },
+        { status: 404, headers: privateHeaders },
+      );
+
+    // Newest page first from the database, shown oldest to newest; the extra row signals more.
+    const ordered = [...conversation.messages].sort(chronological);
+    const hasMore = ordered.length > THREAD_PAGE_SIZE;
+    const page = hasMore ? ordered.slice(ordered.length - THREAD_PAGE_SIZE) : ordered;
 
     return NextResponse.json(
-      MessageThreadResponseSchema.parse({
+      MessageThreadPageSchema.parse({
         currentUserId: user.id,
         conversation: { id: conversation.id, participant },
-        messages: conversation.messages.map(serializeMessage),
+        messages: page.map(serializeMessage),
+        hasMore,
+        nextBefore: hasMore ? (page[0]?.id ?? null) : null,
       }),
+      { headers: privateHeaders },
     );
   } catch {
     return NextResponse.json(
       { error: 'Non è stato possibile aprire la conversazione.' },
-      { status: 500 },
+      { status: 500, headers: privateHeaders },
     );
   }
 }

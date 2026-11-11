@@ -10,6 +10,7 @@ import { requireAuth, type SessionUser } from '@/lib/require-auth';
 import { sameOrigin } from '@/lib/same-origin';
 
 export const dynamic = 'force-dynamic';
+const privateHeaders = { 'Cache-Control': 'private, no-store', Vary: 'Cookie' };
 
 export async function GET(request: Request) {
   let user: SessionUser;
@@ -35,9 +36,13 @@ export async function GET(request: Request) {
           followingCount: counts.following.get(user.id) ?? 0,
         },
       }),
+      { headers: privateHeaders },
     );
   } catch {
-    return NextResponse.json({ error: 'profile_unavailable' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'profile_unavailable' },
+      { status: 500, headers: privateHeaders },
+    );
   }
 }
 
@@ -84,6 +89,7 @@ export async function PATCH(request: Request) {
           followingCount: counts.following.get(user.id) ?? 0,
         },
       }),
+      { headers: privateHeaders },
     );
   } catch {
     return NextResponse.json({ error: 'profile_settings_save_failed' }, { status: 500 });

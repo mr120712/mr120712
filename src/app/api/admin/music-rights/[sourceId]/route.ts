@@ -1,6 +1,7 @@
 // @polsia:user-owned
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { readJsonLimited } from '@/lib/business/request-body.server';
 import { MusicRightsActionSchema } from '@/lib/contracts/music-rights';
 import { prisma } from '@/lib/db';
 import {
@@ -8,6 +9,9 @@ import {
   requireVerifiedMusicRightsAdmin,
 } from '@/lib/music/rights-admin.server';
 import { sameOrigin } from '@/lib/same-origin';
+
+// The only accepted body is a single action name.
+const MAX_ACTION_BODY_BYTES = 1024;
 
 export async function PATCH(
   request: Request,
@@ -23,16 +27,14 @@ export async function PATCH(
   if (!access.allowed) return access.response;
 
   const { sourceId } = await params;
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
+  const body = await readJsonLimited(request, MAX_ACTION_BODY_BYTES);
+  if (!body.ok) {
     return NextResponse.json(
-      { error: 'invalid_json' },
-      { status: 400, headers: musicRightsPrivateHeaders },
+      { error: body.error },
+      { status: body.status, headers: musicRightsPrivateHeaders },
     );
   }
-  const parsed = MusicRightsActionSchema.safeParse(body);
+  const parsed = MusicRightsActionSchema.safeParse(body.value);
   if (!parsed.success) {
     return NextResponse.json(
       { error: 'invalid_action' },

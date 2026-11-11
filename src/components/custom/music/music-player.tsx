@@ -28,6 +28,7 @@ import {
   useState,
 } from 'react';
 import { apiFetch } from '@/lib/api-client';
+import { serverLimitMessage } from '@/lib/business/api-error-message';
 import { spotifySearchUrl } from '@/lib/business/shared-song';
 import { AudiusPlaybackCheckSchema } from '@/lib/contracts/music';
 import { parseVideoTitle } from '@/lib/music/background-match';
@@ -235,6 +236,8 @@ function failureMessage(error: unknown, track: MusicPlayerTrack | null) {
       ? (error.cause as { error?: unknown; reason?: unknown; retryAfterSeconds?: unknown })
       : null;
   const reason = typeof cause?.reason === 'string' ? cause.reason : null;
+  const limit = serverLimitMessage(error);
+  if (limit) return limit;
   if (reason === 'premium_required')
     return 'Il catalogo globale Jamendo è incluso in Solco Premium. Scopri i piani in /piani.';
   if (track?.playbackMode === 'jamendo' && reason === 'unauthorized')

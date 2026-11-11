@@ -5,6 +5,10 @@ import type { YouTubeVideoSearchResult } from '@/lib/contracts/music';
 import { normalizeYouTubeVideo } from '@/lib/music/youtube-search.server';
 
 const MAX_ITEMS = 100;
+const PAGE_SIZE = 50;
+// Video privati/eliminati vengono saltati: senza un tetto alle pagine una playlist di soli
+// elementi non disponibili verrebbe sfogliata per intero (1 unità di quota per pagina).
+const MAX_PAGES = Math.ceil(MAX_ITEMS / PAGE_SIZE) + 2;
 
 export class YouTubeImportError extends Error {
   constructor(
@@ -96,13 +100,15 @@ export async function fetchYouTubePlaylist(
   const seen = new Set<string>();
   let skipped = 0;
   let pageToken: string | undefined;
+  let pages = 0;
   do {
+    pages += 1;
     const page = await youtubeGet(
       'playlistItems',
       {
         part: 'snippet,contentDetails',
         playlistId,
-        maxResults: '50',
+        maxResults: String(PAGE_SIZE),
         ...(pageToken ? { pageToken } : {}),
       },
       apiKey,
@@ -129,7 +135,7 @@ export async function fetchYouTubePlaylist(
       if (videos.length >= MAX_ITEMS) break;
     }
     pageToken = typeof page.nextPageToken === 'string' ? page.nextPageToken : undefined;
-  } while (pageToken && videos.length < MAX_ITEMS);
+  } while (pageToken && videos.length < MAX_ITEMS && pages < MAX_PAGES);
 
   return { title, videos, skipped };
 }

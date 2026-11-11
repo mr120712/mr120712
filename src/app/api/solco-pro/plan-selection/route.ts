@@ -1,6 +1,8 @@
 // @polsia:user-owned
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { enforceRateLimit, getRateLimitIdentity } from '@/lib/business/rate-limit.server';
+import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
 import {
   type SolcoFreePlanSelection,
   solcoBillingPeriodSchema,
@@ -12,6 +14,9 @@ import { requireAuth } from '@/lib/require-auth';
 import { sameOrigin } from '@/lib/same-origin';
 
 export const dynamic = 'force-dynamic';
+
+// The only accepted body is a plan id and a billing period.
+const MAX_BODY_BYTES = 1024;
 
 const privateHeaders = {
   'Cache-Control': 'private, no-store, no-cache, must-revalidate',
@@ -89,14 +94,16 @@ export async function POST(request: Request) {
     return privateResponse(response as Response);
   }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return privateResponse(NextResponse.json({ error: 'invalid_request' }, { status: 400 }));
+  const body = await readJsonLimited(request, MAX_BODY_BYTES);
+  if (!body.ok) {
+    return privateResponse(
+      body.status === 413
+        ? limitedJsonError(body)
+        : NextResponse.json({ error: 'invalid_request' }, { status: 400 }),
+    );
   }
 
-  const parsed = solcoPlanSelectionRequestSchema.safeParse(body);
+  const parsed = solcoPlanSelectionRequestSchema.safeParse(body.value);
   if (!parsed.success) {
     return privateResponse(NextResponse.json({ error: 'invalid_request' }, { status: 400 }));
   }
@@ -108,6 +115,12 @@ export async function POST(request: Request) {
       ),
     );
   }
+
+  const limited = await enforceRateLimit(
+    'solco.pro.write',
+    getRateLimitIdentity(user.id, request.headers),
+  );
+  if (limited) return privateResponse(limited);
 
   try {
     const existing = await prisma.solcoPlanSelection.findUnique({

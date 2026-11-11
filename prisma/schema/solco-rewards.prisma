@@ -43,10 +43,13 @@ model ListeningDay {
 }
 
 model UserRewardProfile {
-  id            String   @id @default(cuid())
-  userId        String   @unique
-  birthday      String?
-  founderNumber Int?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id               String    @id @default(cuid())
+  userId           String    @unique
+  birthday         String?
+  founderNumber    Int?
+  /// Quando è stato calcolato il posto in classifica fondatori: evita di ricontare
+  /// la tabella utenti a ogni valutazione per chi non è fondatore.
+  founderCheckedAt DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 }

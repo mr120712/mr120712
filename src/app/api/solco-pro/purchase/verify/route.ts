@@ -1,6 +1,8 @@
 // @polsia:user-owned
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { enforceRateLimit, getRateLimitIdentity } from '@/lib/business/rate-limit.server';
+import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
 import {
   getSolcoProReadiness,
   persistVerifiedSolcoProPurchase,
@@ -13,6 +15,9 @@ import { requireAuth } from '@/lib/require-auth';
 import { sameOrigin } from '@/lib/same-origin';
 
 export const dynamic = 'force-dynamic';
+
+// The only accepted body is a Stripe Checkout session id.
+const MAX_BODY_BYTES = 1024;
 
 const privateHeaders = { 'Cache-Control': 'private, no-store', Vary: 'Cookie' };
 
@@ -43,23 +48,26 @@ export async function POST(request: Request) {
     return privateResponse(response as Response);
   }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      { error: 'invalid_request' },
-      { status: 400, headers: privateHeaders },
-    );
+  const body = await readJsonLimited(request, MAX_BODY_BYTES);
+  if (!body.ok) {
+    return body.status === 413
+      ? privateResponse(limitedJsonError(body))
+      : NextResponse.json({ error: 'invalid_request' }, { status: 400, headers: privateHeaders });
   }
 
-  const parsed = solcoProPurchaseVerificationRequestSchema.safeParse(body);
+  const parsed = solcoProPurchaseVerificationRequestSchema.safeParse(body.value);
   if (!parsed.success) {
     return NextResponse.json(
       { error: 'invalid_session_id' },
       { status: 400, headers: privateHeaders },
     );
   }
+
+  const limited = await enforceRateLimit(
+    'solco.pro.write',
+    getRateLimitIdentity(user.id, request.headers),
+  );
+  if (limited) return privateResponse(limited);
 
   try {
     const result = await persistVerifiedSolcoProPurchase({

@@ -1,6 +1,8 @@
 // @polsia:user-owned
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { enforceRateLimit, getRateLimitIdentity } from '@/lib/business/rate-limit.server';
+import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
 import { requireSolcoPro } from '@/lib/business/solco-pro-entitlement';
 import { calculateSolcoProStatistics } from '@/lib/business/solco-pro-statistics';
 import {
@@ -12,6 +14,10 @@ import { prisma } from '@/lib/db';
 import { sameOrigin } from '@/lib/same-origin';
 
 export const dynamic = 'force-dynamic';
+
+// The only accepted body is a theme name.
+const MAX_BODY_BYTES = 1024;
+const privateHeaders = { 'Cache-Control': 'private, no-store', Vary: 'Cookie' };
 
 export async function GET(request: Request) {
   const access = await requireSolcoPro(request);
@@ -29,9 +35,12 @@ export async function GET(request: Request) {
       theme: solcoProThemeSchema.parse(preference?.theme ?? 'default'),
       statistics: calculateSolcoProStatistics(entries),
     });
-    return NextResponse.json(data);
+    return NextResponse.json(data, { headers: privateHeaders });
   } catch {
-    return NextResponse.json({ error: 'pro_data_unavailable' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'pro_data_unavailable' },
+      { status: 500, headers: privateHeaders },
+    );
   }
 }
 
@@ -43,9 +52,16 @@ export async function PATCH(request: Request) {
   const access = await requireSolcoPro(request);
   if (!access.allowed) return access.response;
 
-  const body = await request.json().catch(() => null);
-  const parsed = solcoProThemeRequestSchema.safeParse(body);
+  const body = await readJsonLimited(request, MAX_BODY_BYTES);
+  if (!body.ok) return limitedJsonError(body);
+  const parsed = solcoProThemeRequestSchema.safeParse(body.value);
   if (!parsed.success) return NextResponse.json({ error: 'invalid_theme' }, { status: 400 });
+
+  const limited = await enforceRateLimit(
+    'solco.pro.write',
+    getRateLimitIdentity(access.user.id, request.headers),
+  );
+  if (limited) return limited;
 
   try {
     const preference = await prisma.solcoProPreference.upsert({

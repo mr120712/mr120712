@@ -37,17 +37,15 @@ export async function GET(request: Request) {
   }
 
   const session = await auth.api.getSession({ headers: request.headers }).catch(() => null);
-  const limited = await enforceRateLimit(
-    'music.search',
-    getRateLimitIdentity(session?.user.id ?? null, request.headers),
-  );
+  const identity = getRateLimitIdentity(session?.user.id ?? null, request.headers);
+  const limited = await enforceRateLimit('music.search', identity);
   if (limited) {
     for (const [name, value] of Object.entries(privateHeaders)) limited.headers.set(name, value);
     return limited;
   }
 
   try {
-    const result = await searchMusic(source, query);
+    const result = await searchMusic(source, query, { youtubeIdentity: identity });
     const body = MusicSearchResponseSchema.parse(result);
     return NextResponse.json(body, { headers: privateHeaders });
   } catch {

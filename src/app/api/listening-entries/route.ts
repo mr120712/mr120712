@@ -2,6 +2,9 @@
 import 'server-only';
 import { Prisma } from '@prisma/client';
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
+import { enforceRateLimit, getRateLimitIdentity } from '@/lib/business/rate-limit.server';
+import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
 import {
   CreatedListeningEntryResponseSchema,
   CreateListeningEntrySchema,
@@ -18,6 +21,15 @@ import { sameOrigin } from '@/lib/same-origin';
 
 export const dynamic = 'force-dynamic';
 const MAX_SERIALIZATION_ATTEMPTS = 8;
+// Note (2,000 characters) plus short catalogue metadata; leaves room for multi-byte text.
+const MAX_BODY_BYTES = 16 * 1024;
+const privateHeaders = { 'Cache-Control': 'private, no-store', Vary: 'Cookie' };
+
+// The shared contract does not bound these catalogue fields, but they are stored in the diary.
+const CreateListeningEntryRequestSchema = CreateListeningEntrySchema.extend({
+  releaseDate: z.string().max(64).nullable(),
+  genre: z.string().max(100).nullable(),
+});
 
 function isSerializationConflict(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2034';
@@ -80,11 +92,12 @@ export async function GET(request: Request) {
     });
     return NextResponse.json(
       ListeningEntryListSchema.parse({ entries: entries.map(serializeEntry) }),
+      { headers: privateHeaders },
     );
   } catch {
     return NextResponse.json(
       { error: 'Non è stato possibile caricare il diario.' },
-      { status: 500 },
+      { status: 500, headers: privateHeaders },
     );
   }
 }
@@ -101,11 +114,18 @@ export async function POST(request: Request) {
     return response as Response;
   }
 
-  const payload = await request.json().catch(() => null);
-  const parsed = CreateListeningEntrySchema.safeParse(payload);
+  const payload = await readJsonLimited(request, MAX_BODY_BYTES);
+  if (!payload.ok) return limitedJsonError(payload);
+  const parsed = CreateListeningEntryRequestSchema.safeParse(payload.value);
   if (!parsed.success) {
     return NextResponse.json({ error: 'Controlla voto, nota e data.' }, { status: 400 });
   }
+
+  const limited = await enforceRateLimit(
+    'listening.write',
+    getRateLimitIdentity(user.id, request.headers),
+  );
+  if (limited) return limited;
 
   try {
     for (let attempt = 0; attempt < MAX_SERIALIZATION_ATTEMPTS; attempt += 1) {

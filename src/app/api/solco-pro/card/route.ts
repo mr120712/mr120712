@@ -6,6 +6,7 @@ import { solcoProCardSchema } from '@/lib/contracts/solco-pro';
 import { prisma } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
+const privateHeaders = { 'Cache-Control': 'private, no-store', Vary: 'Cookie' };
 
 export async function GET(request: Request) {
   const access = await requireSolcoPro(request);
@@ -21,13 +22,22 @@ export async function GET(request: Request) {
       where: { id: entryId, userId: access.user.id },
       select: { albumName: true, artistName: true, listenedOn: true, rating: true, note: true },
     });
-    if (!entry) return NextResponse.json({ error: 'listening_not_found' }, { status: 404 });
+    if (!entry) {
+      return NextResponse.json(
+        { error: 'listening_not_found' },
+        { status: 404, headers: privateHeaders },
+      );
+    }
     return NextResponse.json(
       solcoProCardSchema.parse({
         listening: { ...entry, listenedOn: entry.listenedOn.toISOString().slice(0, 10) },
       }),
+      { headers: privateHeaders },
     );
   } catch {
-    return NextResponse.json({ error: 'pro_card_unavailable' }, { status: 500 });
+    return NextResponse.json(
+      { error: 'pro_card_unavailable' },
+      { status: 500, headers: privateHeaders },
+    );
   }
 }

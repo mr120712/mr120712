@@ -7,6 +7,7 @@ import { createHash } from 'node:crypto';
 import { prisma } from '@/lib/db';
 import { pickVideoForSong, songCanonical } from '@/lib/music/background-match';
 import { readYouTubeApiKey } from '@/lib/music/music-api.server';
+import { withYouTubeSearchBudget } from '@/lib/music/youtube-budget.server';
 import { searchYouTubeMusic } from '@/lib/music/youtube-search.server';
 import { storedYouTubeSearchWithTime } from '@/lib/music/youtube-search-store.server';
 
@@ -72,8 +73,12 @@ export async function searchSong(
 ): Promise<SongResolution> {
   const canonical = songCanonical({ title, artist });
   if (!canonical.query) return { ok: true, video: null };
-  const { result, fetchedAt } = await storedYouTubeSearchWithTime(canonical.query, 10, () =>
-    searchYouTubeMusic(canonical.query, readYouTubeApiKey(), fetch, 10),
+  const { result, fetchedAt } = await storedYouTubeSearchWithTime(
+    canonical.query,
+    10,
+    withYouTubeSearchBudget(() =>
+      searchYouTubeMusic(canonical.query, readYouTubeApiKey(), fetch, 10),
+    ),
   );
   // Quota finished or API error: do not remember "not found" for something we could not check.
   if (result.outcome === 'unavailable') return { ok: false, error: 'unavailable' };

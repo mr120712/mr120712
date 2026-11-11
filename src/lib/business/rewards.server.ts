@@ -137,10 +137,20 @@ export async function recordListening(userId: string, seconds: number, now = new
 async function evaluateFounder(userId: string, now: Date) {
   const profile = await prisma.userRewardProfile.findUnique({ where: { userId } });
   if (profile?.founderNumber) return profile.founderNumber;
+  // Non-founders are ranked once and remembered: we deliberately do not re-rank them later (even
+  // if older accounts are deleted), so the users table is not counted on every call.
+  if (profile?.founderCheckedAt) return null;
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { createdAt: true } });
   if (!user) return null;
   const rank = await prisma.user.count({ where: { createdAt: { lte: user.createdAt } } });
-  if (rank > REWARDS.founderLimit) return null;
+  if (rank > REWARDS.founderLimit) {
+    await prisma.userRewardProfile.upsert({
+      where: { userId },
+      create: { userId, founderCheckedAt: now },
+      update: { founderCheckedAt: now },
+    });
+    return null;
+  }
   await prisma.userRewardProfile.upsert({
     where: { userId },
     create: { userId, founderNumber: rank },

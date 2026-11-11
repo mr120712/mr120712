@@ -30,6 +30,10 @@ export const ACTION_RATE_LIMITS = {
     { requests: 100, windowMs: 86_400_000 },
   ],
   'product.check.global': [{ requests: 50, windowMs: 86_400_000 }],
+  // YouTube search.list costs 100 of the 10,000 daily units. Counted only when a search really
+  // reaches YouTube (cache misses): one pool for the whole app, plus a per-person share.
+  'youtube.search.global': [{ requests: 90, windowMs: 86_400_000 }],
+  'music.search.youtube': [{ requests: 20, windowMs: 86_400_000 }],
   // Background checks: runs started by the public status endpoint (whole app) and by admins.
   'monitor.run': [
     { requests: 4, windowMs: 3_600_000 },
@@ -267,6 +271,8 @@ const actionLabels: Record<RateLimitAction, string> = {
   'auth.verification_email.global': 'le email di verifica di oggi',
   'subscriptions.sync': 'le verifiche dell’abbonamento',
   'product.check.global': 'i controlli prodotto di oggi',
+  'youtube.search.global': 'le ricerche YouTube di oggi',
+  'music.search.youtube': 'le tue ricerche YouTube di oggi',
   'monitor.run': 'i controlli automatici',
   'monitor.run.admin': 'i controlli manuali',
   'solco.pro.write': 'le modifiche a Solco Pro',

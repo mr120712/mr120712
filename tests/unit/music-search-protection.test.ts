@@ -18,6 +18,7 @@ vi.mock('@/lib/auth', () => ({ auth: { api: { getSession: mocks.getSession } } }
 vi.mock('@/lib/business/rate-limit.server', () => ({
   enforceRateLimit: mocks.enforceRateLimit,
   getRateLimitIdentity: mocks.getRateLimitIdentity,
+  consumeRateLimit: async () => ({ allowed: true }),
 }));
 
 import { GET } from '@/app/api/music/search/route';

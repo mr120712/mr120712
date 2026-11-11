@@ -6,6 +6,9 @@ vi.mock('server-only', () => ({}));
 const mocks = vi.hoisted(() => ({ sendEmail: vi.fn(), sendWithResend: vi.fn() }));
 vi.mock('@/lib/email/send', () => ({ sendEmail: mocks.sendEmail }));
 vi.mock('@/lib/email/resend-relay.server', () => ({ sendWithResend: mocks.sendWithResend }));
+vi.mock('@/lib/business/rate-limit.server', () => ({
+  consumeRateLimit: vi.fn(async () => ({ allowed: true })),
+}));
 
 import {
   sendVerificationEmail,
@@ -19,10 +22,10 @@ afterEach(() => {
 });
 
 describe('email di verifica', () => {
-  it('è in italiano ed evita HTML nel nome e nel link', () => {
-    const content = verificationEmailContent('<b>Ada</b>', 'https://x.test/v?a=1&b=2');
+  it('è in italiano, non contiene il nome scelto da chi si registra ed evita HTML nel link', () => {
+    const content = verificationEmailContent('https://x.test/v?a=1&b=2');
     expect(content.subject).toBe('Conferma la tua email su Solco');
-    expect(content.html).toContain('&lt;b&gt;Ada&lt;/b&gt;');
+    expect(content.html.startsWith('<p>Ciao,</p>')).toBe(true);
     expect(content.html).toContain('a=1&amp;b=2');
     expect(content.text).toContain('https://x.test/v?a=1&b=2');
   });

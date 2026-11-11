@@ -1,6 +1,7 @@
 // @polsia:user-owned — ricerca e brani popolari del catalogo Jamendo (riproduzione solo Premium).
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { enforceRateLimit, getRateLimitIdentity } from '@/lib/business/rate-limit.server';
 import { JamendoListResponseSchema } from '@/lib/contracts/library';
 import { listJamendoTracks } from '@/lib/music/jamendo.server';
 
@@ -10,6 +11,11 @@ export async function GET(request: Request) {
   const params = new URL(request.url).searchParams;
   const q = (params.get('q') ?? '').trim().slice(0, 80) || undefined;
   const tag = (params.get('tag') ?? '').trim().toLowerCase().slice(0, 40) || undefined;
+  // Proxy anonimo: le ricerche uniche saltano la cache, quindi limite per IP d'ingresso
+  // (senza un IP affidabile, come in sviluppo locale, non limita).
+  const identity = getRateLimitIdentity(null, request.headers);
+  const limited = identity ? await enforceRateLimit('music.catalog', identity) : null;
+  if (limited) return limited;
   const result = await listJamendoTracks({ q, tag });
   return NextResponse.json(JamendoListResponseSchema.parse(result), {
     headers: {

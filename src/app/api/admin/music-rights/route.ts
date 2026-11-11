@@ -1,6 +1,7 @@
 // @polsia:user-owned
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { readJsonLimited } from '@/lib/business/request-body.server';
 import { MusicRightsRegistrationSchema } from '@/lib/contracts/music-rights';
 import { prisma } from '@/lib/db';
 import { getAudiusAlbumCatalogDetail } from '@/lib/music/audius-source.server';
@@ -18,6 +19,9 @@ import {
 import { sameOrigin } from '@/lib/same-origin';
 
 export const dynamic = 'force-dynamic';
+
+// A registration is a few short ids, two file references and two dates: well under 4 KB.
+const MAX_REGISTRATION_BODY_BYTES = 4 * 1024;
 
 function rightsState(
   evidence: {
@@ -95,16 +99,14 @@ export async function POST(request: Request) {
   const access = await requireVerifiedMusicRightsAdmin(request);
   if (!access.allowed) return access.response;
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
+  const body = await readJsonLimited(request, MAX_REGISTRATION_BODY_BYTES);
+  if (!body.ok) {
     return NextResponse.json(
-      { error: 'invalid_json' },
-      { status: 400, headers: musicRightsPrivateHeaders },
+      { error: body.error },
+      { status: body.status, headers: musicRightsPrivateHeaders },
     );
   }
-  const parsed = MusicRightsRegistrationSchema.safeParse(body);
+  const parsed = MusicRightsRegistrationSchema.safeParse(body.value);
   if (!parsed.success) {
     return NextResponse.json(
       { error: 'invalid_rights_record', fields: parsed.error.flatten().fieldErrors },
