@@ -123,6 +123,9 @@ export async function createSubscriptionCheckout(
     'line_items[0][price_data][unit_amount]': String(price.amount),
     'line_items[0][price_data][recurring][interval]': input.period,
     'line_items[0][price_data][product_data][name]': `Solco ${price.name}`,
+    // Required by Stripe Managed Payments; default = electronically supplied services.
+    'line_items[0][price_data][product_data][tax_code]':
+      process.env.STRIPE_TAX_CODE?.trim() || 'txcd_10000000',
     'metadata[userId]': input.userId,
     'metadata[planId]': input.planId,
     'metadata[period]': input.period,

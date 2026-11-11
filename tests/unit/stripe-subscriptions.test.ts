@@ -62,6 +62,7 @@ describe('abbonamenti Stripe', () => {
     expect(body.get('line_items[0][price_data][unit_amount]')).toBe('7999');
     expect(body.get('line_items[0][price_data][recurring][interval]')).toBe('year');
     expect(body.get('subscription_data[metadata][planId]')).toBe('premium-plus');
+    expect(body.get('line_items[0][price_data][product_data][tax_code]')).toBe('txcd_10000000');
     expect([...body.keys()].some((key) => key.startsWith('payment_method_types'))).toBe(false);
     expect(body.get('success_url')).toBe(
       'https://solco.test/piani/grazie?session_id={CHECKOUT_SESSION_ID}',
