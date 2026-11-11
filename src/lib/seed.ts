@@ -17,7 +17,12 @@
 //
 // Preserve all existing roles and grant admin only to the Better Auth record
 // matched by the exact requested email.
+import { preferPooledDatabaseUrl } from '@/lib/runtime-database-url';
+
 export async function seed(): Promise<void> {
+  // Before @/lib/db is first loaded: pooled database connections on Vercel.
+  if (preferPooledDatabaseUrl()) console.info('[solco] database: Accelerate connection pool');
+
   const [{ prisma }, { normalizePersistedAdminRoles, REQUESTED_ADMIN_EMAIL }] = await Promise.all([
     import('@/lib/db'),
     import('@/lib/business/admin-account-policy'),
