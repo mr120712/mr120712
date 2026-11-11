@@ -1,6 +1,6 @@
 // @polsia:user-owned — Home di Solco in stile app di streaming (schede, caroselli, player).
 
-import { Crown, Library, Mic, Radio, Search, Smartphone, TrendingUp } from 'lucide-react';
+import { Crown, Disc3, Library, Mic, Radio, Search, Smartphone, TrendingUp } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { InstallAppBanner } from '@/components/custom/install-app-banner';
@@ -10,6 +10,7 @@ import { RadioHomeRow } from '@/components/custom/music/radio-home-row';
 import { RecentlyPlayedRow } from '@/components/custom/music/recently-played-row';
 import { YouTubeCharts } from '@/components/custom/music/youtube-charts';
 import { AppTopBar } from '@/components/custom/site-nav';
+import { genreCatalog } from '@/lib/music/genre-catalog';
 import styles from './home.module.css';
 
 export const metadata: Metadata = {
@@ -21,22 +22,12 @@ export const metadata: Metadata = {
 
 const shortcuts = [
   { href: '#tendenze', label: 'Classifiche', icon: TrendingUp },
+  { href: '/generi', label: 'Generi', icon: Disc3 },
   { href: '/radio', label: 'Radio', icon: Radio },
   { href: '/podcasts', label: 'Podcast', icon: Mic },
   { href: '/library', label: 'Libreria', icon: Library },
   { href: '/piani', label: 'Premium', icon: Crown },
   { href: '/app', label: 'App Android', icon: Smartphone },
-];
-
-const genres = [
-  'Hit italiane',
-  'Pop',
-  'Rap italiano',
-  'Rock',
-  'Indie',
-  'Elettronica',
-  'Lo-fi',
-  'Jazz',
 ];
 
 export default function HomePage() {
@@ -82,13 +73,16 @@ export default function HomePage() {
           <RadioHomeRow />
           <PodcastHomeRow />
           <section className={styles.genres} aria-labelledby="genres-heading">
-            <h2 id="genres-heading">Generi e mood</h2>
+            <h2 id="genres-heading">Generi e playlist</h2>
             <nav aria-label="Generi">
-              {genres.map((genre) => (
-                <Link key={genre} href={`/search?q=${encodeURIComponent(genre)}`}>
-                  {genre}
-                </Link>
-              ))}
+              {genreCatalog
+                .filter((entry) => entry.family === 'playlist')
+                .map((entry) => (
+                  <Link key={entry.slug} href={`/generi/${entry.slug}`}>
+                    {entry.name}
+                  </Link>
+                ))}
+              <Link href="/generi">Tutti i generi →</Link>
             </nav>
           </section>
         </div>

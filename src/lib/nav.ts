@@ -29,6 +29,7 @@ export interface NavItem {
 //   { label: 'Sign in', href: '/login',   group: 'secondary' },
 export const navItems: NavItem[] = [
   { label: 'Cerca', href: '/search', group: 'primary', order: 0 },
+  { label: 'Generi', href: '/generi', group: 'primary', order: 1 },
   { label: 'Radio', href: '/radio', group: 'primary', order: 1 },
   { label: 'Podcast', href: '/podcasts', group: 'primary', order: 2 },
   { label: 'Libreria', href: '/library', group: 'primary', order: 3 },

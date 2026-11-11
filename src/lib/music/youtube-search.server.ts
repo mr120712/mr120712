@@ -174,6 +174,7 @@ export async function searchYouTubeMusic(
   query: string,
   apiKey: string | undefined,
   fetcher: typeof fetch = fetch,
+  maxResults = 10,
 ): Promise<YouTubeSearchResult> {
   const term = query.trim();
   if (!term) return { videos: [], outcome: 'no_results' };
@@ -185,7 +186,7 @@ export async function searchYouTubeMusic(
   url.searchParams.set('videoCategoryId', '10');
   url.searchParams.set('videoEmbeddable', 'true');
   url.searchParams.set('safeSearch', 'moderate');
-  url.searchParams.set('maxResults', '10');
+  url.searchParams.set('maxResults', String(Math.min(50, Math.max(1, maxResults))));
   url.searchParams.set('q', term);
   url.searchParams.set('key', apiKey.trim());
 

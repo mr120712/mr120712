@@ -21,9 +21,12 @@ function duration(seconds: number | null) {
 
 export function JamendoSection({
   query,
+  tag,
   contained = false,
 }: {
   query?: string;
+  /** Tag Jamendo (genere) invece di una ricerca libera. */
+  tag?: string;
   contained?: boolean;
 }) {
   const player = useMusicPlayer();
@@ -32,14 +35,18 @@ export function JamendoSection({
   useEffect(() => {
     let cancelled = false;
     setResponse(null);
-    const path = query ? `/api/music/jamendo?q=${encodeURIComponent(query)}` : '/api/music/jamendo';
+    const path = query
+      ? `/api/music/jamendo?q=${encodeURIComponent(query)}`
+      : tag
+        ? `/api/music/jamendo?tag=${encodeURIComponent(tag)}`
+        : '/api/music/jamendo';
     apiFetch(path, { schema: JamendoListResponseSchema })
       .then((value) => !cancelled && setResponse(value))
       .catch(() => !cancelled && setResponse({ outcome: 'unavailable', tracks: [] }));
     return () => {
       cancelled = true;
     };
-  }, [query]);
+  }, [query, tag]);
 
   // Hide the section entirely until the owner configures Jamendo.
   if (response?.outcome === 'not_configured') return null;
@@ -65,7 +72,9 @@ export function JamendoSection({
       <header className={styles.sectionHeader}>
         <div>
           <p className={styles.eyebrow}>CATALOGO GLOBALE</p>
-          <h2 id="jamendo-heading">{query ? 'Brani completi' : 'Musica globale senza limiti'}</h2>
+          <h2 id="jamendo-heading">
+            {query || tag ? 'Brani completi' : 'Musica globale senza limiti'}
+          </h2>
         </div>
       </header>
       {!response ? (

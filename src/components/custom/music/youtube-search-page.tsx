@@ -9,22 +9,8 @@ import { SearchExtras } from '@/components/custom/music/search-extras';
 import { YouTubeVideoList } from '@/components/custom/music/youtube-video-list';
 import { apiFetch } from '@/lib/api-client';
 import { type MusicSearchResponse, MusicSearchResponseSchema } from '@/lib/contracts/music';
+import { genreCatalog } from '@/lib/music/genre-catalog';
 import styles from './discover.module.css';
-
-const moods = [
-  'Hit italiane',
-  'Pop',
-  'Rap italiano',
-  'Rock',
-  'Indie',
-  'Elettronica',
-  'Lo-fi',
-  'Jazz',
-  'Reggaeton',
-  'Classica',
-  'Anni 80',
-  'Relax',
-];
 
 function errorText(error: unknown) {
   const cause =
@@ -113,11 +99,15 @@ export function YouTubeSearchPage({ initialQuery }: { initialQuery: string }) {
             <h2 id="moods-heading">Sfoglia per genere e mood</h2>
           </header>
           <div className={styles.moodGrid}>
-            {moods.map((mood) => (
-              <Link key={mood} href={`/search?q=${encodeURIComponent(mood)}`}>
-                {mood}
-              </Link>
-            ))}
+            {genreCatalog
+              .filter((entry) => entry.family !== 'playlist')
+              .slice(0, 16)
+              .map((entry) => (
+                <Link key={entry.slug} href={`/generi/${entry.slug}`}>
+                  {entry.name}
+                </Link>
+              ))}
+            <Link href="/generi">Tutti i generi e le playlist →</Link>
           </div>
         </section>
       ) : (
