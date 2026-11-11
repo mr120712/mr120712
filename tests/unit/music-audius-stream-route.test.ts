@@ -21,6 +21,10 @@ vi.mock('@/lib/business/premium-access.server', () => ({ hasPremiumAccess: mocks
 // In-memory MusicPlay table, read and written by the real play-quota code.
 vi.mock('@/lib/db', () => ({
   prisma: {
+    // consumePlay records inside a Serializable transaction: run it on this same fake client.
+    $transaction(run: (transaction: unknown) => Promise<unknown>) {
+      return run(this);
+    },
     musicPlay: {
       count: vi.fn(
         async ({

@@ -28,8 +28,7 @@ import {
   useState,
 } from 'react';
 import { apiFetch } from '@/lib/api-client';
-import { serverLimitMessage } from '@/lib/business/api-error-message';
-import { spotifySearchUrl } from '@/lib/business/shared-song';
+import { soundcloudSearchUrl, spotifySearchUrl } from '@/lib/business/shared-song';
 import { AudiusPlaybackCheckSchema } from '@/lib/contracts/music';
 import {
   declarePlaybackSession,
@@ -68,7 +67,10 @@ import {
   rightsVerdictFromReason,
   shouldPrefetchNext,
 } from '@/lib/music/playback-prefetch';
+import { failureLink, failureMessage, showsFreePlayCounter } from '@/lib/music/player-messages';
 import { BackgroundListenButton } from './background-listen-button';
+import { BackgroundSwitchNotice, useReturnNotice } from './background-switch-notice';
+import noticeStyles from './background-switch-notice.module.css';
 import styles from './music-player.module.css';
 import { loadYouTubeIframeApi } from './youtube-queue-player';
 
@@ -345,49 +347,6 @@ function formattedTime(seconds: number) {
   return hours > 0 ? `${hours}:${String(minutes).padStart(2, '0')}:${rest}` : `${minutes}:${rest}`;
 }
 
-function failureMessage(error: unknown, track: MusicPlayerTrack | null) {
-  if (track?.playbackMode === 'radio')
-    return 'La stazione radio non risponde in questo momento. Prova un’altra stazione.';
-  if (track?.playbackMode === 'podcast')
-    return 'L’episodio non è disponibile dal feed del podcast. Riprova più tardi.';
-  const cause =
-    error instanceof Error && typeof error.cause === 'object' && error.cause !== null
-      ? (error.cause as { error?: unknown; reason?: unknown; retryAfterSeconds?: unknown })
-      : null;
-  const reason = typeof cause?.reason === 'string' ? cause.reason : null;
-  const limit = serverLimitMessage(error);
-  if (limit) return limit;
-  if (reason === 'premium_required')
-    return 'Il catalogo globale Jamendo è incluso in Solco Premium. Scopri i piani in /piani.';
-  if (track?.playbackMode === 'jamendo' && reason === 'unauthorized')
-    return 'Accedi con un account Premium per ascoltare il catalogo globale.';
-  if (reason === 'unauthorized') return 'Accedi per verificare l’accesso a Solco Pro.';
-  if (reason === 'pro_required')
-    return 'L’ascolto integrale richiede un abbonamento Solco Pro attivo.';
-  if (reason === 'rights_unverified' || reason === 'rights_unavailable')
-    return 'Questo brano non è disponibile: fonte o diritti di streaming non sono verificati.';
-  if (reason === 'entitlement_unavailable')
-    return 'La verifica dell’abbonamento non è disponibile. Nessun audio è stato riprodotto.';
-  if (reason === 'track_unavailable') return 'Il brano non è disponibile per l’ascolto integrale.';
-  if (reason === 'catalog_unavailable')
-    return 'Il catalogo Audius non è verificabile. Nessun audio è stato riprodotto.';
-  if (reason === 'album_context_required')
-    return 'Per l’ascolto integrale serve una scheda album verificata.';
-  if (reason === 'source_inactive')
-    return 'Audius non è configurata o non è disponibile. Nessun audio è stato riprodotto.';
-  if (reason === 'track_not_found') return 'Audius non ha trovato il brano richiesto.';
-  if (reason === 'not_streamable') return 'Audius non autorizza lo streaming di questo brano.';
-  if (reason === 'gated' || reason === 'access_denied')
-    return 'Audius non autorizza questo stream per l’accesso corrente.';
-  if (reason === 'access_unknown' || reason === 'state_unknown')
-    return 'Audius non ha confermato lo stato di accesso; la riproduzione è stata fermata.';
-  if (reason === 'rate_limited')
-    return typeof cause?.retryAfterSeconds === 'number'
-      ? `Audius ha limitato le richieste. Riprova tra ${cause.retryAfterSeconds} secondi.`
-      : 'Audius ha limitato le richieste; attendi prima di riprovare.';
-  return 'La verifica o lo stream Audius è fallito. Nessun audio è stato lasciato in riproduzione.';
-}
-
 export type PlayBlock = 'login_required' | 'monthly_limit';
 
 type PlayPermit = { allowed: boolean; reason?: PlayBlock; used?: number; limit?: number | null };
@@ -512,6 +471,11 @@ export function useMusicPlayer() {
   return player;
 }
 
+/** The shared player, or null outside MusicPlayerProvider (e.g. a component rendered alone). */
+export function useOptionalMusicPlayer() {
+  return useContext(MusicPlayerContext);
+}
+
 function Artwork({ track, size }: { track: MusicPlayerTrack; size: number }) {
   if (track.artworkUrl) {
     return <Image src={track.artworkUrl} alt="" width={size} height={size} unoptimized />;
@@ -539,6 +503,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const [expanded, setExpanded] = useState(false);
   const ytHostRef = useRef<HTMLDivElement>(null);
   const ytPlayerRef = useRef<YouTubeEngine | null>(null);
+  // The official player is playing, or re-buffering after it played. Set synchronously from its
+  // state changes and from pausePlayback (the React status follows asynchronously): it decides
+  // whether hiding Solco stopped a video that was playing ("video fermato" notice on return).
+  const ytPlayingRef = useRef(false);
+  // Stable controls that take the focus when the "video fermato" notice closes with it inside.
+  const miniPlayRef = useRef<HTMLButtonElement>(null);
+  const miniExpandRef = useRef<HTMLButtonElement>(null);
+  const fullPlayRef = useRef<HTMLButtonElement>(null);
+  const fullCollapseRef = useRef<HTMLButtonElement>(null);
   const [ytRequest, setYtRequest] = useState(0);
   const [premium, setPremium] = useState<boolean | null>(null);
   const [signedIn, setSignedIn] = useState(false);
@@ -958,6 +931,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const pausePlayback = () => {
     if (!currentTrack) return;
     if (isYouTubeTrack(currentTrack) && ytPlayerRef.current) {
+      // Paused by the listener, before YouTube confirms it: locking the phone right after is not
+      // a "stopped because you left" pause.
+      ytPlayingRef.current = false;
       try {
         ytPlayerRef.current.pauseVideo();
       } catch {
@@ -1063,6 +1039,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     (queueIndex < queue.length - 1 || ((repeat === 'all' || shuffle) && queue.length > 1));
   const currentTrackRef = useRef(currentTrack);
   currentTrackRef.current = currentTrack;
+  // "Il video si è fermato…" when the listener comes back (see background-switch-notice.tsx).
+  const currentVideoId =
+    currentTrack && isYouTubeTrack(currentTrack) ? youtubeVideoId(currentTrack) : null;
+  const {
+    noticeVideoId,
+    markHiddenPause,
+    dismiss: dismissReturnNotice,
+  } = useReturnNotice(currentVideoId);
 
   /** Rewards: one minute per POST, measured on the media clock (see listening-time.ts). */
   const sendListening = (seconds: number) => {
@@ -1493,8 +1477,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   // so the player is reused instead of being torn down and rebuilt for every song.
   const youtubeActive =
     (isYouTubeTrack(currentTrack) || currentTrack?.playbackMode === 'song') && !hidePlayer;
-  // Same song in the listener's Spotify app (a plain search link: no Spotify API involved).
-  const spotifyLink = (() => {
+  // Same song in the listener's Spotify app or on soundcloud.com: plain search links (no Spotify
+  // or SoundCloud API and no embedded player involved).
+  const songSearch = (() => {
     if (!currentTrack || isLiveTrack(currentTrack) || currentTrack.playbackMode === 'podcast') {
       return null;
     }
@@ -1503,8 +1488,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         ? parseVideoTitle(currentTrack.title, currentTrack.artistName)
         : { title: currentTrack.title, artist: currentTrack.artistName };
     const title = song.title.replace(/\s*[([][^)\]]*[)\]]\s*/g, ' ').trim();
-    return title ? spotifySearchUrl(title, song.artist || null) : null;
+    return title ? { title, artist: song.artist || null } : null;
   })();
+  const spotifyLink = songSearch ? spotifySearchUrl(songSearch.title, songSearch.artist) : null;
+  const soundcloudLink = songSearch
+    ? soundcloudSearchUrl(songSearch.title, songSearch.artist)
+    : null;
 
   const recordProgress = (track: MusicPlayerTrack, seconds: number) => {
     if (recordedRef.current !== track.qualifiedId && seconds >= HISTORY_THRESHOLD_SECONDS) {
@@ -1535,10 +1524,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         } catch {
           // Player not ready.
         }
+        // It was playing and stopped only because Solco is hidden: explain it on return.
+        ytPlayingRef.current = false;
+        markHiddenPause(currentVideoId);
         setStatus('paused');
         setSessionPlaybackState('paused');
         return;
       }
+      // The video plays again (player controls or the notice): the notice has done its job.
+      dismissReturnNotice();
       setStatus('playing');
       setErrorMessage(null);
       setSessionPlaybackState('playing');
@@ -1591,6 +1585,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     const videoId = youtubeVideoId(currentTrack);
     const host = ytHostRef.current;
     if (!videoId || !host) return;
+    // A new video has not played yet: a hide before it starts is not a "video fermato".
+    ytPlayingRef.current = false;
     // Loading a video starts it: never in a hidden page. It starts when Solco is visible again.
     if (isPageHidden()) {
       deferHiddenVideo(currentTrack.qualifiedId);
@@ -1631,6 +1627,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           },
           events: {
             onStateChange: (event: { data: number }) => {
+              // Paused, ended, unstarted (new video) or cued: not playing. Buffering keeps the
+              // previous value: a re-buffer mid-song (or after a seek) is still playing.
+              if (event.data === YT_PLAYING) ytPlayingRef.current = true;
+              else if (event.data !== YT_BUFFERING) ytPlayingRef.current = false;
               if (event.data === YT_PLAYING) ytEvents.current.onPlaying();
               else if (event.data === YT_PAUSED) ytEvents.current.onPaused();
               else if (event.data === YT_ENDED) ytEvents.current.onEnded();
@@ -1656,6 +1656,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   // Destroy the YouTube player when no YouTube track is active any more.
   useEffect(() => {
     if (youtubeActive) return;
+    ytPlayingRef.current = false;
     try {
       ytPlayerRef.current?.destroy();
     } catch {
@@ -1679,15 +1680,23 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     return () => window.clearInterval(timer);
   }, [status, youtubeActive]);
 
-  // YouTube's terms: no background playback. Pause when Solco is hidden.
+  // YouTube's terms: no background playback. Pause when Solco is hidden; a video that was playing
+  // gets the "video fermato" notice (with the Audius alternative) when the listener is back.
   useEffect(() => {
     if (!youtubeActive) return;
     const pauseHidden = () => {
-      if (document.visibilityState !== 'visible') ytPlayerRef.current?.pauseVideo();
+      if (document.visibilityState === 'visible') return;
+      const track = currentTrackRef.current;
+      // The engine state, not the React status: a re-buffering video counts as playing, a video
+      // the listener just paused (PAUSED not yet reported) does not.
+      if (ytPlayingRef.current && track && isYouTubeTrack(track)) {
+        markHiddenPause(youtubeVideoId(track));
+      }
+      ytPlayerRef.current?.pauseVideo();
     };
     document.addEventListener('visibilitychange', pauseHidden);
     return () => document.removeEventListener('visibilitychange', pauseHidden);
-  }, [youtubeActive]);
+  }, [markHiddenPause, youtubeActive]);
 
   // A YouTube item reached while Solco was hidden starts once the listener is back.
   useEffect(() => {
@@ -1860,6 +1869,38 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       !isYouTubeTrack(currentTrack);
   }, [currentTrack, repeat]);
 
+  // The YouTube video on screen, offered as the same song on Audius ("Ascolta in background").
+  const backgroundVideo =
+    currentTrack && currentVideoId && youtubeActive
+      ? {
+          videoId: currentVideoId,
+          title: currentTrack.title,
+          channelTitle: currentTrack.artistName ?? '',
+        }
+      : null;
+  // Play/pause of the same player view (disabled while loading: then its never-disabled neighbour).
+  const noticeFocusTarget = (placement: 'dock' | 'full') => () => {
+    const play = placement === 'dock' ? miniPlayRef.current : fullPlayRef.current;
+    if (play && !play.disabled) return play;
+    return placement === 'dock' ? miniExpandRef.current : fullCollapseRef.current;
+  };
+  const returnNoticeFor = (placement: 'dock' | 'full') =>
+    backgroundVideo && noticeVideoId === backgroundVideo.videoId ? (
+      <BackgroundSwitchNotice
+        key={backgroundVideo.videoId}
+        video={backgroundVideo}
+        onResume={() => void controlsRef.current.resume()}
+        onDismiss={dismissReturnNotice}
+        focusTarget={noticeFocusTarget(placement)}
+        className={
+          placement === 'dock' ? `${noticeStyles.inDock} ${styles.videoNotice}` : undefined
+        }
+      />
+    ) : null;
+  const errorLink = failureLink(errorMessage, currentTrack);
+  const showCounter =
+    playsLimit !== null && playsUsed !== null && showsFreePlayCounter(currentTrack?.playbackMode);
+
   const progress =
     !live && durationSeconds > 0 ? Math.min(100, (elapsedSeconds / durationSeconds) * 100) : 0;
   const playLabel = currentTrack
@@ -1958,6 +1999,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                 </div>
               )}
               <div ref={ytHostRef} className={styles.videoHost} />
+              {/* Below the official player, never over it (YouTube forbids overlays). */}
+              {showFull ? null : returnNoticeFor('dock')}
             </div>
           ) : null}
           <aside
@@ -1967,6 +2010,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             data-solco-player
           >
             <button
+              ref={miniExpandRef}
               type="button"
               className={styles.miniExpand}
               onClick={() => setExpanded(true)}
@@ -1985,7 +2029,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
               </span>
             </button>
             <div className={styles.miniButtons}>
+              {backgroundVideo ? (
+                <BackgroundListenButton
+                  video={backgroundVideo}
+                  hint="continua con lo schermo bloccato"
+                  className={styles.miniBackground}
+                />
+              ) : null}
               <button
+                ref={miniPlayRef}
                 className={styles.miniControl}
                 type="button"
                 onClick={() => void togglePlayback()}
@@ -2030,6 +2082,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             {errorMessage && !showFull ? (
               <output className={styles.miniError} aria-live="polite">
                 {errorMessage}
+                {errorLink ? (
+                  <>
+                    {' '}
+                    <a href={errorLink.href} target="_blank" rel="noreferrer">
+                      {errorLink.label}
+                    </a>
+                  </>
+                ) : null}
               </output>
             ) : null}
             <span className={styles.miniProgress} aria-hidden="true">
@@ -2046,6 +2106,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           >
             <header className={styles.fullHeader}>
               <button
+                ref={fullCollapseRef}
                 type="button"
                 className={styles.iconButton}
                 onClick={() => setExpanded(false)}
@@ -2074,25 +2135,23 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
               )}
 
               <div className={styles.trackCopy}>
+                {showFull ? returnNoticeFor('full') : null}
                 <strong title={currentTrack.title}>{currentTrack.title}</strong>
                 <span className={styles.trackMeta}>
                   {live ? <em className={styles.liveBadge}>LIVE</em> : null}
                   {currentTrack.artistName} · {currentTrack.sourceLabel}
                 </span>
-                {playsLimit !== null && playsUsed !== null ? (
+                {showCounter && playsLimit !== null && playsUsed !== null ? (
                   <p className={styles.adNote}>
                     Ascolti gratuiti questo mese: {Math.min(playsUsed, playsLimit)} di {playsLimit}.{' '}
                     <a href="/piani">Illimitati con Premium</a>
                   </p>
                 ) : null}
-                {youtubeActive && youtubeVideoId(currentTrack) ? (
+                {backgroundVideo ? (
                   <BackgroundListenButton
                     compact={false}
-                    video={{
-                      videoId: youtubeVideoId(currentTrack) ?? '',
-                      title: currentTrack.title,
-                      channelTitle: currentTrack.artistName ?? '',
-                    }}
+                    video={backgroundVideo}
+                    hint="continua con lo schermo bloccato"
                   />
                 ) : null}
                 {youtubeActive ? (
@@ -2105,6 +2164,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                   {spotifyLink ? (
                     <a href={spotifyLink} target="_blank" rel="noreferrer">
                       Apri in Spotify <ExternalLink aria-hidden="true" />
+                    </a>
+                  ) : null}
+                  {soundcloudLink ? (
+                    <a href={soundcloudLink} target="_blank" rel="noreferrer">
+                      Cerca su SoundCloud <ExternalLink aria-hidden="true" />
                     </a>
                   ) : null}
                   {currentTrack.sourceUrl ? (
@@ -2122,6 +2186,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                 {errorMessage ? (
                   <output className={styles.playerError} aria-live="polite">
                     {errorMessage}
+                    {errorLink ? (
+                      <>
+                        {' '}
+                        <a href={errorLink.href} target="_blank" rel="noreferrer">
+                          {errorLink.label}
+                        </a>
+                      </>
+                    ) : null}
                   </output>
                 ) : null}
               </div>
@@ -2171,6 +2243,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                     <SkipBack aria-hidden="true" />
                   </button>
                   <button
+                    ref={fullPlayRef}
                     className={styles.control}
                     type="button"
                     onClick={() => void togglePlayback()}

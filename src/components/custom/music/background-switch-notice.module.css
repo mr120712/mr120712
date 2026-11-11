@@ -1,0 +1,288 @@
+/* @polsia:user-owned — avviso "video fermato" al ritorno su Solco + pulsante "Ascolta in
+   background" con suggerimento. Colori dai token del contenitore (player scuro o pagina). */
+
+/* ---------- Return notice (not a modal: sits in the player, below the video) ---------- */
+/* The text is announced by a shared live region (.srOnly), not by the notice itself. */
+.notice {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 32px;
+  align-items: start;
+  gap: 8px 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--foreground) 6%, var(--card, var(--background)));
+  color: var(--foreground);
+}
+
+.noticeIcon {
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  color: var(--primary);
+}
+
+.noticeText {
+  display: block;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.dismiss {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  margin: -6px -6px 0 0;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.dismiss:hover {
+  background: color-mix(in srgb, var(--foreground) 10%, transparent);
+  color: var(--foreground);
+}
+
+.dismiss svg {
+  width: 16px;
+  height: 16px;
+}
+
+.actions {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.primary,
+.secondary {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.2;
+  text-align: center;
+  cursor: pointer;
+}
+
+.primary {
+  flex: 1 1 220px;
+  border: 0;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.secondary {
+  flex: 0 1 auto;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--foreground);
+}
+
+.secondary:hover {
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+}
+
+.primary[aria-disabled="true"] {
+  cursor: progress;
+  opacity: 0.75;
+}
+
+.primary svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+.link {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.link svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Inside the video dock (collapsed player): flat, below the official player. */
+.inDock {
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--card, var(--background));
+}
+
+/* Narrow screens: the dock is fixed at the bottom and grows upward, so the notice stays compact
+   (no icon, two short lines, one row of buttons with short labels, the X at the end of the row)
+   and the dock keeps clear of the sticky header. Total ≈ 92 px, against 115 px of room at
+   360×560 and 107 px at 375×553 (see .videoNotice in music-player.module.css, which caps it). */
+@media (max-width: 479px) {
+  .inDock {
+    grid-template-areas:
+      "text text"
+      "actions dismiss";
+    grid-template-columns: minmax(0, 1fr) 32px;
+    gap: 6px;
+    padding: 8px 10px;
+  }
+
+  .inDock .noticeIcon {
+    display: none;
+  }
+
+  .inDock .noticeText {
+    grid-area: text;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .inDock .dismiss {
+    grid-area: dismiss;
+    align-self: center;
+    margin: 0;
+  }
+
+  .inDock .actions {
+    grid-area: actions;
+    gap: 6px;
+  }
+
+  .inDock .primary,
+  .inDock .secondary,
+  .inDock .link {
+    min-height: 36px;
+    font-size: 12px;
+  }
+
+  .inDock .primary,
+  .inDock .secondary {
+    position: relative;
+    gap: 6px;
+    padding: 0 10px;
+  }
+
+  .inDock .primary {
+    flex: 0 1 auto;
+  }
+
+  .inDock .primary svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  /* "Continua con Audius" / "Riprendi": the full label stays the accessible name. */
+  .inDock .longLabel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* Live region shared by the notices: present before they appear, never visible. */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------- "Ascolta in background" with its hint (full player, YouTube queue) ---------- */
+.cta {
+  display: inline-flex;
+  max-width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-self: start;
+  gap: 10px;
+  padding: 6px 16px 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+  color: var(--foreground);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cta:hover {
+  background: color-mix(in srgb, var(--foreground) 12%, transparent);
+}
+
+.cta[aria-disabled="true"] {
+  cursor: progress;
+  opacity: 0.75;
+}
+
+.cta > svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  color: var(--primary);
+}
+
+.ctaCopy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.ctaCopy > span {
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.ctaCopy > small {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.primary:focus-visible,
+.secondary:focus-visible,
+.dismiss:focus-visible,
+.link:focus-visible,
+.cta:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.spin {
+  animation: background-switch-spin 0.9s linear infinite;
+}
+
+@keyframes background-switch-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}

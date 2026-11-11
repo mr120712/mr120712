@@ -1,12 +1,16 @@
 // @polsia:user-owned — coda di riproduzione YouTube basata sulla IFrame Player API ufficiale.
 // Il player resta sempre visibile con controlli, marchio e annunci gestiti da YouTube:
-// Solco aggiunge solo la coda (precedente / successivo / avanzamento automatico).
+// Solco aggiunge solo la coda (precedente / successivo / avanzamento automatico), il pulsante
+// "Ascolta in background" (stesso brano su Audius, solo con un tocco) e l'avviso al ritorno.
 'use client';
 
 import { ExternalLink, SkipBack, SkipForward, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { BackgroundListenButton } from './background-listen-button';
+import { BackgroundSwitchNotice, useReturnNotice } from './background-switch-notice';
 import styles from './music.module.css';
+import { useOptionalMusicPlayer } from './music-player';
 
 export type YouTubeQueueItem = {
   videoId: string;
@@ -16,6 +20,7 @@ export type YouTubeQueueItem = {
 
 type YouTubePlayerInstance = {
   loadVideoById: (videoId: string) => void;
+  playVideo?: () => void;
   pauseVideo: () => void;
   destroy: () => void;
 };
@@ -50,6 +55,7 @@ declare global {
 const YOUTUBE_IFRAME_API_URL = 'https://www.youtube.com/iframe_api';
 const YOUTUBE_STATE_ENDED = 0;
 const YOUTUBE_STATE_PLAYING = 1;
+const YOUTUBE_STATE_PAUSED = 2;
 
 let apiPromise: Promise<YouTubeNamespace> | null = null;
 
@@ -94,8 +100,14 @@ export function YouTubeQueuePlayer({
   pauseRequested?: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
+  // Takes the focus when the "video fermato" notice closes with the focus inside it.
+  const sectionRef = useRef<HTMLElement>(null);
   const playerRef = useRef<YouTubePlayerInstance | null>(null);
   const readyRef = useRef(false);
+  // The video is playing (YouTube state 1) and not yet paused or ended.
+  const playingRef = useRef(false);
+  // The shared Solco player, needed by "Ascolta in background" (absent when rendered alone).
+  const musicPlayer = useOptionalMusicPlayer();
   const loadedVideoIdRef = useRef<string | null>(null);
   const latest = useRef({ items, index, onIndexChange, onPlaying });
   latest.current = { items, index, onIndexChange, onPlaying };
@@ -105,6 +117,13 @@ export function YouTubeQueuePlayer({
 
   const current = items[index];
   const currentVideoId = current?.videoId ?? null;
+  const {
+    noticeVideoId,
+    markHiddenPause,
+    dismiss: dismissReturnNotice,
+  } = useReturnNotice(currentVideoId);
+  const latestNotice = useRef({ markHiddenPause, dismissReturnNotice });
+  latestNotice.current = { markHiddenPause, dismissReturnNotice };
 
   // Crea il player una sola volta; i cambi di brano passano da loadVideoById.
   useEffect(() => {
@@ -151,15 +170,22 @@ export function YouTubeQueuePlayer({
               const wanted = latest.current.items[latest.current.index]?.videoId;
               if (wanted && wanted !== loadedVideoIdRef.current) {
                 loadedVideoIdRef.current = wanted;
+                playingRef.current = false;
                 playerRef.current?.loadVideoById(wanted);
               }
             },
             onStateChange: (event) => {
               if (cancelled) return;
               if (event.data === YOUTUBE_STATE_PLAYING) {
+                playingRef.current = true;
                 setNotice(null);
+                // Playing again: the "video fermato" notice has done its job.
+                latestNotice.current.dismissReturnNotice();
                 latest.current.onPlaying?.();
+              } else if (event.data === YOUTUBE_STATE_PAUSED) {
+                playingRef.current = false;
               } else if (event.data === YOUTUBE_STATE_ENDED) {
+                playingRef.current = false;
                 advance('ended');
               }
             },
@@ -181,6 +207,7 @@ export function YouTubeQueuePlayer({
     return () => {
       cancelled = true;
       readyRef.current = false;
+      playingRef.current = false;
       try {
         playerRef.current?.destroy();
       } catch {
@@ -196,18 +223,30 @@ export function YouTubeQueuePlayer({
     if (!currentVideoId || !readyRef.current) return;
     if (loadedVideoIdRef.current === currentVideoId) return;
     loadedVideoIdRef.current = currentVideoId;
+    // The next video has not played yet: hiding Solco before it starts is no "video fermato".
+    playingRef.current = false;
     playerRef.current?.loadVideoById(currentVideoId);
   }, [currentVideoId]);
 
-  // Nessuna riproduzione in background: pausa quando Solco non è visibile.
+  // Nessuna riproduzione in background: pausa quando Solco non è visibile. Un video che stava
+  // suonando riceve, al ritorno, l'avviso con l'alternativa Audius (mai un passaggio automatico).
   useEffect(() => {
+    const noteIfPlaying = () => {
+      if (!playingRef.current) return;
+      latestNotice.current.markHiddenPause(
+        latest.current.items[latest.current.index]?.videoId ?? null,
+      );
+    };
     const pauseWhenHidden = () => {
       if (document.visibilityState !== 'visible' && readyRef.current) {
+        noteIfPlaying();
         playerRef.current?.pauseVideo();
       }
     };
     const pauseOnPageHide = () => {
-      if (readyRef.current) playerRef.current?.pauseVideo();
+      if (!readyRef.current) return;
+      noteIfPlaying();
+      playerRef.current?.pauseVideo();
     };
     document.addEventListener('visibilitychange', pauseWhenHidden);
     window.addEventListener('pagehide', pauseOnPageHide);
@@ -224,7 +263,12 @@ export function YouTubeQueuePlayer({
   if (!current) return null;
 
   return (
-    <section className={styles.youtubeQueue} aria-label="Coda di riproduzione YouTube">
+    <section
+      ref={sectionRef}
+      className={styles.youtubeQueue}
+      aria-label="Coda di riproduzione YouTube"
+      tabIndex={-1}
+    >
       <header className={styles.youtubeQueueHeader}>
         <div>
           <span className={`${styles.sourcePill} ${styles.youtubePill}`}>
@@ -243,6 +287,23 @@ export function YouTubeQueuePlayer({
         <div ref={hostRef} className={styles.youtubeQueueHost} />
       </div>
 
+      {/* Below the official player, never over it (YouTube forbids overlays). */}
+      {musicPlayer && noticeVideoId === current.videoId ? (
+        <BackgroundSwitchNotice
+          key={current.videoId}
+          video={current}
+          onResume={() => {
+            try {
+              playerRef.current?.playVideo?.();
+            } catch {
+              // Player not ready: the listener can use the video's own controls.
+            }
+          }}
+          onDismiss={dismissReturnNotice}
+          focusTarget={() => sectionRef.current}
+        />
+      ) : null}
+
       {status === 'loading' ? (
         <output className={styles.youtubeQueueNotice}>Carico il player ufficiale YouTube…</output>
       ) : null}
@@ -255,6 +316,14 @@ export function YouTubeQueuePlayer({
         <output className={styles.youtubeQueueNotice} aria-live="polite">
           {notice}
         </output>
+      ) : null}
+
+      {musicPlayer ? (
+        <BackgroundListenButton
+          compact={false}
+          video={current}
+          hint="continua con lo schermo bloccato"
+        />
       ) : null}
 
       <div className={styles.youtubeQueueControls}>

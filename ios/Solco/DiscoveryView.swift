@@ -80,6 +80,10 @@ struct DiscoveryView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task(id: requestKey) { await loadContent() }
         .task { await loadCollections() }
+        // YouTube API policy: no invisible playback. Switching tab or opening another screen unmounts
+        // the official player, whose web view is paused and emptied in `dismantleUIView`.
+        .onDisappear { selectedVideoID = nil }
+        .modifier(ClosesYouTubeWhenAudiusPlays(selectedVideoID: $selectedVideoID))
     }
 
     private var searchField: some View {
@@ -342,16 +346,24 @@ struct DiscoveryView: View {
                         Spacer(minLength: 0)
                     }
                     HStack(spacing: 8) {
-                        Button {
-                            selectedVideoID = selectedVideoID == video.videoId ? nil : video.videoId
-                        } label: {
-                            Label(
-                                selectedVideoID == video.videoId ? "Chiudi player" : "Apri player YouTube ufficiale",
-                                systemImage: "play.rectangle"
-                            )
+                        WithAudiusPlayer { audio in
+                            Button {
+                                if selectedVideoID == video.videoId {
+                                    selectedVideoID = nil
+                                } else {
+                                    // One audio at a time: opening the YouTube player pauses Audius.
+                                    audio.pause()
+                                    selectedVideoID = video.videoId
+                                }
+                            } label: {
+                                Label(
+                                    selectedVideoID == video.videoId ? "Chiudi player" : "Apri player YouTube ufficiale",
+                                    systemImage: "play.rectangle"
+                                )
+                            }
+                            .buttonStyle(SolcoPrimaryButtonStyle())
+                            .accessibilityHint(Text("Il video resta visibile e si ferma quando l’app passa in background."))
                         }
-                        .buttonStyle(SolcoPrimaryButtonStyle())
-                        .accessibilityHint(Text("Il video resta visibile e si ferma quando l’app passa in background."))
                         Button {
                             Task { await saveFavorite(source: "youtube", sourceId: video.videoId) }
                         } label: {
@@ -573,13 +585,15 @@ struct AccountView: View {
                         Text(user.email)
                             .font(.subheadline)
                             .foregroundStyle(SolcoPalette.muted)
-                        Button {
-                            Task { await signOut() }
-                        } label: {
-                            Text("account.signOut")
-                                .frame(maxWidth: .infinity, minHeight: 48)
+                        WithAudiusPlayer { audio in
+                            Button {
+                                Task { await signOut(stopping: audio) }
+                            } label: {
+                                Text("account.signOut")
+                                    .frame(maxWidth: .infinity, minHeight: 48)
+                            }
+                            .buttonStyle(SolcoSecondaryButtonStyle())
                         }
-                        .buttonStyle(SolcoSecondaryButtonStyle())
                     }
                     .padding(18)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -624,12 +638,15 @@ struct AccountView: View {
         isLoading = false
     }
 
-    private func signOut() async {
+    @MainActor
+    private func signOut(stopping audio: AudiusMusicPlayer) async {
         isLoading = true
         do {
             try await APIClient.shared.signOut()
             user = nil
             errorMessage = nil
+            // Signed out: stop Audius, forget the queue and clear the lock-screen Now Playing card.
+            audio.stop()
         } catch {
             errorMessage = error.localizedDescription
         }

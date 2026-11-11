@@ -68,11 +68,16 @@ function respond(url: string, audiusTracks: unknown[]) {
 
 const roots: ReturnType<typeof createRoot>[] = [];
 
-async function mount(audiusTracks: unknown[]) {
+async function mount(audiusTracks: unknown[], searchFails = false) {
   vi.resetModules();
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (url: string) => new Response(JSON.stringify(respond(String(url), audiusTracks)))),
+    vi.fn(async (url: string) => {
+      if (searchFails && String(url).includes('/api/music/search')) {
+        throw new TypeError('Failed to fetch');
+      }
+      return new Response(JSON.stringify(respond(String(url), audiusTracks)));
+    }),
   );
   const { BackgroundListenButton } = await import(
     '@/components/custom/music/background-listen-button'
@@ -126,6 +131,16 @@ describe('pulsante Ascolta in background', () => {
     expect(mocks.toast).toHaveBeenCalledWith(
       'Questo brano non è disponibile per l’ascolto in background.',
       expect.anything(),
+    );
+  });
+
+  it('una ricerca fallita invita a riprovare, senza dire che il brano non esiste', async () => {
+    const container = await mount([audiusTrack], true);
+    await click(container);
+    expect(mocks.playTrack).not.toHaveBeenCalled();
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    expect(mocks.toast).toHaveBeenCalledWith(
+      'Non riesco a cercare il brano adesso. Riprova tra poco.',
     );
   });
 });

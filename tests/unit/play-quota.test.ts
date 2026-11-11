@@ -54,6 +54,10 @@ vi.mock('@/lib/db', () => ({
         },
       ),
     },
+    // consumePlay reads and writes in one Serializable transaction (concurrency: play-quota-concurrency).
+    $transaction(run: (transaction: unknown) => Promise<unknown>) {
+      return run(this);
+    },
   },
 }));
 

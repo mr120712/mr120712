@@ -59,6 +59,10 @@ struct PlayerLandingView: View {
         .navigationTitle("nav.player")
         .navigationBarTitleDisplayMode(.inline)
         .task { await reload() }
+        // YouTube API policy: no invisible playback. Switching tab or opening another screen unmounts
+        // the official player, whose web view is paused and emptied in `dismantleUIView`.
+        .onDisappear { selectedVideoID = nil }
+        .modifier(ClosesYouTubeWhenAudiusPlays(selectedVideoID: $selectedVideoID))
     }
 
     private var createPlaylist: some View {
@@ -69,7 +73,7 @@ struct PlayerLandingView: View {
                 .frame(minHeight: 46)
                 .background(SolcoPalette.elevated, in: RoundedRectangle(cornerRadius: 12))
             Button {
-                Task { await createPlaylist() }
+                Task { await submitNewPlaylist() }
             } label: {
                 Image(systemName: "plus")
                     .font(.headline.weight(.bold))
@@ -115,7 +119,7 @@ struct PlayerLandingView: View {
                     .padding(.vertical, 8)
             } else {
                 ForEach(collection.items) { item in
-                    collectionItem(item)
+                    collectionItem(item, in: collection)
                 }
             }
         }
@@ -126,7 +130,7 @@ struct PlayerLandingView: View {
     }
 
     @ViewBuilder
-    private func collectionItem(_ item: MusicCollectionItem) -> some View {
+    private func collectionItem(_ item: MusicCollectionItem, in collection: MusicCollection) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 11) {
                 cover(item.artworkUrl, title: item.title ?? "Video YouTube salvato")
@@ -167,16 +171,24 @@ struct PlayerLandingView: View {
                     .foregroundStyle(SolcoPalette.muted)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                Button {
-                    selectedVideoID = selectedVideoID == item.sourceId ? nil : item.sourceId
-                } label: {
-                    Label(
-                        selectedVideoID == item.sourceId ? "Chiudi player YouTube" : "Apri player YouTube ufficiale",
-                        systemImage: "play.rectangle"
-                    )
-                    .frame(maxWidth: .infinity, minHeight: 42)
+                WithAudiusPlayer { audio in
+                    Button {
+                        if selectedVideoID == item.sourceId {
+                            selectedVideoID = nil
+                        } else {
+                            // One audio at a time: opening the YouTube player pauses Audius.
+                            audio.pause()
+                            selectedVideoID = item.sourceId
+                        }
+                    } label: {
+                        Label(
+                            selectedVideoID == item.sourceId ? "Chiudi player YouTube" : "Apri player YouTube ufficiale",
+                            systemImage: "play.rectangle"
+                        )
+                        .frame(maxWidth: .infinity, minHeight: 42)
+                    }
+                    .buttonStyle(SolcoSecondaryButtonStyle())
                 }
-                .buttonStyle(SolcoSecondaryButtonStyle())
                 if selectedVideoID == item.sourceId {
                     if scenePhase == .active {
                         YouTubeOfficialPlayer(videoID: item.sourceId)
@@ -246,7 +258,7 @@ struct PlayerLandingView: View {
     }
 
     @MainActor
-    private func createPlaylist() async {
+    private func submitNewPlaylist() async {
         let value = playlistName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty else { return }
         await mutate(["action": "create_playlist", "name": value])
@@ -268,6 +280,39 @@ struct PlayerLandingView: View {
         } catch {
             message = error.localizedDescription
         }
+    }
+}
+
+/// One audio at a time: closes the screen's YouTube player as soon as Audius starts playing (mini-player,
+/// headset, AirPods). The modifier observes the shared player on its own: the player publishes its progress
+/// twice a second, and only this modifier's body re-runs then, not the screen it is attached to.
+struct ClosesYouTubeWhenAudiusPlays: ViewModifier {
+    @EnvironmentObject private var audio: AudiusMusicPlayer
+    @Binding private var selectedVideoID: String?
+
+    init(selectedVideoID: Binding<String?>) {
+        _selectedVideoID = selectedVideoID
+    }
+
+    func body(content: Content) -> some View {
+        content.onChange(of: audio.isPlaying) {
+            if audio.isPlaying { selectedVideoID = nil }
+        }
+    }
+}
+
+/// Hands the shared Audius player to a small piece of UI (a button that pauses or stops it), so the screen
+/// around it does not observe the player: only this view re-renders when the player publishes its progress.
+struct WithAudiusPlayer<Content: View>: View {
+    @EnvironmentObject private var audio: AudiusMusicPlayer
+    private let content: (AudiusMusicPlayer) -> Content
+
+    init(@ViewBuilder content: @escaping (AudiusMusicPlayer) -> Content) {
+        self.content = content
+    }
+
+    var body: some View {
+        content(audio)
     }
 }
 

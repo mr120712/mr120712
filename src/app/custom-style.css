@@ -423,6 +423,17 @@ body.has-music-player.has-video-dock {
   );
 }
 
+/* The "video stopped, continue with Audius" notice makes the dock taller: keep the end of the
+   page reachable above it while the notice is shown. */
+body.has-music-player.has-video-dock:has([data-background-switch-notice]) {
+  padding-bottom: calc(
+    var(--tab-bar-offset) +
+    var(--mini-player-height) +
+    420px +
+    env(safe-area-inset-bottom)
+  );
+}
+
 body.has-video-dock .solco-support-launcher {
   display: none;
 }

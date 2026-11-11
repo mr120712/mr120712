@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   premium: vi.fn(async () => false),
   plays: [] as PlayRow[],
   create: vi.fn(),
+  transaction: vi.fn(),
   check: vi.fn(),
   streamTrack: vi.fn(),
   probe: vi.fn(async () => true),
@@ -73,6 +74,9 @@ vi.mock('@/lib/db', () => ({
         return data;
       }),
     },
+    $transaction(run: (transaction: unknown) => Promise<unknown>, options?: unknown) {
+      return mocks.transaction(run, options, this);
+    },
   },
 }));
 
@@ -81,7 +85,7 @@ import { GET as audiusStream } from '@/app/api/music/audius/tracks/[trackId]/str
 import { POST as playsRoute } from '@/app/api/music/plays/route';
 import { GET as podcastStream } from '@/app/api/music/podcasts/[podcastId]/episodes/[episodeKey]/stream/route';
 import { FREE_MONTHLY_PLAYS, REPLAY_WINDOW_MS, romeMonth } from '@/lib/business/play-quota';
-import { consumePlay } from '@/lib/business/play-quota.server';
+import { consumePlay, PLAY_RECORD_ATTEMPTS } from '@/lib/business/play-quota.server';
 import { checkStreamPlay } from '@/lib/music/stream-play.server';
 
 const permit = (qualifiedId: string) =>
@@ -122,6 +126,12 @@ function fillMonthlyQuota(userId = 'free-user') {
 beforeEach(() => {
   mocks.plays.length = 0;
   mocks.create.mockClear();
+  mocks.transaction
+    .mockReset()
+    .mockImplementation(
+      (run: (transaction: unknown) => Promise<unknown>, _options: unknown, client: unknown) =>
+        run(client),
+    );
   mocks.jamendoOn = false;
   mocks.user.mockReset().mockResolvedValue({ id: 'free-user' });
   mocks.premium.mockReset().mockResolvedValue(false);
@@ -211,6 +221,47 @@ describe('permesso del player: verifica senza consumare ascolti', () => {
       limit: FREE_MONTHLY_PLAYS,
     });
     expect(mocks.plays).toHaveLength(FREE_MONTHLY_PLAYS);
+  });
+});
+
+describe('registro degli ascolti in conflitto: si fallisce chiusi', () => {
+  const writeConflict = () =>
+    Object.assign(new Error('Transaction failed due to a write conflict or a deadlock'), {
+      code: 'P2034',
+    });
+
+  it('conflitti oltre i tentativi: 503 senza audio e nessun ascolto registrato', async () => {
+    const cancelled = vi.fn();
+    mocks.streamTrack.mockImplementation(
+      async () =>
+        new Response(new ReadableStream({ cancel: cancelled }), {
+          status: 200,
+          headers: { 'content-type': 'audio/mpeg' },
+        }),
+    );
+    mocks.transaction.mockRejectedValue(writeConflict());
+
+    const response = await audius('stream', 'busy-track');
+    expect(response.status).toBe(503);
+    expect(response.headers.get('content-type')).not.toMatch(/^audio\//);
+    expect(await response.json()).toEqual({ error: 'stream_unavailable' });
+    expect(mocks.transaction).toHaveBeenCalledTimes(PLAY_RECORD_ATTEMPTS);
+    await vi.waitFor(() => expect(cancelled).toHaveBeenCalled());
+
+    mocks.transaction.mockClear();
+    expect((await podcast()).status).toBe(503);
+    expect(mocks.transaction).toHaveBeenCalledTimes(PLAY_RECORD_ATTEMPTS);
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.plays).toHaveLength(0);
+  });
+
+  it('un conflitto risolto al nuovo tentativo: l’audio parte e conta una volta', async () => {
+    mocks.transaction.mockRejectedValueOnce(writeConflict());
+
+    expect((await audius('stream', 'retry-track')).status).toBe(200);
+    expect(mocks.transaction).toHaveBeenCalledTimes(2);
+    expect(mocks.transaction.mock.calls[1]?.[1]).toEqual({ isolationLevel: 'Serializable' });
+    expect(mocks.plays.map((row) => row.qualifiedId)).toEqual(['audius:retry-track']);
   });
 });
 

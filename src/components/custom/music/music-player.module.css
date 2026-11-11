@@ -138,6 +138,35 @@
   height: 22px;
 }
 
+/* "Ascolta in background" in the mini player: outlined and muted, secondary to play/pause. */
+.miniBackground {
+  display: inline-grid;
+  width: 36px;
+  height: 36px;
+  margin-right: 4px;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.miniBackground:hover {
+  background: color-mix(in srgb, var(--foreground) 10%, transparent);
+  color: var(--foreground);
+}
+
+.miniBackground:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.miniBackground svg {
+  width: 18px;
+  height: 18px;
+}
+
 .miniError {
   grid-column: 1 / -1;
   padding: 0 12px 10px;
@@ -380,6 +409,7 @@
 }
 
 .miniExpand:focus-visible,
+.miniBackground:focus-visible,
 .miniControl:focus-visible,
 .miniSkip:focus-visible,
 .iconButton:focus-visible,
@@ -534,6 +564,37 @@
   border: 0;
 }
 
+/* "Video fermato" notice below the video (collapsed player). The dock is anchored at the bottom
+   and grows upward, so the notice only gets the room left between the video and the sticky site
+   header (56 px + 1 px border + 8 px of air) and scrolls inside it: the dock bar and the official
+   player never slide under the header. Below 480 px the notice is compact (≈ 92 px, see
+   background-switch-notice.module.css). Room at 360×560: 560 − 146 (tab bar 64 + mini player 64
+   + gap 18) − 65 − 234 (bar 32 + video 200 + borders 2) = 115 px; at 375×553: 107 px. */
+.videoNotice {
+  /* Same offset as the .videoDock bottom. */
+  --video-dock-bottom: calc(var(--tab-bar-offset, 0px) + var(--mini-player-height, 64px) + 18px);
+  max-height: max(
+    72px,
+    calc(
+      100dvh -
+      var(--video-dock-bottom) -
+      65px -
+      env(safe-area-inset-top) -
+      34px -
+      max(200px, min(400px, 100vw - 16px) * 9 / 16)
+    )
+  );
+  flex: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (min-width: 768px) {
+  .videoNotice {
+    --video-dock-bottom: calc(var(--mini-player-height, 64px) + 30px);
+  }
+}
+
 /* Bar above the video (never over it: YouTube forbids overlays on its player). */
 .videoBar {
   display: flex;
@@ -623,6 +684,8 @@
   font-size: 13px;
 }
 
+.miniError a,
+.playerError a,
 .upsell a {
   color: inherit;
   font-weight: 700;
