@@ -487,3 +487,60 @@
   color: var(--muted-foreground);
   font-size: 11px;
 }
+
+/* ---------- YouTube: official player always visible (YouTube terms: ≥200×200, no overlays) ---------- */
+.videoDock {
+  position: fixed;
+  z-index: 39;
+  right: 8px;
+  bottom: calc(var(--tab-bar-offset, 0px) + var(--mini-player-height, 64px) + 18px);
+  width: min(400px, calc(100% - 16px));
+  min-height: 200px;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #000000;
+  box-shadow: 0 14px 40px rgb(0 0 0 / 45%);
+}
+
+@media (min-width: 768px) {
+  .videoDock {
+    bottom: calc(var(--mini-player-height, 64px) + 30px);
+  }
+}
+
+.videoDockExpanded {
+  z-index: 61;
+  top: calc(env(safe-area-inset-top) + 76px);
+  right: auto;
+  bottom: auto;
+  left: 50%;
+  width: min(560px, calc(100% - 32px));
+  transform: translateX(-50%);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 45%);
+}
+
+.videoHost,
+.videoHost iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+/* Video mode: the video sits fixed at the top, the rest of the player scrolls below it. */
+.fullVideo {
+  overflow: hidden;
+}
+
+.fullVideo .fullBody {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 76px + max(200px, min(560px, 100vw - 32px) * 9 / 16) + 18px);
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: auto;
+  padding: 0 max(16px, calc((100% - 560px) / 2)) calc(24px + env(safe-area-inset-bottom));
+  overflow-y: auto;
+}

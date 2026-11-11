@@ -1,11 +1,10 @@
 // @polsia:user-owned
 import type { Metadata } from 'next';
-import { MusicSearchPage } from '@/components/custom/music/music-search-page';
+import { YouTubeSearchPage } from '@/components/custom/music/youtube-search-page';
 
 export const metadata: Metadata = {
-  title: 'Cerca musica',
-  description:
-    'Cerca brani e artisti su Audius, video musicali su YouTube, stazioni radio e podcast.',
+  title: 'Cerca',
+  description: 'Cerca brani e video musicali, radio e podcast e ascoltali nel player di Solco.',
 };
 
 export default async function SearchPage({
@@ -14,6 +13,6 @@ export default async function SearchPage({
   searchParams: Promise<{ q?: string | string[] }>;
 }) {
   const params = await searchParams;
-  const initialQuery = typeof params.q === 'string' ? params.q : '';
-  return <MusicSearchPage initialQuery={initialQuery} />;
+  const initialQuery = typeof params.q === 'string' ? params.q.slice(0, 80) : '';
+  return <YouTubeSearchPage initialQuery={initialQuery} />;
 }

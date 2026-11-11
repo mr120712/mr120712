@@ -211,3 +211,46 @@ export async function getYouTubeVideoDetails(
     typeof videoStatus?.madeForKids === 'boolean' ? videoStatus.madeForKids : null;
   return { outcome: 'found', details: { video, madeForKids } };
 }
+
+/** Durata ISO 8601 di YouTube (es. PT3M21S) in secondi; null se assente o non valida. */
+export function parseYouTubeDuration(value: unknown): number | null {
+  if (typeof value !== 'string') return null;
+  const match = /^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(value);
+  if (!match) return null;
+  const [, d = '0', h = '0', m = '0', s = '0'] = match;
+  const total = Number(d) * 86_400 + Number(h) * 3600 + Number(m) * 60 + Number(s);
+  return total > 0 ? total : null;
+}
+
+export type YouTubeChartVideo = YouTubeVideoSearchResult & { durationSeconds: number | null };
+
+/** Classifica dei video musicali più popolari in un paese (videos.list chart=mostPopular, 1 unità di quota). */
+export async function getYouTubeMusicChart(
+  regionCode: string,
+  apiKey: string | undefined,
+  fetcher: typeof fetch = fetch,
+): Promise<{ outcome: 'results' | 'no_results' | 'unavailable'; videos: YouTubeChartVideo[] }> {
+  if (!apiKey?.trim()) return { outcome: 'unavailable', videos: [] };
+  const url = responseUrl('videos');
+  url.searchParams.set('part', 'snippet,contentDetails,status');
+  url.searchParams.set('chart', 'mostPopular');
+  url.searchParams.set('videoCategoryId', '10');
+  url.searchParams.set('regionCode', regionCode);
+  url.searchParams.set('maxResults', '30');
+  url.searchParams.set('key', apiKey.trim());
+  const result = await requestJson(url, fetcher);
+  if (!result.ok || !isRecord(result.payload) || !Array.isArray(result.payload.items)) {
+    return { outcome: 'unavailable', videos: [] };
+  }
+  const videos = result.payload.items
+    .filter(isRecord)
+    .filter((item) => !isRecord(item.status) || item.status.embeddable !== false)
+    .map((item) => {
+      const video = normalizeYouTubeVideo(item);
+      if (!video) return null;
+      const details = isRecord(item.contentDetails) ? item.contentDetails : {};
+      return { ...video, durationSeconds: parseYouTubeDuration(details.duration) };
+    })
+    .filter((video): video is YouTubeChartVideo => video !== null);
+  return { outcome: videos.length ? 'results' : 'no_results', videos };
+}

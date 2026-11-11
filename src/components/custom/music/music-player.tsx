@@ -30,8 +30,9 @@ import {
 import { apiFetch } from '@/lib/api-client';
 import { AudiusPlaybackCheckSchema } from '@/lib/contracts/music';
 import styles from './music-player.module.css';
+import { loadYouTubeIframeApi } from './youtube-queue-player';
 
-export type MusicPlaybackMode = 'audius' | 'solco' | 'radio' | 'podcast' | 'jamendo';
+export type MusicPlaybackMode = 'audius' | 'solco' | 'radio' | 'podcast' | 'jamendo' | 'youtube';
 
 export type MusicPlayerTrack = {
   qualifiedId: string;
@@ -86,8 +87,36 @@ const HISTORY_THRESHOLD_SECONDS = 30;
 
 /** Le radio e i podcast non passano dalla verifica dei diritti Audius: sono stream pubblici. */
 export function isOpenStream(track: Pick<MusicPlayerTrack, 'playbackMode'>) {
-  return track.playbackMode === 'radio' || track.playbackMode === 'podcast';
+  return (
+    track.playbackMode === 'radio' ||
+    track.playbackMode === 'podcast' ||
+    track.playbackMode === 'youtube'
+  );
 }
+
+export function isYouTubeTrack(track: Pick<MusicPlayerTrack, 'playbackMode'> | null | undefined) {
+  return track?.playbackMode === 'youtube';
+}
+
+function youtubeVideoId(track: Pick<MusicPlayerTrack, 'qualifiedId'>) {
+  return /^youtube:([A-Za-z0-9_-]{11})$/.exec(track.qualifiedId)?.[1] ?? null;
+}
+
+/** Minimal surface of the official YouTube IFrame Player used by the Solco player. */
+type YouTubeEngine = {
+  loadVideoById: (videoId: string) => void;
+  playVideo: () => void;
+  pauseVideo: () => void;
+  seekTo: (seconds: number, allowSeekAhead: boolean) => void;
+  getCurrentTime: () => number;
+  getDuration: () => number;
+  destroy: () => void;
+};
+
+const YT_ENDED = 0;
+const YT_PLAYING = 1;
+const YT_PAUSED = 2;
+const YT_BUFFERING = 3;
 
 export function isLiveTrack(track: Pick<MusicPlayerTrack, 'playbackMode'> | null | undefined) {
   return track?.playbackMode === 'radio';
@@ -120,6 +149,11 @@ export function trackStreamPath(track: MusicPlayerTrack) {
   if (track.playbackMode === 'jamendo') {
     const id = /^jamendo:([0-9]{1,20})$/.exec(track.qualifiedId)?.[1];
     return id ? `/api/music/jamendo/${id}/stream` : null;
+  }
+  if (track.playbackMode === 'youtube') {
+    // Never fetched: YouTube plays only inside the official, visible IFrame player.
+    const id = youtubeVideoId(track);
+    return id ? `/youtube/${id}` : null;
   }
   const match = /^audius:([A-Za-z0-9_-]{1,128})$/.exec(track.qualifiedId);
   if (!match?.[1]) return null;
@@ -254,8 +288,23 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const [shuffle, setShuffle] = useState(false);
   const [repeat, setRepeat] = useState<RepeatMode>('off');
   const [expanded, setExpanded] = useState(false);
+  const ytHostRef = useRef<HTMLDivElement>(null);
+  const ytPlayerRef = useRef<YouTubeEngine | null>(null);
+  const [ytRequest, setYtRequest] = useState(0);
+  const ytEvents = useRef({
+    onPlaying: () => {},
+    onPaused: () => {},
+    onEnded: () => {},
+    onError: (_code: number) => {},
+    onProgress: (_elapsed: number, _duration: number) => {},
+  });
 
   const releaseAudio = useCallback(() => {
+    try {
+      ytPlayerRef.current?.pauseVideo();
+    } catch {
+      // The IFrame player may still be initialising.
+    }
     const audio = audioRef.current;
     if (!audio) return;
     audio.pause();
@@ -265,6 +314,16 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   const playCurrentTrack = useCallback(
     async (track: ActiveTrack) => {
+      if (isYouTubeTrack(track)) {
+        audioRef.current?.pause();
+        setErrorMessage(null);
+        setStatus('loading');
+        setElapsedSeconds(0);
+        setDurationSeconds(track.durationSeconds ?? 0);
+        // The engine effect loads the video once the visible dock is mounted.
+        setYtRequest((value) => value + 1);
+        return;
+      }
       const audio = audioRef.current;
       if (!audio) return;
       setErrorMessage(null);
@@ -352,6 +411,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   );
 
   const previousTrack = useCallback(async () => {
+    const yt = ytPlayerRef.current;
+    if (isYouTubeTrack(currentTrack) && yt && yt.getCurrentTime() > 5) {
+      yt.seekTo(0, true);
+      setElapsedSeconds(0);
+      return;
+    }
     const audio = audioRef.current;
     if (audio && !isLiveTrack(currentTrack) && audio.currentTime > 5) {
       audio.currentTime = 0;
@@ -368,6 +433,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   const togglePlayback = useCallback(async () => {
     if (!currentTrack) return;
+    if (isYouTubeTrack(currentTrack) && ytPlayerRef.current) {
+      if (status === 'playing') ytPlayerRef.current.pauseVideo();
+      else ytPlayerRef.current.playVideo();
+      return;
+    }
     if (status === 'playing') {
       audioRef.current?.pause();
       setStatus('paused');
@@ -396,6 +466,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   const seekTo = useCallback(
     (seconds: number) => {
+      if (isYouTubeTrack(currentTrack)) {
+        if (!Number.isFinite(seconds) || seconds < 0) return;
+        ytPlayerRef.current?.seekTo(seconds, true);
+        setElapsedSeconds(seconds);
+        return;
+      }
       const audio = audioRef.current;
       if (
         !audio ||
@@ -447,6 +523,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   const handleEnded = () => {
     const audio = audioRef.current;
+    if (repeat === 'one' && isYouTubeTrack(currentTrack) && ytPlayerRef.current) {
+      ytPlayerRef.current.seekTo(0, true);
+      ytPlayerRef.current.playVideo();
+      return;
+    }
     if (repeat === 'one' && audio && currentTrack) {
       audio.currentTime = 0;
       void audio.play();
@@ -476,6 +557,141 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   const hidePlayer = pathname === '/admin' || pathname.startsWith('/admin/');
   const showFull = expanded && Boolean(currentTrack) && !hidePlayer;
+  const youtubeActive = isYouTubeTrack(currentTrack) && !hidePlayer;
+
+  const recordProgress = (track: MusicPlayerTrack, seconds: number) => {
+    if (recordedRef.current !== track.qualifiedId && seconds >= HISTORY_THRESHOLD_SECONDS) {
+      recordedRef.current = track.qualifiedId;
+      recordPlay(track);
+    }
+  };
+
+  // Latest handlers for the YouTube engine callbacks (created once per player instance).
+  ytEvents.current = {
+    onPlaying: () => {
+      setStatus('playing');
+      setErrorMessage(null);
+    },
+    onPaused: () =>
+      setStatus((value) => (value === 'playing' || value === 'loading' ? 'paused' : value)),
+    onEnded: handleEnded,
+    onError: (code) => {
+      // 101/150: the uploader blocked embedding; 100: removed; 2/5: invalid or HTML5 error.
+      setErrorMessage(
+        code === 101 || code === 150
+          ? 'Questo video non può essere riprodotto fuori da YouTube. Passo al successivo.'
+          : 'Il video non è disponibile. Passo al successivo.',
+      );
+      const index = followingIndex(repeat === 'all');
+      if (index !== null && index !== queueIndex) void playQueueIndex(index);
+      else setStatus('error');
+    },
+    onProgress: (elapsed, duration) => {
+      setElapsedSeconds(elapsed);
+      if (duration > 0) setDurationSeconds(duration);
+      if (currentTrack) recordProgress(currentTrack, elapsed);
+    },
+  };
+
+  // YouTube engine: create the official player inside the visible dock, then reuse it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: ytRequest is an explicit (re)load trigger.
+  useEffect(() => {
+    if (!youtubeActive || !currentTrack) return;
+    const videoId = youtubeVideoId(currentTrack);
+    const host = ytHostRef.current;
+    if (!videoId || !host) return;
+    if (ytPlayerRef.current) {
+      ytPlayerRef.current.loadVideoById(videoId);
+      return;
+    }
+    let cancelled = false;
+    loadYouTubeIframeApi()
+      .then((api) => {
+        if (cancelled || !ytHostRef.current) return;
+        const mount = document.createElement('div');
+        ytHostRef.current.replaceChildren(mount);
+        const Player = api.Player as unknown as new (
+          element: HTMLElement,
+          options: Record<string, unknown>,
+        ) => YouTubeEngine;
+        ytPlayerRef.current = new Player(mount, {
+          videoId,
+          width: '100%',
+          height: '100%',
+          host: 'https://www.youtube.com',
+          playerVars: {
+            autoplay: 1,
+            controls: 0,
+            playsinline: 1,
+            rel: 0,
+            disablekb: 1,
+            iv_load_policy: 3,
+            origin: window.location.origin,
+          },
+          events: {
+            onStateChange: (event: { data: number }) => {
+              if (event.data === YT_PLAYING) ytEvents.current.onPlaying();
+              else if (event.data === YT_PAUSED) ytEvents.current.onPaused();
+              else if (event.data === YT_ENDED) ytEvents.current.onEnded();
+              else if (event.data === YT_BUFFERING) setStatus('loading');
+            },
+            onError: (event: { data: number }) => ytEvents.current.onError(event.data),
+          },
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setStatus('error');
+          setErrorMessage(
+            'Il player ufficiale YouTube non si è caricato. Controlla la connessione.',
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [youtubeActive, currentTrack?.qualifiedId, ytRequest]);
+
+  // Destroy the YouTube player when no YouTube track is active any more.
+  useEffect(() => {
+    if (youtubeActive) return;
+    try {
+      ytPlayerRef.current?.destroy();
+    } catch {
+      // Already removed from the DOM.
+    }
+    ytPlayerRef.current = null;
+  }, [youtubeActive]);
+
+  // Poll the IFrame player for progress (it exposes no timeupdate event).
+  useEffect(() => {
+    if (!youtubeActive || status !== 'playing') return;
+    const timer = window.setInterval(() => {
+      const yt = ytPlayerRef.current;
+      if (!yt) return;
+      try {
+        ytEvents.current.onProgress(yt.getCurrentTime(), yt.getDuration());
+      } catch {
+        // Player not ready yet.
+      }
+    }, 500);
+    return () => window.clearInterval(timer);
+  }, [status, youtubeActive]);
+
+  // YouTube's terms: no background playback. Pause when Solco is hidden.
+  useEffect(() => {
+    if (!youtubeActive) return;
+    const pauseHidden = () => {
+      if (document.visibilityState !== 'visible') ytPlayerRef.current?.pauseVideo();
+    };
+    document.addEventListener('visibilitychange', pauseHidden);
+    return () => document.removeEventListener('visibilitychange', pauseHidden);
+  }, [youtubeActive]);
+
+  useEffect(() => {
+    document.body.classList.toggle('has-video-dock', youtubeActive);
+    return () => document.body.classList.remove('has-video-dock');
+  }, [youtubeActive]);
 
   useEffect(() => {
     document.body.classList.toggle('has-music-player', Boolean(currentTrack) && !hidePlayer);
@@ -622,6 +838,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       </audio>
       {currentTrack && !hidePlayer ? (
         <>
+          {youtubeActive ? (
+            <div
+              className={`${styles.videoDock} ${showFull ? styles.videoDockExpanded : ''}`}
+              data-youtube-official-frame
+            >
+              <div ref={ytHostRef} className={styles.videoHost} />
+            </div>
+          ) : null}
           <aside className={styles.mini} aria-label="Player musicale Solco">
             <button
               type="button"
@@ -672,7 +896,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           </aside>
 
           <section
-            className={styles.full}
+            className={`${styles.full} ${youtubeActive ? styles.fullVideo : ''}`}
             aria-label="Player a schermo intero"
             hidden={!showFull}
             inert={!showFull}
@@ -700,9 +924,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             </header>
 
             <div className={styles.fullBody}>
-              <div className={styles.fullArt}>
-                <Artwork track={currentTrack} size={480} />
-              </div>
+              {youtubeActive ? null : (
+                <div className={styles.fullArt}>
+                  <Artwork track={currentTrack} size={480} />
+                </div>
+              )}
 
               <div className={styles.trackCopy}>
                 <strong title={currentTrack.title}>{currentTrack.title}</strong>

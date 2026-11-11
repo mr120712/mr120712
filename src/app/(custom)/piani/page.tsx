@@ -12,14 +12,13 @@ export const metadata: Metadata = {
 };
 
 const freeBenefits = [
-  'Ricerca su Audius e YouTube',
+  'Brani e video da YouTube nel player Solco',
   'Radio dal vivo e podcast',
   'Libreria con playlist, cartelle e cronologia',
 ];
 
 const proBenefits = [
   'Musica globale: brani completi dal catalogo Jamendo',
-  'Ascolto integrale dei brani con diritti verificati',
   'Statistiche avanzate',
   'Temi extra',
   'Card senza logo',

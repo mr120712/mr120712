@@ -90,3 +90,25 @@ export function jamendoToTrack(track: JamendoTrack): MusicPlayerTrack {
     playbackMode: 'jamendo',
   };
 }
+
+export type YouTubeVideoLike = {
+  videoId: string;
+  title: string;
+  channelTitle: string;
+  thumbnailUrl: string | null;
+  durationSeconds?: number | null;
+};
+
+export function videoToTrack(video: YouTubeVideoLike): MusicPlayerTrack {
+  return {
+    qualifiedId: `youtube:${video.videoId}`,
+    title: video.title,
+    artistName: video.channelTitle,
+    artworkUrl: video.thumbnailUrl,
+    sourceLabel: 'YouTube',
+    sourceUrl: `https://www.youtube.com/watch?v=${encodeURIComponent(video.videoId)}`,
+    sourceUrlLabel: 'Guarda su YouTube',
+    durationSeconds: video.durationSeconds ?? null,
+    playbackMode: 'youtube',
+  };
+}

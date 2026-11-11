@@ -147,6 +147,17 @@ export const YouTubeVideoSearchResultSchema = z.object({
   thumbnailUrl: httpsUrl.nullable(),
 });
 
+export const YouTubeChartResponseSchema = z.object({
+  outcome: z.enum(['results', 'no_results', 'unavailable']),
+  regionCode: z.string().regex(/^[A-Z]{2}$/),
+  videos: z.array(
+    YouTubeVideoSearchResultSchema.extend({
+      durationSeconds: z.number().int().positive().nullable(),
+    }),
+  ),
+});
+export type YouTubeChartResponse = z.infer<typeof YouTubeChartResponseSchema>;
+
 export const MusicSearchSourceSchema = z.object({
   id: z.enum(['audius', 'youtube']),
   label: z.string().min(1),

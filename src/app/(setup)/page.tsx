@@ -3,18 +3,18 @@
 import { Crown, Library, Mic, Radio, Search, TrendingUp } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { HomeCatalog } from '@/components/custom/music/home-catalog';
 import { JamendoSection } from '@/components/custom/music/jamendo-section';
 import { PodcastHomeRow } from '@/components/custom/music/podcast-home-row';
 import { RadioHomeRow } from '@/components/custom/music/radio-home-row';
 import { RecentlyPlayedRow } from '@/components/custom/music/recently-played-row';
+import { YouTubeCharts } from '@/components/custom/music/youtube-charts';
 import { AppTopBar } from '@/components/custom/site-nav';
 import styles from './home.module.css';
 
 export const metadata: Metadata = {
   title: { absolute: 'Scopri musica su Solco' },
   description:
-    'Classifiche, nuove uscite e artisti Audius, radio dal vivo da tutto il mondo, podcast e video musicali YouTube nel player ufficiale.',
+    'Classifiche musicali, brani e video da YouTube, radio dal vivo da tutto il mondo e podcast in un unico player.',
   alternates: { canonical: '/' },
 };
 
@@ -24,6 +24,17 @@ const shortcuts = [
   { href: '/podcasts', label: 'Podcast', icon: Mic },
   { href: '/library', label: 'Libreria', icon: Library },
   { href: '/piani', label: 'Premium', icon: Crown },
+];
+
+const genres = [
+  'Hit italiane',
+  'Pop',
+  'Rap italiano',
+  'Rock',
+  'Indie',
+  'Elettronica',
+  'Lo-fi',
+  'Jazz',
 ];
 
 export default function HomePage() {
@@ -61,15 +72,22 @@ export default function HomePage() {
 
         <RecentlyPlayedRow />
 
-        <HomeCatalog
-          afterCharts={
-            <>
-              <JamendoSection />
-              <RadioHomeRow />
-              <PodcastHomeRow />
-            </>
-          }
-        />
+        <div className={styles.feed}>
+          <YouTubeCharts />
+          <JamendoSection />
+          <RadioHomeRow />
+          <PodcastHomeRow />
+          <section className={styles.genres} aria-labelledby="genres-heading">
+            <h2 id="genres-heading">Generi e mood</h2>
+            <nav aria-label="Generi">
+              {genres.map((genre) => (
+                <Link key={genre} href={`/search?q=${encodeURIComponent(genre)}`}>
+                  {genre}
+                </Link>
+              ))}
+            </nav>
+          </section>
+        </div>
 
         <footer className={styles.footer}>
           <p>Solco · Ogni ascolto lascia un solco.</p>

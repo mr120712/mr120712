@@ -5,7 +5,11 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { type MusicPlayerTrack, useMusicPlayer } from '@/components/custom/music/music-player';
+import {
+  type MusicPlayerTrack,
+  trackStreamPath,
+  useMusicPlayer,
+} from '@/components/custom/music/music-player';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
 import {
@@ -14,8 +18,8 @@ import {
   type MusicCollectionItem,
   MusicCollectionsSchema,
 } from '@/lib/contracts/music';
+import { videoToTrack } from './live-tracks';
 import styles from './music.module.css';
-import { YouTubePlayer } from './youtube-video-card';
 
 function CollectionItem({
   collectionId,
@@ -34,16 +38,11 @@ function CollectionItem({
   isLoading: boolean;
   onRemove: (collectionId: string, itemId: string) => void;
 }) {
-  const [video, setVideo] = useState<{ id: string; title: string } | null>(null);
   const expired = item.source === 'youtube' && !item.title;
-
-  function selectYouTube() {
-    setVideo(video ? null : { id: item.sourceId, title: item.title ?? 'Video YouTube salvato' });
-  }
 
   return (
     <article
-      className={`${styles.resultCard} ${item.source === 'youtube' ? styles.youtubeCard : ''} ${item.source === 'youtube' && video ? styles.youtubeCardPlaying : ''}`}
+      className={`${styles.resultCard} ${item.source === 'youtube' ? styles.youtubeCard : ''} ${item.source === 'youtube' && isCurrentTrack ? styles.youtubeCardPlaying : ''}`}
     >
       <div
         className={`${styles.artwork} ${item.source === 'youtube' ? styles.youtubeArtwork : ''}`}
@@ -137,10 +136,9 @@ function CollectionItem({
                 </a>
               ) : null}
             </div>
-            <Button type="button" variant="secondary" onClick={selectYouTube}>
-              {video ? 'Chiudi player YouTube' : 'Apri player YouTube ufficiale'}
+            <Button type="button" variant="secondary" onClick={onPlay} disabled={isLoading}>
+              {isCurrentTrack ? (isPlaying ? 'Pausa' : 'Riprendi') : 'Riproduci'}
             </Button>
-            {video ? <YouTubePlayer videoId={video.id} title={video.title} /> : null}
           </>
         )}
       </div>
@@ -284,6 +282,18 @@ export function MusicCollections({
       {!loading && !message
         ? visibleCollections.map((collection) => {
             const queue: MusicPlayerTrack[] = collection.items.flatMap((item) => {
+              if (item.source === 'youtube') {
+                return item.title && /^[A-Za-z0-9_-]{11}$/.test(item.sourceId)
+                  ? [
+                      videoToTrack({
+                        videoId: item.sourceId,
+                        title: item.title,
+                        channelTitle: item.creatorName ?? 'YouTube',
+                        thumbnailUrl: item.artworkUrl,
+                      }),
+                    ]
+                  : [];
+              }
               if (
                 item.source !== 'audius' ||
                 !/^[A-Za-z0-9_-]{1,128}$/.test(item.sourceId) ||
@@ -343,22 +353,18 @@ export function MusicCollections({
                         collectionId={collection.id}
                         item={item}
                         onPlay={() => {
-                          const current = queue.find(
-                            (track) => track.qualifiedId === `audius:${item.sourceId}`,
-                          );
+                          const qualifiedId = `${item.source}:${item.sourceId}`;
+                          const current = queue.find((track) => track.qualifiedId === qualifiedId);
                           if (!current) return;
                           if (player.currentTrack?.qualifiedId === current.qualifiedId) {
                             void player.togglePlayback();
                             return;
                           }
-                          void player.playTrack(
-                            current,
-                            `/api/music/audius/tracks/${encodeURIComponent(item.sourceId)}/stream`,
-                            queue,
-                          );
+                          const path = trackStreamPath(current);
+                          if (path) void player.playTrack(current, path, queue);
                         }}
                         isCurrentTrack={
-                          player.currentTrack?.qualifiedId === `audius:${item.sourceId}`
+                          player.currentTrack?.qualifiedId === `${item.source}:${item.sourceId}`
                         }
                         isPlaying={player.status === 'playing'}
                         isLoading={player.status === 'loading'}
@@ -368,7 +374,7 @@ export function MusicCollections({
                   </div>
                 ) : (
                   <p className={styles.emptyCollection}>
-                    La raccolta è vuota. Cerca musica e aggiungi risultati Audius o YouTube.
+                    La raccolta è vuota. Cerca un brano e tocca il cuore per aggiungerlo.
                   </p>
                 )}
               </section>

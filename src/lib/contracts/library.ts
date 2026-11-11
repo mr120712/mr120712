@@ -104,13 +104,20 @@ export const JamendoListResponseSchema = z.object({
 export type JamendoListResponse = z.infer<typeof JamendoListResponseSchema>;
 
 // ---------- Libreria ----------
-export const PlaybackModeSchema = z.enum(['audius', 'solco', 'radio', 'podcast', 'jamendo']);
+export const PlaybackModeSchema = z.enum([
+  'audius',
+  'solco',
+  'radio',
+  'podcast',
+  'jamendo',
+  'youtube',
+]);
 
 export const HistoryTrackSchema = z.object({
   qualifiedId: z
     .string()
     .regex(
-      /^(audius:[A-Za-z0-9_-]{1,128}|radio:[A-Za-z0-9_-]{1,128}|podcast:[0-9]{1,20}~[A-Za-z0-9_-]{1,64}|jamendo:[0-9]{1,20})$/,
+      /^(audius:[A-Za-z0-9_-]{1,128}|radio:[A-Za-z0-9_-]{1,128}|podcast:[0-9]{1,20}~[A-Za-z0-9_-]{1,64}|jamendo:[0-9]{1,20}|youtube:[A-Za-z0-9_-]{11})$/,
     ),
   title: shortText(400),
   artistName: shortText(300),

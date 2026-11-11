@@ -412,3 +412,17 @@ select:focus-visible,
 body.music-player-expanded {
   overflow: hidden;
 }
+
+/* YouTube video dock above the mini player. */
+body.has-music-player.has-video-dock {
+  padding-bottom: calc(
+    var(--tab-bar-offset) +
+    var(--mini-player-height) +
+    260px +
+    env(safe-area-inset-bottom)
+  );
+}
+
+body.has-video-dock .solco-support-launcher {
+  display: none;
+}
