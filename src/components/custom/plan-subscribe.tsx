@@ -27,6 +27,9 @@ export type PlanCard = {
   benefits: string[];
 };
 
+/** Link di pagamento PayPal del titolare (pagina di checkout ospitata da PayPal). */
+export const PAYPAL_PAYMENT_LINK = 'https://www.paypal.com/ncp/payment/5HF3PEA5GM75U';
+
 const euro = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' });
 
 function errorMessage(error: unknown) {
@@ -198,6 +201,19 @@ export function PlanSubscribe({ plans }: { plans: PlanCard[] }) {
           );
         })}
       </ul>
+      {state && !state.paypalEnabled && !current ? (
+        <div className={styles.paypalLink}>
+          <Button asChild variant="outline">
+            <a href={PAYPAL_PAYMENT_LINK} target="_blank" rel="noopener noreferrer">
+              Paga con PayPal
+            </a>
+          </Button>
+          <p className={styles.payNote}>
+            Il pagamento si apre sulla pagina sicura di PayPal. Usa la stessa email del tuo account
+            Solco: l’attivazione di Premium viene fatta a mano dopo la conferma del pagamento.
+          </p>
+        </div>
+      ) : null}
       {state?.enabled || state?.paypalEnabled ? (
         <p className={styles.payNote}>
           Pagamento sicuro con Stripe (carta, Apple Pay, Google Pay) o PayPal. Disdici quando vuoi.

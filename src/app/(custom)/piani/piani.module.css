@@ -201,3 +201,12 @@
   display: grid;
   gap: 8px;
 }
+
+.paypalLink {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 4px);
+}
