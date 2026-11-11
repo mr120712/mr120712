@@ -18,3 +18,20 @@ export function preferPooledDatabaseUrl(env: Record<string, string | undefined> 
   env.DATABASE_URL = pooled;
   return true;
 }
+
+/** Scheme and host of each database URL (never credentials), for the server log. */
+export function describeDatabaseUrls(env: Record<string, string | undefined> = process.env) {
+  const parts = ['DATABASE_URL', 'PRISMA_DATABASE_URL', 'DATABASE_URL_POOLED', 'POSTGRES_URL'].map(
+    (key) => {
+      const raw = env[key]?.trim();
+      if (!raw) return `${key}=unset`;
+      try {
+        const url = new URL(raw);
+        return `${key}=${url.protocol}//${url.hostname}`;
+      } catch {
+        return `${key}=invalid`;
+      }
+    },
+  );
+  return `vercel=${env.VERCEL ?? 'unset'} ${parts.join(' ')}`;
+}
