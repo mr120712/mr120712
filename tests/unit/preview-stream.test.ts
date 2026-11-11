@@ -8,9 +8,9 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('server-only', () => ({}));
 vi.mock('@/lib/business/premium-access.server', () => ({ currentUserHasPremium: mocks.premium }));
-vi.mock('@/lib/music/radio-browser.server', () => ({ resolveStationStream: mocks.resolve }));
+vi.mock('@/lib/music/jamendo.server', () => ({ resolveJamendoAudio: mocks.resolve }));
 
-import { GET } from '@/app/api/music/radio/[stationId]/stream/route';
+import { GET } from '@/app/api/music/jamendo/[trackId]/stream/route';
 import {
   PREVIEW_MAX_BYTES,
   previewResponse,
@@ -78,17 +78,17 @@ describe('anteprima di 30 secondi', () => {
     const fetchSpy = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValue(new Response(bytes(1000), { headers: { 'content-type': 'audio/mpeg' } }));
-    const params = { params: Promise.resolve({ stationId: 'station-1' }) };
+    const params = { params: Promise.resolve({ trackId: '1532771' }) };
     const free = await GET(
-      new Request('https://solco.test/api/music/radio/station-1/stream'),
+      new Request('https://solco.test/api/music/jamendo/1532771/stream'),
       params,
     );
     expect(free.status).toBe(200);
     expect(free.headers.get('x-solco-preview')).toBe('30');
 
     mocks.premium.mockResolvedValueOnce(true);
-    const paid = await GET(new Request('https://solco.test/api/music/radio/station-1/stream'), {
-      params: Promise.resolve({ stationId: 'station-1' }),
+    const paid = await GET(new Request('https://solco.test/api/music/jamendo/1532771/stream'), {
+      params: Promise.resolve({ trackId: '1532771' }),
     });
     expect(paid.status).toBe(302);
     expect(paid.headers.get('location')).toBe('https://93.184.216.34/live.mp3');

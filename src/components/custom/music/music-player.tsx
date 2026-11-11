@@ -98,13 +98,9 @@ export function isOpenStream(track: Pick<MusicPlayerTrack, 'playbackMode'>) {
   );
 }
 
-/** Audio Solco con anteprima di 30 s per gli utenti free: radio, podcast e Jamendo. */
+/** Audio con anteprima di 30 s per gli utenti free: podcast e Jamendo (le radio sono gratuite). */
 export function isPreviewTrack(track: Pick<MusicPlayerTrack, 'playbackMode'> | null | undefined) {
-  return (
-    track?.playbackMode === 'radio' ||
-    track?.playbackMode === 'podcast' ||
-    track?.playbackMode === 'jamendo'
-  );
+  return track?.playbackMode === 'podcast' || track?.playbackMode === 'jamendo';
 }
 
 export const FREE_PREVIEW_SECONDS = 30;

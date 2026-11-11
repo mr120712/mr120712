@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/api-client', () => ({ apiFetch: vi.fn(async () => ({})) }));
-vi.mock('next/navigation', () => ({ usePathname: () => '/radio' }));
+vi.mock('next/navigation', () => ({ usePathname: () => '/podcasts' }));
 
 import {
   MusicPlayerProvider,
@@ -13,6 +13,15 @@ import {
 } from '@/components/custom/music/music-player';
 
 const station: MusicPlayerTrack = {
+  qualifiedId: 'podcast:123~episodeA',
+  title: 'Episodio di prova',
+  artistName: 'Show',
+  sourceLabel: 'Podcast',
+  sourceUrl: null,
+  durationSeconds: 600,
+  playbackMode: 'podcast',
+};
+const radio: MusicPlayerTrack = {
   qualifiedId: 'radio:station-1',
   title: 'Radio Prova',
   artistName: 'Italy',
@@ -25,12 +34,22 @@ const roots: Array<ReturnType<typeof createRoot>> = [];
 function Probe() {
   const player = useMusicPlayer();
   return (
-    <button
-      type="button"
-      onClick={() => void player.playTrack(station, '/api/music/radio/station-1/stream')}
-    >
-      Avvia
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={() =>
+          void player.playTrack(station, '/api/music/podcasts/123/episodes/episodeA/stream')
+        }
+      >
+        Avvia
+      </button>
+      <button
+        type="button"
+        onClick={() => void player.playTrack(radio, '/api/music/radio/station-1/stream')}
+      >
+        Radio
+      </button>
+    </>
   );
 }
 
@@ -79,6 +98,23 @@ afterEach(async () => {
 });
 
 describe('player: free con anteprima, Premium completo e in background', () => {
+  it('le radio sono gratuite: nessuna anteprima e nessuno stop a 30 secondi', async () => {
+    const container = await mount(false);
+    const radioButton = [...container.querySelectorAll('button')].find(
+      (b) => b.textContent === 'Radio',
+    );
+    await act(async () => {
+      radioButton?.click();
+      await Promise.resolve();
+    });
+    const audio = container.querySelector('audio');
+    if (!audio) throw new Error('audio mancante');
+    expect(audio.getAttribute('src')).toBe('/api/music/radio/station-1/stream');
+    expect(container.textContent).not.toContain('ANTEPRIMA 30s');
+    await act(async () => setTime(audio, 45));
+    expect(container.textContent).not.toContain('Fine dell’anteprima');
+  });
+
   it('ferma gli utenti free a 30 secondi e mostra l’invito a Premium, anche in background', async () => {
     const container = await mount(false);
     const audio = container.querySelector('audio');
