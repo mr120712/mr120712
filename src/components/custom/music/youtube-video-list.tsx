@@ -3,6 +3,7 @@
 
 import { Heart, Pause, Play } from 'lucide-react';
 import { toast } from 'sonner';
+import { BackgroundListenButton } from '@/components/custom/music/background-listen-button';
 import { FallbackArt } from '@/components/custom/music/fallback-art';
 import { useLibrary } from '@/components/custom/music/library-context';
 import { videoToTrack, type YouTubeVideoLike } from '@/components/custom/music/live-tracks';
@@ -82,6 +83,7 @@ export function YouTubeVideoList({
               </span>
             </div>
             <div className={styles.rowActions}>
+              <BackgroundListenButton video={video} />
               {library.signedIn ? (
                 <button
                   type="button"

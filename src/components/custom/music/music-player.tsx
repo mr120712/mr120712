@@ -29,6 +29,7 @@ import {
 } from 'react';
 import { apiFetch } from '@/lib/api-client';
 import { AudiusPlaybackCheckSchema } from '@/lib/contracts/music';
+import { BackgroundListenButton } from './background-listen-button';
 import styles from './music-player.module.css';
 import { loadYouTubeIframeApi } from './youtube-queue-player';
 
@@ -1257,6 +1258,16 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                     Ascolti gratuiti questo mese: {Math.min(playsUsed, playsLimit)} di {playsLimit}.{' '}
                     <a href="/piani">Illimitati con Premium</a>
                   </p>
+                ) : null}
+                {youtubeActive && youtubeVideoId(currentTrack) ? (
+                  <BackgroundListenButton
+                    compact={false}
+                    video={{
+                      videoId: youtubeVideoId(currentTrack) ?? '',
+                      title: currentTrack.title,
+                      channelTitle: currentTrack.artistName ?? '',
+                    }}
+                  />
                 ) : null}
                 {youtubeActive ? (
                   <p className={styles.adNote}>
