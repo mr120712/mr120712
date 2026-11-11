@@ -12,17 +12,12 @@ export const metadata: Metadata = {
 
 const freeBenefits = [
   'Brani e video da YouTube nel player Solco',
+  'Musica globale senza pubblicità (catalogo Jamendo)',
   'Radio dal vivo e podcast',
   'Libreria con playlist, cartelle e cronologia',
 ];
 
-const proBenefits = [
-  'Musica globale senza pubblicità: brani completi dal catalogo Jamendo',
-  'Statistiche avanzate',
-  'Temi extra',
-  'Card senza logo',
-  'Creazione di brani',
-];
+const proBenefits = ['Statistiche avanzate', 'Temi extra', 'Card senza logo', 'Creazione di brani'];
 
 const faq = [
   {
@@ -65,7 +60,9 @@ export default function PlansPage() {
           annualEuroCents: plan.annualEuroCents,
           annualSavingsEuroCents: plan.annualSavingsEuroCents,
           benefits:
-            plan.monthlyEuroCents === 0 ? freeBenefits : [freeBenefits[0] ?? '', ...proBenefits],
+            plan.monthlyEuroCents === 0
+              ? freeBenefits
+              : ['Tutto quello che c’è in Free', ...proBenefits],
         }))}
       />
 

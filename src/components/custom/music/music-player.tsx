@@ -90,6 +90,7 @@ export function isOpenStream(track: Pick<MusicPlayerTrack, 'playbackMode'>) {
   return (
     track.playbackMode === 'radio' ||
     track.playbackMode === 'podcast' ||
+    track.playbackMode === 'jamendo' ||
     track.playbackMode === 'youtube'
   );
 }

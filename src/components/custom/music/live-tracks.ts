@@ -83,7 +83,7 @@ export function jamendoToTrack(track: JamendoTrack): MusicPlayerTrack {
     title: track.title,
     artistName: track.artistName,
     artworkUrl: track.artworkUrl,
-    sourceLabel: 'Premium · Jamendo',
+    sourceLabel: 'Jamendo',
     sourceUrl: track.pageUrl,
     sourceUrlLabel: 'Brano su Jamendo (licenza Creative Commons)',
     durationSeconds: track.durationSeconds,

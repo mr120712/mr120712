@@ -1,8 +1,7 @@
-// @polsia:user-owned — "Musica globale · Premium": brani completi dal catalogo Jamendo.
+// @polsia:user-owned — "Musica globale": brani completi dal catalogo Jamendo, gratis per tutti.
 'use client';
 
-import { Crown, Pause, Play } from 'lucide-react';
-import Link from 'next/link';
+import { Pause, Play } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { FallbackArt } from '@/components/custom/music/fallback-art';
 import { jamendoToTrack } from '@/components/custom/music/live-tracks';
@@ -65,12 +64,9 @@ export function JamendoSection({
     >
       <header className={styles.sectionHeader}>
         <div>
-          <p className={styles.eyebrow}>
-            <Crown aria-hidden="true" width={11} height={11} /> PREMIUM · CATALOGO GLOBALE
-          </p>
+          <p className={styles.eyebrow}>CATALOGO GLOBALE · GRATIS</p>
           <h2 id="jamendo-heading">{query ? 'Brani completi' : 'Musica globale senza limiti'}</h2>
         </div>
-        <Link href="/piani">Premium</Link>
       </header>
       {!response ? (
         <p className={styles.state}>Caricamento del catalogo…</p>
@@ -125,8 +121,8 @@ export function JamendoSection({
         </ol>
       )}
       <p className={styles.state}>
-        Brani completi da Jamendo, musica indipendente da tutto il mondo in licenza Creative
-        Commons. Inclusi in Premium, Premium Plus e Family.
+        Brani completi e senza pubblicità da Jamendo: musica indipendente da tutto il mondo in
+        licenza Creative Commons. Gratis per tutti, anche in background.
       </p>
     </section>
   );

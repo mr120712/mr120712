@@ -1,4 +1,4 @@
-// @polsia:user-owned — catalogo Jamendo (musica indipendente in Creative Commons) per Premium.
+// @polsia:user-owned — catalogo Jamendo (musica indipendente in Creative Commons), gratis per tutti.
 // Richiede JAMENDO_CLIENT_ID (https://devportal.jamendo.com). Verificare i termini Jamendo
 // per l'uso commerciale prima di vendere l'accesso.
 import 'server-only';
