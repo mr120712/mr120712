@@ -15,3 +15,26 @@ model SolcoSubscription {
 
   @@index([userId, status])
 }
+
+/// Piani di fatturazione creati una volta sull'account PayPal (prodotto + piano per prezzo).
+model PayPalBillingPlan {
+  id           String   @id @default(cuid())
+  key          String   @unique
+  paypalPlanId String
+  createdAt    DateTime @default(now())
+}
+
+model PayPalSubscription {
+  id                   String    @id @default(cuid())
+  userId               String
+  planId               String
+  period               String
+  paypalSubscriptionId String    @unique
+  status               String
+  nextBillingAt        DateTime?
+  checkedAt            DateTime  @default(now())
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([userId, status])
+}

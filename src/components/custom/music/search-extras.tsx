@@ -3,6 +3,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { JamendoSection } from '@/components/custom/music/jamendo-section';
 import { useLibrary } from '@/components/custom/music/library-context';
 import { PodcastTile } from '@/components/custom/music/podcast-tile';
 import { StationTile } from '@/components/custom/music/radio-station-tile';
@@ -41,6 +42,8 @@ export function SearchExtras({ query }: { query: string }) {
 
   return (
     <>
+      <JamendoSection query={query} />
+
       <section className={styles.section} aria-labelledby="search-radio-heading">
         <header className={styles.sectionHeader}>
           <h2 id="search-radio-heading">Radio</h2>

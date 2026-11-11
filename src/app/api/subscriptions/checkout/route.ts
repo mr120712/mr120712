@@ -6,7 +6,7 @@ import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.s
 import {
   createSubscriptionCheckout,
   getUserSubscription,
-  isSubscriptionActive,
+  hasActiveSubscription,
 } from '@/lib/business/stripe-subscriptions.server';
 import {
   privateHeaders,
@@ -41,7 +41,7 @@ export async function POST(request: Request) {
   }
   try {
     const existing = await getUserSubscription(auth.user.id);
-    if (isSubscriptionActive(existing)) {
+    if (await hasActiveSubscription(auth.user.id)) {
       return NextResponse.json(
         {
           error: 'already_subscribed',

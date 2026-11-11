@@ -84,14 +84,33 @@ export const PodcastDetailResponseSchema = z.object({
 });
 export type PodcastDetailResponse = z.infer<typeof PodcastDetailResponseSchema>;
 
+// ---------- Jamendo (Premium) ----------
+export const JamendoTrackSchema = z.object({
+  id: z.string().regex(/^[0-9]{1,20}$/),
+  title: shortText(300),
+  artistName: shortText(300),
+  albumName: z.string().max(300).nullable(),
+  artworkUrl: httpsUrl.nullable(),
+  durationSeconds: z.number().int().positive().nullable(),
+  pageUrl: httpsUrl.nullable(),
+  licenseUrl: httpsUrl.nullable(),
+});
+export type JamendoTrack = z.infer<typeof JamendoTrackSchema>;
+
+export const JamendoListResponseSchema = z.object({
+  outcome: z.enum(['results', 'no_results', 'unavailable', 'not_configured']),
+  tracks: z.array(JamendoTrackSchema),
+});
+export type JamendoListResponse = z.infer<typeof JamendoListResponseSchema>;
+
 // ---------- Libreria ----------
-export const PlaybackModeSchema = z.enum(['audius', 'solco', 'radio', 'podcast']);
+export const PlaybackModeSchema = z.enum(['audius', 'solco', 'radio', 'podcast', 'jamendo']);
 
 export const HistoryTrackSchema = z.object({
   qualifiedId: z
     .string()
     .regex(
-      /^(audius:[A-Za-z0-9_-]{1,128}|radio:[A-Za-z0-9_-]{1,128}|podcast:[0-9]{1,20}~[A-Za-z0-9_-]{1,64})$/,
+      /^(audius:[A-Za-z0-9_-]{1,128}|radio:[A-Za-z0-9_-]{1,128}|podcast:[0-9]{1,20}~[A-Za-z0-9_-]{1,64}|jamendo:[0-9]{1,20})$/,
     ),
   title: shortText(400),
   artistName: shortText(300),

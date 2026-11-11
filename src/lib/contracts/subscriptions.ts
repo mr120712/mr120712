@@ -19,8 +19,10 @@ export const SubscriptionConfirmRequestSchema = z.object({
 
 export const SubscriptionStateSchema = z.object({
   enabled: z.boolean(),
+  paypalEnabled: z.boolean(),
   subscription: z
     .object({
+      provider: z.enum(['stripe', 'paypal']),
       planId: PaidPlanIdSchema,
       period: BillingPeriodSchema,
       status: z.string(),
@@ -33,3 +35,7 @@ export const SubscriptionStateSchema = z.object({
 export type SubscriptionState = z.infer<typeof SubscriptionStateSchema>;
 
 export const SubscriptionPortalResponseSchema = z.object({ url: z.string().url() });
+
+export const PayPalConfirmRequestSchema = z.object({
+  subscriptionId: z.string().regex(/^I-[A-Z0-9]{6,40}$/),
+});

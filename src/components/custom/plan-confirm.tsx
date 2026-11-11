@@ -9,26 +9,32 @@ import { apiFetch } from '@/lib/api-client';
 
 type State = 'checking' | 'active' | 'pending' | 'error';
 
-export function PlanConfirm() {
-  const sessionId = useSearchParams().get('session_id') ?? '';
+export function PlanConfirm({ provider = 'stripe' }: { provider?: 'stripe' | 'paypal' }) {
+  const params = useSearchParams();
+  const sessionId =
+    (provider === 'paypal' ? params.get('subscription_id') : params.get('session_id')) ?? '';
   const [state, setState] = useState<State>('checking');
 
   useEffect(() => {
-    if (!/^cs_[A-Za-z0-9_]+$/.test(sessionId)) {
+    const valid = provider === 'paypal' ? /^I-[A-Z0-9]{6,40}$/ : /^cs_[A-Za-z0-9_]+$/;
+    if (!valid.test(sessionId)) {
       setState('error');
       return;
     }
-    apiFetch<{ active: boolean }>('/api/subscriptions/confirm', {
-      method: 'POST',
-      body: JSON.stringify({ sessionId }),
-    })
+    apiFetch<{ active: boolean }>(
+      provider === 'paypal' ? '/api/subscriptions/paypal/confirm' : '/api/subscriptions/confirm',
+      {
+        method: 'POST',
+        body: JSON.stringify(provider === 'paypal' ? { subscriptionId: sessionId } : { sessionId }),
+      },
+    )
       .then((result) => setState(result.active ? 'active' : 'pending'))
       .catch(() => setState('error'));
-  }, [sessionId]);
+  }, [provider, sessionId]);
 
   return (
     <div>
-      {state === 'checking' ? <p>Verifico il pagamento con Stripe…</p> : null}
+      {state === 'checking' ? <p>Verifico il pagamento…</p> : null}
       {state === 'active' ? (
         <>
           <h1>Benvenuto in Solco Premium!</h1>

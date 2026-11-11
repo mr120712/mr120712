@@ -18,6 +18,7 @@ const freeBenefits = [
 ];
 
 const proBenefits = [
+  'Musica globale: brani completi dal catalogo Jamendo',
   'Ascolto integrale dei brani con diritti verificati',
   'Statistiche avanzate',
   'Temi extra',

@@ -4,6 +4,7 @@ import { Crown, Library, Mic, Radio, Search, TrendingUp } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { HomeCatalog } from '@/components/custom/music/home-catalog';
+import { JamendoSection } from '@/components/custom/music/jamendo-section';
 import { PodcastHomeRow } from '@/components/custom/music/podcast-home-row';
 import { RadioHomeRow } from '@/components/custom/music/radio-home-row';
 import { RecentlyPlayedRow } from '@/components/custom/music/recently-played-row';
@@ -63,6 +64,7 @@ export default function HomePage() {
         <HomeCatalog
           afterCharts={
             <>
+              <JamendoSection />
               <RadioHomeRow />
               <PodcastHomeRow />
             </>

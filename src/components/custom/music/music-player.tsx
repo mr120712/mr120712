@@ -31,7 +31,7 @@ import { apiFetch } from '@/lib/api-client';
 import { AudiusPlaybackCheckSchema } from '@/lib/contracts/music';
 import styles from './music-player.module.css';
 
-export type MusicPlaybackMode = 'audius' | 'solco' | 'radio' | 'podcast';
+export type MusicPlaybackMode = 'audius' | 'solco' | 'radio' | 'podcast' | 'jamendo';
 
 export type MusicPlayerTrack = {
   qualifiedId: string;
@@ -117,6 +117,10 @@ export function trackStreamPath(track: MusicPlayerTrack) {
     if (!match?.[1] || !match[2]) return null;
     return `/api/music/podcasts/${match[1]}/episodes/${match[2]}/stream`;
   }
+  if (track.playbackMode === 'jamendo') {
+    const id = /^jamendo:([0-9]{1,20})$/.exec(track.qualifiedId)?.[1];
+    return id ? `/api/music/jamendo/${id}/stream` : null;
+  }
   const match = /^audius:([A-Za-z0-9_-]{1,128})$/.exec(track.qualifiedId);
   if (!match?.[1]) return null;
   if (track.playbackMode === 'audius') {
@@ -128,6 +132,10 @@ export function trackStreamPath(track: MusicPlayerTrack) {
 
 function playbackPath(track: MusicPlayerTrack) {
   if (isOpenStream(track)) return null;
+  if (track.playbackMode === 'jamendo') {
+    const id = /^jamendo:([0-9]{1,20})$/.exec(track.qualifiedId)?.[1];
+    return id ? `/api/music/jamendo/${id}/playback` : null;
+  }
   const match = /^audius:([A-Za-z0-9_-]{1,128})$/.exec(track.qualifiedId);
   if (!match?.[1]) return null;
   if (track.playbackMode === 'audius') {
@@ -163,6 +171,10 @@ function failureMessage(error: unknown, track: MusicPlayerTrack | null) {
       ? (error.cause as { error?: unknown; reason?: unknown; retryAfterSeconds?: unknown })
       : null;
   const reason = typeof cause?.reason === 'string' ? cause.reason : null;
+  if (reason === 'premium_required')
+    return 'Il catalogo globale Jamendo è incluso in Solco Premium. Scopri i piani in /piani.';
+  if (track?.playbackMode === 'jamendo' && reason === 'unauthorized')
+    return 'Accedi con un account Premium per ascoltare il catalogo globale.';
   if (reason === 'unauthorized') return 'Accedi per verificare l’accesso a Solco Pro.';
   if (reason === 'pro_required')
     return 'L’ascolto integrale richiede un abbonamento Solco Pro attivo.';
@@ -455,7 +467,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     setErrorMessage(
       isOpenStream(currentTrack)
         ? failureMessage(null, currentTrack)
-        : 'Lo stream Audius è terminato con un errore. L’audio è stato fermato.',
+        : currentTrack.playbackMode === 'jamendo'
+          ? 'Lo stream Jamendo si è interrotto. Riprova.'
+          : 'Lo stream Audius è terminato con un errore. L’audio è stato fermato.',
     );
     releaseAudio();
   };

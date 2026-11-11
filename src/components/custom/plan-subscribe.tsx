@@ -46,15 +46,19 @@ export function PlanSubscribe({ plans }: { plans: PlanCard[] }) {
   useEffect(() => {
     apiFetch('/api/subscriptions', { schema: SubscriptionStateSchema })
       .then(setState)
-      .catch(() => setState({ enabled: false, subscription: null }));
+      .catch(() => setState({ enabled: false, paypalEnabled: false, subscription: null }));
   }, []);
 
   const current = state?.subscription?.active ? state.subscription : null;
 
-  const subscribe = async (planId: PaidPlanId) => {
-    setPending(planId);
+  const subscribe = async (planId: PaidPlanId, provider: 'stripe' | 'paypal' = 'stripe') => {
+    setPending(`${provider}:${planId}`);
     try {
-      const { url } = await apiFetch('/api/subscriptions/checkout', {
+      const endpoint =
+        provider === 'paypal'
+          ? '/api/subscriptions/paypal/checkout'
+          : '/api/subscriptions/checkout';
+      const { url } = await apiFetch(endpoint, {
         method: 'POST',
         body: JSON.stringify({ planId, period }),
         schema: SubscriptionCheckoutResponseSchema,
@@ -67,6 +71,10 @@ export function PlanSubscribe({ plans }: { plans: PlanCard[] }) {
   };
 
   const manage = async () => {
+    if (current?.provider === 'paypal') {
+      window.open('https://www.paypal.com/myaccount/autopay/', '_blank', 'noopener');
+      return;
+    }
     setPending('portal');
     try {
       const { url } = await apiFetch('/api/subscriptions/portal', {
@@ -143,7 +151,7 @@ export function PlanSubscribe({ plans }: { plans: PlanCard[] }) {
                 <p className={styles.soon}>Piano attuale</p>
               ) : !state ? (
                 <p className={styles.soon}>Verifica disponibilità…</p>
-              ) : !state.enabled ? (
+              ) : !state.enabled && !state.paypalEnabled ? (
                 <p className={styles.soon}>Abbonamento in arrivo</p>
               ) : !session?.user ? (
                 <Button asChild className={styles.cta}>
@@ -160,22 +168,39 @@ export function PlanSubscribe({ plans }: { plans: PlanCard[] }) {
                   Cambia piano
                 </Button>
               ) : (
-                <Button
-                  type="button"
-                  className={styles.cta}
-                  onClick={() => void subscribe(plan.id as PaidPlanId)}
-                  disabled={pending !== null}
-                >
-                  {pending === plan.id ? 'Apertura del pagamento…' : `Abbonati a ${plan.name}`}
-                </Button>
+                <div className={styles.ctaGroup}>
+                  {state.enabled ? (
+                    <Button
+                      type="button"
+                      className={styles.cta}
+                      onClick={() => void subscribe(plan.id as PaidPlanId, 'stripe')}
+                      disabled={pending !== null}
+                    >
+                      {pending === `stripe:${plan.id}`
+                        ? 'Apertura del pagamento…'
+                        : `Abbonati a ${plan.name}`}
+                    </Button>
+                  ) : null}
+                  {state.paypalEnabled ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className={styles.cta}
+                      onClick={() => void subscribe(plan.id as PaidPlanId, 'paypal')}
+                      disabled={pending !== null}
+                    >
+                      {pending === `paypal:${plan.id}` ? 'Apertura di PayPal…' : 'Paga con PayPal'}
+                    </Button>
+                  ) : null}
+                </div>
               )}
             </li>
           );
         })}
       </ul>
-      {state?.enabled ? (
+      {state?.enabled || state?.paypalEnabled ? (
         <p className={styles.payNote}>
-          Pagamento sicuro con Stripe: carta, PayPal, Apple Pay o Google Pay. Disdici quando vuoi.
+          Pagamento sicuro con Stripe (carta, Apple Pay, Google Pay) o PayPal. Disdici quando vuoi.
         </p>
       ) : null}
     </>

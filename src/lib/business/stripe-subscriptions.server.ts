@@ -251,7 +251,10 @@ export async function getUserSubscription(
 }
 
 export async function hasActiveSubscription(userId: string, now = new Date()) {
-  return isSubscriptionActive(await getUserSubscription(userId, now), now);
+  if (isSubscriptionActive(await getUserSubscription(userId, now), now)) return true;
+  // PayPal subscriptions grant the same access (imported lazily to avoid a cycle).
+  const paypal = await import('@/lib/business/paypal-subscriptions.server');
+  return paypal.isPayPalSubscriptionActive(await paypal.getUserPayPalSubscription(userId, now));
 }
 
 export async function createBillingPortal(

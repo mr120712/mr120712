@@ -2,6 +2,7 @@
 import type { MusicPlayerTrack } from '@/components/custom/music/music-player';
 import type {
   HistoryEntry,
+  JamendoTrack,
   Podcast,
   PodcastEpisode,
   RadioStation,
@@ -73,5 +74,19 @@ export function historyToTrack(entry: HistoryEntry): MusicPlayerTrack {
     albumId: entry.albumId,
     durationSeconds: entry.durationSeconds,
     playbackMode: entry.playbackMode,
+  };
+}
+
+export function jamendoToTrack(track: JamendoTrack): MusicPlayerTrack {
+  return {
+    qualifiedId: `jamendo:${track.id}`,
+    title: track.title,
+    artistName: track.artistName,
+    artworkUrl: track.artworkUrl,
+    sourceLabel: 'Premium · Jamendo',
+    sourceUrl: track.pageUrl,
+    sourceUrlLabel: 'Brano su Jamendo (licenza Creative Commons)',
+    durationSeconds: track.durationSeconds,
+    playbackMode: 'jamendo',
   };
 }

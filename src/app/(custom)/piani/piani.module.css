@@ -196,3 +196,8 @@
   gap: 16px;
   justify-items: start;
 }
+
+.ctaGroup {
+  display: grid;
+  gap: 8px;
+}

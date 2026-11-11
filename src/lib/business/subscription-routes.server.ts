@@ -1,6 +1,7 @@
 // @polsia:user-owned — utilità condivise dalle route degli abbonamenti.
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { PayPalSubscriptionError } from '@/lib/business/paypal-subscriptions.server';
 import { StripeSubscriptionError } from '@/lib/business/stripe-subscriptions.server';
 import { requireAuth, type SessionUser } from '@/lib/require-auth';
 
@@ -20,7 +21,7 @@ export async function signedIn(
 }
 
 export function stripeErrorResponse(error: unknown) {
-  if (error instanceof StripeSubscriptionError) {
+  if (error instanceof StripeSubscriptionError || error instanceof PayPalSubscriptionError) {
     const status =
       error.code === 'not_configured'
         ? 503
