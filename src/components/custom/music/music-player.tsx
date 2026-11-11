@@ -936,6 +936,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                   {live ? <em className={styles.liveBadge}>LIVE</em> : null}
                   {currentTrack.artistName} · {currentTrack.sourceLabel}
                 </span>
+                {youtubeActive ? (
+                  <p className={styles.adNote}>
+                    Eventuali annunci nei video sono di YouTube: Solco non li controlla. Con YouTube
+                    Premium, se hai effettuato l’accesso a YouTube in questo browser, non li vedi.
+                  </p>
+                ) : null}
                 <span className={styles.links}>
                   {currentTrack.sourceUrl ? (
                     <a href={currentTrack.sourceUrl} target="_blank" rel="noreferrer">

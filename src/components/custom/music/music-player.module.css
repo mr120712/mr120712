@@ -544,3 +544,10 @@
   padding: 0 max(16px, calc((100% - 560px) / 2)) calc(24px + env(safe-area-inset-bottom));
   overflow-y: auto;
 }
+
+.adNote {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.45;
+}

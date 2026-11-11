@@ -18,7 +18,7 @@ const freeBenefits = [
 ];
 
 const proBenefits = [
-  'Musica globale: brani completi dal catalogo Jamendo',
+  'Musica globale senza pubblicità: brani completi dal catalogo Jamendo',
   'Statistiche avanzate',
   'Temi extra',
   'Card senza logo',
