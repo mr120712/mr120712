@@ -10,7 +10,8 @@ import styles from './auth.module.css';
 
 export const metadata: Metadata = {
   title: 'Registrati',
-  description: 'Crea il tuo account Solco e inizia il diario d’ascolto.',
+  description:
+    'Crea il tuo account Solco gratuito: musica, radio dal vivo e podcast in un unico player.',
 };
 
 function authDestination(value: string | string[] | undefined) {
@@ -34,27 +35,29 @@ export default async function SignupPage({
       <main className={styles.page}>
         <div className={styles.grid}>
           <section className={styles.story} aria-labelledby="signup-title">
-            <p className={styles.kicker}>IL PRIMO ASCOLTO, PASSO PER PASSO</p>
-            <h1 id="signup-title">Comincia da un album.</h1>
+            <p className={styles.kicker}>GRATIS, IN UN MINUTO</p>
+            <h1 id="signup-title">Tutta la tua musica, in un solo posto.</h1>
             <p className={styles.lead}>
-              Crea il tuo account, cerca la musica che hai ascoltato e lascia una nota per
-              ricordarla.
+              Crea il tuo account gratuito e ascolta brani, radio dal vivo e podcast da tutto il
+              mondo.
             </p>
             <ol className={styles.steps}>
               <li>
                 <span>01</span>
-                <p>Cerca un album o un artista.</p>
+                <p>Cerca brani, artisti, radio e podcast.</p>
               </li>
               <li>
                 <span>02</span>
-                <p>Registra un ascolto e scegli il tuo voto.</p>
+                <p>Salva i preferiti e crea le tue playlist.</p>
               </li>
               <li>
                 <span>03</span>
-                <p>Salva data, nota e contesto nel diario.</p>
+                <p>Invita gli amici e ottieni Premium gratis.</p>
               </li>
             </ol>
-            <p className={styles.noPayment}>Un diario personale, riservato al tuo account.</p>
+            <p className={styles.noPayment}>
+              Nessun pagamento richiesto: 40 ascolti al mese e radio gratis.
+            </p>
           </section>
 
           <Card className={styles.card}>
@@ -62,7 +65,7 @@ export default async function SignupPage({
               <p className={styles.kicker}>CREA IL TUO ACCESSO</p>
               <CardTitle className={styles.cardTitle}>Benvenuto in Solco</CardTitle>
               <CardDescription className={styles.cardDescription}>
-                Dopo la registrazione puoi salvare il tuo primo ascolto.
+                Dopo la registrazione puoi iniziare subito ad ascoltare.
               </CardDescription>
             </CardHeader>
             <CardContent className={styles.cardContent}>

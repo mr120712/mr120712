@@ -10,7 +10,7 @@ import styles from '../signup/auth.module.css';
 
 export const metadata: Metadata = {
   title: 'Accedi',
-  description: 'Accedi al tuo diario personale di Solco.',
+  description: 'Accedi a Solco: la tua musica, radio e podcast.',
 };
 
 function authDestination(value: string | string[] | undefined) {
@@ -37,7 +37,7 @@ export default async function LoginPage({
             <p className={styles.kicker}>IL TUO DIARIO D’ASCOLTO</p>
             <h1 id="login-title">Ritrova le note che hai lasciato.</h1>
             <p className={styles.lead}>
-              Ogni album, data e contesto che hai salvato resta legato al tuo account.
+              Playlist, preferiti, radio salvate e podcast seguiti restano legati al tuo account.
             </p>
           </section>
 
