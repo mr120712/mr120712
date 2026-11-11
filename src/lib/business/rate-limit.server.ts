@@ -34,6 +34,11 @@ export const ACTION_RATE_LIMITS = {
   // reaches YouTube (cache misses): one pool for the whole app, plus a per-person share.
   'youtube.search.global': [{ requests: 90, windowMs: 86_400_000 }],
   'music.search.youtube': [{ requests: 20, windowMs: 86_400_000 }],
+  // Spotify import: reading the person's playlists (each call reaches Spotify's API).
+  'spotify.read': [
+    { requests: 30, windowMs: 60_000 },
+    { requests: 400, windowMs: 86_400_000 },
+  ],
   // Background checks: runs started by the public status endpoint (whole app) and by admins.
   'monitor.run': [
     { requests: 4, windowMs: 3_600_000 },
@@ -273,6 +278,7 @@ const actionLabels: Record<RateLimitAction, string> = {
   'product.check.global': 'i controlli prodotto di oggi',
   'youtube.search.global': 'le ricerche YouTube di oggi',
   'music.search.youtube': 'le tue ricerche YouTube di oggi',
+  'spotify.read': 'le letture da Spotify',
   'monitor.run': 'i controlli automatici',
   'monitor.run.admin': 'i controlli manuali',
   'solco.pro.write': 'le modifiche a Solco Pro',
