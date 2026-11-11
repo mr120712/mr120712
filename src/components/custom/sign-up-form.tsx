@@ -92,7 +92,7 @@ export function SignUpForm() {
           />
         </div>
         <p className="text-xs leading-5 text-muted-foreground">
-          Ti invieremo un link per verificare l’indirizzo email. Potrai entrare subito nel diario.
+          Ti invieremo un link per verificare l’indirizzo email. Potrai entrare subito in Solco.
         </p>
         {error ? (
           <p className="text-sm leading-6 text-destructive" role="alert">
