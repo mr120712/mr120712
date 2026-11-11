@@ -6,10 +6,10 @@ import { NextResponse } from 'next/server';
 import { enforceRateLimit } from '@/lib/business/rate-limit.server';
 import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
 import { parseTrackList } from '@/lib/business/track-list-import';
-import { songSourceId } from '@/lib/business/track-list-import.server';
+import { createSongPlaylist } from '@/lib/business/track-list-import.server';
 import { TrackListImportResponseSchema, TrackListImportSchema } from '@/lib/contracts/library';
 import { prisma } from '@/lib/db';
-import { isFavoritesName, MAX_PLAYLISTS_PER_USER } from '@/lib/music/collections.server';
+import { MAX_PLAYLISTS_PER_USER } from '@/lib/music/collections.server';
 import { requireAuth, type SessionUser } from '@/lib/require-auth';
 import { sameOrigin } from '@/lib/same-origin';
 
@@ -28,19 +28,6 @@ async function signedIn(request: Request): Promise<{ user: SessionUser } | { res
   } catch (response) {
     return { response: response as Response };
   }
-}
-
-async function availableName(userId: string, wanted: string) {
-  const base = isFavoritesName(wanted) ? `${wanted} (importata)` : wanted;
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const candidate = attempt === 0 ? base : `${base.slice(0, 44)} (${attempt + 1})`;
-    const existing = await prisma.userMusicCollection.findFirst({
-      where: { userId, name: candidate },
-      select: { id: true },
-    });
-    if (!existing) return candidate;
-  }
-  return `${base.slice(0, 40)} ${Date.now().toString(36)}`;
 }
 
 export async function POST(request: Request) {
@@ -101,33 +88,14 @@ export async function POST(request: Request) {
     );
   }
 
-  const name = await availableName(auth.user.id, body.data.name ?? 'Playlist importata');
-  const now = Date.now();
-  const collection = await prisma.userMusicCollection.create({
-    data: {
-      userId: auth.user.id,
-      name,
-      kind: 'playlist',
-      items: {
-        create: parsed.tracks.map((track, index) => ({
-          source: 'song',
-          sourceId: songSourceId(track.title, track.artist),
-          title: track.title,
-          creatorName: track.artist,
-          artworkUrl: null,
-          sourceUrl: track.sourceUrl,
-          artistUrl: null,
-          durationSeconds: track.durationSeconds,
-          // Items are listed newest first: decreasing timestamps keep the list's order.
-          createdAt: new Date(now - index),
-          expiresAt: null,
-        })),
-      },
-    },
-  });
+  const { collectionId, name } = await createSongPlaylist(
+    auth.user.id,
+    body.data.name ?? 'Playlist importata',
+    parsed.tracks,
+  );
   return NextResponse.json(
     TrackListImportResponseSchema.parse({
-      collectionId: collection.id,
+      collectionId,
       name,
       imported: parsed.tracks.length,
       skipped: parsed.skipped,

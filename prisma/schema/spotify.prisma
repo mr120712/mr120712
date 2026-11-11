@@ -1,0 +1,17 @@
+// @polsia:user-owned
+/// Collegamento fra un account Solco e il suo account Spotify (Authorization Code con PKCE).
+/// accessToken e refreshToken sono cifrati (AES-256-GCM, formato "v1.<iv>.<ct>"), mai in chiaro.
+/// Nessuna relazione con User: la cancellazione dell'account e "Disconnetti Spotify" eliminano la
+/// riga in modo esplicito. Nessun contenuto Spotify viene salvato qui.
+model SpotifyConnection {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  accessToken  String
+  refreshToken String
+  expiresAt    DateTime
+  scope        String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("spotify_connection")
+}

@@ -1,0 +1,303 @@
+/* @polsia:user-owned — scheda "Importa da Spotify" nella Libreria.
+ *
+ * Linee guida Spotify (Design & Branding) applicate qui:
+ * - logo completo largo almeno 70 px, icona alta almeno 21 px, mai sopra le copertine;
+ * - logo monocromatico bianco su sfondo scuro, nero su sfondo chiaro (la scheda usa --card);
+ * - copertine non ritagliate (object-fit: contain), angoli 4 px (8 px su schermi grandi);
+ * - nomi mostrati per intero: vanno a capo invece di essere tagliati.
+ */
+
+.card {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--card);
+  color: var(--card-foreground);
+}
+
+.header {
+  display: grid;
+  gap: 10px;
+}
+
+/* Both logo variants are in the markup; Tailwind's `dark:` variant (the .dark class on
+ * <html>, see src/lib/color-theme.ts — 'dark' today, so the white logo) shows one of them,
+ * which is why no `display` is set here. Exclusion zone: the gap below and the card
+ * padding keep text and controls away from the logo. */
+.logo {
+  width: 132px;
+  height: auto;
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-display), sans-serif;
+  font-size: 1.125rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.text {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.text a,
+.hint a,
+.note a {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.note {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--muted);
+  color: var(--foreground);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.chooser {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+}
+
+.chooser[hidden] {
+  display: none;
+}
+
+.fieldset {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.legend {
+  margin-bottom: 4px;
+  padding: 0;
+  font-weight: 600;
+}
+
+.list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-areas:
+    "check label"
+    ". link";
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--background);
+}
+
+.check {
+  grid-area: check;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.check:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.label {
+  display: grid;
+  min-width: 0;
+  grid-area: label;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  cursor: pointer;
+}
+
+.check:disabled {
+  cursor: not-allowed;
+}
+
+.item:has(.check:checked) {
+  border-color: var(--foreground);
+}
+
+.item:has(.check:disabled) .label {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Artwork as Spotify provides it: never cropped, overlaid or blurred. */
+.cover {
+  display: block;
+  width: 52px;
+  height: 52px;
+  border-radius: 4px;
+  object-fit: contain;
+}
+
+.coverFallback {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  border-radius: 4px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+}
+
+.coverFallback svg {
+  width: 22px;
+  height: 22px;
+}
+
+.itemText {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.itemName {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.itemMeta {
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+/* Link back to Spotify: icon (min 21 px) beside the words, never over the artwork. */
+.spotifyLink {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 6px;
+  color: var(--foreground);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--foreground) 40%, transparent);
+  text-underline-offset: 3px;
+}
+
+.item > .spotifyLink {
+  grid-area: link;
+  justify-self: start;
+}
+
+.spotifyLink:hover {
+  text-decoration-color: currentColor;
+}
+
+.spotifyLink:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.icon {
+  width: 24px;
+  height: auto;
+  flex: none;
+}
+
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hint {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.hintStrong {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.results {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0 0 0 18px;
+  font-size: 0.875rem;
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+
+@media (min-width: 1024px) {
+  .card {
+    padding: 20px;
+  }
+
+  .cover,
+  .coverFallback {
+    border-radius: 8px;
+  }
+}
+
+/* 390 px phones: page gutter 16 px + card padding 14 px leaves ~328 px; one column,
+ * check + art + text fit (20 + 10 + 52 + 10 + text), buttons wrap to full rows. */
+@media (max-width: 480px) {
+  .card {
+    padding: 14px;
+  }
+
+  .actions > *,
+  .pager > * {
+    flex: 1 1 100%;
+  }
+}

@@ -42,6 +42,11 @@ export type AccountDeletionTransaction = {
   userRewardProfile: UserOwnedRecords;
   musicPlay: UserOwnedRecords;
   aiMusicSearchCache: UserOwnedRecords;
+  /**
+   * Spotify tokens (no relation to User, so deleted explicitly). Optional only so callers built
+   * before the Spotify import keep compiling; the Prisma transaction client always provides it.
+   */
+  spotifyConnection?: UserOwnedRecords;
   referral: {
     deleteMany(args: {
       where: { OR: Array<{ inviterId: string } | { inviteeId: string }> };
@@ -81,6 +86,8 @@ export async function deleteAccountData(
   await transaction.userRewardProfile.deleteMany({ where: { userId } });
   await transaction.musicPlay.deleteMany({ where: { userId } });
   await transaction.aiMusicSearchCache.deleteMany({ where: { userId } });
+  // Spotify tokens: the Spotify Developer Policy requires deleting them with the account.
+  await transaction.spotifyConnection?.deleteMany({ where: { userId } });
   await transaction.referral.deleteMany({
     where: { OR: [{ inviterId: userId }, { inviteeId: userId }] },
   });
