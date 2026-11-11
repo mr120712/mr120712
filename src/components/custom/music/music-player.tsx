@@ -29,7 +29,6 @@ import {
   useState,
 } from 'react';
 import { apiFetch } from '@/lib/api-client';
-import { soundcloudSearchUrl, spotifySearchUrl } from '@/lib/business/shared-song';
 import { AudiusPlaybackCheckSchema } from '@/lib/contracts/music';
 import {
   AudioDecks,
@@ -80,9 +79,22 @@ import {
   shouldPrefetchNext,
 } from '@/lib/music/playback-prefetch';
 import { failureLink, failureMessage, showsFreePlayCounter } from '@/lib/music/player-messages';
+import {
+  continuesInRun,
+  type PendingRunMove,
+  playerListsRun,
+  predatesMove,
+  readPlayerReport,
+  reportedRunPosition,
+  runHoldsIndex,
+  runMoveCommand,
+  type YouTubeRun,
+  youtubeRunAt,
+} from '@/lib/music/youtube-runs';
 import { BackgroundListenButton } from './background-listen-button';
 import { BackgroundSwitchNotice, useReturnNotice } from './background-switch-notice';
 import noticeStyles from './background-switch-notice.module.css';
+import { ListenElsewhereMenu } from './listen-elsewhere-menu';
 import styles from './music-player.module.css';
 import { loadYouTubeIframeApi } from './youtube-queue-player';
 
@@ -258,12 +270,22 @@ type YouTubeEngine = {
   getCurrentTime: () => number;
   getDuration: () => number;
   destroy: () => void;
+  // Playlist API of the official player (YouTube prepares and starts the next video itself). The
+  // real player exposes it once ready; without it every item is loaded with loadVideoById.
+  loadPlaylist?: (playlist: string[], index?: number, startSeconds?: number) => void;
+  nextVideo?: () => void;
+  previousVideo?: () => void;
+  playVideoAt?: (index: number) => void;
+  getPlaylistIndex?: () => number;
+  getPlaylist?: () => string[] | null | undefined;
+  getVideoData?: () => { video_id?: string } | null | undefined;
 };
 
 const YT_ENDED = 0;
 const YT_PLAYING = 1;
 const YT_PAUSED = 2;
 const YT_BUFFERING = 3;
+const YT_CUED = 5;
 
 export function isLiveTrack(track: Pick<MusicPlayerTrack, 'playbackMode'> | null | undefined) {
   return track?.playbackMode === 'radio';
@@ -516,8 +538,22 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const [shuffle, setShuffle] = useState(false);
   const [repeat, setRepeat] = useState<RepeatMode>('off');
   const [expanded, setExpanded] = useState(false);
+  // Latest queue and index for the YouTube engine callbacks (set every render; an in-run move or a
+  // followed YouTube advance updates the index at once, before the next render).
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
+  const queueIndexRef = useRef(queueIndex);
+  queueIndexRef.current = queueIndex;
   const ytHostRef = useRef<HTMLDivElement>(null);
   const ytPlayerRef = useRef<YouTubeEngine | null>(null);
+  // YouTube playlist runs (see youtube-runs.ts): the consecutive YouTube items loaded in the official
+  // player as one playlist (null: it holds a single video), the queue item the player was sent to
+  // (or followed to) and by which play request, and a move asked of it that YouTube has not
+  // reported yet. Nothing is downloaded: YouTube prepares the next video inside its own player.
+  const ytRunRef = useRef<YouTubeRun | null>(null);
+  const ytAtRef = useRef<{ index: number; videoId: string; request: number } | null>(null);
+  const ytPendingRef = useRef<PendingRunMove | null>(null);
+  const ytRequestSeenRef = useRef(0);
   // The official player is playing, or re-buffering after it played. Set synchronously from its
   // state changes and from pausePlayback (the React status follows asynchronously): it decides
   // whether hiding Solco stopped a video that was playing ("video fermato" notice on return).
@@ -552,9 +588,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const nowPlayingRef = useRef<string | null>(null);
   const [buffering, setBuffering] = useState(false);
   const ytEvents = useRef({
+    onReady: () => {},
     onPlaying: () => {},
     onPaused: () => {},
     onEnded: () => {},
+    onBuffering: () => {},
+    onCued: () => {},
     onError: (_code: number) => {},
     onProgress: (_elapsed: number, _duration: number) => {},
   });
@@ -799,6 +838,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       recordedRef.current = null;
       nextPlanRef.current = null;
       preparedRef.current = null;
+      // A new queue: the official player gets a fresh playlist (or video), as before runs existed.
+      ytRunRef.current = null;
+      ytAtRef.current = null;
+      ytPendingRef.current = null;
       setQueue(candidateQueue);
       setQueueIndex(actualIndex);
       setCurrentTrack(selectedTrack);
@@ -807,12 +850,20 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     [playCurrentTrack, releaseAudio],
   );
 
+  // Switch inside the YouTube playlist already loaded in the official player (set every render).
+  const moveInRunRef = useRef<(index: number) => boolean>(() => false);
+
   const playQueueIndex = useCallback(
     async (index: number) => {
       const next = queue[index];
       if (!next) return;
+      // A video of the playlist loaded in the official player: nextVideo / previousVideo /
+      // playVideoAt, no reload (YouTube has the next videos ready).
+      if (moveInRunRef.current(index)) return;
       releaseAudio();
       recordedRef.current = null;
+      // YouTube may report the video it was advancing to meanwhile: the app's choice wins.
+      if (ytRunRef.current) ytPendingRef.current = { index, from: queueIndexRef.current };
       setQueueIndex(index);
       setCurrentTrack(next);
       await playCurrentTrack(next);
@@ -823,9 +874,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   // The next item is chosen once per current item (shuffle included), so what was prepared ahead
   // is what plays. While Solco is hidden, YouTube items are skipped when an audio item follows.
   const followingIndex = useCallback(
-    (wrap: boolean) => {
-      if (queue.length === 0 || queueIndex < 0) return null;
-      const key = `${queueIndex}|${queue[queueIndex]?.qualifiedId ?? ''}|${queue.length}|${shuffle}|${wrap}`;
+    // `from`: another starting item than the current one (a video YouTube moved to by itself).
+    (wrap: boolean, from: number = queueIndex) => {
+      if (queue.length === 0 || from < 0) return null;
+      const key = `${from}|${queue[from]?.qualifiedId ?? ''}|${queue.length}|${shuffle}|${wrap}`;
       const hidden = isPageHidden();
       const plan = nextPlanRef.current;
       if (
@@ -837,7 +889,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       }
       const index = pickNextIndex({
         modes: queue.map((item) => item.playbackMode),
-        index: queueIndex,
+        index: from,
         shuffle,
         wrap,
         hidden,
@@ -1654,8 +1706,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   // so the player is reused instead of being torn down and rebuilt for every song.
   const youtubeActive =
     (isYouTubeTrack(currentTrack) || currentTrack?.playbackMode === 'song') && !hidePlayer;
-  // Same song in the listener's Spotify app or on soundcloud.com: plain search links (no Spotify
-  // or SoundCloud API and no embedded player involved).
+  // "Ascolta altrove": the same song on Spotify, YouTube Music, SoundCloud, Deezer and TIDAL as
+  // plain search links (no API of those services and no embedded player involved).
   const songSearch = (() => {
     if (!currentTrack || isLiveTrack(currentTrack) || currentTrack.playbackMode === 'podcast') {
       return null;
@@ -1667,9 +1719,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     const title = song.title.replace(/\s*[([][^)\]]*[)\]]\s*/g, ' ').trim();
     return title ? { title, artist: song.artist || null } : null;
   })();
-  const spotifyLink = songSearch ? spotifySearchUrl(songSearch.title, songSearch.artist) : null;
-  const soundcloudLink = songSearch
-    ? soundcloudSearchUrl(songSearch.title, songSearch.artist)
+  // The YouTube Music link opens the same video when the track is a YouTube video.
+  const songSearchVideoId = currentTrack?.qualifiedId.startsWith('youtube:')
+    ? currentTrack.qualifiedId.slice('youtube:'.length)
     : null;
 
   const recordProgress = (track: MusicPlayerTrack, seconds: number) => {
@@ -1693,19 +1745,177 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     setErrorMessage(YOUTUBE_HIDDEN_NOTICE);
     setSessionPlaybackState('paused');
   };
-  ytEvents.current = {
-    onPlaying: () => {
-      if (isPageHidden()) {
-        try {
-          ytPlayerRef.current?.pauseVideo();
-        } catch {
-          // Player not ready.
+  // Playlist runs follow the queue order: off with shuffle (random next) and repeat one.
+  const youtubeRunsEnabled = !shuffle && repeat !== 'one';
+
+  /**
+   * Sends the official player to queue item `index` (video `videoId`): a jump inside the playlist
+   * it already holds (playVideoAt), otherwise the item's run as a new playlist (loadPlaylist: YouTube
+   * then prepares and starts the following videos itself) or the single video (loadVideoById).
+   * Only while Solco is visible: every one of these starts the video.
+   */
+  const loadYouTubeItem = (
+    player: YouTubeEngine,
+    index: number,
+    videoId: string,
+    startSeconds = 0,
+  ) => {
+    const items = queueRef.current;
+    const loaded = ytRunRef.current;
+    const from = ytAtRef.current?.index ?? null;
+    try {
+      if (runHoldsIndex(loaded, items, index) && typeof player.playVideoAt === 'function') {
+        player.playVideoAt(index - loaded.start);
+      } else {
+        const run = youtubeRunsEnabled ? youtubeRunAt(items, index) : null;
+        if (run && run.videoIds.length > 1 && typeof player.loadPlaylist === 'function') {
+          player.loadPlaylist(run.videoIds, run.offset, startSeconds);
+          ytRunRef.current = run;
+        } else {
+          player.loadVideoById(videoId);
+          ytRunRef.current = null;
         }
-        // It was playing and stopped only because Solco is hidden: explain it on return.
-        ytPlayingRef.current = false;
-        markHiddenPause(currentVideoId);
-        setStatus('paused');
-        setSessionPlaybackState('paused');
+      }
+    } catch {
+      // The official player is still starting: its onReady loads the current item.
+      return;
+    }
+    ytAtRef.current = { index, videoId, request: playRequestRef.current };
+    ytPendingRef.current = ytRunRef.current ? { index, from } : null;
+  };
+
+  /**
+   * The official player moved along its playlist by itself (end of a video): the app follows to that
+   * item without reloading anything, so title, lock-screen metadata, history and the return notice
+   * belong to the video on screen. Returns the item followed, or null (no move, or a report from
+   * before the app's own move, whose command is about to land).
+   */
+  const followYouTube = (): { index: number; track: ActiveTrack } | null => {
+    const player = ytPlayerRef.current;
+    const run = ytRunRef.current;
+    const items = queueRef.current;
+    const appIndex = queueIndexRef.current;
+    // The app is not on the playlist any more (another item was chosen): nothing to follow.
+    if (!player || !runHoldsIndex(run, items, appIndex)) return null;
+    const position = reportedRunPosition(run, readPlayerReport(player), appIndex - run.start);
+    if (position === null) {
+      // An unknown report never blocks the end of the item (see onEnded).
+      ytPendingRef.current = null;
+      return null;
+    }
+    const index = run.start + position;
+    if (predatesMove(ytPendingRef.current, index)) return null;
+    ytPendingRef.current = null;
+    const track = items[index];
+    if (index === appIndex || !track) return null;
+    queueIndexRef.current = index;
+    currentTrackRef.current = track;
+    ytAtRef.current = {
+      index,
+      videoId: run.videoIds[position] ?? '',
+      request: playRequestRef.current,
+    };
+    deferredVideoRef.current = null;
+    recordedRef.current = null;
+    setQueueIndex(index);
+    setCurrentTrack(track);
+    setPlayBlock(null);
+    setErrorMessage(null);
+    setElapsedSeconds(0);
+    setDurationSeconds(track.durationSeconds ?? 0);
+    return { index, track };
+  };
+
+  /**
+   * Next / previous / a queue tap onto another video of the playlist loaded in the official player:
+   * nextVideo(), previousVideo() or playVideoAt(), no reload. False when the normal path has to run
+   * (no playlist, an item outside it, or Solco hidden: a video never starts in the background).
+   */
+  moveInRunRef.current = (index: number) => {
+    const player = ytPlayerRef.current;
+    const run = ytRunRef.current;
+    const items = queueRef.current;
+    const target = items[index];
+    if (!player || !target || isPageHidden() || !runHoldsIndex(run, items, index)) return false;
+    if (typeof player.playVideoAt !== 'function') return false;
+    const position = index - run.start;
+    const appIndex = queueIndexRef.current;
+    const from =
+      reportedRunPosition(run, readPlayerReport(player), appIndex - run.start) ??
+      (runHoldsIndex(run, items, appIndex) ? appIndex - run.start : null);
+    const move = runMoveCommand(from, position);
+    try {
+      if (move.kind === 'next' && player.nextVideo) player.nextVideo();
+      else if (move.kind === 'previous' && player.previousVideo) player.previousVideo();
+      else player.playVideoAt(position);
+    } catch {
+      return false;
+    }
+    // Cancels a lookup or permit still pending for the item we leave.
+    const request = ++playRequestRef.current;
+    ytPendingRef.current = { index, from: from === null ? null : run.start + from };
+    ytAtRef.current = { index, videoId: run.videoIds[position] ?? '', request };
+    // Not played yet: hiding Solco before it starts is no "video fermato".
+    ytPlayingRef.current = false;
+    deferredVideoRef.current = null;
+    recordedRef.current = null;
+    queueIndexRef.current = index;
+    currentTrackRef.current = target;
+    setQueueIndex(index);
+    setCurrentTrack(target);
+    setPlayBlock(null);
+    setErrorMessage(null);
+    setStatus('loading');
+    setElapsedSeconds(0);
+    setDurationSeconds(target.durationSeconds ?? 0);
+    return true;
+  };
+
+  /** A video started (or is about to) while Solco is hidden: paused at once, explained on return. */
+  const pauseHiddenVideo = (track: ActiveTrack | null) => {
+    try {
+      ytPlayerRef.current?.pauseVideo();
+    } catch {
+      // Player not ready.
+    }
+    // It was playing (or starting) and stopped only because Solco is hidden: explain it on return.
+    ytPlayingRef.current = false;
+    markHiddenPause(track ? youtubeVideoId(track) : null);
+    setStatus('paused');
+    setSessionPlaybackState('paused');
+  };
+
+  ytEvents.current = {
+    onReady: () => {
+      // Created with the current video: hand YouTube its run, so the next videos are prepared (or
+      // load the item the app moved to while the player was starting). Never while hidden.
+      const player = ytPlayerRef.current;
+      const track = currentTrackRef.current;
+      const index = queueIndexRef.current;
+      const videoId = track && isYouTubeTrack(track) ? youtubeVideoId(track) : null;
+      if (!player || !track || !videoId || ytRunRef.current || isPageHidden()) return;
+      if (deferredVideoRef.current === track.qualifiedId) return;
+      const at = ytAtRef.current;
+      if (at?.index === index && at.videoId === videoId) {
+        const run = youtubeRunsEnabled ? youtubeRunAt(queueRef.current, index) : null;
+        if (!run || run.videoIds.length < 2 || typeof player.loadPlaylist !== 'function') return;
+        let position = 0;
+        try {
+          position = Math.max(0, player.getCurrentTime() || 0);
+        } catch {
+          // Not started yet: from the beginning.
+        }
+        loadYouTubeItem(player, index, videoId, position);
+        return;
+      }
+      if (playBlock === null) loadYouTubeItem(player, index, videoId);
+    },
+    onPlaying: () => {
+      const followed = followYouTube();
+      if (isPageHidden()) {
+        // Also a video YouTube advanced to on its own: never audible in the background. The ref,
+        // not the render-time track: an earlier report this turn may have followed already.
+        pauseHiddenVideo(followed?.track ?? currentTrackRef.current);
         return;
       }
       // The video plays again (player controls or the notice): the notice has done its job.
@@ -1722,18 +1932,93 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       setStatus((value) => (value === 'playing' || value === 'loading' ? 'paused' : value));
       setSessionPlaybackState('paused');
     },
-    onEnded: handleEnded,
+    onEnded: () => {
+      const run = ytRunRef.current;
+      const index = queueIndexRef.current;
+      if (runHoldsIndex(run, queueRef.current, index)) {
+        // The video left by a move the listener asked for (next, a queue tap): not this item's end.
+        if (ytPendingRef.current) return;
+        if (continuesInRun(run, index) && !playerListsRun(ytPlayerRef.current, run)) {
+          // YouTube's playlist is not this run (any more): it will not start the next video by
+          // itself, so the queue goes on as for a single video (a new run is loaded from there).
+          ytRunRef.current = null;
+          ytPendingRef.current = null;
+        } else if (continuesInRun(run, index)) {
+          if (repeat === 'one') {
+            // YouTube would go on to the next video of its playlist: back to this one instead.
+            if (!isPageHidden()) {
+              try {
+                ytPlayerRef.current?.playVideoAt?.(index - run.start);
+                ytPendingRef.current = { index, from: index };
+              } catch {
+                // Player not ready.
+              }
+            }
+            return;
+          }
+          if (!shuffle) {
+            // YouTube starts the next video of the run by itself; the app follows it on PLAYING.
+            setStatus('loading');
+            return;
+          }
+          // Shuffle: the app picks the next item; YouTube's own next video is not followed.
+          ytPendingRef.current = { index: -1, from: index };
+        }
+      }
+      // Last video of the run (or a single video): the queue goes on (Audius, podcast, …).
+      handleEnded();
+    },
+    onBuffering: () => {
+      // Hidden: whatever video is loading is paused before it is ever heard (one YouTube advances
+      // to on its own, or a move sent just before Solco was hidden whose pause got lost).
+      if (isPageHidden()) {
+        // Buffering keeps the engine flag: true only for a video that was playing.
+        const wasPlaying = ytPlayingRef.current;
+        const followed = followYouTube();
+        if (followed || wasPlaying) {
+          pauseHiddenVideo(followed?.track ?? currentTrackRef.current);
+          return;
+        }
+        // Never played: paused, with no "video fermato" notice.
+        try {
+          ytPlayerRef.current?.pauseVideo();
+        } catch {
+          // Player not ready.
+        }
+        setStatus('paused');
+        setSessionPlaybackState('paused');
+        return;
+      }
+      setStatus('loading');
+    },
+    onCued: () => {
+      followYouTube();
+      // Cued, not started (autoplay refused, or an embed that cues the next playlist video): the
+      // current video waits for play, so the play buttons must not stay disabled on 'loading'.
+      const player = ytPlayerRef.current;
+      const track = currentTrackRef.current;
+      const videoId = track && isYouTubeTrack(track) ? youtubeVideoId(track) : null;
+      if (!player || !videoId) return;
+      const reported = readPlayerReport(player).videoId;
+      if (typeof reported === 'string' && reported !== videoId) return;
+      setStatus((value) => (value === 'loading' || value === 'playing' ? 'paused' : value));
+      setSessionPlaybackState('paused');
+    },
     onError: (code) => {
+      // The failing video may be one YouTube moved to by itself inside its playlist.
+      const followed = followYouTube();
+      const failed = followed?.track ?? currentTrackRef.current;
+      const failedIndex = followed?.index ?? queueIndexRef.current;
       // A video chosen for an imported song does not play: forget that choice for everyone.
-      const failedVideo = currentTrack ? youtubeVideoId(currentTrack) : null;
-      if (currentTrack?.importedFrom && failedVideo) {
+      const failedVideo = failed ? youtubeVideoId(failed) : null;
+      if (failed?.importedFrom && failedVideo) {
         void fetch('/api/music/resolve-song', {
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({
-            title: currentTrack.title,
-            artist: currentTrack.artistName || undefined,
+            title: failed.title,
+            artist: failed.artistName || undefined,
             videoId: failedVideo,
           }),
         }).catch(() => undefined);
@@ -1744,8 +2029,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           ? 'Questo video non può essere riprodotto fuori da YouTube. Passo al successivo.'
           : 'Il video non è disponibile. Passo al successivo.',
       );
-      const index = followingIndex(repeat === 'all');
-      if (index !== null && index !== queueIndex) void playQueueIndex(index);
+      const index = followingIndex(repeat === 'all', failedIndex);
+      if (index !== null && index !== failedIndex) void playQueueIndex(index);
       else setStatus('error');
     },
     onProgress: (elapsed, duration) => {
@@ -1762,6 +2047,20 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     const videoId = youtubeVideoId(currentTrack);
     const host = ytHostRef.current;
     if (!videoId || !host) return;
+    const explicit = ytRequest !== ytRequestSeenRef.current;
+    ytRequestSeenRef.current = ytRequest;
+    const index = queueIndexRef.current;
+    const at = ytAtRef.current;
+    // The player is already on this item: YouTube moved along its playlist (followed), an in-run
+    // move was sent, or this same play request loaded it before its permit came back. No reload.
+    if (
+      ytPlayerRef.current &&
+      at?.index === index &&
+      at.videoId === videoId &&
+      (!explicit || at.request === playRequestRef.current)
+    ) {
+      return;
+    }
     // A new video has not played yet: a hide before it starts is not a "video fermato".
     ytPlayingRef.current = false;
     // Loading a video starts it: never in a hidden page. It starts when Solco is visible again.
@@ -1770,7 +2069,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (ytPlayerRef.current) {
-      ytPlayerRef.current.loadVideoById(videoId);
+      // Its playlist run (YouTube prepares the next videos), a jump inside it, or the single video.
+      loadYouTubeItem(ytPlayerRef.current, index, videoId);
       return;
     }
     let cancelled = false;
@@ -1803,6 +2103,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             origin: window.location.origin,
           },
           events: {
+            onReady: () => ytEvents.current.onReady(),
             onStateChange: (event: { data: number }) => {
               // Paused, ended, unstarted (new video) or cued: not playing. Buffering keeps the
               // previous value: a re-buffer mid-song (or after a seek) is still playing.
@@ -1811,11 +2112,16 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
               if (event.data === YT_PLAYING) ytEvents.current.onPlaying();
               else if (event.data === YT_PAUSED) ytEvents.current.onPaused();
               else if (event.data === YT_ENDED) ytEvents.current.onEnded();
-              else if (event.data === YT_BUFFERING) setStatus('loading');
+              else if (event.data === YT_BUFFERING) ytEvents.current.onBuffering();
+              else if (event.data === YT_CUED) ytEvents.current.onCued();
             },
             onError: (event: { data: number }) => ytEvents.current.onError(event.data),
           },
         });
+        // Created on this single video; onReady hands YouTube the item's playlist run.
+        ytRunRef.current = null;
+        ytAtRef.current = { index, videoId, request: playRequestRef.current };
+        ytPendingRef.current = null;
       })
       .catch(() => {
         if (!cancelled) {
@@ -1840,6 +2146,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       // Already removed from the DOM.
     }
     ytPlayerRef.current = null;
+    ytRunRef.current = null;
+    ytAtRef.current = null;
+    ytPendingRef.current = null;
   }, [youtubeActive]);
 
   // Poll the IFrame player for progress (it exposes no timeupdate event).
@@ -2355,15 +2664,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                   </p>
                 ) : null}
                 <span className={styles.links}>
-                  {spotifyLink ? (
-                    <a href={spotifyLink} target="_blank" rel="noreferrer">
-                      Apri in Spotify <ExternalLink aria-hidden="true" />
-                    </a>
-                  ) : null}
-                  {soundcloudLink ? (
-                    <a href={soundcloudLink} target="_blank" rel="noreferrer">
-                      Cerca su SoundCloud <ExternalLink aria-hidden="true" />
-                    </a>
+                  {songSearch ? (
+                    <ListenElsewhereMenu
+                      title={songSearch.title}
+                      artist={songSearch.artist}
+                      youtubeVideoId={songSearchVideoId}
+                    />
                   ) : null}
                   {currentTrack.sourceUrl ? (
                     <a href={currentTrack.sourceUrl} target="_blank" rel="noreferrer">
