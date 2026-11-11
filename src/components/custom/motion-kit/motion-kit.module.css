@@ -1,0 +1,376 @@
+/* @polsia:user-owned — CSS half of the motion kit.
+ * Entrances are driven by a `data-state` attribute (idle | hidden | shown) that JS only
+ * sets AFTER hydration, so the server HTML is always the final, visible layout.
+ * `data-trigger="load"` plays a pure-CSS keyframe from first paint (no JS needed).
+ * Every entrance/loop lives inside `prefers-reduced-motion: no-preference`, so reduced-
+ * motion visitors get the final state from the very first paint.
+ * Only opacity/transform/filter/clip-path animate: nothing here can shift layout. */
+
+/* ---------- Static structure (all visitors) ---------- */
+
+.reveal,
+.split,
+.imageReveal {
+  --mk-delay: 0s;
+  --mk-duration: 0.6s;
+  --mk-distance: 16px;
+  --mk-stagger: 0.04s;
+  --mk-ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* SplitText mask: clip-path (not overflow) so inline-block baselines stay untouched. */
+.splitMask {
+  display: inline-block;
+  white-space: nowrap;
+  clip-path: inset(-0.35em -0.15em -0.12em -0.15em);
+}
+
+.splitPiece {
+  display: inline-block;
+}
+
+.imageReveal {
+  --mk-clip-from: inset(100% 0 0 0);
+  position: relative;
+  overflow: hidden;
+}
+
+.imageReveal[data-direction="down"] {
+  --mk-clip-from: inset(0 0 100% 0);
+}
+
+.imageReveal[data-direction="left"] {
+  --mk-clip-from: inset(0 0 0 100%);
+}
+
+.imageReveal[data-direction="right"] {
+  --mk-clip-from: inset(0 100% 0 0);
+}
+
+.imageRevealInner {
+  width: 100%;
+  height: 100%;
+}
+
+.marquee {
+  --mk-marquee-gap: 2rem;
+  --mk-marquee-duration: 40s;
+  display: flex;
+  overflow: hidden;
+}
+
+.marqueeTrack {
+  display: flex;
+  width: 100%;
+}
+
+.marqueeGroup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--mk-marquee-gap);
+}
+
+/* Reduced motion: one static, centered, wrapping row. */
+.marqueeGroup[data-duplicate="true"] {
+  display: none;
+}
+
+.storyMedia[data-active="false"] {
+  opacity: 0;
+}
+
+/* Step body: a step softer than the title, by color (never opacity), ≥ 4.5:1. */
+.storyBody {
+  color: color-mix(in oklab, currentColor 84%, var(--background));
+}
+
+/* Dim inactive steps only on desktop, and only once JS tracks the active step. The dim
+ * is a color mixed toward the page background, not opacity: titles and bodies of the
+ * inactive steps still pass AA (4.5:1 body text) on the theme's background. On a custom
+ * band, scope the theme tokens on it (e.g. `dark bg-background text-foreground`). */
+@media (min-width: 768px) {
+  .story[data-ready="true"] .storyStep[data-active="false"] {
+    color: color-mix(in oklab, currentColor 66%, var(--background));
+  }
+
+  .story[data-ready="true"] .storyStep[data-active="false"] .storyBody {
+    color: inherit;
+  }
+}
+
+/* Scroll-linked sections are only tall (scroll length) when motion is allowed. */
+.zoomHero,
+.sequence {
+  height: auto;
+}
+
+.sequenceCanvas {
+  display: none;
+}
+
+/* ---------- Motion (only when the visitor allows it) ---------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Reveal */
+  .reveal[data-state="shown"] {
+    transition:
+      opacity var(--mk-duration) var(--mk-ease) var(--mk-delay),
+      transform var(--mk-duration) var(--mk-ease) var(--mk-delay),
+      filter var(--mk-duration) var(--mk-ease) var(--mk-delay),
+      clip-path var(--mk-duration) var(--mk-ease) var(--mk-delay);
+  }
+
+  .fadeUp[data-state="hidden"] {
+    opacity: 0;
+    transform: translate3d(0, var(--mk-distance), 0);
+  }
+
+  .fade[data-state="hidden"] {
+    opacity: 0;
+  }
+
+  .blur[data-state="hidden"] {
+    opacity: 0;
+    filter: blur(10px);
+    transform: translate3d(0, calc(var(--mk-distance) / 2), 0);
+  }
+
+  .clipUp[data-state="hidden"] {
+    clip-path: inset(100% 0 0 0);
+    transform: translate3d(0, calc(var(--mk-distance) / 2), 0);
+  }
+
+  .clipUp[data-state="shown"] {
+    clip-path: inset(0 0 0 0);
+  }
+
+  .scale[data-state="hidden"] {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+
+  .reveal[data-trigger="load"].fadeUp {
+    animation: mk-fade-up var(--mk-duration) var(--mk-ease) var(--mk-delay) both;
+  }
+
+  .reveal[data-trigger="load"].fade {
+    animation: mk-fade var(--mk-duration) var(--mk-ease) var(--mk-delay) both;
+  }
+
+  .reveal[data-trigger="load"].blur {
+    animation: mk-blur var(--mk-duration) var(--mk-ease) var(--mk-delay) both;
+  }
+
+  .reveal[data-trigger="load"].clipUp {
+    animation: mk-clip-up var(--mk-duration) var(--mk-ease) var(--mk-delay) both;
+  }
+
+  .reveal[data-trigger="load"].scale {
+    animation: mk-scale var(--mk-duration) var(--mk-ease) var(--mk-delay) both;
+  }
+
+  /* SplitText */
+  .split[data-state="hidden"] .splitPiece {
+    transform: translate3d(0, 115%, 0);
+  }
+
+  .split[data-state="shown"] .splitPiece {
+    transition: transform var(--mk-duration) var(--mk-ease)
+      calc(var(--mk-delay) + var(--mk-i, 0) * var(--mk-stagger));
+  }
+
+  .split[data-trigger="load"] .splitPiece {
+    animation: mk-rise var(--mk-duration) var(--mk-ease)
+      calc(var(--mk-delay) + var(--mk-i, 0) * var(--mk-stagger)) both;
+  }
+
+  /* ImageReveal */
+  .imageReveal[data-state="hidden"] {
+    clip-path: var(--mk-clip-from);
+  }
+
+  .imageReveal[data-state="hidden"] .imageRevealInner {
+    transform: scale(1.15);
+  }
+
+  .imageReveal[data-state="shown"] {
+    clip-path: inset(0 0 0 0);
+    transition: clip-path var(--mk-duration) cubic-bezier(0.65, 0, 0.35, 1) var(--mk-delay);
+  }
+
+  .imageReveal[data-state="shown"] .imageRevealInner {
+    transition: transform calc(var(--mk-duration) * 1.4) var(--mk-ease) var(--mk-delay);
+  }
+
+  .imageReveal[data-trigger="load"] {
+    animation: mk-wipe var(--mk-duration) cubic-bezier(0.65, 0, 0.35, 1) var(--mk-delay) both;
+  }
+
+  .imageReveal[data-trigger="load"] .imageRevealInner {
+    animation: mk-settle calc(var(--mk-duration) * 1.4) var(--mk-ease) var(--mk-delay) both;
+  }
+
+  /* Marquee: an endless loop of two identical groups. */
+  .marquee {
+    mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
+  }
+
+  .marqueeTrack {
+    flex-shrink: 0;
+    width: max-content;
+    animation: mk-marquee var(--mk-marquee-duration) linear infinite;
+  }
+
+  .marquee[data-reverse="true"] .marqueeTrack {
+    animation-direction: reverse;
+  }
+
+  .marquee[data-pause-on-hover="true"]:hover .marqueeTrack,
+  .marquee[data-pause-on-hover="true"]:focus-within .marqueeTrack {
+    animation-play-state: paused;
+  }
+
+  .marqueeGroup,
+  .marqueeGroup[data-duplicate="true"] {
+    display: flex;
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+    padding-inline-end: var(--mk-marquee-gap);
+  }
+
+  /* ScrollStory */
+  .storyMedia {
+    transition: opacity 0.6s cubic-bezier(0.65, 0, 0.35, 1);
+  }
+
+  .storyStep,
+  .storyBody {
+    transition: color 0.4s ease;
+  }
+
+  /* Scroll-linked sections */
+  .zoomHero {
+    height: var(--mk-scroll-length, 200vh);
+  }
+
+  .sequence {
+    height: var(--mk-scroll-length, 300vh);
+  }
+
+  .sequenceCanvas {
+    display: block;
+  }
+}
+
+/* The zoom hero's SSR HTML carries motion's initial inline styles (inset frame, zoomed
+ * media). Inline styles can only be overridden with !important, so reduced-motion
+ * visitors see the final full-bleed state from first paint, not after hydration. */
+@media (prefers-reduced-motion: reduce) {
+  .zoomFrame {
+    /* biome-ignore lint/complexity/noImportantStyles: must beat motion's inline style */
+    clip-path: none !important;
+  }
+
+  .zoomMedia,
+  .zoomCopy {
+    /* biome-ignore lint/complexity/noImportantStyles: must beat motion's inline style */
+    transform: none !important;
+    /* biome-ignore lint/complexity/noImportantStyles: must beat motion's inline style */
+    opacity: 1 !important;
+  }
+}
+
+/* Same final state when the hero cannot pin (an ancestor with overflow hidden/auto/
+ * scroll breaks sticky): motion leaves its last inline styles in place. */
+.zoomHero[data-mk-pin="broken"] .zoomFrame {
+  /* biome-ignore lint/complexity/noImportantStyles: must beat motion's inline style */
+  clip-path: none !important;
+}
+
+.zoomHero[data-mk-pin="broken"] .zoomMedia,
+.zoomHero[data-mk-pin="broken"] .zoomCopy {
+  /* biome-ignore lint/complexity/noImportantStyles: must beat motion's inline style */
+  transform: none !important;
+  /* biome-ignore lint/complexity/noImportantStyles: must beat motion's inline style */
+  opacity: 1 !important;
+}
+
+@keyframes mk-fade-up {
+  from {
+    opacity: 0;
+    transform: translate3d(0, var(--mk-distance), 0);
+  }
+}
+
+@keyframes mk-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes mk-blur {
+  from {
+    opacity: 0;
+    filter: blur(10px);
+    transform: translate3d(0, calc(var(--mk-distance) / 2), 0);
+  }
+}
+
+@keyframes mk-clip-up {
+  from {
+    clip-path: inset(100% 0 0 0);
+    transform: translate3d(0, calc(var(--mk-distance) / 2), 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes mk-scale {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+@keyframes mk-rise {
+  from {
+    transform: translate3d(0, 115%, 0);
+  }
+}
+
+@keyframes mk-wipe {
+  from {
+    clip-path: var(--mk-clip-from);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes mk-settle {
+  from {
+    transform: scale(1.15);
+  }
+}
+
+@keyframes mk-marquee {
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+/* ImageSequence legibility scrims: below the overlay (z-10), above the frames. */
+.scrimLeft {
+  background: linear-gradient(90deg, rgb(0 0 0 / 0.62) 0%, rgb(0 0 0 / 0.38) 38%, transparent 72%);
+}
+
+.scrimBottom {
+  background: linear-gradient(0deg, rgb(0 0 0 / 0.66) 0%, rgb(0 0 0 / 0.3) 40%, transparent 70%);
+}
+
+.scrimFull {
+  background: rgb(0 0 0 / 0.38);
+}

@@ -1,0 +1,172 @@
+/* @polsia:user-owned */
+
+.card {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: center;
+  gap: 15px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--card);
+  color: var(--card-foreground);
+  box-shadow: 0 16px 34px -30px var(--elevation-3);
+}
+
+.artwork,
+.artistArtwork {
+  display: block;
+  overflow: hidden;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  background: var(--secondary);
+}
+
+.artwork img,
+.artistArtwork img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.noArtwork {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-height: 96px;
+  place-items: center;
+  padding: 10px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  text-align: center;
+}
+
+.copy {
+  display: grid;
+  min-width: 0;
+  justify-items: start;
+  gap: 6px;
+}
+
+.source {
+  color: var(--primary);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  line-height: 1.45;
+  text-transform: uppercase;
+}
+
+.title {
+  max-width: 100%;
+  color: var(--foreground);
+  font-family: var(--font-display), sans-serif;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+  text-underline-offset: 3px;
+}
+
+.title:hover,
+.creator:hover {
+  text-decoration: underline;
+}
+
+.creator {
+  max-width: 100%;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.copy small {
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+
+.artistCard {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: 13px;
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--card);
+  color: var(--card-foreground);
+  text-decoration: none;
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.artistCard:hover {
+  border-color: var(--primary);
+  transform: translateY(-1px);
+}
+
+.artistCard:focus-visible,
+.artwork:focus-visible,
+.title:focus-visible,
+.creator:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+.artistArtwork {
+  width: 72px;
+  border-radius: 50%;
+}
+
+.artistCopy {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.artistCopy strong {
+  color: var(--foreground);
+  font-family: var(--font-display), sans-serif;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.artistCopy > span:last-child {
+  color: var(--muted-foreground);
+  font-size: 10px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+@media (max-width: 520px) {
+  .card {
+    grid-template-columns: 72px minmax(0, 1fr);
+    gap: 11px;
+    padding: 9px;
+  }
+
+  .noArtwork {
+    min-height: 72px;
+  }
+
+  .artistCard {
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: 10px;
+    padding: 9px;
+  }
+
+  .artistArtwork {
+    width: 56px;
+  }
+}

@@ -1,0 +1,9 @@
+// @polsia:user-owned
+model SolcoPlanSelection {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  planId        String
+  billingPeriod String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}

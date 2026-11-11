@@ -1,0 +1,24 @@
+// @polsia:user-owned
+model UserProfile {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  profileRole           String   @default("fan")
+  profileVisibility     String   @default("private")
+  followersVisibility   String   @default("private")
+  followingVisibility   String   @default("private")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([profileVisibility, profileRole, updatedAt])
+}
+
+model UserFollow {
+  id          String   @id @default(cuid())
+  followerId  String
+  followedId  String
+  createdAt   DateTime @default(now())
+
+  @@unique([followerId, followedId])
+  @@index([followerId, createdAt])
+  @@index([followedId, createdAt])
+}

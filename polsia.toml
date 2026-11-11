@@ -1,0 +1,60 @@
+# polsia.toml — Polsia deploy manifest for this Next.js + Prisma app.
+#
+# Read SERVER-SIDE by Polsia's deploy pipeline at the deployed commit to drive
+# how this app is built, started, health-checked and given its listen port.
+# Parsing is fail-open per field: a missing/invalid field falls back to the
+# platform default for that field. Failure to read this file blocks deployment.
+#
+# AGENT: declare scheduled work here with [[crons]] (see the example).
+# Keep build / healthcheck_path / port_env_var at their verified defaults.
+# Keep start unchanged unless explicitly authorized to adopt migration-first
+# startup after database review; see README. Wrong values can degrade deployment.
+
+runtime = "node"
+
+# next build typechecks with the devDependency toolchain (typescript, @types)
+# that a production install would omit — hence --include=dev. postinstall runs
+# `prisma generate`, so the client is ready before the build.
+build = "npm install --include=dev && npm run build"
+
+# Synchronize schema-only models, then boot Next. The build generated the client.
+# Destructive changes must fail before boot; never automatically accept data loss.
+# Migration-backed modules require an explicit, reviewed startup change and, for
+# existing db-push databases, a baseline. An adoption flag alone changes nothing
+# here; see README.
+start = "npx prisma db push --skip-generate && npm start"
+
+# The deploy pipeline's readiness probe hits this route (src/app/health/route.ts).
+healthcheck_path = "/health"
+
+# Next reads its listen port from PORT; the hosting provider sets it.
+port_env_var = "PORT"
+
+# DATABASE_URL is resolved from the provisioned Postgres (rdbms capability) and
+# injected into the build AND runtime env. It must be PRESENT at build time:
+# next.config.ts loads src/lib/env.ts, which Zod-validates env presence.
+[env]
+DATABASE_URL = { source = "rdbms" }
+
+# Scheduled work — APPEND a block per recurring job (no in-process schedulers).
+# Each job is a standalone entrypoint that runs once and exits, against the app's
+# already-built code and its own installed dependencies. Write jobs so they work
+# whichever way the platform runs them:
+#   - run with `node jobs/<name>.js`, or `npx --yes tsx jobs/<name>.ts` with
+#     `tsx` pinned in package.json `dependencies` (never ts-node); declare
+#     anything a job imports in `dependencies` too (not devDependencies, and not
+#     the per-cron `dependencies` field below: those tie the job to the slow
+#     fresh-clone runner);
+#   - make it IDEMPOTENT (a job may run more than once);
+#   - don't shell out to `git` or call the app over http://localhost.
+# Example:
+#
+# [[crons]]
+# name = "daily-digest"          # kebab, /^[a-z][a-z0-9-]{0,62}$/, unique
+# schedule = "0 9 * * *"          # 5-field POSIX cron
+# command = "node jobs/daily-digest.js"
+
+[[crons]]
+name = "expire-youtube-metadata"
+schedule = "0 3 * * *"
+command = "npx tsx jobs/expire-youtube-metadata.ts"

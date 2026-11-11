@@ -1,0 +1,290 @@
+/* @polsia:user-owned */
+.page {
+  display: grid;
+  width: min(100% - 40px, 1040px);
+  gap: 1.25rem;
+  margin: 0 auto;
+  padding: clamp(1.2rem, 4vw, 2.5rem) 0 5rem;
+  color: var(--foreground);
+}
+
+.backLink,
+.albumCopy > a,
+.accessLink {
+  width: fit-content;
+  color: var(--primary);
+  font-size: 0.86rem;
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.albumHeader {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.75fr) minmax(0, 1fr);
+  align-items: end;
+  gap: clamp(1.2rem, 4vw, 2.5rem);
+  border-bottom: 1px solid var(--border);
+  padding: 0.5rem 0 2rem;
+}
+
+.cover {
+  display: grid;
+  width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  place-items: center;
+  border-radius: 1rem;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  box-shadow: 0 20px 55px color-mix(in srgb, var(--foreground) 10%, transparent);
+}
+
+.cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cover > span {
+  font-family: var(--font-display, inherit);
+  font-size: clamp(4rem, 12vw, 7rem);
+}
+
+.albumCopy {
+  display: grid;
+  align-content: end;
+  justify-items: start;
+  gap: 0.8rem;
+  min-width: 0;
+  padding-bottom: 0.25rem;
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--primary);
+  font-size: 0.7rem;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.albumCopy h1,
+.sectionHeading h2 {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  letter-spacing: -0.045em;
+}
+
+.albumCopy h1 {
+  max-width: 16ch;
+  font-size: clamp(2rem, 5.6vw, 4.25rem);
+  line-height: 1.02;
+  overflow-wrap: anywhere;
+}
+
+.albumCopy > p:not(.eyebrow) {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: clamp(1rem, 2vw, 1.25rem);
+}
+
+.albumMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.albumMeta span {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.35rem 0.65rem;
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+}
+
+.trackSection {
+  display: grid;
+  gap: 1rem;
+}
+
+.sectionHeading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 0.4rem;
+}
+
+.sectionHeading > div {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.sectionHeading h2 {
+  font-size: clamp(1.55rem, 3vw, 2.2rem);
+}
+
+.sectionHeading > p {
+  max-width: 30rem;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  text-align: right;
+}
+
+.trackList {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.track {
+  display: grid;
+  grid-template-columns: 2rem 52px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.8rem;
+  border-bottom: 1px solid var(--border);
+  padding: 0.8rem 0.4rem;
+}
+
+.trackArtwork,
+.trackArtwork img {
+  display: block;
+  width: 52px;
+  height: 52px;
+  overflow: hidden;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.trackNumber {
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.trackCopy {
+  display: grid;
+  min-width: 0;
+  gap: 0.2rem;
+}
+
+.trackCopy strong {
+  overflow-wrap: anywhere;
+  font-family: var(--font-display, inherit);
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.trackCopy > span {
+  color: var(--muted-foreground);
+  font-size: 0.77rem;
+}
+
+.trackCopy > a {
+  width: fit-content;
+  color: var(--muted-foreground);
+  font-size: 0.77rem;
+  text-underline-offset: 0.2em;
+}
+
+.trackCopy .available {
+  color: var(--primary);
+  font-weight: 650;
+}
+
+.trackCopy .blocked {
+  color: var(--muted-foreground);
+}
+
+.playButton {
+  min-width: 5.25rem;
+  min-height: 2.6rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--primary);
+  padding: 0.55rem 0.9rem;
+  color: var(--primary-foreground);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.playButton:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.state,
+.statePanel {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.9rem;
+  background: var(--card);
+  padding: 1rem;
+  color: var(--muted-foreground);
+  line-height: 1.6;
+}
+
+.statePanel h1 {
+  margin: 0 0 0.4rem;
+  color: var(--foreground);
+  font-family: var(--font-display, inherit);
+  font-size: 1.55rem;
+}
+
+.statePanel p {
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .page {
+    width: min(100% - 28px, 1040px);
+  }
+
+  .albumHeader {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 1.2rem;
+  }
+
+  .cover {
+    width: min(72vw, 320px);
+  }
+
+  .sectionHeading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .sectionHeading > p {
+    text-align: left;
+  }
+
+  .track {
+    grid-template-columns: 1.4rem 44px minmax(0, 1fr);
+    gap: 0.45rem;
+  }
+
+  .trackArtwork,
+  .trackArtwork img {
+    width: 44px;
+    height: 44px;
+  }
+
+  .track .playButton {
+    grid-column: 3;
+    justify-self: start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .playButton {
+    transition: none;
+  }
+}

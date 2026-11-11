@@ -1,0 +1,183 @@
+/* @polsia:user-owned */
+
+.content {
+  margin-top: 22px;
+}
+
+.albums {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.albums h3 {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.albumGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+  gap: 9px;
+}
+
+.state {
+  display: flex;
+  min-height: 84px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.state p {
+  margin: 0;
+}
+
+.state button {
+  min-height: 40px;
+  flex: none;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+  font: inherit;
+  cursor: pointer;
+}
+
+.trackList {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.track {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 32px 72px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.index {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.artwork {
+  display: grid;
+  width: 72px;
+  aspect-ratio: 1;
+  overflow: hidden;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--secondary);
+  color: var(--primary);
+}
+
+.artwork img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.artwork svg {
+  width: 24px;
+  height: 24px;
+}
+
+.trackCopy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.trackCopy strong {
+  overflow: hidden;
+  color: var(--foreground);
+  font-family: var(--font-display), sans-serif;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trackCopy a {
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  text-underline-offset: 3px;
+  white-space: nowrap;
+}
+
+.trackCopy button {
+  width: fit-content;
+  min-height: 36px;
+  margin-top: 5px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.unavailable {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.source {
+  color: var(--primary);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.state button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+@media (max-width: 520px) {
+  .track {
+    grid-template-columns: 24px 56px minmax(0, 1fr);
+    gap: 9px;
+    padding: 9px;
+  }
+
+  .artwork {
+    width: 56px;
+  }
+
+  .trackCopy strong {
+    font-size: 14px;
+  }
+}

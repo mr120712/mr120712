@@ -1,0 +1,42 @@
+// @polsia:user-owned
+
+model Shop {
+  id        String    @id @default(cuid())
+  userId    String
+  name      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  products  Product[]
+
+  @@index([userId, createdAt])
+}
+
+model Product {
+  id                    String         @id @default(cuid())
+  shopId                String
+  name                  String
+  url                   String
+  expectedPriceCents    Int
+  expectedAvailability  Boolean
+  currency              String         @default("EUR")
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  shop                  Shop           @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  checks                ProductCheck[]
+
+  @@index([shopId, updatedAt])
+}
+
+model ProductCheck {
+  id        String   @id @default(cuid())
+  productId String
+  userId    String
+  status    String   @default("in_progress")
+  result    Json
+  createdAt DateTime @default(now())
+  checkedAt DateTime?
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId, createdAt])
+  @@index([userId, createdAt])
+}

@@ -1,0 +1,380 @@
+/* @polsia:user-owned */
+.page {
+  display: grid;
+  gap: 1.25rem;
+  color: var(--foreground);
+}
+
+.heading,
+.panel {
+  border: 1px solid var(--border);
+  border-radius: 1.15rem;
+  background: var(--card);
+}
+
+.heading {
+  display: grid;
+  gap: 0.5rem;
+  padding: clamp(1.15rem, 4vw, 2rem);
+}
+
+.heading h1,
+.sectionHeading h2 {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  letter-spacing: -0.035em;
+}
+
+.heading h1 {
+  font-size: clamp(1.8rem, 4vw, 2.5rem);
+  line-height: 1.08;
+}
+
+.heading > p:last-child,
+.record p {
+  margin: 0;
+  color: var(--muted-foreground);
+  line-height: 1.6;
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--primary);
+  font-size: 0.7rem;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.panel {
+  display: grid;
+  gap: 1.25rem;
+  padding: clamp(1rem, 3vw, 1.5rem);
+}
+
+.sectionHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.sectionHeading > div {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.sectionHeading h2 {
+  font-size: clamp(1.2rem, 3vw, 1.55rem);
+}
+
+.locked {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.45rem 0.7rem;
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  text-align: center;
+}
+
+.catalogSearch,
+.registrationForm,
+.field {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.catalogSearch > label,
+.field,
+.uploadField > span {
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
+.searchRow {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.searchRow input,
+.field input,
+.field select {
+  min-width: 0;
+  min-height: 2.8rem;
+  border: 1px solid var(--input, var(--border));
+  border-radius: 0.7rem;
+  background: var(--background);
+  padding: 0.65rem 0.8rem;
+  color: var(--foreground);
+  font: inherit;
+}
+
+.searchRow input {
+  flex: 1;
+}
+
+.searchRow button,
+.submit,
+.recordActions button,
+.refresh {
+  min-height: 2.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.7rem;
+  background: var(--primary);
+  padding: 0.65rem 0.9rem;
+  color: var(--primary-foreground);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.searchRow button:disabled,
+.submit:disabled,
+.refresh:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.albumChoices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: 0.65rem;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+.albumChoice {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.85rem;
+  background: var(--background);
+  padding: 0.65rem;
+  color: var(--foreground);
+  text-align: left;
+  cursor: pointer;
+}
+
+.albumChoice[aria-pressed="true"] {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+
+.albumChoice img,
+.coverFallback {
+  width: 3.25rem;
+  height: 3.25rem;
+  flex: none;
+  border-radius: 0.6rem;
+  object-fit: cover;
+}
+
+.coverFallback {
+  display: grid;
+  place-items: center;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-family: var(--font-display, inherit);
+  font-size: 1.6rem;
+}
+
+.albumChoice > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 0.2rem;
+}
+
+.albumChoice strong,
+.albumChoice small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.albumChoice small,
+.field small,
+.uploadField small {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-weight: 450;
+}
+
+.catalogIdentity {
+  display: grid;
+  gap: 0.25rem;
+  border-left: 3px solid var(--primary);
+  background: var(--background);
+  padding: 0.8rem 1rem;
+}
+
+.catalogIdentity span {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.catalogIdentity a {
+  width: fit-content;
+  color: var(--primary);
+  font-size: 0.8rem;
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.uploadGrid,
+.validityGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.uploadField {
+  display: grid;
+  align-content: start;
+  gap: 0.55rem;
+  min-width: 0;
+  border: 1px dashed var(--border);
+  border-radius: 0.8rem;
+  padding: 0.85rem;
+}
+
+.uploadField input {
+  max-width: 100%;
+  color: var(--foreground);
+  font-size: 0.78rem;
+}
+
+.confirmation {
+  display: grid;
+  grid-template-columns: 1.15rem minmax(0, 1fr);
+  align-items: start;
+  gap: 0.7rem;
+  border-radius: 0.75rem;
+  background: var(--muted);
+  padding: 0.85rem;
+  color: var(--foreground);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.confirmation input {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0.1rem 0 0;
+  accent-color: var(--primary);
+}
+
+.submit {
+  justify-self: start;
+  padding-inline: 1.15rem;
+}
+
+.refresh {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.notice {
+  margin: 0;
+  border-radius: 0.7rem;
+  background: var(--muted);
+  padding: 0.85rem;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.recordList {
+  display: grid;
+  gap: 0.7rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.record {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.85rem;
+  padding: 0.9rem;
+}
+
+.record > div:first-child {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.record .recordTitle {
+  color: var(--foreground);
+  font-weight: 700;
+}
+
+.record code {
+  overflow-wrap: anywhere;
+  font-size: 0.78em;
+}
+
+.recordActions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  flex: none;
+}
+
+.recordActions button {
+  min-height: 2.25rem;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 0.75rem;
+}
+
+@media (max-width: 620px) {
+  .sectionHeading,
+  .record {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .locked {
+    justify-self: start;
+  }
+
+  .uploadGrid,
+  .validityGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .searchRow {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .searchRow button,
+  .submit {
+    width: 100%;
+  }
+
+  .recordActions {
+    justify-content: flex-start;
+  }
+}

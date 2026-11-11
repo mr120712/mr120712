@@ -1,0 +1,11 @@
+// @polsia:user-owned
+model ActionRateLimit {
+  id           String   @id @default(cuid())
+  action       String
+  identityHash String
+  timestamps   Json     @default("[]")
+  updatedAt    DateTime @updatedAt
+
+  @@unique([action, identityHash])
+  @@index([updatedAt])
+}

@@ -1,0 +1,64 @@
+// @polsia:user-owned
+model SolcoProPreference {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  theme     String   @default("default")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SolcoProEntitlement {
+  id                      String   @id @default(cuid())
+  userId                  String
+  checkoutOrderId         String?
+  stripeCheckoutSessionId String?
+  paymentMode             String?
+  paypalTransactionId     String?  @unique
+  paypalMerchantId        String?
+  bankCreditId            String?  @unique
+  bankAccountId           String?
+  amountEuroCents         Int
+  currency                String
+  verificationState       String
+  durationKey             String
+  durationKind            String
+  validFrom               DateTime
+  validUntil              DateTime?
+  createdAt               DateTime @default(now())
+
+  @@index([userId, verificationState, validFrom, validUntil])
+}
+
+model SolcoProStripeEntitlement {
+  id                      String   @id @default(cuid())
+  userId                  String
+  checkoutOrderId         String   @unique
+  stripeCheckoutSessionId String   @unique
+  paymentMode             String
+  amountEuroCents         Int
+  currency                String
+  verificationState       String
+  durationKey             String
+  durationKind            String
+  validFrom               DateTime
+  validUntil              DateTime
+  createdAt               DateTime @default(now())
+
+  @@index([userId, verificationState, validFrom, validUntil])
+}
+
+model SolcoProCheckoutOrder {
+  id                      String   @id @default(cuid())
+  userId                  String
+  amountEuroCents         Int
+  currency                String
+  paymentMode             String
+  productId               String
+  durationKey             String
+  durationKind            String
+  stripeCheckoutSessionId String?  @unique
+  state                   String   @default("pending")
+  createdAt               DateTime @default(now())
+
+  @@index([userId, createdAt])
+}

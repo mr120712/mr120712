@@ -1,0 +1,387 @@
+/* @polsia:user-owned — your custom global CSS: keyframes, animation classes, one-off global
+ * styles, self-hosted @font-face rules, and @import your own .css files. Prefer tw-animate-css
+ * for motion (animate-in, fade-in, slide-in-from-bottom-N, duration-*). The app's visual theme
+ * (colors, light/dark, type, radius, spacing) lives in brand-theme.css; globals.css holds the
+ * framework wiring and is not yours to edit. */
+
+/* Optional data-screen building blocks (src/components/custom/app-ui). User-owned like this
+ * file: keep, restyle, or delete the folder and this line together. */
+@import "../components/custom/app-ui/app-ui.css" layer(components);
+
+/* font:add Instrument Serif — start */
+@font-face {
+  font-family: "Instrument Serif";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/instrument-serif/instrument-serif-400-normal-latin-ext.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Instrument Serif";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/instrument-serif/instrument-serif-400-normal-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* font:add Instrument Serif — end */
+
+/* font:add Inter — start */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/inter/inter-400-normal-latin-ext.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/inter/inter-400-normal-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/inter/inter-500-normal-latin-ext.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/inter/inter-500-normal-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/inter/inter-600-normal-latin-ext.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/inter/inter-600-normal-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/inter/inter-700-normal-latin-ext.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/inter/inter-700-normal-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* font:add Inter — end */
+
+/* Profondità ambientale dell'interfaccia: la griglia resta ferma mentre il
+   contenuto scorre e i piani decorativi rispondono lievemente al puntatore. */
+body {
+  position: relative;
+  isolation: isolate;
+  background-image:
+    radial-gradient(
+      circle at 1px 1px,
+      color-mix(in srgb, var(--ambient-line) 11%, transparent) 1px,
+      transparent 1.6px
+    ),
+    radial-gradient(
+      ellipse at 12% 8%,
+      color-mix(in srgb, var(--accent) 17%, transparent),
+      transparent 34rem
+    ),
+    radial-gradient(
+      ellipse at 92% 32%,
+      color-mix(in srgb, var(--primary) 9%, transparent),
+      transparent 32rem
+    );
+  background-attachment: fixed;
+  background-size:
+    36px 36px,
+    auto,
+    auto;
+}
+
+body.has-music-player {
+  padding-bottom: calc(112px + env(safe-area-inset-bottom));
+}
+
+body.has-music-player .solco-support-launcher {
+  bottom: calc(6.25rem + env(safe-area-inset-bottom));
+}
+
+body:has([data-youtube-official-frame]) .solco-support-launcher {
+  display: none;
+}
+
+.ambient-depth {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  overflow: clip;
+  pointer-events: none;
+}
+
+.ambient-depth__plane,
+.ambient-depth__scroll {
+  position: absolute;
+  inset: 0;
+}
+
+.ambient-depth__plane {
+  translate: 0 0;
+  transition: translate 180ms cubic-bezier(0.2, 0.7, 0.25, 1);
+  will-change: translate;
+}
+
+.ambient-depth__orb {
+  position: absolute;
+  width: clamp(230px, 32vw, 430px);
+  aspect-ratio: 1;
+  border: 1px solid color-mix(in srgb, var(--ambient-line) 22%, transparent);
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    transparent 53%,
+    color-mix(in srgb, var(--ambient-line) 10%, transparent) 53.3%,
+    transparent 53.8%,
+    transparent 68%,
+    color-mix(in srgb, var(--ambient-line) 16%, transparent) 68.3%,
+    transparent 68.8%
+  );
+}
+
+.ambient-depth__orb::after {
+  position: absolute;
+  inset: 12%;
+  border: 1px dashed color-mix(in srgb, var(--ambient-line) 20%, transparent);
+  border-radius: 50%;
+  content: "";
+}
+
+.ambient-depth__orb--north {
+  top: 6%;
+  left: -12%;
+}
+
+.ambient-depth__orb--south {
+  right: -15%;
+  bottom: 5%;
+  width: clamp(180px, 25vw, 330px);
+}
+
+.ambient-depth__rings {
+  position: absolute;
+  top: 12%;
+  right: 8%;
+  width: clamp(160px, 22vw, 300px);
+  stroke: color-mix(in srgb, var(--ambient-line) 34%, transparent);
+  stroke-width: 0.8;
+}
+
+.ambient-depth__wave {
+  position: absolute;
+  top: 39%;
+  right: -8rem;
+  width: clamp(300px, 42vw, 620px);
+  stroke: color-mix(in srgb, var(--primary) 28%, transparent);
+  stroke-width: 1;
+}
+
+.ambient-depth__ticks {
+  position: absolute;
+  right: 8%;
+  bottom: 22%;
+  width: clamp(170px, 25vw, 360px);
+  height: 34px;
+  background: repeating-linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--ambient-line) 30%, transparent) 0 1px,
+    transparent 1px 13px
+  );
+  mask-image: linear-gradient(90deg, transparent, #000 15% 85%, transparent);
+}
+
+main {
+  position: relative;
+  z-index: 1;
+  background-color: transparent;
+}
+
+body > header,
+body > footer {
+  position: relative;
+  z-index: 1;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display), Arial, sans-serif;
+  letter-spacing: -0.035em;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+.card {
+  box-shadow: 0 14px 44px -32px var(--elevation-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ambient-depth__plane {
+    transition: none;
+    will-change: auto;
+  }
+}
+
+@media (max-width: 760px) {
+  .ambient-depth__orb--north,
+  .ambient-depth__rings {
+    display: none;
+  }
+
+  .ambient-depth__orb--south {
+    right: -32%;
+    bottom: 1%;
+    opacity: 0.6;
+  }
+
+  .ambient-depth__wave {
+    top: 58%;
+    right: -10rem;
+    opacity: 0.58;
+  }
+
+  .ambient-depth__ticks {
+    right: -8rem;
+    bottom: 12%;
+    opacity: 0.55;
+  }
+}
+
+@font-face {
+  font-family: "Space Grotesk Fallback";
+  src: local("Arial");
+  size-adjust: 99%;
+  ascent-override: 96%;
+  descent-override: 24%;
+  line-gap-override: 0%;
+}
+/* font:add Space Grotesk — start */
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/space-grotesk/space-grotesk-400-normal-latin-ext.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/space-grotesk/space-grotesk-400-normal-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/space-grotesk/space-grotesk-500-normal-latin-ext.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/space-grotesk/space-grotesk-500-normal-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/space-grotesk/space-grotesk-600-normal-latin-ext.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/space-grotesk/space-grotesk-600-normal-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/space-grotesk/space-grotesk-700-normal-latin-ext.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "Space Grotesk";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/space-grotesk/space-grotesk-700-normal-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* font:add Space Grotesk — end */

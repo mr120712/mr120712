@@ -1,0 +1,39 @@
+"account.eyebrow" = "IL TUO ACCOUNT";
+"account.securityNote" = "Le playlist e i preferiti sono associati al tuo account Solco.";
+"account.signOut" = "Esci";
+"account.title" = "Il tuo spazio";
+
+"auth.createAction" = "Crea account";
+"auth.createTitle" = "Crea il tuo account";
+"auth.email" = "Email";
+"auth.haveAccount" = "Hai già un account? Accedi";
+"auth.name" = "Nome";
+"auth.needAccount" = "Nuovo su Solco? Crea un account";
+"auth.password" = "Password";
+"auth.signInAction" = "Accedi";
+"auth.signInTitle" = "Accedi a Solco";
+
+"brand.accessibility" = "Marchio Solco";
+"common.continue" = "Continua";
+"common.loading" = "Caricamento…";
+"common.unknownArtist" = "Artista non indicato";
+"connection.notConfigured" = "Indirizzo API non configurato.";
+"connection.sessionExpired" = "Accedi al tuo account Solco per continuare.";
+"connection.unavailable" = "La richiesta non è disponibile. Controlla la connessione e riprova.";
+
+"nav.account" = "Account";
+"nav.community" = "Community";
+"nav.discover" = "Scopri";
+"nav.messages" = "Messaggi";
+"nav.player" = "Raccolte";
+
+"onboarding.counter" = "%1$lld di %2$lld";
+"onboarding.first.body" = "Cerca musica su Audius e YouTube da un unico spazio, con la fonte indicata per ogni risultato.";
+"onboarding.first.title" = "La scoperta parte da te.";
+"onboarding.pages" = "Pagine di introduzione";
+"onboarding.progress" = "Passaggio %1$lld di %2$lld";
+"onboarding.second.body" = "Esplora il catalogo Audius e apri i video nel player ufficiale YouTube. L’ascolto integrale su Solco richiede diritti verificati e Solco Pro attivo.";
+"onboarding.second.title" = "Due fonti, player distinti.";
+"onboarding.start" = "Inizia a scoprire";
+"onboarding.third.body" = "Salva brani Audius e video YouTube in preferiti e playlist del tuo account.";
+"onboarding.third.title" = "Raccogli ciò che ti piace.";

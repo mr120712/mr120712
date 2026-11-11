@@ -1,0 +1,39 @@
+// @polsia:user-owned
+model MusicPlaybackSource {
+  id                 String                @id @default(cuid())
+  albumId            String
+  trackId            String
+  completeness       String
+  fileKey            String                @unique
+  mimeType           String
+  byteLength         Int
+  durationSeconds    Float
+  active             Boolean               @default(true)
+  createdByUserId    String
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  rightsEvidence     MusicRightsEvidence?
+
+  @@index([albumId, trackId, completeness, active])
+}
+
+model MusicRightsEvidence {
+  id                 String              @id @default(cuid())
+  sourceId           String              @unique
+  albumId            String
+  trackId            String
+  grant              String
+  durationSeconds    Float
+  evidenceFileKey    String
+  evidenceMimeType   String
+  evidenceByteLength Int
+  validFrom          DateTime
+  validUntil         DateTime
+  verifiedAt         DateTime            @default(now())
+  verifiedByUserId   String
+  revokedAt          DateTime?
+  createdAt          DateTime            @default(now())
+  source             MusicPlaybackSource @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([albumId, trackId, grant, validUntil])
+}

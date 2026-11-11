@@ -1,0 +1,31 @@
+// @polsia:user-owned
+import 'server-only';
+import { NextResponse } from 'next/server';
+import { AudiusAlbumDetailSchema } from '@/lib/contracts/music';
+import { getAudiusAlbumCatalogDetail } from '@/lib/music/audius-source.server';
+
+export const dynamic = 'force-dynamic';
+
+const privateHeaders = {
+  'Cache-Control': 'private, no-store, no-cache, must-revalidate',
+  Pragma: 'no-cache',
+  Vary: 'Cookie',
+};
+
+export async function GET(_request: Request, { params }: { params: Promise<{ albumId: string }> }) {
+  const { albumId } = await params;
+  const catalog = await getAudiusAlbumCatalogDetail(albumId);
+  if (catalog.state !== 'available') {
+    const status = catalog.state === 'not_found' ? 404 : 503;
+    return NextResponse.json({ error: catalog.reason }, { status, headers: privateHeaders });
+  }
+
+  const tracks = catalog.tracks.map((track) => ({
+    ...track,
+    albumId,
+    fullAccess: track.playbackEligible ? ('available' as const) : ('unavailable' as const),
+  }));
+
+  const body = AudiusAlbumDetailSchema.parse({ album: catalog.album, tracks });
+  return NextResponse.json(body, { headers: privateHeaders });
+}

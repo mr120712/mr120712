@@ -1,0 +1,308 @@
+.launcher {
+  position: fixed;
+  z-index: 40;
+  right: max(1rem, env(safe-area-inset-right));
+  bottom: calc(1rem + env(safe-area-inset-bottom));
+  display: inline-flex;
+  min-height: 3.5rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 72%, transparent);
+  border-radius: 999px;
+  padding: 0 1.05rem;
+  background: var(--primary);
+  box-shadow: 0 10px 28px var(--elevation-3);
+  color: var(--primary-foreground);
+  font: 600 0.94rem / 1 var(--font-body);
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.launcher:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 32px var(--elevation-3);
+}
+
+.launcher:focus-visible,
+.close:focus-visible,
+.send:focus-visible,
+.retry:focus-visible,
+.composer textarea:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 3px;
+}
+
+.launcherIcon {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+.overlay {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  background: rgb(8 21 31 / 44%);
+  backdrop-filter: blur(3px);
+}
+
+.panel {
+  position: fixed;
+  z-index: 51;
+  right: max(1rem, env(safe-area-inset-right));
+  bottom: calc(1rem + env(safe-area-inset-bottom));
+  display: flex;
+  width: min(26rem, calc(100vw - 2rem));
+  height: min(42rem, calc(100dvh - 2rem - env(safe-area-inset-bottom)));
+  max-height: calc(100dvh - 1rem - env(safe-area-inset-bottom));
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 1.1rem;
+  padding: 0;
+  background: var(--card);
+  box-shadow: 0 24px 80px rgb(8 21 31 / 28%);
+  color: var(--card-foreground);
+}
+
+.header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.8rem;
+  border-bottom: 1px solid var(--border);
+  padding: 1rem 3.6rem 1rem 1rem;
+  background: var(--background);
+}
+
+.brandMark {
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.brandMark svg {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+.headerCopy {
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font: 600 1rem / 1.25 var(--font-display);
+}
+
+.description {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--card);
+  color: var(--foreground);
+}
+
+.close svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.messages {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.8rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1rem;
+}
+
+.message {
+  max-width: 88%;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  padding: 0.75rem 0.9rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.assistantMessage {
+  align-self: flex-start;
+  border-top-left-radius: 0.35rem;
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+.userMessage {
+  align-self: flex-end;
+  border-color: color-mix(in srgb, var(--primary) 60%, var(--border));
+  border-top-right-radius: 0.35rem;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+}
+
+.status svg {
+  width: 0.95rem;
+  height: 0.95rem;
+  animation: spin 1s linear infinite;
+}
+
+.retry {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.45rem 0.7rem;
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.retry svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.composer {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-end;
+  gap: 0.55rem;
+  border-top: 1px solid var(--border);
+  padding: 0.8rem 1rem 0.5rem;
+  background: var(--card);
+}
+
+.composer textarea {
+  min-width: 0;
+  min-height: 3rem;
+  flex: 1 1 auto;
+  resize: none;
+  border: 1px solid var(--input);
+  border-radius: 0.8rem;
+  padding: 0.7rem 0.8rem;
+  background: var(--background);
+  color: var(--foreground);
+  font: 400 1rem / 1.4 var(--font-body);
+}
+
+.composer textarea::placeholder {
+  color: var(--muted-foreground);
+  opacity: 1;
+}
+
+.send {
+  display: grid;
+  width: 3rem;
+  height: 3rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 0.8rem;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.send:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.send svg {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.scopeNote {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0 1rem 0.8rem;
+  background: var(--card);
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 480px) {
+  .launcher {
+    right: max(0.75rem, env(safe-area-inset-right));
+    bottom: calc(0.75rem + env(safe-area-inset-bottom));
+    width: 3.5rem;
+    padding: 0;
+  }
+
+  .launcherLabel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    clip-path: inset(50%);
+  }
+
+  .panel {
+    right: max(0.5rem, env(safe-area-inset-right));
+    bottom: calc(0.5rem + env(safe-area-inset-bottom));
+    width: calc(100vw - 1rem - env(safe-area-inset-right) - env(safe-area-inset-left));
+    height: min(72dvh, 42rem);
+    max-height: calc(100dvh - 1rem - env(safe-area-inset-bottom));
+    border-radius: 1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .launcher {
+    transition: none;
+  }
+
+  .launcher:hover {
+    transform: none;
+  }
+
+  .status svg {
+    animation: none;
+  }
+}

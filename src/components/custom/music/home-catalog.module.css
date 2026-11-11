@@ -1,0 +1,403 @@
+/* @polsia:user-owned */
+
+.catalog {
+  display: grid;
+  gap: clamp(48px, 7vw, 84px);
+  width: min(calc(100% - 48px), 1200px);
+  margin: 0 auto;
+  padding: 0 0 12px;
+}
+
+.section {
+  display: grid;
+  min-width: 0;
+  gap: 22px;
+  padding-top: clamp(36px, 5vw, 60px);
+  border-top: 1px solid var(--border);
+  scroll-margin-top: 88px;
+}
+
+.sectionHeading {
+  display: flex;
+  min-width: 0;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.sectionHeading > div {
+  min-width: 0;
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+  line-height: 1.5;
+}
+
+.sectionHeading h2,
+.resumeIntro h2 {
+  margin: 0;
+  color: var(--foreground);
+  font-family: var(--font-display), sans-serif;
+  font-size: clamp(28px, 4.2vw, 46px);
+  font-weight: 600;
+  letter-spacing: -0.055em;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+.sectionHeading > a {
+  flex: none;
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 650;
+  text-underline-offset: 4px;
+}
+
+.sectionNote {
+  margin: 9px 0 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.sectionState {
+  display: flex;
+  min-height: 76px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 17px 19px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--card);
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.sectionState p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.sectionState button,
+.resumeCard button {
+  min-height: 40px;
+  flex: none;
+  padding: 0 15px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sectionState button:focus-visible,
+.resumeCard button:focus-visible,
+.trackArtwork:focus-visible,
+.trackTitle:focus-visible,
+.creator:focus-visible,
+.genreGrid a:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+.trackGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.trackCard {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: 13px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--card);
+}
+
+.trackArtwork {
+  display: block;
+  width: 72px;
+  overflow: hidden;
+  aspect-ratio: 1;
+  border-radius: 7px;
+  background: var(--secondary);
+}
+
+.trackArtwork img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.trackCopy {
+  display: grid;
+  min-width: 0;
+  justify-items: start;
+  gap: 5px;
+}
+
+.source {
+  color: var(--primary);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.trackTitle {
+  display: block;
+  max-width: 100%;
+  color: var(--foreground);
+  font-family: var(--font-display), sans-serif;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+  text-underline-offset: 3px;
+}
+
+.trackTitle:hover {
+  text-decoration: underline;
+}
+
+.creator {
+  max-width: 100%;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.trackPlay {
+  min-height: 34px;
+  margin-top: 4px;
+  padding: 0 13px;
+  border: 1px solid var(--primary);
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.trackPlay:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.trackPlay:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+.playbackUnavailable {
+  margin: 3px 0 0;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.releaseGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 11px;
+}
+
+.artistGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 11px;
+}
+
+.genreGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.genreGrid a {
+  display: grid;
+  min-width: 0;
+  min-height: 76px;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+  padding: 14px 15px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  color: var(--foreground);
+  text-decoration: none;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease;
+}
+
+.genreGrid a:hover {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, var(--card));
+}
+
+.genreGrid a span {
+  color: var(--primary);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.genreGrid a strong {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.resume {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.55fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 24px;
+  padding: 18px 20px;
+  border: 1px solid color-mix(in srgb, var(--primary) 42%, var(--border));
+  border-radius: calc(var(--radius) + 6px);
+  background: color-mix(in srgb, var(--primary) 7%, var(--card));
+}
+
+.resumeIntro .eyebrow {
+  margin-bottom: 7px;
+}
+
+.resumeIntro h2 {
+  font-size: clamp(24px, 3vw, 34px);
+}
+
+.resumeCard {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 13px;
+}
+
+.resumeCard > img {
+  width: 64px;
+  aspect-ratio: 1;
+  border-radius: 7px;
+  object-fit: cover;
+}
+
+.resumeCopy {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.resumeTitle {
+  color: var(--foreground);
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.resumeAttribution {
+  color: var(--muted-foreground);
+  font-size: 10px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  text-underline-offset: 3px;
+}
+
+@media (max-width: 900px) {
+  .trackGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .artistGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .catalog {
+    width: min(calc(100% - 32px), 1200px);
+    gap: 48px;
+  }
+
+  .sectionHeading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 11px;
+  }
+
+  .trackGrid,
+  .releaseGrid,
+  .artistGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .genreGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .genreGrid a {
+    min-height: 64px;
+    gap: 7px;
+    padding: 11px;
+  }
+
+  .resume {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    padding: 16px;
+  }
+
+  .resumeCard {
+    grid-template-columns: 56px minmax(0, 1fr) auto;
+    gap: 9px;
+  }
+
+  .resumeCard > img {
+    width: 56px;
+  }
+
+  .resumeCard button {
+    padding-inline: 11px;
+  }
+
+  .sectionState {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .genreGrid a,
+  .artistCard {
+    transition: none;
+  }
+}

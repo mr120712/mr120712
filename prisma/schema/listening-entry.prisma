@@ -1,0 +1,24 @@
+// @polsia:user-owned
+model ListeningEntry {
+  id          String   @id @default(cuid())
+  userId      String
+  albumId     String
+  catalogProvider String   @default("legacy")
+  albumName       String
+  artistName      String
+  artworkUrl      String?
+  releaseDate     String?
+  genre           String?
+  trackCount      Int?
+  storeUrl        String?
+  rating          Float
+  note            String
+  listenedOn      DateTime
+  context         String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId, listenedOn])
+  @@index([userId, createdAt])
+  @@index([userId, albumId])
+}

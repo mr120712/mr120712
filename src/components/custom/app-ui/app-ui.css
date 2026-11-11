@@ -1,0 +1,323 @@
+/* @polsia:user-owned — optional building blocks for data screens (see docs/app-ui.md).
+ * Scoped to `.app-ui`; inherits the app's theme tokens (brand-theme.css) and light/dark.
+ * Starting point, not a required composition: restyle, override with utilities, or delete
+ * the folder together with its @import line in src/app/custom-style.css.
+ * Knobs: --app-gap, --app-padding, --app-row-padding, --app-heading-size,
+ * --app-panel-radius, --app-sidebar-width (set on .app-ui or any ancestor). */
+.app-ui {
+  --app-gap: 1.5rem;
+  --app-padding: clamp(1rem, 3vw, 2.5rem);
+  --app-row-padding: 1rem;
+  --app-heading-size: clamp(1.5rem, 2.2vw, 2rem);
+  --app-panel-radius: var(--radius, 0.625rem);
+  --app-positive: var(--status-positive);
+  --app-warning: var(--status-warning);
+  --app-critical: var(--destructive);
+  --app-info: var(--primary);
+  min-width: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.app-ui[data-density="compact"] {
+  --app-gap: 1rem;
+  --app-padding: clamp(1rem, 2vw, 1.75rem);
+  --app-row-padding: 0.625rem;
+  --app-heading-size: clamp(1.375rem, 2vw, 1.75rem);
+}
+.app-ui :where(h1, h2, h3, p, dl, dd) {
+  margin: 0;
+}
+.app-ui :where(h2, h3) {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.app-ui-shell {
+  display: grid;
+  grid-template-columns: var(--app-sidebar-width, 14rem) minmax(0, 1fr);
+  min-height: 100dvh;
+}
+.app-ui-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+  padding: 1.5rem 1rem;
+  background: var(--card);
+  border-right: 1px solid var(--border);
+  min-width: 0;
+}
+.app-ui-brand {
+  padding-inline: 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.app-ui-sidebar nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+.app-ui-sidebar nav :where(a, button) {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--app-panel-radius);
+  color: var(--muted-foreground);
+  text-align: start;
+}
+.app-ui-sidebar nav [aria-current="page"] {
+  background: var(--accent);
+  color: var(--accent-foreground);
+  font-weight: 600;
+}
+.app-ui-sidebar-footer {
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+}
+.app-ui-workspace {
+  min-width: 0;
+}
+.app-ui-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 4.25rem;
+  padding: 1rem var(--app-padding);
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.app-ui-content {
+  max-width: 100rem;
+  margin-inline: auto;
+  padding: var(--app-padding);
+}
+.app-ui-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-gap);
+  margin-bottom: var(--app-gap);
+}
+.app-ui-page-header > div:first-child {
+  min-width: 0;
+}
+.app-ui-page-header h1 {
+  font-size: var(--app-heading-size);
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: -0.035em;
+  overflow-wrap: anywhere;
+}
+.app-ui-description {
+  margin-top: 0.5rem;
+  color: var(--muted-foreground);
+  max-width: 70ch;
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+.app-ui-breadcrumb {
+  margin-bottom: 0.75rem;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+.app-ui-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.app-ui-panel {
+  margin-block: var(--app-gap);
+  border-radius: var(--app-panel-radius);
+  box-shadow: none;
+  overflow: hidden;
+}
+.app-ui-panel-header {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.app-ui-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--app-panel-radius);
+  background: var(--border);
+  margin-block: var(--app-gap);
+}
+.app-ui-metric {
+  background: var(--card);
+  padding: var(--app-gap);
+  min-width: 0;
+}
+.app-ui-metric dt {
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}
+.app-ui-metric dd {
+  margin-block: 0.5rem;
+  font-size: clamp(1.625rem, 2.5vw, 2.125rem);
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.app-ui-metric-detail,
+.app-ui-metric-trend {
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}
+.app-ui-metric-trend {
+  margin-top: 0.5rem;
+}
+.app-ui-form-section {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) minmax(0, 2fr);
+  gap: calc(var(--app-gap) * 2);
+  padding-block: var(--app-gap);
+  border-bottom: 1px solid var(--border);
+}
+.app-ui-form-fields {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+.app-ui-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--app-gap);
+  padding-block: var(--app-gap);
+  flex-wrap: wrap;
+}
+.app-ui-list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-block: var(--app-gap);
+  flex-wrap: wrap;
+}
+.app-ui-filters,
+.app-ui-list-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.app-ui-list-tools input {
+  min-width: 0;
+  width: min(100%, 16rem);
+}
+.app-ui-table {
+  min-width: 0;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--app-panel-radius);
+  overflow: hidden;
+}
+.app-ui-table table {
+  font-size: 0.875rem;
+}
+.app-ui-table th {
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.app-ui-table :where(th, td) {
+  padding: var(--app-row-padding);
+}
+.app-ui-table .app-ui-align-right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.app-ui-table-state {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--muted-foreground);
+}
+.app-ui-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 2rem 1rem;
+  text-align: center;
+}
+.app-ui-empty .app-ui-description {
+  margin: 0;
+}
+.app-ui-status {
+  --app-status-color: var(--muted-foreground);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--app-status-color);
+  background: color-mix(in oklch, var(--app-status-color) 8%, var(--card));
+  border-color: color-mix(in oklch, var(--app-status-color) 20%, var(--card));
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.app-ui-status[data-tone="positive"] {
+  --app-status-color: var(--app-positive);
+}
+.app-ui-status[data-tone="warning"] {
+  --app-status-color: var(--app-warning);
+}
+.app-ui-status[data-tone="critical"] {
+  --app-status-color: var(--app-critical);
+}
+.app-ui-status[data-tone="info"] {
+  --app-status-color: var(--app-info);
+}
+.app-ui-status > span {
+  width: 0.3rem;
+  height: 0.3rem;
+  background: currentColor;
+  border-radius: 50%;
+}
+@media (max-width: 760px) {
+  .app-ui-shell {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+  }
+  .app-ui-sidebar {
+    gap: 1rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .app-ui-sidebar nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .app-ui-sidebar-footer {
+    margin-top: 0;
+  }
+  .app-ui-page-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .app-ui-form-section {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+  }
+  .app-ui-list-tools {
+    width: 100%;
+  }
+}

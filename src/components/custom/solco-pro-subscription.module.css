@@ -1,0 +1,279 @@
+.panel {
+  display: grid;
+  gap: 12px;
+  margin: 24px 0;
+  padding: clamp(18px, 3vw, 24px);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 6px);
+  background: color-mix(in srgb, var(--card) 94%, transparent);
+  box-shadow: 0 12px 32px var(--elevation-1);
+}
+
+.panel > * {
+  min-width: 0;
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+.panel h2 {
+  margin: 0;
+  color: var(--foreground);
+  font-family: var(--font-display), Georgia, serif;
+  font-size: clamp(24px, 4vw, 32px);
+  font-weight: 400;
+  letter-spacing: -0.035em;
+}
+
+.currentAccess {
+  display: grid;
+  gap: 10px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.currentAccess h3,
+.plans h3 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.copy,
+.state {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.currentAccess .portalButton {
+  justify-content: flex-start;
+  text-align: left;
+  white-space: normal;
+}
+
+.error {
+  margin: 0;
+  color: var(--destructive);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.plans {
+  display: grid;
+  gap: 16px;
+}
+
+.plansHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.billingControl {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.billingLabel {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.billingPeriod {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.billingPeriod legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.billingChoice {
+  position: relative;
+  cursor: pointer;
+}
+
+.billingChoice input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.billingChoice span {
+  display: block;
+  padding: 7px 11px;
+  border-radius: calc(var(--radius) - 2px);
+  color: var(--muted-foreground);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.billingChoice input:checked + span {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.billingChoice input:focus-visible + span {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.planGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.planCard {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.selectionStatus {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.planActions {
+  display: flex;
+  align-items: end;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+.planCard h4 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.selectedPrice {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+}
+
+.priceOptions,
+.annualSavings p,
+.planMapping,
+.paymentNotice p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.annualSavings {
+  display: grid;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.annualSavings strong {
+  color: var(--foreground);
+}
+
+.planMapping {
+  padding-top: 2px;
+}
+
+.paymentNotice {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--muted) 28%, var(--card));
+}
+
+.paymentNotice strong {
+  color: var(--foreground);
+  font-size: 14px;
+}
+
+@media (min-width: 620px) {
+  .planGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1060px) {
+  .planGrid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 360px) {
+  .panel {
+    padding: 16px;
+  }
+
+  .panel h2 {
+    font-size: 22px;
+    overflow-wrap: anywhere;
+  }
+
+  .actions > * {
+    width: 100%;
+  }
+
+  .plansHead {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .billingControl {
+    display: grid;
+    justify-items: start;
+  }
+
+  .billingPeriod {
+    min-width: 0;
+  }
+}

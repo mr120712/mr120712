@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.solcomusic.solco",
+      "sha256_cert_fingerprints": [
+        "74:EA:96:7E:6D:43:57:F8:42:CB:03:AD:9C:65:6E:1C:38:68:6E:06:E4:0D:9D:61:AB:7E:34:DB:2E:37:C4:15"
+      ]
+    }
+  }
+]

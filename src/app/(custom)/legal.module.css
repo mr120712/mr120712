@@ -1,0 +1,84 @@
+/* @polsia:user-owned */
+.page {
+  min-height: 100dvh;
+  padding: clamp(2.5rem, 7vw, 6rem) clamp(1rem, 5vw, 3rem);
+  background: var(--background);
+}
+
+.content {
+  max-width: 52rem;
+  margin: 0 auto;
+}
+
+.eyebrow {
+  margin: 0 0 0.8rem;
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.title {
+  max-width: 14ch;
+  margin: 0;
+  color: var(--foreground);
+  font-family: var(--font-display);
+  font-size: clamp(2.2rem, 6vw, 4.2rem);
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.045em;
+}
+
+.updated {
+  margin: 1rem 0 2rem;
+  color: var(--muted-foreground);
+  font-size: 0.9rem;
+}
+
+.notice {
+  margin: 2rem 0;
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--primary) 8%, var(--background));
+  padding: 1rem 1.2rem;
+  color: var(--foreground);
+  line-height: 1.7;
+}
+
+.body {
+  display: grid;
+  gap: 1.5rem;
+  color: var(--foreground);
+  font-size: 1rem;
+  line-height: 1.75;
+}
+
+.body h2 {
+  margin: 0 0 0.3rem;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.body p,
+.body ul {
+  margin: 0;
+}
+
+.body ul {
+  padding-left: 1.3rem;
+}
+
+.body a {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 2rem;
+}

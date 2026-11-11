@@ -1,0 +1,32 @@
+// @polsia:user-owned
+model UserMusicCollection {
+  id        String                    @id @default(cuid())
+  userId    String
+  name      String
+  kind      String
+  createdAt DateTime                  @default(now())
+  updatedAt DateTime                  @updatedAt
+  items     UserMusicCollectionItem[]
+
+  @@unique([userId, name])
+  @@index([userId, kind])
+}
+
+model UserMusicCollectionItem {
+  id              String             @id @default(cuid())
+  collectionId    String
+  collection      UserMusicCollection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  source          String
+  sourceId        String
+  title           String?
+  creatorName     String?
+  artworkUrl      String?
+  sourceUrl       String?
+  artistUrl       String?
+  durationSeconds Int?
+  createdAt       DateTime           @default(now())
+  expiresAt       DateTime?
+
+  @@unique([collectionId, source, sourceId])
+  @@index([source, expiresAt])
+}

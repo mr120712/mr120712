@@ -1,0 +1,160 @@
+/* @polsia:user-owned — identità visiva Solco, condivisa da landing, accesso e workspace. */
+
+@theme inline {
+  --color-status-positive: var(--status-positive);
+  --color-status-warning: var(--status-warning);
+  --color-rating: var(--rating);
+}
+
+:root {
+  color-scheme: light;
+  --background: #eff4f6;
+  --foreground: #12212b;
+  --card: #fbfdfe;
+  --card-foreground: #12212b;
+  --popover: #fbfdfe;
+  --popover-foreground: #12212b;
+  --primary: #17645e;
+  --primary-foreground: #f7fffc;
+  --secondary: #dfebee;
+  --secondary-foreground: #18303a;
+  --muted: #e7eef1;
+  --muted-foreground: #435964;
+  --accent: #d9f29d;
+  --accent-foreground: #1a2b21;
+  --destructive: #a4364b;
+  --border: #c7d6dc;
+  --input: #b2c5cc;
+  --ring: #087a72;
+  --status-positive: #176353;
+  --status-warning: #76520b;
+  --rating: #765707;
+  --rating-fill: #c49a2d;
+  --ambient-line: #427d7c;
+  --font-display: "Space Grotesk", "Space Grotesk Fallback", Arial, sans-serif;
+  --font-body: "Space Grotesk", "Space Grotesk Fallback", Arial, sans-serif;
+  --radius: 0.75rem;
+  --elevation-1: rgb(20 54 66 / 8%);
+  --elevation-2: rgb(15 45 58 / 12%);
+  --elevation-3: rgb(10 33 46 / 17%);
+  --shadow-brand-color: rgb(22 100 94 / 20%);
+}
+
+.dark {
+  color-scheme: dark;
+  --background: #08151f;
+  --foreground: #edf5f6;
+  --card: #10232f;
+  --card-foreground: #edf5f6;
+  --popover: #142a37;
+  --popover-foreground: #edf5f6;
+  --primary: #c5ed72;
+  --primary-foreground: #19261b;
+  --secondary: #182d3a;
+  --secondary-foreground: #e6f0f2;
+  --muted: #132733;
+  --muted-foreground: #b1c5cd;
+  --accent: #6bd4ca;
+  --accent-foreground: #082321;
+  --destructive: #ff9eac;
+  --border: #2c4652;
+  --input: #38545f;
+  --ring: #b9ed71;
+  --status-positive: #81e4b8;
+  --status-warning: #f0ca69;
+  --rating: #f0ce75;
+  --rating-fill: #f0ce75;
+  --ambient-line: #83d9d1;
+  --elevation-1: rgb(0 0 0 / 22%);
+  --elevation-2: rgb(0 0 0 / 32%);
+  --elevation-3: rgb(0 0 0 / 42%);
+  --shadow-brand-color: rgb(197 237 114 / 18%);
+}
+
+:root[data-solco-pro-theme="blue-hour"] {
+  color-scheme: light;
+  --background: #e9eef5;
+  --foreground: #142236;
+  --card: #fbfcff;
+  --card-foreground: #142236;
+  --popover: #fbfcff;
+  --popover-foreground: #142236;
+  --primary: #304d73;
+  --primary-foreground: #ffffff;
+  --secondary: #dbe4ef;
+  --secondary-foreground: #1b304a;
+  --muted: #e0e7f0;
+  --muted-foreground: #45566b;
+  --accent: #e1b35d;
+  --accent-foreground: #241f17;
+  --border: #bdc9d6;
+  --input: #a7b6c6;
+  --ring: #304d73;
+  --ambient-line: #6680a0;
+}
+
+.dark[data-solco-pro-theme="blue-hour"] {
+  color-scheme: dark;
+  --background: #101923;
+  --foreground: #ecf2fa;
+  --card: #182636;
+  --card-foreground: #ecf2fa;
+  --popover: #1b2c3d;
+  --popover-foreground: #ecf2fa;
+  --primary: #c1d6ef;
+  --primary-foreground: #132030;
+  --secondary: #223346;
+  --secondary-foreground: #e8f0fb;
+  --muted: #1c2a39;
+  --muted-foreground: #b2c1d1;
+  --accent: #edbb63;
+  --accent-foreground: #251d10;
+  --border: #33485d;
+  --input: #435970;
+  --ring: #c1d6ef;
+  --ambient-line: #91abc9;
+}
+
+:root[data-solco-pro-theme="amber"] {
+  color-scheme: light;
+  --background: #f3eeeb;
+  --foreground: #2a1d29;
+  --card: #fffaf7;
+  --card-foreground: #2a1d29;
+  --popover: #fffaf7;
+  --popover-foreground: #2a1d29;
+  --primary: #6f3d59;
+  --primary-foreground: #ffffff;
+  --secondary: #eadde4;
+  --secondary-foreground: #3d2938;
+  --muted: #eee4e7;
+  --muted-foreground: #5c4b56;
+  --accent: #db9b61;
+  --accent-foreground: #2b1e16;
+  --border: #d6c5ce;
+  --input: #c2adb9;
+  --ring: #814d6b;
+  --ambient-line: #a16b84;
+}
+
+.dark[data-solco-pro-theme="amber"] {
+  color-scheme: dark;
+  --background: #1a131a;
+  --foreground: #f7eff5;
+  --card: #281e29;
+  --card-foreground: #f7eff5;
+  --popover: #302431;
+  --popover-foreground: #f7eff5;
+  --primary: #e7bad1;
+  --primary-foreground: #2d1b28;
+  --secondary: #3a2b3a;
+  --secondary-foreground: #f2e4ee;
+  --muted: #302430;
+  --muted-foreground: #d0bccb;
+  --accent: #e7ad73;
+  --accent-foreground: #2b1e16;
+  --border: #4b374a;
+  --input: #60495e;
+  --ring: #e7bad1;
+  --ambient-line: #d29bb6;
+}
