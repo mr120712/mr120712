@@ -9,12 +9,12 @@ import {
   Radio,
   Search,
   Smartphone,
-  Sparkles,
   TrendingUp,
 } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { InstallAppBanner } from '@/components/custom/install-app-banner';
+import { AiSearchShortcut } from '@/components/custom/music/ai-search-shortcut';
 import { AudiusSection } from '@/components/custom/music/audius-section';
 import { JamendoSection } from '@/components/custom/music/jamendo-section';
 import { PodcastHomeRow } from '@/components/custom/music/podcast-home-row';
@@ -33,7 +33,6 @@ export const metadata: Metadata = {
 };
 
 const shortcuts = [
-  { href: '/search?ai=1', label: 'Cerca con l’AI', icon: Sparkles },
   { href: '#tendenze', label: 'Classifiche', icon: TrendingUp },
   { href: '/generi', label: 'Generi', icon: Disc3 },
   { href: '/radio', label: 'Radio', icon: Radio },
@@ -68,6 +67,7 @@ export default function HomePage() {
             </label>
           </form>
           <nav className={styles.shortcuts} aria-label="Scorciatoie">
+            <AiSearchShortcut />
             {shortcuts.map((item) => (
               <Link key={item.href} href={item.href}>
                 <item.icon aria-hidden="true" />

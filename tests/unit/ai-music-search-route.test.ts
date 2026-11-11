@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   limited: vi.fn(async () => null as Response | null),
   plan: vi.fn(),
   sameOrigin: vi.fn(() => true),
+  premium: vi.fn(async () => true),
 }));
 vi.mock('server-only', () => ({}));
 vi.mock('@/lib/require-auth', () => ({ getSessionUser: mocks.user }));
@@ -14,6 +15,10 @@ vi.mock('@/lib/same-origin', () => ({ sameOrigin: mocks.sameOrigin }));
 vi.mock('@/lib/business/rate-limit.server', () => ({
   enforceRateLimit: mocks.limited,
   getRateLimitIdentity: (id: string) => `user:${id}`,
+}));
+vi.mock('@/lib/business/premium-access.server', () => ({
+  hasPremiumAccess: mocks.premium,
+  currentAccess: async () => ({ signedIn: true, premium: await mocks.premium() }),
 }));
 vi.mock('@/lib/business/ai-music-search.server', () => ({
   aiSearchConfigured: () => true,
@@ -45,18 +50,32 @@ beforeEach(() => {
   mocks.limited.mockReset().mockResolvedValue(null);
   mocks.plan.mockReset().mockResolvedValue({ ok: true, plan, cached: false });
   mocks.sameOrigin.mockReset().mockReturnValue(true);
+  mocks.premium.mockReset().mockResolvedValue(true);
 });
 
 describe('route /api/music/ai-search', () => {
-  it('dice al client se il pulsante è attivo', async () => {
-    expect(await (await GET()).json()).toEqual({ enabled: true });
+  it('dice al client se il pulsante è attivo e se l’utente può usarlo', async () => {
+    expect(await (await GET()).json()).toEqual({ enabled: true, signedIn: true, premium: true });
+    mocks.premium.mockResolvedValueOnce(false);
+    expect(await (await GET()).json()).toMatchObject({ premium: false });
+  });
+
+  it('è inclusa nei piani a pagamento: un utente Free riceve 402 e Claude non viene chiamato', async () => {
+    mocks.premium.mockResolvedValueOnce(false);
+    const response = await post({ prompt: 'jazz per cena' });
+    expect(response.status).toBe(402);
+    expect((await response.json()).error).toBe('premium_required');
+    expect(mocks.plan).not.toHaveBeenCalled();
+    expect(mocks.limited).not.toHaveBeenCalled();
   });
 
   it('restituisce il piano a un utente registrato', async () => {
     const response = await post({ prompt: 'jazz per cena' });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ plan, cached: false });
-    expect(mocks.plan).toHaveBeenCalledWith('jazz per cena');
+    expect(mocks.plan).toHaveBeenCalledWith('jazz per cena', 'u1');
+    expect(mocks.limited).toHaveBeenCalledWith('music.ai_search', 'user:u1');
+    expect(mocks.limited).toHaveBeenCalledWith('music.ai_search.global', 'global');
   });
 
   it('rifiuta ospiti, altre origini, testi non validi e richieste oltre il limite', async () => {

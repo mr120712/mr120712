@@ -67,13 +67,16 @@ export default function PrivacyPage() {
                 <strong>Ricerche musicali:</strong> la stessa query viene cercata su Audius; dopo il
                 consenso esplicito viene inviata anche alla YouTube Data API v3. I risultati sono
                 consultabili nelle schede «Solco» e «YouTube». YouTube restituisce titolo, canale,
-                descrizione, data e attribuzione disponibili. I soli risultati di ricerca restano in
-                una cache volatile per due minuti e non vengono salvati nel database. Le ricerche
-                REST e le tendenze Audius vengono richieste quando è configurata AUDIUS_API_KEY lato
-                server; la chiave non viene esposta al browser. Se la credenziale manca o la fonte
-                non risponde, Solco mostra uno stato non configurato o non disponibile senza
-                risultati sostitutivi. Se Audius conferma l’accesso allo stream, Solco inoltra
-                l’audio al player senza archiviarlo e senza richiedere Solco Pro.
+                descrizione, data e attribuzione disponibili. Per risparmiare la quota di YouTube i
+                risultati di una ricerca (testo cercato e metadati dei video, senza dati
+                dell’account) vengono salvati nel database per 24 ore e riusati per chiunque faccia
+                la stessa ricerca; se YouTube non è disponibile possono essere mostrati fino a 7
+                giorni, poi vengono cancellati. Le ricerche REST e le tendenze Audius vengono
+                richieste quando è configurata AUDIUS_API_KEY lato server; la chiave non viene
+                esposta al browser. Se la credenziale manca o la fonte non risponde, Solco mostra
+                uno stato non configurato o non disponibile senza risultati sostitutivi. Se Audius
+                conferma l’accesso allo stream, Solco inoltra l’audio al player senza archiviarlo e
+                senza richiedere Solco Pro.
               </li>
               <li>
                 <strong>Assistenza automatizzata:</strong> la domanda inviata alla chat di supporto
@@ -161,12 +164,14 @@ export default function PrivacyPage() {
               Data safety.
             </p>
             <p>
-              Ricerca con l’AI: se usi “Cerca con l’AI” da un account, la descrizione che scrivi
-              viene inviata ad Anthropic (modello Claude) tramite la sua API per preparare le
-              ricerche; le ricerche risultanti vengono poi inviate a YouTube e alle altre fonti come
-              una ricerca normale. Non inviamo ad Anthropic il tuo nome, la tua email o altri dati
-              dell’account. Per lo stesso testo Solco riusa il piano già preparato per 7 giorni.
-              Consulta l’
+              Ricerca con l’AI (inclusa in Premium): la descrizione che scrivi viene inviata ad
+              Anthropic (modello Claude) tramite la sua API per preparare le ricerche. Le ricerche
+              risultanti vengono poi eseguite sulle fonti di Solco: YouTube (Google), Audius,
+              Jamendo, Radio Browser e la ricerca podcast di Apple (iTunes). Non inviamo ad
+              Anthropic il tuo nome, la tua email o altri dati dell’account. Il piano preparato (le
+              ricerche e la frase di presentazione) resta salvato nel database di Solco per al
+              massimo 7 giorni, legato al tuo account e cancellato insieme all’account; solo i piani
+              degli esempi già pronti sono condivisi tra gli utenti. Consulta l’
               <a href="https://www.anthropic.com/legal/privacy" target="_blank" rel="noreferrer">
                 informativa privacy di Anthropic
               </a>

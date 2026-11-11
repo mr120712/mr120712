@@ -21,6 +21,7 @@ const freeBenefits = [
 
 const proBenefits = [
   'Ascolti illimitati',
+  'Cerca con l’AI: descrivi la musica che vuoi e Claude Opus 5.5 la trova per te',
   'Nessun limite mensile su podcast e catalogo globale Jamendo, senza pubblicità',
   'Ascolto illimitato in background: continua a schermo bloccato o in un’altra app',
   'Statistiche avanzate',

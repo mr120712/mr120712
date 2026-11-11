@@ -2,7 +2,7 @@
 'use client';
 
 import { Pause, Play } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { FallbackArt } from '@/components/custom/music/fallback-art';
 import { jamendoToTrack } from '@/components/custom/music/live-tracks';
 import { trackStreamPath, useMusicPlayer } from '@/components/custom/music/music-player';
@@ -23,13 +23,17 @@ export function JamendoSection({
   query,
   tag,
   contained = false,
+  anchor = true,
 }: {
   query?: string;
   /** Tag Jamendo (genere) invece di una ricerca libera. */
   tag?: string;
   contained?: boolean;
+  /** false: no page anchor id (when the section is rendered more than once on a page). */
+  anchor?: boolean;
 }) {
   const player = useMusicPlayer();
+  const headingId = useId();
   const [response, setResponse] = useState<JamendoListResponse | null>(null);
 
   useEffect(() => {
@@ -66,15 +70,13 @@ export function JamendoSection({
   return (
     <section
       className={`${styles.section} ${contained ? styles.contained : ''}`}
-      id="musica-globale"
-      aria-labelledby="jamendo-heading"
+      id={anchor ? 'musica-globale' : undefined}
+      aria-labelledby={headingId}
     >
       <header className={styles.sectionHeader}>
         <div>
           <p className={styles.eyebrow}>CATALOGO GLOBALE</p>
-          <h2 id="jamendo-heading">
-            {query || tag ? 'Brani completi' : 'Musica globale senza limiti'}
-          </h2>
+          <h2 id={headingId}>{query || tag ? 'Brani completi' : 'Musica globale senza limiti'}</h2>
         </div>
       </header>
       {!response ? (

@@ -3,6 +3,14 @@ import { z } from 'zod';
 
 export const AI_SEARCH_PROMPT_MAX = 300;
 
+/** Ready-made examples shown in the panel; their plans are shared by every listener. */
+export const AI_SEARCH_EXAMPLES = [
+  'Musica per studiare di notte, tipo lo-fi giapponese',
+  'Canzoni italiane anni 80 da cantare in macchina',
+  'Elettronica scura e ipnotica come i Massive Attack',
+  'Jazz rilassato per una cena tra amici',
+] as const;
+
 export const AiSearchRequestSchema = z.object({
   prompt: z
     .string()
@@ -26,4 +34,9 @@ export const AiSearchResponseSchema = z.object({
   cached: z.boolean(),
 });
 
-export const AiSearchStatusSchema = z.object({ enabled: z.boolean() });
+export const AiSearchStatusSchema = z.object({
+  enabled: z.boolean(),
+  signedIn: z.boolean(),
+  /** La ricerca con l'AI è inclusa nei piani a pagamento (Premium, anche in prova). */
+  premium: z.boolean(),
+});

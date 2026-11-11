@@ -14,7 +14,11 @@ import {
   normalizePrompt,
   sanitizePlan,
 } from '@/lib/business/ai-music-search';
-import { type AiSearchPlan, AiSearchPlanSchema } from '@/lib/contracts/ai-music-search';
+import {
+  AI_SEARCH_EXAMPLES,
+  type AiSearchPlan,
+  AiSearchPlanSchema,
+} from '@/lib/contracts/ai-music-search';
 import { prisma } from '@/lib/db';
 
 const PLAN_CACHE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -44,8 +48,19 @@ export type AiSearchOutcome =
   | { ok: true; plan: AiSearchPlan; cached: boolean }
   | { ok: false; error: 'not_configured' | 'refused' | 'busy' | 'failed' };
 
-function cacheKey(prompt: string) {
-  return createHash('sha256').update(normalizePrompt(prompt)).digest('hex');
+const SHARED_PROMPTS = new Set(AI_SEARCH_EXAMPLES.map((example) => normalizePrompt(example)));
+
+/**
+ * Plans are private to the listener who asked (nobody can probe what others searched);
+ * only the ready-made examples are shared, since everyone sees those texts anyway.
+ */
+export function aiSearchCacheKey(prompt: string, userId: string) {
+  const text = normalizePrompt(prompt);
+  const scope = SHARED_PROMPTS.has(text) ? 'shared' : `user:${userId}`;
+  return {
+    key: createHash('sha256').update(`${scope}\n${text}`).digest('hex'),
+    owner: SHARED_PROMPTS.has(text) ? null : userId,
+  };
 }
 
 async function readCache(key: string, now: Date) {
@@ -59,8 +74,9 @@ async function readCache(key: string, now: Date) {
   }
 }
 
-async function writeCache(key: string, plan: AiSearchPlan, now: Date) {
+async function writeCache(key: string, owner: string | null, plan: AiSearchPlan, now: Date) {
   const data = {
+    userId: owner,
     payload: plan as unknown as Prisma.InputJsonValue,
     createdAt: now,
     expiresAt: new Date(now.getTime() + PLAN_CACHE_MS),
@@ -70,63 +86,105 @@ async function writeCache(key: string, plan: AiSearchPlan, now: Date) {
       prisma.aiMusicSearchCache.upsert({ where: { key }, create: { key, ...data }, update: data }),
     )
     .catch(() => undefined);
+  // Keep the promise in the privacy policy: nothing older than 7 days stays stored.
+  await Promise.resolve()
+    .then(() => prisma.aiMusicSearchCache.deleteMany({ where: { expiresAt: { lte: now } } }))
+    .catch(() => undefined);
 }
+
+// The route allows 120 s: a single attempt with a 100 s deadline always ends in time, and a
+// slow turn is never paid twice by an automatic retry.
+const REQUEST_TIMEOUT_MS = 100_000;
 
 let client: Anthropic | null = null;
 function anthropic() {
-  // One retry; a plan must arrive while the listener waits.
-  client ??= new Anthropic({ apiKey: anthropicApiKey(), maxRetries: 1, timeout: 100_000 });
+  client ??= new Anthropic({
+    apiKey: anthropicApiKey(),
+    maxRetries: 0,
+    timeout: REQUEST_TIMEOUT_MS,
+  });
   return client;
 }
 
-export async function planMusicSearch(prompt: string, now = new Date()): Promise<AiSearchOutcome> {
+function logRejectedKey() {
+  // Shape of the configured key only (never its value), to diagnose a rejected key.
+  const key = anthropicApiKey() ?? '';
+  console.error('[solco] Anthropic key rejected', {
+    length: key.length,
+    standardKey: key.startsWith('sk-ant-api'),
+    adminKey: key.startsWith('sk-ant-admin'),
+    hasSpaces: /\s/.test(key),
+    hasQuotes: /["']/.test(key),
+    hasEquals: key.includes('='),
+  });
+}
+
+/** Reads the structured plan; null when the text is not a valid plan. */
+function readPlan(response: Anthropic.Beta.BetaMessage) {
+  const text = response.content.find((block) => block.type === 'text');
+  if (!text || text.type !== 'text') return null;
+  try {
+    const parsed = ClaudePlan.safeParse(JSON.parse(text.text));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function planMusicSearch(
+  prompt: string,
+  userId: string,
+  now = new Date(),
+): Promise<AiSearchOutcome> {
   if (!aiSearchConfigured()) return { ok: false, error: 'not_configured' };
-  const key = cacheKey(prompt);
+  const { key, owner } = aiSearchCacheKey(prompt, userId);
   const cached = await readCache(key, now);
   if (cached) return { ok: true, plan: cached, cached: true };
 
   try {
-    const response = await anthropic().beta.messages.parse({
-      model: AI_SEARCH_MODEL,
-      max_tokens: 16000,
-      // A safety decline on Opus 5.5 is retried server-side on a fallback model.
-      betas: ['server-side-fallback-2026-07-01'],
-      fallbacks: 'default',
-      system: [
-        { type: 'text', text: AI_SEARCH_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
-      ],
-      output_config: {
-        effort: aiSearchEffort(process.env.SOLCO_AI_SEARCH_EFFORT),
-        format: betaZodOutputFormat(ClaudePlan),
-      },
-      messages: [
-        {
-          role: 'user',
-          content: `Descrizione dell'ascoltatore:\n<descrizione>\n${prompt}\n</descrizione>`,
+    // `create` (not `parse`): a refusal can carry partial text, which `parse` would throw on
+    // before stop_reason could be checked.
+    const response = await anthropic().beta.messages.create(
+      {
+        model: AI_SEARCH_MODEL,
+        max_tokens: 16000,
+        // A safety decline on Opus 5.5 is retried server-side on a fallback model.
+        betas: ['server-side-fallback-2026-07-01'],
+        fallbacks: 'default',
+        system: [
+          { type: 'text', text: AI_SEARCH_SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
+        ],
+        output_config: {
+          effort: aiSearchEffort(process.env.SOLCO_AI_SEARCH_EFFORT),
+          format: betaZodOutputFormat(ClaudePlan),
         },
-      ],
-    });
+        messages: [
+          {
+            role: 'user',
+            content: `Descrizione dell'ascoltatore:\n<descrizione>\n${prompt}\n</descrizione>`,
+          },
+        ],
+      },
+      { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS + 5_000) },
+    );
     if (response.stop_reason === 'refusal') return { ok: false, error: 'refused' };
-    if (!response.parsed_output) return { ok: false, error: 'failed' };
-    const plan = sanitizePlan(response.parsed_output);
-    await writeCache(key, plan, now);
+    if (response.stop_reason !== 'end_turn') return { ok: false, error: 'failed' };
+    const raw = readPlan(response);
+    if (!raw) return { ok: false, error: 'failed' };
+    const plan = sanitizePlan(raw);
+    await writeCache(key, owner, plan, now);
     return { ok: true, plan, cached: false };
   } catch (error) {
     if (error instanceof Anthropic.AuthenticationError) {
-      // Shape of the configured key only (never its value), to diagnose a rejected key.
-      const key = anthropicApiKey() ?? '';
-      console.error('[solco] Anthropic key rejected', {
-        length: key.length,
-        standardKey: key.startsWith('sk-ant-api'),
-        adminKey: key.startsWith('sk-ant-admin'),
-        hasSpaces: /\s/.test(key),
-        hasQuotes: /["']/.test(key),
-        hasEquals: key.includes('='),
-      });
+      logRejectedKey();
       return { ok: false, error: 'not_configured' };
     }
-    if (error instanceof Anthropic.RateLimitError) return { ok: false, error: 'busy' };
-    if (error instanceof Anthropic.APIError && (error.status ?? 0) >= 500) {
+    if (
+      error instanceof Anthropic.RateLimitError ||
+      error instanceof Anthropic.APIConnectionTimeoutError ||
+      error instanceof Anthropic.APIUserAbortError ||
+      (error instanceof Anthropic.APIError && (error.status ?? 0) >= 500)
+    ) {
       return { ok: false, error: 'busy' };
     }
     return { ok: false, error: 'failed' };

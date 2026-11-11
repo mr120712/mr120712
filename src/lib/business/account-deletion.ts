@@ -41,6 +41,7 @@ export type AccountDeletionTransaction = {
   listeningDay: UserOwnedRecords;
   userRewardProfile: UserOwnedRecords;
   musicPlay: UserOwnedRecords;
+  aiMusicSearchCache: UserOwnedRecords;
   referral: {
     deleteMany(args: {
       where: { OR: Array<{ inviterId: string } | { inviteeId: string }> };
@@ -79,6 +80,7 @@ export async function deleteAccountData(
   await transaction.listeningDay.deleteMany({ where: { userId } });
   await transaction.userRewardProfile.deleteMany({ where: { userId } });
   await transaction.musicPlay.deleteMany({ where: { userId } });
+  await transaction.aiMusicSearchCache.deleteMany({ where: { userId } });
   await transaction.referral.deleteMany({
     where: { OR: [{ inviterId: userId }, { inviteeId: userId }] },
   });

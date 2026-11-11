@@ -4,7 +4,7 @@
 'use client';
 
 import { Pause, Play } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { FallbackArt } from '@/components/custom/music/fallback-art';
 import { type MusicPlayerTrack, useMusicPlayer } from '@/components/custom/music/music-player';
 import { apiFetch } from '@/lib/api-client';
@@ -40,12 +40,16 @@ export function audiusToTrack(track: AudiusTrackSearchResult): MusicPlayerTrack 
 export function AudiusSection({
   query,
   contained = false,
+  anchor = true,
 }: {
   /** Ricerca (es. il genere); senza, le tendenze di Audius. */
   query?: string;
   contained?: boolean;
+  /** false: no page anchor id (when the section is rendered more than once on a page). */
+  anchor?: boolean;
 }) {
   const player = useMusicPlayer();
+  const headingId = useId();
   const [loaded, setLoaded] = useState<Loaded | null>(null);
 
   useEffect(() => {
@@ -92,13 +96,13 @@ export function AudiusSection({
   return (
     <section
       className={`${styles.section} ${contained ? styles.contained : ''}`}
-      id="audius"
-      aria-labelledby="audius-heading"
+      id={anchor ? 'audius' : undefined}
+      aria-labelledby={headingId}
     >
       <header className={styles.sectionHeader}>
         <div>
           <p className={styles.eyebrow}>ANCHE IN BACKGROUND</p>
-          <h2 id="audius-heading">{query ? 'Dagli artisti su Audius' : 'Tendenze su Audius'}</h2>
+          <h2 id={headingId}>{query ? 'Dagli artisti su Audius' : 'Tendenze su Audius'}</h2>
         </div>
       </header>
       <ol className={styles.list}>

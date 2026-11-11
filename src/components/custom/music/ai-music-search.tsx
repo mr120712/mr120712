@@ -8,12 +8,13 @@ import Link from 'next/link';
 import { type FormEvent, useEffect, useState } from 'react';
 import { AudiusSection } from '@/components/custom/music/audius-section';
 import { JamendoSection } from '@/components/custom/music/jamendo-section';
+import { useLibrary } from '@/components/custom/music/library-context';
 import { StationTile } from '@/components/custom/music/radio-station-tile';
 import { YouTubeVideoList } from '@/components/custom/music/youtube-video-list';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
-import { useSession } from '@/lib/auth-client';
 import {
+  AI_SEARCH_EXAMPLES,
   AI_SEARCH_PROMPT_MAX,
   type AiSearchPlan,
   AiSearchResponseSchema,
@@ -29,12 +30,7 @@ import { type MusicSearchResponse, MusicSearchResponseSchema } from '@/lib/contr
 import { genreCatalog } from '@/lib/music/genre-catalog';
 import styles from './discover.module.css';
 
-const EXAMPLES = [
-  'Musica per studiare di notte, tipo lo-fi giapponese',
-  'Canzoni italiane anni 80 da cantare in macchina',
-  'Elettronica scura e ipnotica come i Massive Attack',
-  'Jazz rilassato per una cena tra amici',
-];
+const EXAMPLES = AI_SEARCH_EXAMPLES;
 
 function errorMessage(error: unknown) {
   const cause =
@@ -70,29 +66,41 @@ function YouTubeResults({ query }: { query: string }) {
 }
 
 function RadioResults({ tags }: { tags: string[] }) {
-  const [radio, setRadio] = useState<RadioListResponse | null>(null);
-  const tag = tags[0];
+  const library = useLibrary();
+  const [stations, setStations] = useState<RadioListResponse['stations'] | null>(null);
+  const key = tags.join('|');
   useEffect(() => {
-    if (!tag) return;
+    if (!key) return;
     let cancelled = false;
-    apiFetch(`/api/music/radio?tag=${encodeURIComponent(tag)}&limit=12`, {
-      schema: RadioListResponseSchema,
-    })
-      .then((value) => !cancelled && setRadio(value))
-      .catch(() => !cancelled && setRadio(null));
+    // One request per proposed tag (at most 3), merged without duplicates.
+    Promise.all(
+      key.split('|').map((tag) =>
+        apiFetch(`/api/music/radio?tag=${encodeURIComponent(tag)}&limit=8`, {
+          schema: RadioListResponseSchema,
+        }).catch(() => null),
+      ),
+    ).then((lists) => {
+      if (cancelled) return;
+      const seen = new Set<string>();
+      const merged = lists
+        .flatMap((list) => list?.stations ?? [])
+        .filter((station) => !seen.has(station.id) && Boolean(seen.add(station.id)));
+      setStations(merged.slice(0, 16));
+    });
     return () => {
       cancelled = true;
     };
-  }, [tag]);
-  if (!radio || radio.stations.length === 0) return null;
+  }, [key]);
+  const visible = (stations ?? []).filter((station) => !library.isHidden('station', station.id));
+  if (visible.length === 0) return null;
   return (
     <section className={styles.section} aria-label="Radio consigliate">
       <header className={styles.sectionHeader}>
         <h3>Radio · {tags.join(', ')}</h3>
       </header>
       <div className={styles.rail}>
-        {radio.stations.map((station) => (
-          <StationTile key={station.id} station={station} queue={radio.stations} />
+        {visible.map((station) => (
+          <StationTile key={station.id} station={station} queue={visible} />
         ))}
       </div>
     </section>
@@ -100,6 +108,7 @@ function RadioResults({ tags }: { tags: string[] }) {
 }
 
 function PodcastResults({ query }: { query: string }) {
+  const library = useLibrary();
   const [list, setList] = useState<PodcastListResponse | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -112,14 +121,17 @@ function PodcastResults({ query }: { query: string }) {
       cancelled = true;
     };
   }, [query]);
-  if (!list || list.podcasts.length === 0) return null;
+  const podcasts = (list?.podcasts ?? []).filter(
+    (podcast) => !library.isHidden('podcast', podcast.id),
+  );
+  if (podcasts.length === 0) return null;
   return (
     <section className={styles.section} aria-label="Podcast consigliati">
       <header className={styles.sectionHeader}>
         <h3>Podcast · {query}</h3>
       </header>
       <ul className={styles.moodGrid}>
-        {list.podcasts.slice(0, 8).map((podcast) => (
+        {podcasts.slice(0, 8).map((podcast) => (
           <li key={podcast.id}>
             <Link href={`/podcasts/${podcast.id}`}>{podcast.title}</Link>
           </li>
@@ -150,8 +162,8 @@ function PlanResults({ plan }: { plan: AiSearchPlan }) {
       ))}
       {plan.audioQueries.map((query) => (
         <div key={`audio-${query}`}>
-          <AudiusSection query={query} contained />
-          <JamendoSection query={query} contained />
+          <AudiusSection query={query} anchor={false} />
+          <JamendoSection query={query} anchor={false} />
         </div>
       ))}
       {plan.radioTags.length ? <RadioResults tags={plan.radioTags} /> : null}
@@ -161,8 +173,7 @@ function PlanResults({ plan }: { plan: AiSearchPlan }) {
 }
 
 export function AiMusicSearch({ initiallyOpen = false }: { initiallyOpen?: boolean }) {
-  const { data: session, isPending } = useSession();
-  const [enabled, setEnabled] = useState(false);
+  const [status, setStatus] = useState<{ signedIn: boolean; premium: boolean } | null>(null);
   const [open, setOpen] = useState(initiallyOpen);
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
@@ -172,14 +183,14 @@ export function AiMusicSearch({ initiallyOpen = false }: { initiallyOpen?: boole
   useEffect(() => {
     let cancelled = false;
     apiFetch('/api/music/ai-search', { schema: AiSearchStatusSchema })
-      .then((value) => !cancelled && setEnabled(value.enabled))
-      .catch(() => !cancelled && setEnabled(false));
+      .then((value) => !cancelled && setStatus(value.enabled ? value : null))
+      .catch(() => !cancelled && setStatus(null));
     return () => {
       cancelled = true;
     };
   }, []);
 
-  if (!enabled) return null;
+  if (!status) return null;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -207,6 +218,7 @@ export function AiMusicSearch({ initiallyOpen = false }: { initiallyOpen?: boole
       <div className={styles.headerActions}>
         <Button type="button" variant="outline" onClick={() => setOpen(true)}>
           <Sparkles aria-hidden="true" /> Cerca con l’AI · Claude Opus 5.5
+          {status.premium ? null : <span className={styles.premiumBadge}>Premium</span>}
         </Button>
       </div>
     );
@@ -220,12 +232,28 @@ export function AiMusicSearch({ initiallyOpen = false }: { initiallyOpen?: boole
           <h2 id="ai-search-title">Cerca con l’AI</h2>
         </div>
       </header>
-      {!isPending && !session?.user ? (
+      {!status.signedIn ? (
         <p className={styles.state}>
+          La ricerca con l’AI è inclusa in Premium.{' '}
           <Link href="/login?callbackURL=%2Fsearch%3Fai%3D1">Accedi</Link> o{' '}
-          <Link href="/signup?callbackURL=%2Fsearch%3Fai%3D1">registrati gratis</Link> per
-          descrivere a parole la musica che vuoi ascoltare.
+          <Link href="/signup?callbackURL=%2Fpiani">crea un account</Link> e provala gratis per 10
+          giorni.
         </p>
+      ) : !status.premium ? (
+        <div className={styles.aiForm}>
+          <p className={styles.state}>
+            Descrivi a parole la musica che vuoi (“jazz rilassato per una cena tra amici”) e Claude
+            Opus 5.5 la cerca per te su YouTube, Audius, Jamendo, radio e podcast. È inclusa nei
+            piani Premium.
+          </p>
+          <div className={styles.headerActions}>
+            <Button asChild>
+              <Link href="/piani">
+                <Sparkles aria-hidden="true" /> Prova Premium gratis per 10 giorni
+              </Link>
+            </Button>
+          </div>
+        </div>
       ) : (
         <form onSubmit={submit} className={styles.aiForm}>
           <label htmlFor="ai-search-prompt" className={styles.state}>
