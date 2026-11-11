@@ -59,3 +59,13 @@ export function spotifySearchUrl(title: string, artist: string | null) {
   const query = `${artist ?? ''} ${title}`.replace(/\s+/g, ' ').trim();
   return `https://open.spotify.com/search/${encodeURIComponent(query)}`;
 }
+
+/**
+ * Plain link to SoundCloud's own search page. Solco uses neither the SoundCloud API nor its
+ * embedded player (their API terms exclude multi-source and paid services like Solco): the
+ * listener simply continues on soundcloud.com.
+ */
+export function soundcloudSearchUrl(title: string, artist: string | null) {
+  const query = `${artist ?? ''} ${title}`.replace(/\s+/g, ' ').trim();
+  return `https://soundcloud.com/search/sounds?q=${encodeURIComponent(query)}`;
+}
