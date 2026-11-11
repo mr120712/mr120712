@@ -7,6 +7,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useState } from 'react';
 import { AiMusicSearch } from '@/components/custom/music/ai-music-search';
 import { AudiusSection } from '@/components/custom/music/audius-section';
+import { ListenInSolco } from '@/components/custom/music/listen-in-solco';
 import { SearchExtras } from '@/components/custom/music/search-extras';
 import { YouTubeVideoList } from '@/components/custom/music/youtube-video-list';
 import { apiFetch } from '@/lib/api-client';
@@ -101,6 +102,7 @@ export function YouTubeSearchPage({
         <Link href="/privacy">Privacy</Link>
       </p>
       <AiMusicSearch initiallyOpen={initialAi} />
+      <ListenInSolco />
 
       {!query ? (
         <section className={styles.section} aria-labelledby="moods-heading">

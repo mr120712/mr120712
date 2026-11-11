@@ -28,7 +28,9 @@ import {
   useState,
 } from 'react';
 import { apiFetch } from '@/lib/api-client';
+import { spotifySearchUrl } from '@/lib/business/shared-song';
 import { AudiusPlaybackCheckSchema } from '@/lib/contracts/music';
+import { parseVideoTitle } from '@/lib/music/background-match';
 import { BackgroundListenButton } from './background-listen-button';
 import styles from './music-player.module.css';
 import { loadYouTubeIframeApi } from './youtube-queue-player';
@@ -779,6 +781,18 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const hidePlayer = pathname === '/admin' || pathname.startsWith('/admin/');
   const showFull = expanded && Boolean(currentTrack) && !hidePlayer;
   const youtubeActive = isYouTubeTrack(currentTrack) && !hidePlayer;
+  // Same song in the listener's Spotify app (a plain search link: no Spotify API involved).
+  const spotifyLink = (() => {
+    if (!currentTrack || isLiveTrack(currentTrack) || currentTrack.playbackMode === 'podcast') {
+      return null;
+    }
+    const song =
+      isYouTubeTrack(currentTrack) && !currentTrack.importedFrom
+        ? parseVideoTitle(currentTrack.title, currentTrack.artistName)
+        : { title: currentTrack.title, artist: currentTrack.artistName };
+    const title = song.title.replace(/\s*[([][^)\]]*[)\]]\s*/g, ' ').trim();
+    return title ? spotifySearchUrl(title, song.artist || null) : null;
+  })();
 
   const recordProgress = (track: MusicPlayerTrack, seconds: number) => {
     if (recordedRef.current !== track.qualifiedId && seconds >= HISTORY_THRESHOLD_SECONDS) {
@@ -1374,6 +1388,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                   </p>
                 ) : null}
                 <span className={styles.links}>
+                  {spotifyLink ? (
+                    <a href={spotifyLink} target="_blank" rel="noreferrer">
+                      Apri in Spotify <ExternalLink aria-hidden="true" />
+                    </a>
+                  ) : null}
                   {currentTrack.sourceUrl ? (
                     <a href={currentTrack.sourceUrl} target="_blank" rel="noreferrer">
                       {currentTrack.sourceUrlLabel ?? `Apri la fonte ${currentTrack.sourceLabel}`}{' '}
