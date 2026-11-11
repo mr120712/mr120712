@@ -24,7 +24,6 @@
 //   } } } },
 
 import type { BetterAuthOptions } from 'better-auth';
-import { after } from 'next/server';
 import { getDesignatedAdminUserId } from '@/lib/business/admin-account-identity';
 import { resolveInitialSignupRole } from '@/lib/business/admin-account-policy';
 import { resolveAppleClientSecret } from '@/lib/business/apple-client-secret';
@@ -72,10 +71,6 @@ export const authConfig: BetterAuthOptions = {
   emailVerification: {
     sendOnSignUp: true,
     sendVerificationEmail,
-  },
-  // Emails and other side tasks finish after the response: sign-up never waits on the mail service.
-  advanced: {
-    backgroundTasks: { handler: (promise) => after(promise) },
   },
   databaseHooks: {
     user: {
