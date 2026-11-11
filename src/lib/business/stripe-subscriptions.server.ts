@@ -108,6 +108,8 @@ export async function createSubscriptionCheckout(
     period: BillingPeriod;
     appUrl: string;
     customerId?: string | null;
+    /** Giorni di prova gratuita (0 = nessuna prova). */
+    trialDays?: number;
   },
   fetcher: FetchLike = fetch,
 ) {
@@ -133,6 +135,13 @@ export async function createSubscriptionCheckout(
     'subscription_data[metadata][userId]': input.userId,
     'subscription_data[metadata][planId]': input.planId,
     'subscription_data[metadata][period]': input.period,
+    // The card (or PayPal) is collected now; the first charge happens after the trial.
+    ...(input.trialDays && input.trialDays > 0
+      ? {
+          'subscription_data[trial_period_days]': String(input.trialDays),
+          payment_method_collection: 'always',
+        }
+      : {}),
   };
   // No payment_method_types: Stripe shows every method enabled in the Dashboard
   // (cards, PayPal, Apple Pay, Google Pay…).

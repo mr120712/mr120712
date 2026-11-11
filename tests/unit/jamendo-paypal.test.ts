@@ -157,6 +157,40 @@ describe('PayPal', () => {
     expect(String(fetcher.mock.calls[0]?.[0])).toContain('api-m.sandbox.paypal.com');
   });
 
+  it('crea un piano PayPal separato con 10 giorni di prova gratuita', async () => {
+    const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/v1/oauth2/token')) return json({ access_token: 'tok', expires_in: 3600 });
+      if (url.endsWith('/v1/catalogs/products')) return json({ id: 'PROD-1' });
+      if (url.endsWith('/v1/billing/plans')) {
+        const body = JSON.parse(String(init?.body));
+        expect(body.billing_cycles[0]).toMatchObject({
+          tenure_type: 'TRIAL',
+          sequence: 1,
+          total_cycles: 1,
+          frequency: { interval_unit: 'DAY', interval_count: 10 },
+        });
+        expect(body.billing_cycles[0].pricing_scheme).toBeUndefined();
+        expect(body.billing_cycles[1]).toMatchObject({ tenure_type: 'REGULAR', sequence: 2 });
+        return json({ id: 'P-TRIAL' });
+      }
+      return json({
+        id: 'I-TRIAL1',
+        links: [{ rel: 'approve', href: 'https://www.sandbox.paypal.com/t' }],
+      });
+    });
+    await createPayPalSubscription(
+      {
+        userId: 'u',
+        planId: 'family',
+        period: 'year',
+        appUrl: 'https://solco.test',
+        trialDays: 10,
+      },
+      fetcher as unknown as typeof fetch,
+    );
+    expect(db.plans.has('family:year:12999:trial10')).toBe(true);
+  });
+
   it('conferma solo abbonamenti dello stesso utente e approvati', async () => {
     const make = (custom: string, status: string) =>
       vi.fn(async (url: string) =>

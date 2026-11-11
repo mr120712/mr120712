@@ -88,6 +88,46 @@ describe('abbonamenti Stripe', () => {
     );
   });
 
+  it('aggiunge 10 giorni di prova quando richiesto, raccogliendo subito il metodo di pagamento', async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(json({ url: 'https://checkout.stripe.com/c/pay/cs_test_2' }));
+    await createSubscriptionCheckout(
+      {
+        userId: 'user-1',
+        email: 'a@example.com',
+        planId: 'premium',
+        period: 'month',
+        appUrl: 'https://solco.test',
+        trialDays: 10,
+      },
+      fetcher as unknown as typeof fetch,
+    );
+    const body = new URLSearchParams(
+      String((fetcher.mock.calls[0] as [string, RequestInit])[1].body),
+    );
+    expect(body.get('subscription_data[trial_period_days]')).toBe('10');
+    expect(body.get('payment_method_collection')).toBe('always');
+
+    const noTrial = vi
+      .fn()
+      .mockResolvedValue(json({ url: 'https://checkout.stripe.com/c/pay/cs_test_3' }));
+    await createSubscriptionCheckout(
+      {
+        userId: 'user-1',
+        email: 'a@example.com',
+        planId: 'premium',
+        period: 'month',
+        appUrl: 'https://solco.test',
+      },
+      noTrial as unknown as typeof fetch,
+    );
+    const plain = new URLSearchParams(
+      String((noTrial.mock.calls[0] as [string, RequestInit])[1].body),
+    );
+    expect(plain.has('subscription_data[trial_period_days]')).toBe(false);
+  });
+
   it('conferma solo checkout completati dello stesso utente', async () => {
     const subscription = {
       id: 'sub_1',

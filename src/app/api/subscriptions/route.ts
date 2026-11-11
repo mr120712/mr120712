@@ -1,6 +1,8 @@
 // @polsia:user-owned — stato dell'abbonamento (Stripe o PayPal) e disponibilità dei pagamenti.
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { FREE_TRIAL_DAYS } from '@/lib/business/free-trial';
+import { isTrialEligible } from '@/lib/business/free-trial.server';
 import {
   getUserPayPalSubscription,
   isPayPalSubscriptionActive,
@@ -22,9 +24,10 @@ export async function GET() {
   const base = { enabled: subscriptionsEnabled(), paypalEnabled: paypalEnabled() };
   const user = await getSessionUser().catch(() => null);
   if (!user) {
-    return NextResponse.json(SubscriptionStateSchema.parse({ ...base, subscription: null }), {
-      headers: privateHeaders,
-    });
+    return NextResponse.json(
+      SubscriptionStateSchema.parse({ ...base, trialDays: FREE_TRIAL_DAYS, subscription: null }),
+      { headers: privateHeaders },
+    );
   }
   try {
     const [stripe, paypal] = await Promise.all([
@@ -55,7 +58,8 @@ export async function GET() {
               cancelAtPeriodEnd: false,
             }
           : null;
-    return NextResponse.json(SubscriptionStateSchema.parse({ ...base, subscription }), {
+    const trialDays = (await isTrialEligible(user.id)) ? FREE_TRIAL_DAYS : 0;
+    return NextResponse.json(SubscriptionStateSchema.parse({ ...base, trialDays, subscription }), {
       headers: privateHeaders,
     });
   } catch {

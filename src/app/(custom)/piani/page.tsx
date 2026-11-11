@@ -31,6 +31,10 @@ const proBenefits = [
 
 const faq = [
   {
+    q: 'Come funziona la prova gratuita di 10 giorni?',
+    a: 'Al primo abbonamento hai 10 giorni di Premium gratis. Inserisci subito carta o PayPal, ma il primo addebito arriva solo alla fine della prova; se disdici prima non paghi nulla. La prova vale una sola volta per account.',
+  },
+  {
     q: 'Come vengo addebitato?',
     a: 'All’inizio dell’abbonamento e poi a ogni rinnovo, ogni mese o ogni anno secondo il periodo scelto. Con Stripe trovi ricevute e fatture in “Gestisci abbonamento”; con PayPal nel tuo account PayPal.',
   },

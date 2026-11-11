@@ -136,9 +136,26 @@ export async function ensurePayPalPlan(
   planId: PaidPlanId,
   period: BillingPeriod,
   fetcher: FetchLike = fetch,
+  trialDays = 0,
 ) {
   const price = planPrice(planId, period);
-  const key = `${planId}:${period}:${price.amount}`;
+  const key = `${planId}:${period}:${price.amount}${trialDays > 0 ? `:trial${trialDays}` : ''}`;
+  const regular = {
+    frequency: { interval_unit: period === 'month' ? 'MONTH' : 'YEAR', interval_count: 1 },
+    tenure_type: 'REGULAR',
+    sequence: trialDays > 0 ? 2 : 1,
+    total_cycles: 0,
+    pricing_scheme: {
+      fixed_price: { value: (price.amount / 100).toFixed(2), currency_code: 'EUR' },
+    },
+  };
+  // Free trial cycle (no pricing_scheme = free) before the regular cycle.
+  const trial = {
+    frequency: { interval_unit: 'DAY', interval_count: trialDays },
+    tenure_type: 'TRIAL',
+    sequence: 1,
+    total_cycles: 1,
+  };
   const existing = await prisma.payPalBillingPlan.findUnique({ where: { key } });
   if (existing) return existing.paypalPlanId;
   const productId = await ensureProduct(fetcher);
@@ -147,19 +164,9 @@ export async function ensurePayPalPlan(
     '/v1/billing/plans',
     {
       product_id: productId,
-      name: `Solco ${price.name} (${period === 'month' ? 'mensile' : 'annuale'})`,
+      name: `Solco ${price.name} (${period === 'month' ? 'mensile' : 'annuale'})${trialDays > 0 ? ` · prova ${trialDays} giorni` : ''}`,
       status: 'ACTIVE',
-      billing_cycles: [
-        {
-          frequency: { interval_unit: period === 'month' ? 'MONTH' : 'YEAR', interval_count: 1 },
-          tenure_type: 'REGULAR',
-          sequence: 1,
-          total_cycles: 0,
-          pricing_scheme: {
-            fixed_price: { value: (price.amount / 100).toFixed(2), currency_code: 'EUR' },
-          },
-        },
-      ],
+      billing_cycles: trialDays > 0 ? [trial, regular] : [regular],
       payment_preferences: { auto_bill_outstanding: true, payment_failure_threshold: 3 },
     },
     fetcher,
@@ -175,10 +182,21 @@ export async function ensurePayPalPlan(
 }
 
 export async function createPayPalSubscription(
-  input: { userId: string; planId: PaidPlanId; period: BillingPeriod; appUrl: string },
+  input: {
+    userId: string;
+    planId: PaidPlanId;
+    period: BillingPeriod;
+    appUrl: string;
+    trialDays?: number;
+  },
   fetcher: FetchLike = fetch,
 ) {
-  const paypalPlanId = await ensurePayPalPlan(input.planId, input.period, fetcher);
+  const paypalPlanId = await ensurePayPalPlan(
+    input.planId,
+    input.period,
+    fetcher,
+    input.trialDays ?? 0,
+  );
   const subscription = await paypalRequest(
     'POST',
     '/v1/billing/subscriptions',

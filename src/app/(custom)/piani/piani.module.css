@@ -262,3 +262,19 @@
   font-size: 14px;
   line-height: 1.55;
 }
+
+.trialBanner {
+  margin: 0;
+  padding: 14px 18px;
+  border: 1px solid var(--primary);
+  border-radius: calc(var(--radius) + 4px);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  font-size: 15px;
+}
+
+.trialNote {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.4;
+}

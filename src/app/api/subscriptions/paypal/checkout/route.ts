@@ -1,6 +1,8 @@
 // @polsia:user-owned — avvia un abbonamento PayPal e restituisce il link di approvazione.
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { FREE_TRIAL_DAYS } from '@/lib/business/free-trial';
+import { isTrialEligible } from '@/lib/business/free-trial.server';
 import { createPayPalSubscription } from '@/lib/business/paypal-subscriptions.server';
 import { enforceRateLimit } from '@/lib/business/rate-limit.server';
 import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
@@ -43,11 +45,13 @@ export async function POST(request: Request) {
         { status: 409, headers: privateHeaders },
       );
     }
+    const trialDays = (await isTrialEligible(auth.user.id)) ? FREE_TRIAL_DAYS : 0;
     const url = await createPayPalSubscription({
       userId: auth.user.id,
       planId: body.data.planId,
       period: body.data.period,
       appUrl: siteUrl,
+      trialDays,
     });
     return NextResponse.json(SubscriptionCheckoutResponseSchema.parse({ url }), {
       headers: privateHeaders,

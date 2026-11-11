@@ -1,6 +1,8 @@
 // @polsia:user-owned — avvia Stripe Checkout per un abbonamento (carte, PayPal e altri metodi attivi).
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { FREE_TRIAL_DAYS } from '@/lib/business/free-trial';
+import { isTrialEligible } from '@/lib/business/free-trial.server';
 import { enforceRateLimit } from '@/lib/business/rate-limit.server';
 import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
 import {
@@ -50,6 +52,7 @@ export async function POST(request: Request) {
         { status: 409, headers: privateHeaders },
       );
     }
+    const trialDays = (await isTrialEligible(auth.user.id)) ? FREE_TRIAL_DAYS : 0;
     const url = await createSubscriptionCheckout({
       userId: auth.user.id,
       email: auth.user.email,
@@ -57,6 +60,7 @@ export async function POST(request: Request) {
       period: body.data.period,
       appUrl: siteUrl,
       customerId: existing?.stripeCustomerId ?? null,
+      trialDays,
     });
     return NextResponse.json(SubscriptionCheckoutResponseSchema.parse({ url }), {
       headers: privateHeaders,

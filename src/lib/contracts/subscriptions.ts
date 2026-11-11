@@ -20,6 +20,8 @@ export const SubscriptionConfirmRequestSchema = z.object({
 export const SubscriptionStateSchema = z.object({
   enabled: z.boolean(),
   paypalEnabled: z.boolean(),
+  /** Giorni di prova gratuita disponibili per l'utente (0 se già usata). */
+  trialDays: z.number().int().nonnegative(),
   subscription: z
     .object({
       provider: z.enum(['stripe', 'paypal']),

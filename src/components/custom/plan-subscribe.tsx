@@ -49,10 +49,13 @@ export function PlanSubscribe({ plans }: { plans: PlanCard[] }) {
   useEffect(() => {
     apiFetch('/api/subscriptions', { schema: SubscriptionStateSchema })
       .then(setState)
-      .catch(() => setState({ enabled: false, paypalEnabled: false, subscription: null }));
+      .catch(() =>
+        setState({ enabled: false, paypalEnabled: false, trialDays: 0, subscription: null }),
+      );
   }, []);
 
   const current = state?.subscription?.active ? state.subscription : null;
+  const trialDays = state && (state.enabled || state.paypalEnabled) ? state.trialDays : 0;
   const bestSaving = Math.max(
     0,
     ...plans
@@ -110,6 +113,13 @@ export function PlanSubscribe({ plans }: { plans: PlanCard[] }) {
           Mensile
         </button>
       </fieldset>
+
+      {!current && trialDays > 0 ? (
+        <p className={styles.trialBanner}>
+          🎁 Prova Premium <strong>gratis per {trialDays} giorni</strong>: ascolti illimitati,
+          ascolto completo e in background. Disdici quando vuoi.
+        </p>
+      ) : null}
 
       {current ? (
         <div className={styles.currentPlan}>
@@ -182,6 +192,13 @@ export function PlanSubscribe({ plans }: { plans: PlanCard[] }) {
                 </Button>
               ) : (
                 <div className={styles.ctaGroup}>
+                  {trialDays > 0 ? (
+                    <p className={styles.trialNote}>
+                      {trialDays} giorni gratis, poi {euro.format(amount / 100)}/
+                      {period === 'month' ? 'mese' : 'anno'}. Disdici prima della fine della prova e
+                      non paghi nulla.
+                    </p>
+                  ) : null}
                   {state.enabled ? (
                     <Button
                       type="button"
@@ -191,7 +208,9 @@ export function PlanSubscribe({ plans }: { plans: PlanCard[] }) {
                     >
                       {pending === `stripe:${plan.id}`
                         ? 'Apertura del pagamento…'
-                        : `Abbonati a ${plan.name}`}
+                        : trialDays > 0
+                          ? `Prova gratis ${trialDays} giorni`
+                          : `Abbonati a ${plan.name}`}
                     </Button>
                   ) : null}
                   {state.paypalEnabled ? (
@@ -202,7 +221,11 @@ export function PlanSubscribe({ plans }: { plans: PlanCard[] }) {
                       onClick={() => void subscribe(plan.id as PaidPlanId, 'paypal')}
                       disabled={pending !== null}
                     >
-                      {pending === `paypal:${plan.id}` ? 'Apertura di PayPal…' : 'Paga con PayPal'}
+                      {pending === `paypal:${plan.id}`
+                        ? 'Apertura di PayPal…'
+                        : trialDays > 0
+                          ? 'Prova gratis con PayPal'
+                          : 'Paga con PayPal'}
                     </Button>
                   ) : null}
                 </div>
