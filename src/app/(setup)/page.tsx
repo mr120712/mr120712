@@ -27,7 +27,7 @@ const shortcuts = [
   { href: '/podcasts', label: 'Podcast', icon: Mic },
   { href: '/library', label: 'Libreria', icon: Library },
   { href: '/piani', label: 'Premium', icon: Crown },
-  { href: '/app', label: 'App Android', icon: Smartphone },
+  { href: '/app', label: 'Installa l’app', icon: Smartphone },
 ];
 
 export default function HomePage() {
@@ -90,7 +90,7 @@ export default function HomePage() {
         <footer className={styles.footer}>
           <p>Solco · Ogni ascolto lascia un solco.</p>
           <nav aria-label="Navigazione a piè di pagina">
-            <Link href="/app">App Android</Link>
+            <Link href="/app">Installa l’app</Link>
             <Link href="/community">Community</Link>
             <Link href="/privacy">Privacy</Link>
             <Link href="/terms">Termini</Link>

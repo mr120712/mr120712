@@ -12,12 +12,19 @@ export const GOOGLE_PLAY_URL = '';
 
 export function InstallAppBanner() {
   const [android, setAndroid] = useState(false);
+  const [ios, setIos] = useState(false);
   const [standalone, setStandalone] = useState(false);
 
   useEffect(() => {
     setAndroid(/Android/i.test(navigator.userAgent));
+    // iPadOS reports itself as Mac: detect touch support too.
+    setIos(
+      /iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+        (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1),
+    );
     setStandalone(
       window.matchMedia('(display-mode: standalone)').matches ||
+        (navigator as Navigator & { standalone?: boolean }).standalone === true ||
         document.referrer.startsWith('android-app://'),
     );
   }, []);
@@ -32,7 +39,11 @@ export function InstallAppBanner() {
       </span>
       <div className={styles.copy}>
         <h2 id="install-app-heading">Solco sul tuo telefono</h2>
-        <p>Installa l’app Android: player, Libreria e radio a schermo intero.</p>
+        <p>
+          {ios
+            ? 'Aggiungi Solco all’iPhone senza App Store: player, Libreria e radio a schermo intero.'
+            : 'Installa l’app: player, Libreria e radio a schermo intero, senza store.'}
+        </p>
       </div>
       <div className={styles.actions}>
         {GOOGLE_PLAY_URL ? (
@@ -42,7 +53,14 @@ export function InstallAppBanner() {
             </a>
           </Button>
         ) : null}
-        {android ? (
+        {ios ? (
+          <Button asChild>
+            <Link href="/app#iphone">
+              <Download aria-hidden="true" />
+              Installa su iPhone
+            </Link>
+          </Button>
+        ) : android ? (
           <Button asChild variant={GOOGLE_PLAY_URL ? 'outline' : 'default'}>
             <a href="/solco.apk" download="solco.apk">
               <Download aria-hidden="true" />

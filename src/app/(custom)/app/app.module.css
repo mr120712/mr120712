@@ -59,3 +59,21 @@
     width: calc(100% - 32px);
   }
 }
+
+.platform {
+  display: grid;
+  justify-items: start;
+  gap: 14px;
+  width: 100%;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 6px);
+  background: var(--card);
+  scroll-margin-top: 80px;
+}
+
+.platform h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+}
