@@ -38,6 +38,7 @@ export const navItems: NavItem[] = [
   { label: 'Invita amici', href: '/premi', group: 'primary', order: 5 },
   { label: 'Messaggi', href: '/messages', group: 'secondary', requiresAuth: true, order: 0 },
   { label: 'Installa l’app', href: '/app', group: 'primary', order: 6 },
+  { label: 'Flashcard', href: '/flashcards', group: 'primary', order: 7 },
   { label: 'Apple Music', href: '/apple-music', group: 'footer', order: -1 },
   { label: 'Privacy', href: '/privacy', group: 'footer', order: 0 },
   { label: 'Termini', href: '/terms', group: 'footer', order: 1 },

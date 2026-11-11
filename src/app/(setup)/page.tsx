@@ -4,6 +4,7 @@ import {
   Crown,
   Disc3,
   Gift,
+  GraduationCap,
   Library,
   Mic,
   Radio,
@@ -40,6 +41,7 @@ const shortcuts = [
   { href: '/library', label: 'Libreria', icon: Library },
   { href: '/piani', label: 'Premium', icon: Crown },
   { href: '/premi#invita', label: 'Invita amici', icon: Gift },
+  { href: '/flashcards', label: 'Flashcard', icon: GraduationCap },
   { href: '/app', label: 'Installa l’app', icon: Smartphone },
 ];
 
