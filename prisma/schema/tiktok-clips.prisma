@@ -1,0 +1,17 @@
+// @polsia:user-owned — video TikTok pubblici scelti dall'amministratore, mostrati con il player
+// ufficiale TikTok (caricato solo dopo un tocco dell'utente). Nessun dato preso da TikTok in
+// automatico: link, autore e didascalia li inserisce l'amministratore.
+model TikTokClip {
+  id           String   @id @default(cuid())
+  videoId      String   @unique
+  handle       String
+  canonicalUrl String
+  soundUrl     String?
+  caption      String?
+  /// Genere Solco (slug) a cui il video è collegato; null = sezione in Home.
+  genreSlug    String?
+  createdById  String
+  createdAt    DateTime @default(now())
+
+  @@index([genreSlug, createdAt])
+}

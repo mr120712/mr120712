@@ -643,3 +643,69 @@ ul.moodGrid {
 .importPanel[open] > summary {
   margin-bottom: 12px;
 }
+
+.tiktokRail {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(260px, 320px);
+  gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.tiktokCard {
+  display: grid;
+  gap: 10px;
+}
+
+.tiktokFrame,
+.tiktokPlaceholder {
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  border: 0;
+  border-radius: 16px;
+}
+
+.tiktokPlaceholder {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  background: linear-gradient(160deg, var(--secondary), var(--muted));
+  color: var(--foreground);
+  text-align: center;
+  cursor: pointer;
+}
+
+.tiktokPlaceholder svg {
+  width: 36px;
+  height: 36px;
+}
+
+.tiktokPlaceholder small {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.tiktokMeta {
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.tiktokMeta p {
+  margin: 0;
+}
+
+.tiktokMeta a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tiktokMeta svg {
+  width: 14px;
+  height: 14px;
+}

@@ -42,7 +42,11 @@ export const appCapabilities: AppCapabilities = {
  * e.g. { frameSrc: ['https://js.stripe.com'], connectSrc: ['https://*.supabase.co'] }
  */
 export const cspExtraSources: CspExtraSources = {
-  frameSrc: ['https://www.youtube.com', 'https://authorize.music.apple.com'],
+  frameSrc: [
+    'https://www.youtube.com',
+    'https://authorize.music.apple.com',
+    'https://www.tiktok.com',
+  ],
   // Apple Music (MusicKit JS): catalogue API, playback licences and audio segments.
   connectSrc: ['https://api.music.apple.com', 'https://*.apple.com', 'https://*.mzstatic.com'],
   mediaSrc: [],

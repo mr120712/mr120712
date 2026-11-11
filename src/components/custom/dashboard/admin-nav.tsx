@@ -1,7 +1,7 @@
 // @polsia:user-owned
 'use client';
 
-import { AudioLines, Bot, LayoutDashboard } from 'lucide-react';
+import { AudioLines, Bot, Clapperboard, LayoutDashboard } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -11,6 +11,7 @@ const navItems = [
   { href: '/admin', label: 'Panoramica', icon: LayoutDashboard },
   { href: '/admin/assistente', label: 'Assistente IA', icon: Bot },
   { href: '/admin/music-rights', label: 'Diritti musicali', icon: AudioLines },
+  { href: '/admin/tiktok', label: 'Video TikTok', icon: Clapperboard },
 ];
 
 export function AdminNav() {

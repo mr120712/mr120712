@@ -243,3 +243,23 @@ export const SongResolveResponseSchema = z.object({
     .nullable(),
 });
 export type SongResolveResponse = z.infer<typeof SongResolveResponseSchema>;
+
+// ---------- TikTok (video scelti dall'amministratore) ----------
+export const TikTokClipSchema = z.object({
+  id: z.string().min(1),
+  videoId: z.string().regex(/^\d{8,25}$/),
+  handle: z.string().regex(/^[A-Za-z0-9._]{2,24}$/),
+  canonicalUrl: z.string().url(),
+  soundUrl: z.string().url().nullable(),
+  caption: z.string().max(200).nullable(),
+  genreSlug: z.string().max(80).nullable(),
+});
+export type TikTokClip = z.infer<typeof TikTokClipSchema>;
+export const TikTokClipListSchema = z.object({ clips: z.array(TikTokClipSchema) });
+
+export const TikTokClipCreateSchema = z.object({
+  url: z.string().trim().min(1).max(500),
+  soundUrl: z.string().trim().max(500).optional(),
+  caption: z.string().trim().max(200).optional(),
+  genreSlug: z.string().trim().max(80).optional(),
+});

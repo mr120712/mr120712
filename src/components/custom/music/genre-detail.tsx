@@ -9,6 +9,7 @@ import { JamendoSection } from '@/components/custom/music/jamendo-section';
 import { videoToTrack } from '@/components/custom/music/live-tracks';
 import { trackStreamPath, useMusicPlayer } from '@/components/custom/music/music-player';
 import { StationTile } from '@/components/custom/music/radio-station-tile';
+import { TikTokClips } from '@/components/custom/music/tiktok-clips';
 import { YouTubeVideoList } from '@/components/custom/music/youtube-video-list';
 import { ShareButton } from '@/components/custom/share-button';
 import { Button } from '@/components/ui/button';
@@ -103,6 +104,7 @@ export function GenreDetail({ genre }: { genre: GenreEntry }) {
         </section>
       ) : null}
 
+      <TikTokClips genre={genre.slug} />
       <AudiusSection query={genre.query} />
       {genre.jamendoTag ? <JamendoSection tag={genre.jamendoTag} /> : null}
     </div>

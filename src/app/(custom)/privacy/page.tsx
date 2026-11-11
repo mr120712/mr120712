@@ -164,6 +164,20 @@ export default function PrivacyPage() {
               Data safety.
             </p>
             <p>
+              Video TikTok: alcune pagine mostrano video TikTok pubblici scelti da Solco. Il player
+              ufficiale di TikTok viene caricato solo se tocchi “Carica video TikTok”: da quel
+              momento TikTok riceve dal tuo browser dati tecnici e di navigazione e può usare
+              cookie, secondo l’
+              <a
+                href="https://www.tiktok.com/legal/privacy-policy-eea"
+                target="_blank"
+                rel="noreferrer"
+              >
+                informativa privacy di TikTok
+              </a>
+              . Solco non scarica né conserva video o audio di TikTok.
+            </p>
+            <p>
               Ricerca con l’AI (inclusa in Premium): la descrizione che scrivi viene inviata ad
               Anthropic (modello Claude) tramite la sua API per preparare le ricerche. Le ricerche
               risultanti vengono poi eseguite sulle fonti di Solco: YouTube (Google), Audius,
