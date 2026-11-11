@@ -9,6 +9,7 @@ import { videoToTrack } from '@/components/custom/music/live-tracks';
 import { trackStreamPath, useMusicPlayer } from '@/components/custom/music/music-player';
 import { StationTile } from '@/components/custom/music/radio-station-tile';
 import { YouTubeVideoList } from '@/components/custom/music/youtube-video-list';
+import { ShareButton } from '@/components/custom/share-button';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
 import { type RadioListResponse, RadioListResponseSchema } from '@/lib/contracts/library';
@@ -67,6 +68,11 @@ export function GenreDetail({ genre }: { genre: GenreEntry }) {
           >
             <Shuffle aria-hidden="true" /> Casuale
           </Button>
+          <ShareButton
+            title={`${genre.name} su Solco`}
+            text={`Ascolta ${genre.name}: brani, radio e playlist gratis su Solco.`}
+            path={`/generi/${genre.slug}`}
+          />
         </div>
       </header>
 

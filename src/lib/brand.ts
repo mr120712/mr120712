@@ -3,7 +3,7 @@
 
 export const siteName = 'Solco';
 export const siteDescription =
-  'Cerca brani e artisti, esplora i generi e segui le fonti musicali disponibili.';
+  'Musica, radio dal vivo e podcast gratis in un unico player: classifiche, generi underground e playlist da ascoltare ovunque.';
 
 // PWA + social-share colors, aligned with the light and dark Solco themes.
 export const brandVisual = {

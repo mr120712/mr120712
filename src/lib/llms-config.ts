@@ -27,9 +27,16 @@
 import type { LlmsConfig } from '@/lib/llms';
 
 export const llmsConfig: LlmsConfig = {
-  intro: 'Solco è un diario personale per cercare album e artisti e ricordare ogni ascolto.',
+  intro:
+    "Solco è un'app web gratuita per ascoltare musica, radio dal vivo da tutto il mondo e podcast in un unico player, con un piano Premium senza limiti.",
   pageDescriptions: {
-    '/': 'Ingresso a Solco, con accesso alla ricerca musicale e al diario personale.',
-    '/search': 'Cerca album e artisti nel catalogo e apri i dettagli disponibili.',
+    '/': 'Home: classifiche, radio consigliate, podcast e nuove uscite.',
+    '/search': 'Cerca brani, artisti, video, radio e podcast.',
+    '/generi': 'Generi musicali e playlist, compresi quelli underground.',
+    '/radio': 'Migliaia di radio dal vivo, gratis per tutti.',
+    '/podcasts': 'Podcast in italiano e da tutto il mondo.',
+    '/piani': 'Piani Free e Premium, con prova gratuita di 10 giorni.',
+    '/premi': 'Invita amici e ottieni Premium gratis.',
+    '/app': 'Installa Solco su Android e iPhone.',
   },
 };
