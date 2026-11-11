@@ -112,8 +112,19 @@ export async function planMusicSearch(prompt: string, now = new Date()): Promise
     await writeCache(key, plan, now);
     return { ok: true, plan, cached: false };
   } catch (error) {
-    if (error instanceof Anthropic.AuthenticationError)
+    if (error instanceof Anthropic.AuthenticationError) {
+      // Shape of the configured key only (never its value), to diagnose a rejected key.
+      const key = anthropicApiKey() ?? '';
+      console.error('[solco] Anthropic key rejected', {
+        length: key.length,
+        standardKey: key.startsWith('sk-ant-api'),
+        adminKey: key.startsWith('sk-ant-admin'),
+        hasSpaces: /\s/.test(key),
+        hasQuotes: /["']/.test(key),
+        hasEquals: key.includes('='),
+      });
       return { ok: false, error: 'not_configured' };
+    }
     if (error instanceof Anthropic.RateLimitError) return { ok: false, error: 'busy' };
     if (error instanceof Anthropic.APIError && (error.status ?? 0) >= 500) {
       return { ok: false, error: 'busy' };
