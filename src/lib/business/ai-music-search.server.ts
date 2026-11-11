@@ -31,8 +31,13 @@ const ClaudePlan = z.object({
   genres: z.array(z.string()).describe('Up to 4 slugs from the Solco genre list'),
 });
 
+/** The Anthropic key; also accepts the common misspelling ANTHROPHIC_API_KEY. */
+export function anthropicApiKey(env: Record<string, string | undefined> = process.env) {
+  return env.ANTHROPIC_API_KEY?.trim() || env.ANTHROPHIC_API_KEY?.trim() || undefined;
+}
+
 export function aiSearchConfigured() {
-  return Boolean(process.env.ANTHROPIC_API_KEY?.trim());
+  return Boolean(anthropicApiKey());
 }
 
 export type AiSearchOutcome =
@@ -69,8 +74,8 @@ async function writeCache(key: string, plan: AiSearchPlan, now: Date) {
 
 let client: Anthropic | null = null;
 function anthropic() {
-  // Reads ANTHROPIC_API_KEY. One retry; a plan must arrive while the listener waits.
-  client ??= new Anthropic({ maxRetries: 1, timeout: 100_000 });
+  // One retry; a plan must arrive while the listener waits.
+  client ??= new Anthropic({ apiKey: anthropicApiKey(), maxRetries: 1, timeout: 100_000 });
   return client;
 }
 

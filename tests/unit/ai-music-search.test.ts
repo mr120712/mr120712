@@ -58,7 +58,7 @@ import {
   normalizePrompt,
   sanitizePlan,
 } from '@/lib/business/ai-music-search';
-import { planMusicSearch } from '@/lib/business/ai-music-search.server';
+import { anthropicApiKey, planMusicSearch } from '@/lib/business/ai-music-search.server';
 
 const rawPlan = {
   intro: '  Ho cercato lo-fi giapponese   tranquillo. ',
@@ -84,6 +84,12 @@ describe('ricerca con l’AI: regole', () => {
     expect(plan.audioQueries).toEqual(['lofi', 'chillhop']);
     expect(plan.radioTags).toEqual(['lofi', 'chillout', 'jazz']);
     expect(plan.genres.every((slug) => slug !== 'inventato')).toBe(true);
+  });
+
+  it('legge la chiave anche con il nome scritto male (ANTHROPHIC_API_KEY)', () => {
+    expect(anthropicApiKey({ ANTHROPHIC_API_KEY: ' sk-x ' })).toBe('sk-x');
+    expect(anthropicApiKey({ ANTHROPIC_API_KEY: 'sk-a', ANTHROPHIC_API_KEY: 'sk-b' })).toBe('sk-a');
+    expect(anthropicApiKey({})).toBeUndefined();
   });
 
   it('usa Opus 5.5 con effort "high" se non configurato diversamente', () => {
