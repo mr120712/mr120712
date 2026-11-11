@@ -615,3 +615,31 @@ ul.moodGrid {
   font-weight: 700;
   letter-spacing: 0.02em;
 }
+
+.importPanel {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 14px;
+}
+
+.importPanel > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  list-style: none;
+}
+
+.importPanel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.importPanel > summary svg {
+  width: 18px;
+  height: 18px;
+}
+
+.importPanel[open] > summary {
+  margin-bottom: 12px;
+}

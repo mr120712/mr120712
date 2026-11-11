@@ -220,3 +220,26 @@ export const YouTubePlaylistImportResponseSchema = z.object({
   skipped: z.number().int().nonnegative(),
 });
 export type YouTubePlaylistImportResponse = z.infer<typeof YouTubePlaylistImportResponseSchema>;
+
+/** Elenco di brani portato dall'utente (righe "Artista - Titolo" o un CSV esportato). */
+export const TrackListImportSchema = z.object({
+  text: z.string().min(1).max(300_000),
+  name: z.string().trim().min(1).max(50).optional(),
+});
+
+export const TrackListImportResponseSchema = YouTubePlaylistImportResponseSchema.extend({
+  format: z.enum(['csv', 'lines']),
+});
+
+/** Video YouTube trovato per un brano importato; null se non trovato. */
+export const SongResolveResponseSchema = z.object({
+  video: z
+    .object({
+      videoId: z.string().regex(/^[A-Za-z0-9_-]{11}$/),
+      title: z.string().min(1),
+      channelTitle: z.string().min(1),
+      thumbnailUrl: z.string().url().nullable(),
+    })
+    .nullable(),
+});
+export type SongResolveResponse = z.infer<typeof SongResolveResponseSchema>;

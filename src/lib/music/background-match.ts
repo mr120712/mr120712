@@ -82,3 +82,48 @@ export function bestMatch<T extends MatchCandidate>(
   }
   return best?.item ?? null;
 }
+
+const UNWANTED_VERSION =
+  /\b(cover|karaoke|reaction|tutorial|lesson|instrumental|nightcore|slowed|sped up|8d|remix|live|acoustic|piano version|guitar)\b/i;
+
+export type SongToFind = { title: string; artist: string | null };
+export type VideoCandidate = { videoId: string; title: string; channelTitle: string };
+
+/**
+ * The YouTube video of an imported song (artist + title), or null when no result is a safe
+ * match. Prefers the original version (no covers, karaoke, live or remix unless asked for)
+ * and official channels (artist name, "- Topic", VEVO).
+ */
+export function pickVideoForSong<T extends VideoCandidate>(song: SongToFind, videos: T[]) {
+  // "Title - Remastered 2011" / "Title - Live": the part before the dash is the song.
+  const baseTitle = song.title.split(/\s[-–—]\s/)[0] ?? song.title;
+  const wantedTitle = tokens(baseTitle);
+  const mainArtist = (song.artist ?? '').split(/\s*(?:,|&|\bfeat\.?|\bft\.?|\bx\b)\s*/i)[0] ?? '';
+  const wantedArtist = tokens(mainArtist);
+  if (wantedTitle.length === 0) return null;
+  const askedVersion = UNWANTED_VERSION.test(song.title);
+  let best: { item: T; score: number } | null = null;
+  videos.forEach((video, index) => {
+    const titleWords = new Set(tokens(video.title));
+    const channelWords = tokens(video.channelTitle);
+    const allWords = new Set([...titleWords, ...channelWords]);
+    const titleScore = coverage(wantedTitle, titleWords);
+    const artistScore = wantedArtist.length ? coverage(wantedArtist, allWords) : 1;
+    if (titleScore < 0.8 || artistScore < 0.5) return;
+    const isVersion = UNWANTED_VERSION.test(video.title);
+    // Not asked for: penalise covers/live/remix. Asked for (e.g. "(Live 1999)"): prefer them.
+    const unwanted = askedVersion ? !isVersion : isVersion;
+    const channel = video.channelTitle.toLowerCase();
+    const official =
+      /- topic$|vevo$/i.test(video.channelTitle) ||
+      (wantedArtist.length > 0 && wantedArtist.every((word) => channel.includes(word)));
+    const score =
+      0.6 * titleScore +
+      0.4 * artistScore -
+      (unwanted ? 0.4 : 0) +
+      (official ? 0.05 : 0) -
+      index * 0.005;
+    if (score >= 0.7 && (!best || score > best.score)) best = { item: video, score };
+  });
+  return (best as { item: T; score: number } | null)?.item ?? null;
+}

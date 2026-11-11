@@ -1,0 +1,111 @@
+// @polsia:user-owned — importa un elenco di brani portato dall'utente (righe "Artista - Titolo"
+// o un CSV esportato da un altro servizio) come playlist della Libreria. Nessuna API di terzi:
+// ogni brano viene cercato su YouTube solo quando lo si ascolta (vedi /api/music/resolve-song).
+import 'server-only';
+import { NextResponse } from 'next/server';
+import { enforceRateLimit } from '@/lib/business/rate-limit.server';
+import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
+import { parseTrackList } from '@/lib/business/track-list-import';
+import { songSourceId } from '@/lib/business/track-list-import.server';
+import { TrackListImportResponseSchema, TrackListImportSchema } from '@/lib/contracts/library';
+import { prisma } from '@/lib/db';
+import { isFavoritesName } from '@/lib/music/collections.server';
+import { requireAuth, type SessionUser } from '@/lib/require-auth';
+import { sameOrigin } from '@/lib/same-origin';
+
+export const dynamic = 'force-dynamic';
+
+const privateHeaders = {
+  'Cache-Control': 'private, no-store, no-cache, must-revalidate',
+  Vary: 'Cookie',
+};
+
+async function signedIn(request: Request): Promise<{ user: SessionUser } | { response: Response }> {
+  try {
+    return { user: await requireAuth(request) };
+  } catch (response) {
+    return { response: response as Response };
+  }
+}
+
+async function availableName(userId: string, wanted: string) {
+  const base = isFavoritesName(wanted) ? `${wanted} (importata)` : wanted;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const candidate = attempt === 0 ? base : `${base.slice(0, 44)} (${attempt + 1})`;
+    const existing = await prisma.userMusicCollection.findFirst({
+      where: { userId, name: candidate },
+      select: { id: true },
+    });
+    if (!existing) return candidate;
+  }
+  return `${base.slice(0, 40)} ${Date.now().toString(36)}`;
+}
+
+export async function POST(request: Request) {
+  if (!sameOrigin(request)) {
+    return NextResponse.json(
+      { error: 'forbidden_origin' },
+      { status: 403, headers: privateHeaders },
+    );
+  }
+  const auth = await signedIn(request);
+  if ('response' in auth) return auth.response;
+  const limited = await enforceRateLimit('library.import', `user:${auth.user.id}`);
+  if (limited) return limited;
+  const payload = await readJsonLimited(request, 320 * 1024);
+  if (!payload.ok) return limitedJsonError(payload);
+  const body = TrackListImportSchema.safeParse(payload.value);
+  if (!body.success) {
+    return NextResponse.json(
+      { errors: { text: 'Incolla un elenco di brani o carica un file CSV.' } },
+      { status: 400, headers: privateHeaders },
+    );
+  }
+
+  const parsed = parseTrackList(body.data.text);
+  if (parsed.tracks.length === 0) {
+    return NextResponse.json(
+      {
+        errors: {
+          text: 'Non ho trovato brani. Usa una riga per brano, come “Artista - Titolo”, oppure un CSV con le colonne del titolo e dell’artista.',
+        },
+      },
+      { status: 400, headers: privateHeaders },
+    );
+  }
+
+  const name = await availableName(auth.user.id, body.data.name ?? 'Playlist importata');
+  const now = Date.now();
+  const collection = await prisma.userMusicCollection.create({
+    data: {
+      userId: auth.user.id,
+      name,
+      kind: 'playlist',
+      items: {
+        create: parsed.tracks.map((track, index) => ({
+          source: 'song',
+          sourceId: songSourceId(track.title, track.artist),
+          title: track.title,
+          creatorName: track.artist,
+          artworkUrl: null,
+          sourceUrl: track.sourceUrl,
+          artistUrl: null,
+          durationSeconds: track.durationSeconds,
+          // Items are listed newest first: decreasing timestamps keep the list's order.
+          createdAt: new Date(now - index),
+          expiresAt: null,
+        })),
+      },
+    },
+  });
+  return NextResponse.json(
+    TrackListImportResponseSchema.parse({
+      collectionId: collection.id,
+      name,
+      imported: parsed.tracks.length,
+      skipped: parsed.skipped,
+      format: parsed.format,
+    }),
+    { headers: privateHeaders },
+  );
+}

@@ -13,6 +13,7 @@ import { MusicCollections } from '@/components/custom/music/music-collections';
 import { PodcastTile } from '@/components/custom/music/podcast-tile';
 import { StationTile } from '@/components/custom/music/radio-station-tile';
 import { useHistoryPlayback } from '@/components/custom/music/recently-played-row';
+import { TrackListImport } from '@/components/custom/music/track-list-import';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
 import { YouTubePlaylistImportResponseSchema } from '@/lib/contracts/library';
@@ -203,6 +204,8 @@ function PlaylistsTab() {
           {importing ? 'Importazione…' : 'Importa playlist'}
         </Button>
       </form>
+
+      <TrackListImport onImported={() => setReloadKey((key) => key + 1)} />
 
       <MusicCollections
         embedded

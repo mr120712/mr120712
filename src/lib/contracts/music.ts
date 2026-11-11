@@ -231,7 +231,8 @@ export type MusicHomeResponse = z.infer<typeof MusicHomeResponseSchema>;
 export const MusicCollectionKindSchema = z.enum(['favorites', 'playlist']);
 export const MusicCollectionItemSchema = z.object({
   id: z.string().min(1),
-  source: z.enum(['audius', 'youtube']),
+  // 'song': imported from a track list (artist + title), found on YouTube when played.
+  source: z.enum(['audius', 'youtube', 'song']),
   sourceId: z.string().min(1),
   title: z.string().min(1).nullable(),
   creatorName: z.string().min(1).nullable(),

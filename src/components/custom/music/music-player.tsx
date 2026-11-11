@@ -33,7 +33,15 @@ import { BackgroundListenButton } from './background-listen-button';
 import styles from './music-player.module.css';
 import { loadYouTubeIframeApi } from './youtube-queue-player';
 
-export type MusicPlaybackMode = 'audius' | 'solco' | 'radio' | 'podcast' | 'jamendo' | 'youtube';
+export type MusicPlaybackMode =
+  | 'audius'
+  | 'solco'
+  | 'radio'
+  | 'podcast'
+  | 'jamendo'
+  | 'youtube'
+  // Imported song (artist + title): found on YouTube when its turn comes, then played there.
+  | 'song';
 
 export type MusicPlayerTrack = {
   qualifiedId: string;
@@ -46,6 +54,8 @@ export type MusicPlayerTrack = {
   sourceUrlLabel?: string;
   durationSeconds?: number | null;
   albumId?: string | null;
+  /** For a YouTube video found from an imported song: the song's qualifiedId (song:…). */
+  importedFrom?: string | null;
   playbackMode?: MusicPlaybackMode;
   credits?: string[];
 };
@@ -168,6 +178,11 @@ export function trackStreamPath(track: MusicPlayerTrack) {
     const id = youtubeVideoId(track);
     return id ? `/youtube/${id}` : null;
   }
+  if (track.playbackMode === 'song') {
+    // Never fetched: resolved to a YouTube video just before playing.
+    const id = /^song:([a-f0-9]{32})$/.exec(track.qualifiedId)?.[1];
+    return id ? `/song/${id}` : null;
+  }
   const match = /^audius:([A-Za-z0-9_-]{1,128})$/.exec(track.qualifiedId);
   if (!match?.[1]) return null;
   if (track.playbackMode === 'audius') {
@@ -254,6 +269,62 @@ export type PlayBlock = 'login_required' | 'monthly_limit';
 type PlayPermit = { allowed: boolean; reason?: PlayBlock; used?: number; limit?: number | null };
 
 /** Chiede al server il permesso di avviare un brano (limite di 40 ascolti al mese per i free). */
+/** Finds the YouTube video of an imported song; a ready-to-play track or a message. */
+async function resolveSongTrack(
+  track: MusicPlayerTrack,
+): Promise<{ ok: true; track: ActiveTrack } | { ok: false; message: string }> {
+  const params = new URLSearchParams({ title: track.title });
+  if (track.artistName) params.set('artist', track.artistName);
+  try {
+    const response = await fetch(`/api/music/resolve-song?${params.toString()}`, {
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+    const body = (await response.json().catch(() => null)) as {
+      video?: {
+        videoId?: unknown;
+        title?: unknown;
+        channelTitle?: unknown;
+        thumbnailUrl?: unknown;
+      } | null;
+      message?: unknown;
+    } | null;
+    if (!response.ok) {
+      return {
+        ok: false,
+        message:
+          typeof body?.message === 'string'
+            ? body.message
+            : 'Non è stato possibile cercare il brano. Riprova.',
+      };
+    }
+    const video = body?.video;
+    const videoId = typeof video?.videoId === 'string' ? video.videoId : '';
+    if (!video || !/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
+      return { ok: false, message: `Non ho trovato “${track.title}” su YouTube.` };
+    }
+    return {
+      ok: true,
+      track: {
+        qualifiedId: `youtube:${videoId}`,
+        // Keep the imported title and artist: they are what the listener chose.
+        title: track.title,
+        artistName: track.artistName,
+        artworkUrl: typeof video.thumbnailUrl === 'string' ? video.thumbnailUrl : null,
+        sourceLabel: 'YouTube',
+        sourceUrl: `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`,
+        sourceUrlLabel: 'Guarda su YouTube',
+        durationSeconds: track.durationSeconds ?? null,
+        playbackMode: 'youtube',
+        streamPath: `/youtube/${videoId}`,
+        importedFrom: track.qualifiedId,
+      },
+    };
+  } catch {
+    return { ok: false, message: 'Connessione non riuscita. Riprova.' };
+  }
+}
+
 async function requestPlayPermit(qualifiedId: string): Promise<PlayPermit> {
   try {
     const response = await fetch('/api/music/plays', {
@@ -381,8 +452,33 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     setPlayBlock(permit.allowed ? null : (permit.reason ?? null));
   }, []);
 
+  // Increases on every play request; a slow lookup for an older request is ignored.
+  const playRequestRef = useRef(0);
   const playCurrentTrack = useCallback(
-    async (track: ActiveTrack) => {
+    async (requested: ActiveTrack) => {
+      let track = requested;
+      const request = ++playRequestRef.current;
+      if (track.playbackMode === 'song') {
+        audioRef.current?.pause();
+        setErrorMessage(null);
+        setPlayBlock(null);
+        setStatus('loading');
+        const resolved = await resolveSongTrack(track);
+        // The listener picked something else while we were searching: drop this result.
+        if (request !== playRequestRef.current) return;
+        if (!resolved.ok) {
+          setStatus('error');
+          setErrorMessage(resolved.message);
+          return;
+        }
+        // Swap the song for its video in the queue: previous/next keep working.
+        const songId = track.qualifiedId;
+        setQueue((items) =>
+          items.map((item) => (item.qualifiedId === songId ? resolved.track : item)),
+        );
+        setCurrentTrack(resolved.track);
+        track = resolved.track;
+      }
       if (isYouTubeTrack(track)) {
         audioRef.current?.pause();
         setErrorMessage(null);

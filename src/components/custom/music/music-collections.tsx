@@ -56,7 +56,9 @@ function CollectionItem({
             unoptimized
           />
         ) : (
-          <span>{item.source === 'youtube' ? 'YouTube' : 'Audius'}</span>
+          <span>
+            {item.source === 'youtube' ? 'YouTube' : item.source === 'song' ? 'Brano' : 'Audius'}
+          </span>
         )}
       </div>
       <div className={styles.resultContent}>
@@ -65,7 +67,11 @@ function CollectionItem({
             <span
               className={`${styles.sourcePill} ${item.source === 'youtube' ? styles.youtubePill : ''}`}
             >
-              {item.source === 'youtube' ? 'YouTube' : 'Solco · Audius'}
+              {item.source === 'youtube'
+                ? 'YouTube'
+                : item.source === 'song'
+                  ? 'Importato'
+                  : 'Solco · Audius'}
             </span>
             <h3>
               {item.title ??
@@ -79,7 +85,9 @@ function CollectionItem({
                   ? 'Metadati rimossi dopo la scadenza; il video resta nelle raccolte.'
                   : item.source === 'audius'
                     ? 'Audius non ha confermato i metadati completi di questo brano.'
-                    : 'Canale YouTube non disponibile.')}
+                    : item.source === 'song'
+                      ? 'Artista non indicato'
+                      : 'Canale YouTube non disponibile.')}
             </p>
           </div>
           <Button
@@ -92,7 +100,21 @@ function CollectionItem({
           </Button>
         </div>
 
-        {item.source === 'audius' ? (
+        {item.source === 'song' ? (
+          <>
+            <div className={styles.attribution}>
+              <span>Brano importato · lo cerco su YouTube quando lo ascolti</span>
+              {item.sourceUrl ? (
+                <a href={item.sourceUrl} target="_blank" rel="noreferrer">
+                  Apri su Spotify
+                </a>
+              ) : null}
+            </div>
+            <Button type="button" variant="secondary" onClick={onPlay} disabled={isLoading}>
+              {isCurrentTrack ? (isPlaying ? 'Pausa' : 'Riprendi') : 'Riproduci'}
+            </Button>
+          </>
+        ) : item.source === 'audius' ? (
           <>
             <div className={styles.attribution}>
               <span>Fonte: Audius</span>
@@ -282,6 +304,23 @@ export function MusicCollections({
       {!loading && !message
         ? visibleCollections.map((collection) => {
             const queue: MusicPlayerTrack[] = collection.items.flatMap((item) => {
+              if (item.source === 'song') {
+                return item.title && /^[a-f0-9]{32}$/.test(item.sourceId)
+                  ? [
+                      {
+                        qualifiedId: `song:${item.sourceId}`,
+                        title: item.title,
+                        artistName: item.creatorName ?? '',
+                        artworkUrl: null,
+                        sourceLabel: 'YouTube',
+                        sourceUrl: item.sourceUrl,
+                        sourceUrlLabel: item.sourceUrl ? 'Apri su Spotify' : undefined,
+                        durationSeconds: item.durationSeconds,
+                        playbackMode: 'song',
+                      } satisfies MusicPlayerTrack,
+                    ]
+                  : [];
+              }
               if (item.source === 'youtube') {
                 return item.title && /^[A-Za-z0-9_-]{11}$/.test(item.sourceId)
                   ? [
@@ -356,7 +395,11 @@ export function MusicCollections({
                           const qualifiedId = `${item.source}:${item.sourceId}`;
                           const current = queue.find((track) => track.qualifiedId === qualifiedId);
                           if (!current) return;
-                          if (player.currentTrack?.qualifiedId === current.qualifiedId) {
+                          const playing = player.currentTrack;
+                          if (
+                            playing?.qualifiedId === current.qualifiedId ||
+                            playing?.importedFrom === current.qualifiedId
+                          ) {
                             void player.togglePlayback();
                             return;
                           }
@@ -364,7 +407,8 @@ export function MusicCollections({
                           if (path) void player.playTrack(current, path, queue);
                         }}
                         isCurrentTrack={
-                          player.currentTrack?.qualifiedId === `${item.source}:${item.sourceId}`
+                          player.currentTrack?.qualifiedId === `${item.source}:${item.sourceId}` ||
+                          player.currentTrack?.importedFrom === `${item.source}:${item.sourceId}`
                         }
                         isPlaying={player.status === 'playing'}
                         isLoading={player.status === 'loading'}

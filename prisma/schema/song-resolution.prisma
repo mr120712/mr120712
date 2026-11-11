@@ -1,0 +1,15 @@
+// @polsia:user-owned — per ogni brano importato (artista + titolo) il video YouTube trovato.
+// Condiviso tra gli utenti per risparmiare quota; metadati YouTube tenuti al massimo 29 giorni
+// (norme API YouTube: dati non autorizzati conservati meno di 30 giorni). Un brano non trovato
+// viene ricordato per 1 giorno, così non si ripete la stessa ricerca a vuoto.
+model SongResolution {
+  key          String   @id
+  videoId      String?
+  title        String?
+  channelTitle String?
+  thumbnailUrl String?
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+
+  @@index([expiresAt])
+}
