@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 
 const freeBenefits = [
   'Brani e video da YouTube nel player Solco',
-  'Anteprime di 30 secondi di radio, podcast e catalogo globale Jamendo',
+  'Anteprime di 30 secondi di radio, podcast e catalogo globale Jamendo, anche in background',
   'Libreria con playlist, cartelle e cronologia',
 ];
 

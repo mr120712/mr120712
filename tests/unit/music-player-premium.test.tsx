@@ -79,16 +79,18 @@ afterEach(async () => {
 });
 
 describe('player: free con anteprima, Premium completo e in background', () => {
-  it('ferma gli utenti free a 30 secondi, mostra l’invito a Premium e pausa in background', async () => {
+  it('ferma gli utenti free a 30 secondi e mostra l’invito a Premium, anche in background', async () => {
     const container = await mount(false);
     const audio = container.querySelector('audio');
     if (!audio) throw new Error('audio mancante');
     expect(container.textContent).toContain('ANTEPRIMA 30s');
 
+    // Free previews keep playing in the background too.
+    vi.mocked(HTMLMediaElement.prototype.pause).mockClear();
     await act(async () => setTime(audio, 12));
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
     await act(async () => document.dispatchEvent(new Event('visibilitychange')));
-    expect(HTMLMediaElement.prototype.pause).toHaveBeenCalled();
+    expect(HTMLMediaElement.prototype.pause).not.toHaveBeenCalled();
 
     await act(async () => setTime(audio, 30.2));
     expect(container.textContent).toContain('Fine dell’anteprima di 30 secondi.');

@@ -798,19 +798,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Background listening is a Premium feature: free audio pauses when Solco is hidden.
-  useEffect(() => {
-    if (premium === true || !currentTrack || isYouTubeTrack(currentTrack)) return;
-    const pauseHidden = () => {
-      if (document.visibilityState === 'hidden' && status === 'playing') {
-        audioRef.current?.pause();
-        setStatus('paused');
-      }
-    };
-    document.addEventListener('visibilitychange', pauseHidden);
-    return () => document.removeEventListener('visibilitychange', pauseHidden);
-  }, [currentTrack, premium, status]);
-
   // Network back after a drop: resume live radio automatically.
   useEffect(() => {
     const resume = () => {
