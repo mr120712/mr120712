@@ -69,7 +69,7 @@ async function stripeRequest(
       headers: {
         Authorization: `Bearer ${key}`,
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Stripe-Version': '2024-06-20',
+        'Stripe-Version': '2025-03-31.basil',
       },
       body: method === 'POST' ? form(params) : undefined,
       cache: 'no-store',
@@ -82,6 +82,7 @@ async function stripeRequest(
   if (!response.ok) {
     const error = (body.error ?? {}) as StripeObject;
     const stripeCode = String(error.code ?? error.type ?? `http_${response.status}`).slice(0, 80);
+    // biome-ignore lint/suspicious/noConsole: server log of Stripe's error code (no secrets).
     console.error('[stripe] request failed', {
       path,
       status: response.status,
