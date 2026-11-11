@@ -42,12 +42,21 @@ export async function previewResponse(sourceUrl: string, fetcher: FetchLike = fe
   let current = sourceUrl;
   for (let hop = 0; hop < 4; hop += 1) {
     const url = await assertPublicHttpsUrl(current);
-    const upstream = await fetcher(url, {
-      headers: { 'Icy-MetaData': '0', 'User-Agent': 'Solco/1.0' },
-      redirect: 'manual',
-      cache: 'no-store',
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
+    // The timeout covers connecting only: live radio then streams in real time for ~30 s,
+    // and the body is closed by truncateStream once the preview is complete.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    let upstream: Response;
+    try {
+      upstream = await fetcher(url, {
+        headers: { 'Icy-MetaData': '0', 'User-Agent': 'Solco/1.0' },
+        redirect: 'manual',
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
     if (upstream.status >= 300 && upstream.status < 400) {
       const location = upstream.headers.get('location');
       await upstream.body?.cancel().catch(() => undefined);

@@ -6,6 +6,8 @@ import { resolveJamendoAudio } from '@/lib/music/jamendo.server';
 import { previewResponse } from '@/lib/music/preview-stream.server';
 
 export const dynamic = 'force-dynamic';
+// Live previews stream for ~30 s in real time.
+export const maxDuration = 60;
 
 export async function GET(_request: Request, { params }: { params: Promise<{ trackId: string }> }) {
   const { trackId } = await params;

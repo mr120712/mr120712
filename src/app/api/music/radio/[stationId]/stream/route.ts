@@ -6,6 +6,8 @@ import { previewResponse } from '@/lib/music/preview-stream.server';
 import { resolveStationStream } from '@/lib/music/radio-browser.server';
 
 export const dynamic = 'force-dynamic';
+// Live previews stream for ~30 s in real time.
+export const maxDuration = 60;
 
 export async function GET(
   _request: Request,
