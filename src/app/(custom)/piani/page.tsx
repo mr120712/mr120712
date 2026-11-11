@@ -1,6 +1,6 @@
 // @polsia:user-owned — pagina dei piani Solco (Free, Premium, Premium Plus, Family).
-import { Check } from 'lucide-react';
 import type { Metadata } from 'next';
+import { PlanSubscribe } from '@/components/custom/plan-subscribe';
 import { SolcoProPurchase } from '@/components/custom/solco-pro-purchase';
 import { getSolcoProPricing } from '@/lib/business/solco-pro-pricing';
 import styles from './piani.module.css';
@@ -10,8 +10,6 @@ export const metadata: Metadata = {
   description: 'Confronta i piani Solco: Free, Premium, Premium Plus e Family.',
   alternates: { canonical: '/piani' },
 };
-
-const euro = new Intl.NumberFormat('it-IT', { style: 'currency', currency: 'EUR' });
 
 const freeBenefits = [
   'Ricerca su Audius e YouTube',
@@ -37,52 +35,22 @@ export default function PlansPage() {
         <p className={styles.lead}>Prezzi in euro. Puoi pagare al mese o all’anno.</p>
       </header>
 
-      <ul className={styles.grid}>
-        {plans.map((plan) => {
-          const free = plan.monthlyEuroCents === 0;
-          return (
-            <li key={plan.id} className={styles.card} data-plan={plan.id}>
-              <h2>{plan.name}</h2>
-              {free ? (
-                <p className={styles.price}>
-                  <strong>Gratis</strong>
-                </p>
-              ) : (
-                <>
-                  <p className={styles.price}>
-                    <strong>{euro.format(plan.monthlyEuroCents / 100)}</strong>
-                    <span>/mese</span>
-                  </p>
-                  <p className={styles.annual}>
-                    oppure {euro.format(plan.annualEuroCents / 100)}/anno · risparmi{' '}
-                    {euro.format(plan.annualSavingsEuroCents / 100)}
-                  </p>
-                </>
-              )}
-              <ul className={styles.benefits}>
-                {(free ? freeBenefits : [...freeBenefits.slice(0, 1), ...proBenefits]).map(
-                  (benefit) => (
-                    <li key={benefit}>
-                      <Check aria-hidden="true" />
-                      {benefit}
-                    </li>
-                  ),
-                )}
-              </ul>
-              {free ? null : <p className={styles.soon}>Abbonamento in arrivo</p>}
-            </li>
-          );
-        })}
-      </ul>
+      <PlanSubscribe
+        plans={plans.map((plan) => ({
+          id: plan.id,
+          name: plan.name,
+          monthlyEuroCents: plan.monthlyEuroCents,
+          annualEuroCents: plan.annualEuroCents,
+          annualSavingsEuroCents: plan.annualSavingsEuroCents,
+          benefits:
+            plan.monthlyEuroCents === 0 ? freeBenefits : [freeBenefits[0] ?? '', ...proBenefits],
+        }))}
+      />
 
-      <section className={styles.purchase} aria-labelledby="pro-now-heading">
-        <h2 id="pro-now-heading">Solco Pro oggi</h2>
-        <p className={styles.lead}>
-          Gli abbonamenti mensili e annuali non sono ancora attivi. Intanto puoi attivare Solco Pro
-          con il pagamento singolo qui sotto, quando è disponibile.
-        </p>
+      <details className={styles.purchase}>
+        <summary>Preferisci un pagamento singolo? Solco Pro per un mese</summary>
         <SolcoProPurchase />
-      </section>
+      </details>
     </main>
   );
 }

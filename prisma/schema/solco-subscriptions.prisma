@@ -1,0 +1,17 @@
+// @polsia:user-owned — abbonamenti Solco pagati con Stripe Checkout sull'account Stripe del titolare.
+model SolcoSubscription {
+  id                   String    @id @default(cuid())
+  userId               String
+  planId               String
+  period               String
+  stripeCustomerId     String
+  stripeSubscriptionId String    @unique
+  status               String
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean   @default(false)
+  checkedAt            DateTime  @default(now())
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([userId, status])
+}

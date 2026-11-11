@@ -14,12 +14,18 @@ import {
   type SolcoProEntitlementRecord,
   type SolcoProStripeReadiness,
 } from '@/lib/business/solco-pro-purchase-policy';
+import { hasActiveSubscription } from '@/lib/business/stripe-subscriptions.server';
 import { prisma } from '@/lib/db';
 import { requireAuth, type SessionUser } from '@/lib/require-auth';
 import { verifyCheckoutSession } from '@/lib/stripe-billing/client';
 
 type ProAccessResult =
-  | { allowed: true; user: SessionUser; entitlement: SolcoProEntitlementRecord }
+  | {
+      allowed: true;
+      user: SessionUser;
+      /** null when access comes from an active Stripe subscription instead. */
+      entitlement: SolcoProEntitlementRecord | null;
+    }
   | { allowed: false; response: Response };
 
 export type SolcoProStripeCheckoutInput = {
@@ -240,6 +246,8 @@ export async function requireSolcoPro(request: Request): Promise<ProAccessResult
   try {
     const entitlement = await findActiveSolcoProEntitlement(user.id);
     if (entitlement) return { allowed: true, user, entitlement };
+    // Premium, Premium Plus and Family subscriptions unlock the same Pro features.
+    if (await hasActiveSubscription(user.id)) return { allowed: true, user, entitlement: null };
     return { allowed: false, response: denied('pro_required', 403) };
   } catch {
     return { allowed: false, response: denied('pro_entitlement_unavailable', 503) };
