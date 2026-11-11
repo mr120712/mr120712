@@ -47,6 +47,24 @@ const g = (
 export const genreCatalog: GenreEntry[] = [
   // Playlist a tema
   g(
+    'natale',
+    'Natale',
+    'playlist',
+    'canzoni di natale',
+    'christmas',
+    'christmas',
+    'Le canzoni di Natale, dai classici alle novità.',
+  ),
+  g(
+    'natale-lofi',
+    'Natale Lo-fi',
+    'playlist',
+    'christmas lofi',
+    'christmas',
+    'christmas',
+    'Atmosfera natalizia rilassata, beat morbidi e neve.',
+  ),
+  g(
     'underground-rap-italia',
     'Underground Rap Italia',
     'playlist',

@@ -158,3 +158,50 @@
   --ring: #e7bad1;
   --ambient-line: #d29bb6;
 }
+
+/* ---------- Tema natalizio (src/lib/seasonal.ts): notte d'inverno, rosso e oro ---------- */
+:root.theme-christmas {
+  color-scheme: light;
+  --background: #f7f4ef;
+  --foreground: #14211a;
+  --card: #ffffff;
+  --card-foreground: #14211a;
+  --popover: #ffffff;
+  --popover-foreground: #14211a;
+  --primary: #b3202b;
+  --primary-foreground: #ffffff;
+  --secondary: #e7efe9;
+  --secondary-foreground: #14211a;
+  --muted: #eef2ee;
+  --muted-foreground: #4b5d52;
+  --accent: #f3d27a;
+  --accent-foreground: #2a1f05;
+  --border: #d6dfd8;
+  --input: #c3cfc6;
+  --ring: #b3202b;
+  --ambient-line: #9bb8a6;
+  --shadow-brand-color: rgb(179 32 43 / 16%);
+}
+
+.dark.theme-christmas {
+  color-scheme: dark;
+  --background: #06110c;
+  --foreground: #f6f3ec;
+  --card: #0d1d15;
+  --card-foreground: #f6f3ec;
+  --popover: #10241a;
+  --popover-foreground: #f6f3ec;
+  --primary: #e5484d;
+  --primary-foreground: #ffffff;
+  --secondary: #143021;
+  --secondary-foreground: #f1efe6;
+  --muted: #10261b;
+  --muted-foreground: #b7c8bc;
+  --accent: #f2c14e;
+  --accent-foreground: #2a1f05;
+  --border: #23402f;
+  --input: #2e5240;
+  --ring: #f2c14e;
+  --ambient-line: #2f5a43;
+  --shadow-brand-color: rgb(229 72 77 / 22%);
+}

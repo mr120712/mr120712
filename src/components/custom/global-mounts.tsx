@@ -8,6 +8,7 @@
 import { AmbientDepth } from '@/components/custom/ambient-depth';
 import { AppTabBar } from '@/components/custom/app-tab-bar';
 import { MotionKitProvider } from '@/components/custom/motion-kit/motion-kit-provider';
+import { Snowfall } from '@/components/custom/snowfall';
 import { SolcoSupportChat } from '@/components/custom/solco-support-chat';
 
 export function GlobalMounts() {
@@ -16,6 +17,7 @@ export function GlobalMounts() {
       <AmbientDepth />
       <SolcoSupportChat />
       <AppTabBar />
+      <Snowfall />
     </MotionKitProvider>
   );
 }

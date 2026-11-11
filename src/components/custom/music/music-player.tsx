@@ -1163,7 +1163,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
               <div ref={ytHostRef} className={styles.videoHost} />
             </div>
           ) : null}
-          <aside className={styles.mini} aria-label="Player musicale Solco">
+          <aside className={styles.mini} aria-label="Player musicale Solco" data-solco-player>
             <button
               type="button"
               className={styles.miniExpand}
@@ -1247,6 +1247,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           <section
             className={`${styles.full} ${youtubeActive ? styles.fullVideo : ''}`}
             aria-label="Player a schermo intero"
+            data-solco-player
             hidden={!showFull}
             inert={!showFull}
           >

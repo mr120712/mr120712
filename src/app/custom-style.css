@@ -426,3 +426,21 @@ body.has-music-player.has-video-dock {
 body.has-video-dock .solco-support-launcher {
   display: none;
 }
+
+/* Tema natalizio: il player (che ha colori propri) segue rosso, verde e oro. */
+.theme-christmas [data-solco-player] {
+  --background: #06110c;
+  --card: #0d1d15;
+  --primary: #e5484d;
+  --primary-foreground: #ffffff;
+  --secondary: #143021;
+  --muted: #10261b;
+  --border: #23402f;
+  --ring: #f2c14e;
+}
+
+.theme-christmas section[data-solco-player] {
+  background:
+    radial-gradient(circle at 50% -10%, rgb(229 72 77 / 28%), transparent 60%),
+    radial-gradient(circle at 90% 110%, rgb(242 193 78 / 14%), transparent 50%), var(--background);
+}

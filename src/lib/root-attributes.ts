@@ -16,5 +16,7 @@
 // utility you add here wins over the framework's conflicting one (e.g. `font-sans` replaces
 // `font-body` on <body>); non-utility class names such as next/font's pass through untouched.
 
-export const htmlClassName = '';
+import { seasonalHtmlClass } from '@/lib/seasonal';
+
+export const htmlClassName = seasonalHtmlClass;
 export const bodyClassName = '';

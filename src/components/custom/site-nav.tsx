@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import * as React from 'react';
 import { AuthNav } from '@/components/custom/auth-nav';
+import { SnowToggle } from '@/components/custom/snowfall';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -246,6 +247,7 @@ export function AppTopBar() {
 
         {/* Right cluster: ml-auto pushes it right at every breakpoint */}
         <div className="ml-auto flex items-center gap-1">
+          <SnowToggle />
           {/* Desktop secondary buttons */}
           <div className="hidden items-center gap-1 md:flex">
             {secondary.map((item) => (

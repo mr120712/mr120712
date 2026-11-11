@@ -1,0 +1,41 @@
+/* @polsia:user-owned */
+.snow {
+  position: fixed;
+  z-index: 30;
+  inset: 0;
+  pointer-events: none;
+}
+
+.snow canvas {
+  display: block;
+}
+
+.toggle {
+  display: inline-grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.toggle[aria-pressed="true"] {
+  color: var(--accent);
+}
+
+.toggle:hover {
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+}
+
+.toggle:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.toggle svg {
+  width: 18px;
+  height: 18px;
+}
