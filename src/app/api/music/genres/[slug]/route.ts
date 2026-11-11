@@ -39,7 +39,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ slu
       'Cache-Control':
         result.outcome === 'unavailable'
           ? 'no-store'
-          : 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=172800',
+          : result.outcome === 'no_results'
+            ? // An empty genre page should not stay empty for a whole day.
+              'public, max-age=600, s-maxage=3600'
+            : 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=172800',
     },
   });
 }

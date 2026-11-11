@@ -293,7 +293,8 @@ export const genreCatalog: GenreEntry[] = [
     'hardcore-gabber',
     'Hardcore e gabber',
     'elettronica',
-    'gabber hardcore',
+    // "gabber hardcore" returns no music-category videos on YouTube; "gabber" does.
+    'gabber',
     'hardcore',
     null,
     'Cassa distorta oltre i 160 bpm.',
