@@ -64,6 +64,7 @@ async function fill(container: HTMLElement, values: Record<string, string>) {
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.stubEnv('NEXT_PUBLIC_APPLE_SIGNIN', '1');
   mocks.signInEmail.mockReset();
   mocks.signInSocial.mockReset().mockResolvedValue({ error: null });
   mocks.signUpEmail.mockReset();
@@ -74,6 +75,7 @@ beforeEach(() => {
 afterEach(async () => {
   for (const root of mountedRoots.splice(0)) await act(async () => root.unmount());
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe('form di accesso Solco', () => {
@@ -95,6 +97,12 @@ describe('form di accesso Solco', () => {
     expect(mocks.signInSocial).toHaveBeenCalledWith(
       expect.objectContaining({ provider: 'apple', callbackURL: '/dashboard' }),
     );
+  });
+
+  it('nasconde “Continua con Apple” finché Apple non è configurato', async () => {
+    vi.stubEnv('NEXT_PUBLIC_APPLE_SIGNIN', '');
+    const container = await mount(<SignInForm />, '/login');
+    expect(container.textContent).not.toContain('Continua con Apple');
   });
 
   it('invia email e password e apre la destinazione predefinita /dashboard', async () => {

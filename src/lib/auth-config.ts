@@ -26,14 +26,23 @@
 import type { BetterAuthOptions } from 'better-auth';
 import { getDesignatedAdminUserId } from '@/lib/business/admin-account-identity';
 import { resolveInitialSignupRole } from '@/lib/business/admin-account-policy';
+import { resolveAppleClientSecret } from '@/lib/business/apple-client-secret';
 import { appleOAuthCredentials } from '@/lib/business/social-auth';
 import { prisma } from '@/lib/db';
 
 // These OAuth values are supplied by the platform as server-side app secrets.
 // The provider is omitted until both are configured; neither value reaches the client.
+// Either APPLE_CLIENT_SECRET (a pre-made JWT) or APPLE_TEAM_ID + APPLE_KEY_ID + APPLE_PRIVATE_KEY,
+// from which Solco signs a fresh secret at startup (Apple caps a secret at 6 months).
 const appleCredentials = appleOAuthCredentials(
   process.env.APPLE_CLIENT_ID,
-  process.env.APPLE_CLIENT_SECRET,
+  resolveAppleClientSecret({
+    APPLE_CLIENT_ID: process.env.APPLE_CLIENT_ID,
+    APPLE_CLIENT_SECRET: process.env.APPLE_CLIENT_SECRET,
+    APPLE_TEAM_ID: process.env.APPLE_TEAM_ID,
+    APPLE_KEY_ID: process.env.APPLE_KEY_ID,
+    APPLE_PRIVATE_KEY: process.env.APPLE_PRIVATE_KEY,
+  }),
 );
 
 async function persistCanonicalRole(user: { id: string; email: string; emailVerified: boolean }) {
@@ -47,6 +56,8 @@ async function persistCanonicalRole(user: { id: string; email: string; emailVeri
 }
 
 export const authConfig: BetterAuthOptions = {
+  // Apple posts back from https://appleid.apple.com: that origin is listed in
+  // BETTER_AUTH_TRUSTED_ORIGINS (the framework owns trustedOrigins).
   ...(appleCredentials ? { socialProviders: { apple: appleCredentials } } : {}),
   emailAndPassword: {
     enabled: true,

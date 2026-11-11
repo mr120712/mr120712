@@ -61,6 +61,9 @@ export function SocialSignInButtons({ callbackURL }: { callbackURL: string }) {
     }
   }
 
+  // Shown only when the deploy enables Apple (NEXT_PUBLIC_APPLE_SIGNIN=1 next to the Apple keys).
+  if (process.env.NEXT_PUBLIC_APPLE_SIGNIN !== '1') return null;
+
   return (
     <div className="grid gap-3">
       <p className="text-center text-sm leading-6 text-muted-foreground">
