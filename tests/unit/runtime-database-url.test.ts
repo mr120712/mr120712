@@ -12,6 +12,19 @@ describe('URL del database a runtime', () => {
     expect(env.DATABASE_URL).toBe(pooled);
   });
 
+  it('usa l’endpoint pooled con pgbouncer=true', () => {
+    const env = {
+      VERCEL: '1',
+      DATABASE_URL: direct,
+      PRISMA_DATABASE_URL: direct,
+      DATABASE_URL_POOLED: 'postgres://u:p@pooled.example.test:5432/postgres?sslmode=require',
+    };
+    expect(preferPooledDatabaseUrl(env)).toBe(true);
+    expect(env.DATABASE_URL).toBe(
+      'postgres://u:p@pooled.example.test:5432/postgres?sslmode=require&pgbouncer=true',
+    );
+  });
+
   it('non cambia nulla fuori da Vercel, se disattivato o senza URL Accelerate', () => {
     for (const env of [
       { DATABASE_URL: direct, PRISMA_DATABASE_URL: pooled },
