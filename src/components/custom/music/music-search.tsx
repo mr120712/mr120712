@@ -528,9 +528,12 @@ export function MusicSearch({
                   if (nextQuery.trim()) {
                     debounceTimer.current = setTimeout(() => {
                       debounceTimer.current = null;
+                      // While typing only Audius is searched (free). Each YouTube search costs
+                      // 100 of the 10,000 daily quota units, and partial words would use them up:
+                      // YouTube is searched only on submit (Enter or "Cerca").
                       void executeSearch(
                         nextQuery,
-                        source === 'youtube' && youtubeConsent,
+                        false,
                         source === 'youtube' ? 'audius' : source,
                       );
                     }, 350);
@@ -565,8 +568,9 @@ export function MusicSearch({
               scheda.
             </label>
             <p>
-              Senza consenso, Solco interroga soltanto la fonte selezionata. La ricerca YouTube usa
-              una cache breve; non archivia audio o video.
+              Senza consenso, Solco interroga soltanto la fonte selezionata. Mentre scrivi vedi i
+              risultati Audius; YouTube viene cercato quando premi Invio o «Cerca». La ricerca
+              YouTube usa una cache breve; non archivia audio o video.
             </p>
             <div>
               <Link href="/terms">Termini</Link>

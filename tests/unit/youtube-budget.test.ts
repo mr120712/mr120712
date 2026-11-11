@@ -10,6 +10,7 @@ import {
   takeYouTubeSearch,
   withYouTubeSearchBudget,
   YOUTUBE_BUDGET_EXHAUSTED,
+  youtubeQuotaDay,
 } from '@/lib/music/youtube-budget.server';
 
 const ok: RateLimitDecision = { allowed: true };
@@ -36,10 +37,19 @@ describe('budget giornaliero delle ricerche YouTube', () => {
   it('conta prima la quota della persona e poi quella di tutta l’app', async () => {
     const consume = consumer({});
     await expect(takeYouTubeSearch('user:u1', consume)).resolves.toBe(true);
-    expect((consume as unknown as ReturnType<typeof vi.fn>).mock.calls).toEqual([
-      ['music.search.youtube', 'user:u1'],
-      ['youtube.search.global', 'global'],
-    ]);
+    const calls = (consume as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.[0]).toBe('music.search.youtube');
+    expect(String(calls[0]?.[1])).toMatch(/^user:u1\|\d{4}-\d{2}-\d{2}$/);
+    expect(calls[1]?.[0]).toBe('youtube.search.global');
+    expect(String(calls[1]?.[1])).toMatch(/^global\|\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('si azzera quando si azzera la quota YouTube: mezzanotte del Pacifico (9:00 in Italia)', () => {
+    // 8:59 in Italy (CET) = 23:59 Pacific of the previous day.
+    expect(youtubeQuotaDay(new Date('2026-11-12T07:59:00Z'))).toBe('2026-11-11');
+    // 9:00 in Italy = midnight Pacific: a new quota day.
+    expect(youtubeQuotaDay(new Date('2026-11-12T08:00:00Z'))).toBe('2026-11-12');
   });
 
   it('chi ha finito la sua quota non consuma quella comune', async () => {

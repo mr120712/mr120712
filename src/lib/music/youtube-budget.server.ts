@@ -28,12 +28,30 @@ async function allowed(action: RateLimitAction, identity: string, consume: Consu
  * Takes one YouTube search from the budget: first the person's share (when known), then the
  * app-wide pool, so a person already over their share never uses up the shared pool.
  */
+/**
+ * The YouTube Data API quota resets at midnight Pacific time (9:00 in Italy). Counting per
+ * Pacific day (the date is part of the identity) makes the budget reset at the same moment,
+ * instead of a rolling 24 h window that would keep search off long after the real reset.
+ */
+export function youtubeQuotaDay(now: Date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Los_Angeles',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+}
+
 export async function takeYouTubeSearch(
   identity: string | null = null,
   consume: Consume = consumeRateLimit,
+  now: Date = new Date(),
 ): Promise<boolean> {
-  if (identity && !(await allowed('music.search.youtube', identity, consume))) return false;
-  return allowed('youtube.search.global', 'global', consume);
+  const day = youtubeQuotaDay(now);
+  if (identity && !(await allowed('music.search.youtube', `${identity}|${day}`, consume))) {
+    return false;
+  }
+  return allowed('youtube.search.global', `global|${day}`, consume);
 }
 
 /** Wraps a YouTube search loader (called only on cache misses) with the budget. */
