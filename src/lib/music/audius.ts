@@ -88,6 +88,10 @@ function numberValue(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
 }
 
+/** `/content/<cid>/<size>.jpg`, the image path used by every Audius content node. */
+const AUDIUS_CONTENT_IMAGE_PATH =
+  /^\/content\/[A-Za-z0-9]{20,128}\/(?:150x150|480x480|1000x1000)\.(?:jpg|jpeg|png|webp)$/i;
+
 function artworkUrl(value: unknown): string | null {
   if (!isRecord(value)) return null;
   const candidate =
@@ -103,7 +107,12 @@ function artworkUrl(value: unknown): string | null {
       host.endsWith('.audius.co') ||
       host === 'audius.org' ||
       host.endsWith('.audius.org');
-    return url.protocol === 'https:' && officialHost ? url.toString() : null;
+    // Artwork is served by the independent nodes of the Audius / Open Audio network (e.g.
+    // *.staked.cloud, v.monophonic.digital), whose host names change over time: accept any
+    // https node, but only with the protocol's own content path.
+    const networkNode =
+      AUDIUS_CONTENT_IMAGE_PATH.test(url.pathname) && !url.username && !url.password && !url.port;
+    return url.protocol === 'https:' && (officialHost || networkNode) ? url.toString() : null;
   } catch {
     return null;
   }
