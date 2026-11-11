@@ -1,0 +1,25 @@
+// @polsia:user-owned — controlli automatici ("background checks"): esiti salvati e battiti dei
+// lavori pianificati. Vedi src/lib/monitoring/monitor.server.ts.
+
+/// One run of every internal check. Runs older than 30 days are removed by /api/cron/cleanup.
+model MonitorRun {
+  id         String   @id @default(cuid())
+  startedAt  DateTime @default(now())
+  durationMs Int
+  /// ok | degraded | down
+  status     String
+  /// status | cron | admin
+  trigger    String
+  /// MonitorCheckResult[] (src/lib/contracts/monitoring.ts)
+  results    Json
+
+  @@index([startedAt])
+}
+
+/// Last time a scheduled job ran: 'cleanup' (daily cleanup), 'monitor' (database write check).
+/// 'status-run' is the lock that lets one /api/status request per 50 minutes start a run.
+model MonitorHeartbeat {
+  name   String   @id
+  at     DateTime
+  detail String?
+}

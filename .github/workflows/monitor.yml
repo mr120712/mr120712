@@ -1,0 +1,108 @@
+# @polsia:user-owned — monitoraggio automatico di Solco dall'esterno.
+# Ogni ora controlla il sito pubblico (scripts/monitor/check-site.ts); una volta al giorno apre
+# anche le pagine in un browser vero (scripts/monitor/browser-check.ts). Quando un controllo
+# trova un nuovo problema il job fallisce e GitHub manda un'email al proprietario del repo.
+# Nessun segreto: solo richieste anonime al sito pubblico.
+#
+# PASSO OBBLIGATORIO, da fare una volta dopo che questo file arriva sul branch predefinito
+# (claude/new-session-e8afhd), e di nuovo ogni volta che qualcun altro modifica le righe `cron`:
+# GitHub manda le email dei giri programmati solo a chi ha creato il workflow, a chi ne ha cambiato
+# per ultimo il cron o a chi l'ha riattivato per ultimo. I commit di questo repo hanno un altro
+# autore, quindi senza questo passo le email possono non arrivare mai al proprietario.
+#   1. Accedi a GitHub come mr120712 → Actions → "Monitoraggio Solco" → "…" → Disable workflow,
+#      poi subito Enable workflow (da quel momento le email vanno a chi l'ha riattivato).
+#   2. Settings → Notifications → Actions: Email attiva, "Only notify for failed workflows".
+#   3. Dopo il primo giro programmato controlla che questo comando stampi mr120712:
+#      gh api 'repos/mr120712/mr120712/actions/workflows/monitor.yml/runs?event=schedule&per_page=1' \
+#        --jq '.workflow_runs[0].actor.login'
+name: Monitoraggio Solco
+
+on:
+  schedule:
+    - cron: '23 * * * *'
+    - cron: '47 5 * * *'
+  workflow_dispatch:
+    inputs:
+      browser:
+        description: 'Esegui anche il controllo nel browser'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: monitor-${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  site:
+    name: Controllo del sito
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Scarica lo script di controllo
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/monitor
+          persist-credentials: false
+
+      - name: Prepara Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Recupera lo stato del controllo precedente
+        uses: actions/cache/restore@v4
+        with:
+          path: .monitor-state.json
+          key: monitor-state-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: monitor-state-
+
+      - name: Controlla il sito
+        run: node scripts/monitor/check-site.ts
+        env:
+          BASE_URL: https://solcomusic.vercel.app
+
+      - name: Salva lo stato per il prossimo controllo
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .monitor-state.json
+          key: monitor-state-${{ github.run_id }}-${{ github.run_attempt }}
+
+  browser:
+    name: Controllo nel browser
+    if: github.event.schedule == '47 5 * * *' || (github.event_name == 'workflow_dispatch' && inputs.browser)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Scarica lo script di controllo
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/monitor
+          persist-credentials: false
+
+      - name: Prepara Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Installa Playwright (solo il motore, usa Chrome già presente)
+        run: npm install --prefix "$RUNNER_TEMP/pw" --no-audit --no-fund --no-save playwright-core@1.64.1
+
+      - name: Apri le pagine nel browser
+        run: node scripts/monitor/browser-check.ts
+        env:
+          BASE_URL: https://solcomusic.vercel.app
+          PLAYWRIGHT_CORE: ${{ runner.temp }}/pw/node_modules/playwright-core
+          CHROME_CHANNEL: chrome
+
+      - name: Allega le schermate delle pagine con errori
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: monitor-screenshots
+          path: monitor-screenshots/
+          retention-days: 7
+          if-no-files-found: ignore
