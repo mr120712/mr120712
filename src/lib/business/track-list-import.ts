@@ -1,9 +1,13 @@
 // @polsia:user-owned — legge un elenco di brani portato dall'utente: righe "Artista - Titolo"
 // oppure un file CSV esportato da un altro servizio (Exportify, TuneMyMusic, Soundiiz…).
 // Solco non usa API di terzi: i dati li fornisce l'utente. Funzioni pure, testabili.
+// Ogni espressione regolare lavora su testo già accorciato e senza spazi ripetuti, così un
+// input costruito apposta non può rallentare il server (niente backtracking quadratico).
 
 export const TRACK_LIST_MAX_TRACKS = 200;
 const MAX_FIELD = 200;
+/** Longest line or CSV cell looked at; anything beyond is not a song title. */
+const MAX_LINE = 1_000;
 
 export type ImportedTrack = {
   title: string;
@@ -16,27 +20,58 @@ export type ImportedTrack = {
 export type TrackListResult = {
   format: 'csv' | 'lines';
   tracks: ImportedTrack[];
+  /** Righe vuote o illeggibili e doppioni. */
   skipped: number;
+  /** Brani validi oltre il limite di TRACK_LIST_MAX_TRACKS. */
+  truncated: number;
+  /** A table without a recognisable title column: the caller explains the expected columns. */
+  error?: 'missing_columns';
 };
 
-function clean(value: string | undefined | null) {
-  return (value ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_FIELD);
+/**
+ * Drops control characters (except tab and newlines) and lone UTF-16 surrogates, which break
+ * the database. Iterating by code point keeps valid surrogate pairs (emoji) together.
+ */
+function stripControl(value: string) {
+  let out = '';
+  for (const char of value) {
+    const code = char.codePointAt(0) ?? 0;
+    const control = (code < 32 && code !== 9 && code !== 10 && code !== 13) || code === 127;
+    const loneSurrogate = code >= 0xd800 && code <= 0xdfff;
+    if (!control && !loneSurrogate) out += char;
+  }
+  return out;
 }
 
-/** Lowercase, no accents, no punctuation: two spellings of the same song collapse. */
+function clean(value: string | undefined | null) {
+  return stripControl((value ?? '').slice(0, MAX_LINE))
+    .slice(0, MAX_LINE)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, MAX_FIELD);
+}
+
+function normalizeName(value: string) {
+  return value
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+}
+
+/**
+ * Same song, different spelling (case, accents, punctuation) → same identity. Unicode-aware:
+ * Cyrillic, CJK, Greek, Arabic… titles stay distinct. A title with no letters or digits keeps
+ * its raw text, so two such titles are never merged.
+ */
 export function songIdentity(title: string, artist: string | null) {
-  const norm = (value: string) =>
-    value
-      .normalize('NFKD')
-      .replace(/[̀-ͯ]/g, '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, ' ')
-      .trim();
-  return `${norm(artist ?? '')}|${norm(title)}`;
+  const normalizedTitle = normalizeName(title) || title.trim().toLowerCase();
+  return `${normalizeName(artist ?? '')}|${normalizedTitle}`;
 }
 
 /** RFC 4180-style CSV: quoted fields, doubled quotes, newlines inside quotes. */
-export function parseCsv(text: string, delimiter: string) {
+export function parseCsv(text: string, delimiter: string, quotes = true): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let field = '';
@@ -52,7 +87,7 @@ export function parseCsv(text: string, delimiter: string) {
       } else field += char;
       continue;
     }
-    if (char === '"' && field === '') quoted = true;
+    if (quotes && char === '"' && field === '') quoted = true;
     else if (char === delimiter) {
       row.push(field);
       field = '';
@@ -64,6 +99,9 @@ export function parseCsv(text: string, delimiter: string) {
       field = '';
     } else field += char;
   }
+  // An opening quote that never closes would swallow the rest of the file: read it again
+  // treating quotes as plain characters.
+  if (quoted) return parseCsv(text, delimiter, false);
   if (field !== '' || row.length > 0) {
     row.push(field);
     rows.push(row);
@@ -112,50 +150,76 @@ function columnIndex(header: string[], names: string[]) {
   return -1;
 }
 
-function spotifyTrackUrl(value: string) {
-  const raw = value.trim();
+function spotifyTrackUrl(value: string, header = '') {
+  const raw = value.trim().slice(0, 200);
   const uri = /^spotify:track:([A-Za-z0-9]{22})$/.exec(raw)?.[1];
   if (uri) return `https://open.spotify.com/track/${uri}`;
   const url = /^https:\/\/open\.spotify\.com\/(?:intl-[a-z-]+\/)?track\/([A-Za-z0-9]{22})/.exec(
     raw,
   )?.[1];
-  return url ? `https://open.spotify.com/track/${url}` : null;
+  if (url) return `https://open.spotify.com/track/${url}`;
+  // Exportify-style "Spotify - id" columns hold the bare 22-character id.
+  if (header.includes('spotify') && /^[A-Za-z0-9]{22}$/.test(raw)) {
+    return `https://open.spotify.com/track/${raw}`;
+  }
+  return null;
 }
 
+const MAX_DURATION = 24 * 3600 - 1;
+
 function durationFrom(value: string, header: string) {
-  const raw = value.trim();
+  const raw = value.trim().slice(0, 20);
   if (!raw) return null;
-  const clock = /^(?:(\d+):)?(\d{1,2}):(\d{2})$/.exec(raw);
+  const clock = /^(?:(\d{1,2}):)?(\d{1,3}):(\d{2})$/.exec(raw);
   if (clock) {
-    const seconds = Number(clock[1] ?? 0) * 3600 + Number(clock[2]) * 60 + Number(clock[3]);
-    return seconds > 0 ? seconds : null;
+    const secondsPart = Number(clock[3]);
+    if (secondsPart >= 60) return null;
+    const seconds = Number(clock[1] ?? 0) * 3600 + Number(clock[2]) * 60 + secondsPart;
+    return seconds > 0 && seconds <= MAX_DURATION ? seconds : null;
   }
   const number = Number(raw);
   if (!Number.isFinite(number) || number <= 0) return null;
   const inMs = header.includes('ms') || number > 10_000;
   const seconds = Math.round(inMs ? number / 1000 : number);
-  return seconds > 0 && seconds < 24 * 3600 ? seconds : null;
+  return seconds > 0 && seconds <= MAX_DURATION ? seconds : null;
+}
+
+function firstLineOf(text: string) {
+  return text.split(/\r\n|\r|\n/, 50).find((line) => line.trim() !== '') ?? '';
 }
 
 function detectDelimiter(firstLine: string) {
-  const counts = [',', ';', '\t'].map((d) => [d, firstLine.split(d).length - 1] as const);
+  const line = firstLine.slice(0, MAX_LINE);
+  const counts = [',', ';', '\t'].map((d) => [d, line.split(d).length - 1] as const);
   const best = counts.sort((a, b) => b[1] - a[1])[0];
   return best && best[1] > 0 ? best[0] : null;
 }
 
+/** A real table: 2+ columns and most rows with the same number of cells as the header. */
+function looksLikeTable(rows: string[][]) {
+  const width = rows[0]?.length ?? 0;
+  if (width < 2 || rows.length < 2) return false;
+  const sameWidth = rows.slice(1).filter((cells) => cells.length === width).length;
+  return sameWidth >= Math.ceil((rows.length - 1) * 0.8);
+}
+
 function fromCsv(text: string): TrackListResult | null {
-  const firstLine = text.split(/\r?\n/).find((line) => line.trim() !== '') ?? '';
-  const delimiter = detectDelimiter(firstLine);
+  const delimiter = detectDelimiter(firstLineOf(text));
   if (!delimiter) return null;
   const rows = parseCsv(text, delimiter);
   const header = rows[0];
   if (!header) return null;
   const titleAt = columnIndex(header, TITLE_COLUMNS);
+  if (titleAt < 0) {
+    return looksLikeTable(rows)
+      ? { format: 'csv', tracks: [], skipped: 0, truncated: 0, error: 'missing_columns' }
+      : null;
+  }
   const artistAt = columnIndex(header, ARTIST_COLUMNS);
-  if (titleAt < 0 || artistAt < 0) return null;
   const durationAt = columnIndex(header, DURATION_COLUMNS);
   const urlAt = columnIndex(header, URL_COLUMNS);
   const durationHeader = durationAt >= 0 ? (header[durationAt] ?? '').toLowerCase() : '';
+  const urlHeader = urlAt >= 0 ? (header[urlAt] ?? '').toLowerCase() : '';
   const tracks: ImportedTrack[] = [];
   let skipped = 0;
   for (const cells of rows.slice(1)) {
@@ -164,40 +228,56 @@ function fromCsv(text: string): TrackListResult | null {
       skipped += 1;
       continue;
     }
-    // Exportify separates several artists with commas or semicolons inside one cell.
-    const artist = clean(
-      (cells[artistAt] ?? '')
-        .split(/\s*[;,]\s*/)
-        .filter(Boolean)
-        .join(', '),
-    );
+    // Exportify separates several artists with commas or semicolons inside one cell. The cell
+    // is cleaned (shortened, single spaces) before splitting.
+    const artistCell = artistAt >= 0 ? clean(cells[artistAt]) : '';
+    const artist = artistCell
+      .split(/ ?[;,] ?/)
+      .filter(Boolean)
+      .join(', ')
+      .slice(0, MAX_FIELD);
     tracks.push({
       title,
       artist: artist || null,
       durationSeconds:
         durationAt >= 0 ? durationFrom(cells[durationAt] ?? '', durationHeader) : null,
-      sourceUrl: urlAt >= 0 ? spotifyTrackUrl(cells[urlAt] ?? '') : null,
+      sourceUrl: urlAt >= 0 ? spotifyTrackUrl(cells[urlAt] ?? '', urlHeader) : null,
     });
   }
-  return { format: 'csv', tracks, skipped };
+  return { format: 'csv', tracks, skipped, truncated: 0 };
 }
 
-const NUMBERING = /^\s*(?:\d{1,4}\s*[.)\-:]\s*|\d{1,4}\s+|[-*•·]\s+)/;
-const SEPARATORS = /\s+[-–—]\s+|\t/;
+const LIST_MARKER = /^(\d{1,4})[.)] +/;
+const BARE_NUMBER = /^(\d{1,4}) +/;
+const BULLET = /^[-*•·] +/;
+const SEPARATOR = / [-–—] |\t/;
 
 function fromLines(text: string): TrackListResult {
   const tracks: ImportedTrack[] = [];
   let skipped = 0;
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.replace(NUMBERING, '').trim();
+  let position = 0;
+  for (const rawLine of text.split(/\r\n|\r|\n/)) {
+    // Shorten and collapse spaces first: every pattern below then runs in linear time.
+    let line = stripControl(rawLine.slice(0, MAX_LINE))
+      .replace(/[^\S\t]+/g, ' ')
+      .trim();
     if (!line) continue;
-    const url = spotifyTrackUrl(line);
-    if (url || /^https?:\/\//i.test(line)) {
+    position += 1;
+    // "1. Song" / "2) Song" are list numbering; a bare "3 Song" only when 3 is the position,
+    // so artists that start with digits ("50 Cent", "883") keep their name.
+    const marker = LIST_MARKER.exec(line);
+    const bare = BARE_NUMBER.exec(line);
+    if (marker) line = line.slice(marker[0].length);
+    else if (bare && Number(bare[1]) === position) line = line.slice(bare[0].length);
+    else line = line.replace(BULLET, '');
+    line = line.trim();
+    if (!line) continue;
+    if (spotifyTrackUrl(line) || /^https?:\/\//i.test(line)) {
       // A bare link carries no title or artist: nothing to search for.
       skipped += 1;
       continue;
     }
-    const parts = line.split(SEPARATORS);
+    const parts = line.split(SEPARATOR);
     const [first, ...rest] = parts;
     const artist = rest.length > 0 ? clean(first) : '';
     const title = clean(rest.length > 0 ? rest.join(' - ') : first);
@@ -207,16 +287,18 @@ function fromLines(text: string): TrackListResult {
     }
     tracks.push({ title, artist: artist || null, durationSeconds: null, sourceUrl: null });
   }
-  return { format: 'lines', tracks, skipped };
+  return { format: 'lines', tracks, skipped, truncated: 0 };
 }
 
 /** Reads a pasted list or a CSV export; drops duplicates and caps the list. */
 export function parseTrackList(text: string): TrackListResult {
   const input = text.replace(/^﻿/, '');
   const parsed = fromCsv(input) ?? fromLines(input);
+  if (parsed.error) return parsed;
   const seen = new Set<string>();
   const unique: ImportedTrack[] = [];
   let skipped = parsed.skipped;
+  let truncated = 0;
   for (const track of parsed.tracks) {
     const id = songIdentity(track.title, track.artist);
     if (seen.has(id)) {
@@ -225,10 +307,10 @@ export function parseTrackList(text: string): TrackListResult {
     }
     seen.add(id);
     if (unique.length >= TRACK_LIST_MAX_TRACKS) {
-      skipped += 1;
+      truncated += 1;
       continue;
     }
     unique.push(track);
   }
-  return { format: parsed.format, tracks: unique, skipped };
+  return { format: parsed.format, tracks: unique, skipped, truncated };
 }

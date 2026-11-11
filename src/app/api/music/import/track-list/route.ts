@@ -15,6 +15,8 @@ import { sameOrigin } from '@/lib/same-origin';
 
 export const dynamic = 'force-dynamic';
 
+const MAX_PLAYLISTS = 100;
+
 const privateHeaders = {
   'Cache-Control': 'private, no-store, no-cache, must-revalidate',
   Vary: 'Cookie',
@@ -52,7 +54,8 @@ export async function POST(request: Request) {
   if ('response' in auth) return auth.response;
   const limited = await enforceRateLimit('library.import', `user:${auth.user.id}`);
   if (limited) return limited;
-  const payload = await readJsonLimited(request, 320 * 1024);
+  // 300,000 characters can double or more once JSON-escaped (quotes, accents): zod is the real cap.
+  const payload = await readJsonLimited(request, 1024 * 1024);
   if (!payload.ok) return limitedJsonError(payload);
   const body = TrackListImportSchema.safeParse(payload.value);
   if (!body.success) {
@@ -63,6 +66,16 @@ export async function POST(request: Request) {
   }
 
   const parsed = parseTrackList(body.data.text);
+  if (parsed.error === 'missing_columns') {
+    return NextResponse.json(
+      {
+        errors: {
+          text: 'Il file sembra una tabella ma non ha una colonna con il titolo del brano (es. “Track Name”, “Title”, “Titolo”). Aggiungi le colonne del titolo e dell’artista.',
+        },
+      },
+      { status: 400, headers: privateHeaders },
+    );
+  }
   if (parsed.tracks.length === 0) {
     return NextResponse.json(
       {
@@ -71,6 +84,18 @@ export async function POST(request: Request) {
         },
       },
       { status: 400, headers: privateHeaders },
+    );
+  }
+
+  // Keep each library bounded: the whole library is loaded on every visit.
+  const playlists = await prisma.userMusicCollection.count({ where: { userId: auth.user.id } });
+  if (playlists >= MAX_PLAYLISTS) {
+    return NextResponse.json(
+      {
+        error: 'library_full',
+        message: `Hai raggiunto il massimo di ${MAX_PLAYLISTS} playlist. Eliminane qualcuna per importarne altre.`,
+      },
+      { status: 409, headers: privateHeaders },
     );
   }
 
@@ -104,6 +129,7 @@ export async function POST(request: Request) {
       name,
       imported: parsed.tracks.length,
       skipped: parsed.skipped,
+      truncated: parsed.truncated,
       format: parsed.format,
     }),
     { headers: privateHeaders },

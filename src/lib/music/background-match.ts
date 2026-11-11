@@ -7,21 +7,44 @@ const NOISE =
 
 /** Minuscolo, senza accenti, senza parentesi e parole di contorno ("Official Video", "VEVO"…). */
 export function normalizeMusicText(value: string) {
-  return value
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[([{][^)\]}]*[)\]}]/g, ' ')
-    .replace(NOISE, ' ')
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return (
+    value
+      .slice(0, 400)
+      .normalize('NFKD')
+      .replace(/\p{M}/gu, '')
+      .toLowerCase()
+      .replace(/[([{][^)\]}]*[)\]}]/g, ' ')
+      .replace(NOISE, ' ')
+      // Unicode letters and digits: Cyrillic, Greek, CJK, Arabic… titles keep their words.
+      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  );
+}
+
+function wordsOf(text: string) {
+  // One-letter Latin words are noise ("a", "x"); one non-Latin character can be a whole word.
+  return text
+    .split(' ')
+    .filter((word) => word.length > 1 || /[^\p{Script=Latin}\p{N}]/u.test(word));
 }
 
 function tokens(value: string) {
-  return normalizeMusicText(value)
-    .split(' ')
-    .filter((word) => word.length > 1);
+  return wordsOf(normalizeMusicText(value));
+}
+
+/** Like tokens(), but keeps noise words: for titles made only of them ("Music", "Live"). */
+function plainTokens(value: string) {
+  return wordsOf(
+    value
+      .slice(0, 400)
+      .normalize('NFKD')
+      .replace(/\p{M}/gu, '')
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim(),
+  );
 }
 
 /** Artista e titolo da un video: "Artista - Titolo (Official Video)" oppure il canale. */
@@ -97,14 +120,16 @@ export type VideoCandidate = { videoId: string; title: string; channelTitle: str
 export function pickVideoForSong<T extends VideoCandidate>(song: SongToFind, videos: T[]) {
   // "Title - Remastered 2011" / "Title - Live": the part before the dash is the song.
   const baseTitle = song.title.split(/\s[-–—]\s/)[0] ?? song.title;
-  const wantedTitle = tokens(baseTitle);
+  const cleanTitle = tokens(baseTitle);
+  const wantedTitle = cleanTitle.length > 0 ? cleanTitle : plainTokens(baseTitle);
+  const titleWordsOf = cleanTitle.length > 0 ? tokens : plainTokens;
   const mainArtist = (song.artist ?? '').split(/\s*(?:,|&|\bfeat\.?|\bft\.?|\bx\b)\s*/i)[0] ?? '';
   const wantedArtist = tokens(mainArtist);
   if (wantedTitle.length === 0) return null;
   const askedVersion = UNWANTED_VERSION.test(song.title);
   let best: { item: T; score: number } | null = null;
   videos.forEach((video, index) => {
-    const titleWords = new Set(tokens(video.title));
+    const titleWords = new Set(titleWordsOf(video.title));
     const channelWords = tokens(video.channelTitle);
     const allWords = new Set([...titleWords, ...channelWords]);
     const titleScore = coverage(wantedTitle, titleWords);
@@ -126,4 +151,32 @@ export function pickVideoForSong<T extends VideoCandidate>(song: SongToFind, vid
     if (score >= 0.7 && (!best || score > best.score)) best = { item: video, score };
   });
   return (best as { item: T; score: number } | null)?.item ?? null;
+}
+
+/**
+ * Canonical form of a song for the shared resolution cache: exactly the words that decide the
+ * YouTube query and the match. Two inputs with the same canonical form always get the same
+ * search and the same choice, so the cache cannot be steered with punctuation or operators.
+ */
+export function songCanonical(song: SongToFind) {
+  const baseTitle = song.title.split(/\s[-–—]\s/)[0] ?? song.title;
+  const mainArtist = (song.artist ?? '').split(/\s*(?:,|&|\bfeat\.?|\bft\.?|\bx\b)\s*/i)[0] ?? '';
+  const cleanTitle = tokens(baseTitle);
+  const titleWords = cleanTitle.length > 0 ? cleanTitle : plainTokens(baseTitle);
+  const artistWords = tokens(mainArtist);
+  const version = UNWANTED_VERSION.exec(song.title)?.[0]?.toLowerCase() ?? null;
+  return {
+    titleWords,
+    artistWords,
+    version,
+    /** Letters and digits only: no quotes, dashes or YouTube search operators reach the query. */
+    query: [
+      ...artistWords,
+      ...titleWords,
+      ...(version && !titleWords.includes(version) ? [version] : []),
+    ]
+      .join(' ')
+      .slice(0, 80),
+    key: JSON.stringify([artistWords, titleWords, version]),
+  };
 }

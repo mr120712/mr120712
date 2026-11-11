@@ -33,6 +33,16 @@ export async function storedYouTubeSearch(
   load: () => Promise<YouTubeSearchResult>,
   options: { now?: Date; db?: Store } = {},
 ): Promise<YouTubeSearchResult> {
+  return (await storedYouTubeSearchWithTime(query, maxResults, load, options)).result;
+}
+
+/** Same as storedYouTubeSearch, plus when the result came from the YouTube API. */
+export async function storedYouTubeSearchWithTime(
+  query: string,
+  maxResults: number,
+  load: () => Promise<YouTubeSearchResult>,
+  options: { now?: Date; db?: Store } = {},
+): Promise<{ result: YouTubeSearchResult; fetchedAt: Date }> {
   const db = options.db ?? prisma;
   const now = options.now ?? new Date();
   const key = youtubeStoreKey(query, maxResults);
@@ -41,15 +51,15 @@ export async function storedYouTubeSearch(
     .then(() => db.youTubeSearchCache.findUnique({ where: { key } }))
     .catch(() => null);
   const saved = row ? readPayload(row.payload) : null;
-  if (row && saved && row.expiresAt > now) return saved;
+  if (row && saved && row.expiresAt > now) return { result: saved, fetchedAt: row.createdAt };
 
   const fresh = await load();
   if (fresh.outcome === 'unavailable') {
     // Quota finished or API error: an older saved result is better than nothing.
     if (row && saved && now.getTime() - row.createdAt.getTime() < YOUTUBE_STORE_STALE_MS) {
-      return saved;
+      return { result: saved, fetchedAt: row.createdAt };
     }
-    return fresh;
+    return { result: fresh, fetchedAt: now };
   }
   const data = {
     payload: fresh as unknown as Prisma.InputJsonValue,
@@ -69,5 +79,5 @@ export async function storedYouTubeSearch(
       })
       .catch(() => undefined);
   }
-  return fresh;
+  return { result: fresh, fetchedAt: now };
 }

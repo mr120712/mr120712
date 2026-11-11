@@ -274,7 +274,7 @@ type PlayPermit = { allowed: boolean; reason?: PlayBlock; used?: number; limit?:
 /** Finds the YouTube video of an imported song; a ready-to-play track or a message. */
 async function resolveSongTrack(
   track: MusicPlayerTrack,
-): Promise<{ ok: true; track: ActiveTrack } | { ok: false; message: string }> {
+): Promise<{ ok: true; track: ActiveTrack } | { ok: false; message: string; notFound?: boolean }> {
   const params = new URLSearchParams({ title: track.title });
   if (track.artistName) params.set('artist', track.artistName);
   try {
@@ -303,7 +303,7 @@ async function resolveSongTrack(
     const video = body?.video;
     const videoId = typeof video?.videoId === 'string' ? video.videoId : '';
     if (!video || !/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
-      return { ok: false, message: `Non ho trovato “${track.title}” su YouTube.` };
+      return { ok: false, notFound: true, message: `Non ho trovato “${track.title}” su YouTube.` };
     }
     return {
       ok: true,
@@ -456,6 +456,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   // Increases on every play request; a slow lookup for an older request is ignored.
   const playRequestRef = useRef(0);
+  // Imported songs not found on YouTube in a row (auto-skip stops after a full lap).
+  const missStreakRef = useRef(0);
+  // Set every render below (needs followingIndex/playQueueIndex, defined later).
+  const skipMissingRef = useRef<() => void>(() => undefined);
   const playCurrentTrack = useCallback(
     async (requested: ActiveTrack) => {
       let track = requested;
@@ -465,14 +469,20 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         setErrorMessage(null);
         setPlayBlock(null);
         setStatus('loading');
+        setElapsedSeconds(0);
+        setDurationSeconds(track.durationSeconds ?? 0);
         const resolved = await resolveSongTrack(track);
-        // The listener picked something else while we were searching: drop this result.
+        // The listener picked something else (or closed the player) while we were searching.
         if (request !== playRequestRef.current) return;
         if (!resolved.ok) {
           setStatus('error');
           setErrorMessage(resolved.message);
+          // Not on YouTube: move on to the next song instead of stopping the playlist. Quota
+          // or network problems do not skip (the next song would fail the same way).
+          if (resolved.notFound) skipMissingRef.current();
           return;
         }
+        missStreakRef.current = 0;
         // Swap the song for its video in the queue: previous/next keep working.
         const songId = track.qualifiedId;
         setQueue((items) =>
@@ -489,6 +499,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         setElapsedSeconds(0);
         setDurationSeconds(track.durationSeconds ?? 0);
         const permit = await requestPlayPermit(track.qualifiedId);
+        if (request !== playRequestRef.current) return;
         applyPermit(permit);
         if (!permit.allowed) {
           try {
@@ -520,6 +531,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         const permitRequest = requestPlayPermit(track.qualifiedId);
         if (!isOpenStream(track)) {
           const early = await permitRequest;
+          if (request !== playRequestRef.current) return;
           applyPermit(early);
           if (!early.allowed) {
             releaseAudio();
@@ -527,11 +539,16 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             return;
           }
           await verifyPlayback(track);
+          if (request !== playRequestRef.current) return;
         }
         audio.src = track.streamPath;
         audio.load();
         const playing = audio.play();
         const permit = await permitRequest;
+        if (request !== playRequestRef.current) {
+          playing.catch(() => undefined);
+          return;
+        }
         applyPermit(permit);
         if (!permit.allowed) {
           playing.catch(() => undefined);
@@ -540,8 +557,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           return;
         }
         await playing;
+        if (request !== playRequestRef.current) return;
         setStatus('playing');
       } catch (error) {
+        // A newer request owns the audio element now: leave it alone.
+        if (request !== playRequestRef.current) return;
         releaseAudio();
         setStatus('error');
         setErrorMessage(failureMessage(error, track));
@@ -694,6 +714,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   );
 
   const stopPlayback = useCallback(() => {
+    // Cancel any lookup or permit still in flight: closing must not bring the player back.
+    playRequestRef.current += 1;
+    missStreakRef.current = 0;
     releaseAudio();
     setCurrentTrack(null);
     setQueue([]);
@@ -780,7 +803,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   const hidePlayer = pathname === '/admin' || pathname.startsWith('/admin/');
   const showFull = expanded && Boolean(currentTrack) && !hidePlayer;
-  const youtubeActive = isYouTubeTrack(currentTrack) && !hidePlayer;
+  // Keep the YouTube dock (and its player) mounted while an imported song is being looked up,
+  // so the player is reused instead of being torn down and rebuilt for every song.
+  const youtubeActive =
+    (isYouTubeTrack(currentTrack) || currentTrack?.playbackMode === 'song') && !hidePlayer;
   // Same song in the listener's Spotify app (a plain search link: no Spotify API involved).
   const spotifyLink = (() => {
     if (!currentTrack || isLiveTrack(currentTrack) || currentTrack.playbackMode === 'podcast') {
@@ -802,6 +828,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   };
 
   // Latest handlers for the YouTube engine callbacks (created once per player instance).
+  skipMissingRef.current = () => {
+    missStreakRef.current += 1;
+    if (missStreakRef.current >= Math.max(1, queue.length)) return;
+    const index = followingIndex(repeat === 'all');
+    if (index !== null && index !== queueIndex) void playQueueIndex(index);
+  };
   ytEvents.current = {
     onPlaying: () => {
       setStatus('playing');
@@ -811,6 +843,20 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       setStatus((value) => (value === 'playing' || value === 'loading' ? 'paused' : value)),
     onEnded: handleEnded,
     onError: (code) => {
+      // A video chosen for an imported song does not play: forget that choice for everyone.
+      const failedVideo = currentTrack ? youtubeVideoId(currentTrack) : null;
+      if (currentTrack?.importedFrom && failedVideo) {
+        void fetch('/api/music/resolve-song', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            title: currentTrack.title,
+            artist: currentTrack.artistName || undefined,
+            videoId: failedVideo,
+          }),
+        }).catch(() => undefined);
+      }
       // 101/150: the uploader blocked embedding; 100: removed; 2/5: invalid or HTML5 error.
       setErrorMessage(
         code === 101 || code === 150
@@ -1501,7 +1547,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                 </summary>
                 <ol>
                   {queue.map((item, index) => (
-                    <li key={item.qualifiedId}>
+                    <li key={`${index}-${item.qualifiedId}`}>
                       <div className={styles.queueItem}>
                         <span className={styles.queueArtwork}>
                           {item.artworkUrl ? (

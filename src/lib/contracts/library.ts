@@ -229,6 +229,8 @@ export const TrackListImportSchema = z.object({
 
 export const TrackListImportResponseSchema = YouTubePlaylistImportResponseSchema.extend({
   format: z.enum(['csv', 'lines']),
+  /** Brani validi oltre il limite di 200 per elenco. */
+  truncated: z.number().int().nonnegative().default(0),
 });
 
 /** Video YouTube trovato per un brano importato; null se non trovato. */

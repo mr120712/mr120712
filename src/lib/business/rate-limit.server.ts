@@ -18,6 +18,13 @@ export const ACTION_RATE_LIMITS = {
   ],
   // App-wide ceiling on paid AI searches, whatever the number of accounts.
   'music.ai_search.global': [{ requests: 400, windowMs: 86_400_000 }],
+  // Imported songs found on YouTube (100 quota units each, only on a cache miss): per listener
+  // and app-wide, leaving most of the daily 10,000 units to regular search.
+  'music.resolve_song': [
+    { requests: 8, windowMs: 10_000 },
+    { requests: 60, windowMs: 86_400_000 },
+  ],
+  'music.resolve_song.global': [{ requests: 40, windowMs: 86_400_000 }],
   'ai.chat': [
     { requests: 12, windowMs: 60_000 },
     { requests: 60, windowMs: 3_600_000 },
@@ -214,6 +221,8 @@ const actionLabels: Record<RateLimitAction, string> = {
   'music.search': 'le ricerche musicali',
   'music.ai_search': 'le ricerche con l’AI',
   'music.ai_search.global': 'le ricerche con l’AI di oggi',
+  'music.resolve_song': 'le ricerche dei brani importati',
+  'music.resolve_song.global': 'le ricerche dei brani importati di oggi',
   'ai.chat': 'le richieste all’assistente',
   'solco.support': 'le richieste al supporto',
   'admin.assistant': 'le richieste all’assistente amministrativo',

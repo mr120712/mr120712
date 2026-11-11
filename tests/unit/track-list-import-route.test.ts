@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   limited: vi.fn(async () => null as Response | null),
   create: vi.fn(),
   findFirst: vi.fn(async () => null),
+  count: vi.fn(async () => 0),
 }));
 vi.mock('server-only', () => ({}));
 vi.mock('@/lib/same-origin', () => ({ sameOrigin: () => true }));
@@ -21,7 +22,9 @@ vi.mock('@/lib/music/collections.server', () => ({
   isFavoritesName: (n: string) => n === 'Preferiti',
 }));
 vi.mock('@/lib/db', () => ({
-  prisma: { userMusicCollection: { findFirst: mocks.findFirst, create: mocks.create } },
+  prisma: {
+    userMusicCollection: { findFirst: mocks.findFirst, create: mocks.create, count: mocks.count },
+  },
 }));
 
 import { POST } from '@/app/api/music/import/track-list/route';
@@ -53,6 +56,7 @@ describe('route /api/music/import/track-list', () => {
       name: 'Estate',
       imported: 2,
       skipped: 0,
+      truncated: 0,
       format: 'lines',
     });
     const data = mocks.create.mock.calls[0]?.[0].data;
@@ -61,6 +65,15 @@ describe('route /api/music/import/track-list', () => {
     expect(items[0].sourceId).toMatch(/^[a-f0-9]{32}$/);
     expect(items[0].createdAt.getTime()).toBeGreaterThan(items[1].createdAt.getTime());
     expect(data).toMatchObject({ userId: 'u1', kind: 'playlist' });
+  });
+
+  it('spiega le colonne attese e blocca le librerie piene', async () => {
+    const table = await post({ text: 'Album,Anno\nUno,1999\nDue,2001' });
+    expect(table.status).toBe(400);
+    expect((await table.json()).errors.text).toContain('colonna con il titolo');
+    mocks.count.mockResolvedValueOnce(100);
+    expect((await post({ text: 'A - B' })).status).toBe(409);
+    expect(mocks.create).not.toHaveBeenCalled();
   });
 
   it('rifiuta elenchi vuoti, ospiti e richieste oltre il limite', async () => {
