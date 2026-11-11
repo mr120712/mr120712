@@ -13,6 +13,7 @@ import {
   createYouTubeSearchCache,
   YOUTUBE_SEARCH_CACHE_TTL_MS,
 } from '@/lib/music/youtube-search-cache.server';
+import { storedYouTubeSearch } from '@/lib/music/youtube-search-store.server';
 
 const youtubeSearchCache = createYouTubeSearchCache<YouTubeSearchResult>({
   ttlMs: YOUTUBE_SEARCH_CACHE_TTL_MS,
@@ -115,7 +116,9 @@ export async function searchMusic(source: MusicSource, query: string) {
       sourceStatus: { ...status, unavailableReason: 'not_configured' as const },
     };
   }
-  const result = await youtubeSearchCache.get(query, () => searchYouTubeMusic(query, apiKey));
+  const result = await youtubeSearchCache.get(query, () =>
+    storedYouTubeSearch(query, 10, () => searchYouTubeMusic(query, apiKey)),
+  );
   const status = getMusicSourceStatuses({ youtube: result.outcome })[1];
   return {
     source,

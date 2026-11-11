@@ -1,0 +1,10 @@
+// @polsia:user-owned — risultati delle ricerche YouTube condivisi tra gli utenti (24 h), per
+// risparmiare la quota dell'API (100 unità per ricerca). Tenuti al massimo 7 giorni.
+model YouTubeSearchCache {
+  key       String   @id
+  payload   Json
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}
