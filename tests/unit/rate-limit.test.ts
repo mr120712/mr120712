@@ -95,25 +95,34 @@ describe('limiti per azione e identità', () => {
     });
   });
 
-  it('ignora X-Forwarded-For e accetta solo IP validi dai due header fidati', () => {
+  it('ignora X-Forwarded-For e cf-connecting-ip (falsificabili), si fida di x-real-ip', () => {
     expect(
       getRateLimitIdentity(null, new Headers({ 'x-forwarded-for': '198.51.100.4' })),
+    ).toBeNull();
+    // Without Cloudflare in front, anyone can send cf-connecting-ip: it must not count.
+    expect(
+      getRateLimitIdentity(null, new Headers({ 'cf-connecting-ip': '203.0.113.8' })),
     ).toBeNull();
     expect(
       getRateLimitIdentity(
         null,
-        new Headers({
-          'cf-connecting-ip': '203.0.113.8',
-          'x-forwarded-for': '198.51.100.4',
-        }),
+        new Headers({ 'cf-connecting-ip': '203.0.113.8', 'x-real-ip': '198.51.100.7' }),
       ),
-    ).toBe('ip:203.0.113.8');
+    ).toBe('ip:198.51.100.7');
     expect(getRateLimitIdentity(null, new Headers({ 'x-real-ip': '2001:db8::8' }))).toBe(
       'ip:2001:db8::8',
     );
     expect(
-      getRateLimitIdentity(null, new Headers({ 'cf-connecting-ip': '198.51.100.4, 10.0.0.1' })),
+      getRateLimitIdentity(null, new Headers({ 'x-real-ip': '198.51.100.4, 10.0.0.1' })),
     ).toBeNull();
+  });
+
+  it('con Cloudflare davanti (TRUST_CLOUDFLARE_IP=1) usa cf-connecting-ip', () => {
+    vi.stubEnv('TRUST_CLOUDFLARE_IP', '1');
+    expect(getRateLimitIdentity(null, new Headers({ 'cf-connecting-ip': '203.0.113.8' }))).toBe(
+      'ip:203.0.113.8',
+    );
+    vi.unstubAllEnvs();
   });
 
   it('restituisce Retry-After e un messaggio con il tempo di attesa, poi consente il recupero', async () => {

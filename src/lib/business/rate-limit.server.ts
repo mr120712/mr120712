@@ -10,6 +10,33 @@ export const ACTION_RATE_LIMITS = {
   'music.search': [
     { requests: 8, windowMs: 10_000 },
     { requests: 30, windowMs: 60_000 },
+    // YouTube search costs 100 of 10,000 daily units: no single client may use them all.
+    { requests: 150, windowMs: 86_400_000 },
+  ],
+  // Anonymous catalogue proxies (Audius, podcasts, radio, Jamendo, YouTube video details).
+  'music.catalog': [
+    { requests: 60, windowMs: 60_000 },
+    { requests: 1500, windowMs: 86_400_000 },
+  ],
+  // Verification emails: per recipient address, and app-wide.
+  'auth.verification_email': [
+    { requests: 3, windowMs: 3_600_000 },
+    { requests: 5, windowMs: 86_400_000 },
+  ],
+  'auth.verification_email.global': [{ requests: 300, windowMs: 86_400_000 }],
+  // Calls to Stripe/PayPal to confirm or open a subscription or the billing portal.
+  'subscriptions.sync': [
+    { requests: 10, windowMs: 60_000 },
+    { requests: 100, windowMs: 86_400_000 },
+  ],
+  'product.check.global': [{ requests: 50, windowMs: 86_400_000 }],
+  'solco.pro.write': [
+    { requests: 20, windowMs: 60_000 },
+    { requests: 200, windowMs: 86_400_000 },
+  ],
+  'listening.write': [
+    { requests: 30, windowMs: 60_000 },
+    { requests: 500, windowMs: 86_400_000 },
   ],
   // Each AI search is a paid Claude request: a few per minute, 30 per day per account.
   'music.ai_search': [
@@ -102,11 +129,18 @@ export type RateLimitDecision =
 const RATE_LIMIT_BACKEND_RETRY_SECONDS = 30;
 const UNKNOWN_IDENTITY_RETRY_SECONDS = 60;
 
-/** Gli id autenticati hanno priorità; gli anonimi usano solo gli header dell’ingress. */
+/**
+ * Gli id autenticati hanno priorità; gli anonimi usano solo l'header impostato dall'ingress.
+ * Su Vercel è x-real-ip (scritto da Vercel, non dal client). cf-connecting-ip vale solo se il
+ * sito passa davvero da Cloudflare (TRUST_CLOUDFLARE_IP=1): altrimenti chiunque potrebbe
+ * inventarlo a ogni richiesta e aggirare i limiti.
+ */
 export function getRateLimitIdentity(userId: string | null, headers: Headers): string | null {
   if (userId) return `user:${userId}`;
 
-  for (const header of ['cf-connecting-ip', 'x-real-ip']) {
+  const trusted =
+    process.env.TRUST_CLOUDFLARE_IP === '1' ? ['cf-connecting-ip', 'x-real-ip'] : ['x-real-ip'];
+  for (const header of trusted) {
     const candidate = headers.get(header)?.trim();
     if (candidate && !candidate.includes(',') && isIP(candidate)) {
       return `ip:${candidate.toLowerCase()}`;
@@ -219,6 +253,13 @@ export async function consumeRateLimit(
 
 const actionLabels: Record<RateLimitAction, string> = {
   'music.search': 'le ricerche musicali',
+  'music.catalog': 'le richieste al catalogo',
+  'auth.verification_email': 'le email di verifica',
+  'auth.verification_email.global': 'le email di verifica di oggi',
+  'subscriptions.sync': 'le verifiche dell’abbonamento',
+  'product.check.global': 'i controlli prodotto di oggi',
+  'solco.pro.write': 'le modifiche a Solco Pro',
+  'listening.write': 'le modifiche agli ascolti',
   'music.ai_search': 'le ricerche con l’AI',
   'music.ai_search.global': 'le ricerche con l’AI di oggi',
   'music.resolve_song': 'le ricerche dei brani importati',
