@@ -65,7 +65,7 @@ type MusicPlayerValue = {
   shuffle: boolean;
   repeat: RepeatMode;
   expanded: boolean;
-  /** true: ascolto completo e in background; false: anteprime di 30 s; null: verifica in corso. */
+  /** true: Premium, ascolti illimitati; false: Free, 40 ascolti completi al mese; null: verifica in corso. */
   premium: boolean | null;
   previewEnded: boolean;
   /** Motivo del blocco dell'ultimo avvio (account free / ospite), null se nessuno. */
@@ -103,12 +103,6 @@ export function isOpenStream(track: Pick<MusicPlayerTrack, 'playbackMode'>) {
   );
 }
 
-/** Audio con anteprima di 30 s per gli utenti free: podcast e Jamendo (le radio sono gratuite). */
-export function isPreviewTrack(track: Pick<MusicPlayerTrack, 'playbackMode'> | null | undefined) {
-  return track?.playbackMode === 'podcast' || track?.playbackMode === 'jamendo';
-}
-
-export const FREE_PREVIEW_SECONDS = 30;
 const STORAGE_KEY = 'solco.player.v1';
 const MAX_RECONNECTS = 3;
 
@@ -627,19 +621,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const handleTimeUpdate = () => {
     const audio = audioRef.current;
     if (!audio) return;
-    if (
-      premium !== true &&
-      isPreviewTrack(currentTrack) &&
-      audio.currentTime >= FREE_PREVIEW_SECONDS &&
-      !previewEnded
-    ) {
-      // The server only sends the first seconds anyway; stop exactly at 30 s and offer Premium.
-      audio.pause();
-      setPreviewEnded(true);
-      setStatus('paused');
-      setElapsedSeconds(FREE_PREVIEW_SECONDS);
-      return;
-    }
     if (audio.currentTime > 2) reconnectsRef.current = 0;
     setElapsedSeconds(audio.currentTime);
     if (!isLiveTrack(currentTrack) && Number.isFinite(audio.duration))
@@ -656,12 +637,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   const handleEnded = () => {
     const audio = audioRef.current;
-    if (premium !== true && isPreviewTrack(currentTrack)) {
-      // The truncated preview stream finished before 30 s (low bitrate): same as preview end.
-      setPreviewEnded(true);
-      setStatus('paused');
-      return;
-    }
     if (repeat === 'one' && isYouTubeTrack(currentTrack) && ytPlayerRef.current) {
       ytPlayerRef.current.seekTo(0, true);
       ytPlayerRef.current.playVideo();
@@ -1178,9 +1153,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                 <strong>{currentTrack.title}</strong>
                 <span>
                   {live ? <em className={styles.liveBadge}>LIVE</em> : null}
-                  {premium !== true && isPreviewTrack(currentTrack) ? (
-                    <em className={styles.previewBadge}>ANTEPRIMA 30s</em>
-                  ) : null}
                   {currentTrack.artistName} · {currentTrack.sourceLabel}
                 </span>
               </span>
@@ -1226,12 +1198,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                     <a href="/piani">Passa a Premium per ascolti illimitati</a>.
                   </>
                 )}
-              </output>
-            ) : null}
-            {previewEnded ? (
-              <output className={styles.upsell} aria-live="polite">
-                Fine dell’anteprima di 30 secondi.{' '}
-                <a href="/piani">Ascolta tutto, anche in background, con Premium</a>
               </output>
             ) : null}
             {errorMessage && !showFull ? (

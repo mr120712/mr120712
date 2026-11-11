@@ -97,7 +97,7 @@ afterEach(async () => {
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
 });
 
-describe('player: free con anteprima, Premium completo e in background', () => {
+describe('player: free 40 ascolti completi al mese, Premium illimitato', () => {
   it('blocca il player e invita a Premium dopo i 40 ascolti del mese', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
     vi.stubGlobal(
@@ -154,22 +154,18 @@ describe('player: free con anteprima, Premium completo e in background', () => {
     expect(container.textContent).not.toContain('Fine dell’anteprima');
   });
 
-  it('ferma gli utenti free a 30 secondi e mostra l’invito a Premium, anche in background', async () => {
+  it('gli utenti free ascoltano il brano completo, anche in background', async () => {
     const container = await mount(false);
     const audio = container.querySelector('audio');
     if (!audio) throw new Error('audio mancante');
-    expect(container.textContent).toContain('ANTEPRIMA 30s');
+    expect(container.textContent).not.toContain('ANTEPRIMA 30s');
 
-    // Free previews keep playing in the background too.
     vi.mocked(HTMLMediaElement.prototype.pause).mockClear();
-    await act(async () => setTime(audio, 12));
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
     await act(async () => document.dispatchEvent(new Event('visibilitychange')));
+    await act(async () => setTime(audio, 95));
     expect(HTMLMediaElement.prototype.pause).not.toHaveBeenCalled();
-
-    await act(async () => setTime(audio, 30.2));
-    expect(container.textContent).toContain('Fine dell’anteprima di 30 secondi.');
-    expect(container.querySelector('a[href="/piani"]')).not.toBeNull();
+    expect(container.textContent).not.toContain('anteprima');
   });
 
   it('lascia suonare Premium oltre 30 secondi e in background', async () => {

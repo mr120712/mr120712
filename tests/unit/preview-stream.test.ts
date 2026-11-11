@@ -83,25 +83,18 @@ describe('anteprima di 30 secondi', () => {
     ).rejects.toThrow();
   });
 
-  it('gli utenti free ricevono l’anteprima, Premium lo stream completo', async () => {
-    const fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(new Response(bytes(1000), { headers: { 'content-type': 'audio/mpeg' } }));
-    const params = { params: Promise.resolve({ trackId: '1532771' }) };
-    const free = await GET(
-      new Request('https://solco.test/api/music/jamendo/1532771/stream'),
-      params,
-    );
-    expect(free.status).toBe(200);
-    expect(free.headers.get('x-solco-preview')).toBe('30');
-
-    mocks.premium.mockResolvedValueOnce(true);
-    const paid = await GET(new Request('https://solco.test/api/music/jamendo/1532771/stream'), {
-      params: Promise.resolve({ trackId: '1532771' }),
-    });
-    expect(paid.status).toBe(302);
-    expect(paid.headers.get('location')).toBe('https://93.184.216.34/live.mp3');
-    expect(paid.headers.get('cache-control')).toContain('private');
-    fetchSpy.mockRestore();
+  it('free e Premium ricevono lo stream completo: ogni ascolto Free conta sui 40 del mese', async () => {
+    for (const premium of [false, true]) {
+      mocks.premium.mockResolvedValueOnce(premium);
+      const response = await GET(
+        new Request('https://solco.test/api/music/jamendo/1532771/stream'),
+        {
+          params: Promise.resolve({ trackId: '1532771' }),
+        },
+      );
+      expect(response.status).toBe(302);
+      expect(response.headers.get('location')).toBe('https://93.184.216.34/live.mp3');
+      expect(response.headers.get('cache-control')).toContain('private');
+    }
   });
 });
