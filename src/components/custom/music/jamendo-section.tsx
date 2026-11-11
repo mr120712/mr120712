@@ -64,7 +64,7 @@ export function JamendoSection({
     >
       <header className={styles.sectionHeader}>
         <div>
-          <p className={styles.eyebrow}>CATALOGO GLOBALE · GRATIS</p>
+          <p className={styles.eyebrow}>CATALOGO GLOBALE</p>
           <h2 id="jamendo-heading">{query ? 'Brani completi' : 'Musica globale senza limiti'}</h2>
         </div>
       </header>
@@ -121,8 +121,8 @@ export function JamendoSection({
         </ol>
       )}
       <p className={styles.state}>
-        Brani completi e senza pubblicità da Jamendo: musica indipendente da tutto il mondo in
-        licenza Creative Commons. Gratis per tutti, anche in background.
+        Musica indipendente da tutto il mondo (Jamendo, licenza Creative Commons). Anteprime di 30
+        secondi gratis; con Premium ascolto completo, senza pubblicità e in background.
       </p>
     </section>
   );

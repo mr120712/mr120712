@@ -551,3 +551,30 @@
   font-size: 12px;
   line-height: 1.45;
 }
+
+.previewBadge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--foreground);
+  border-radius: 4px;
+  color: var(--foreground);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+}
+
+.upsell {
+  grid-column: 1 / -1;
+  padding: 0 12px 12px;
+  color: var(--foreground);
+  font-size: 13px;
+}
+
+.upsell a {
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}

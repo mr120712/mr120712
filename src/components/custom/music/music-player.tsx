@@ -65,6 +65,9 @@ type MusicPlayerValue = {
   shuffle: boolean;
   repeat: RepeatMode;
   expanded: boolean;
+  /** true: ascolto completo e in background; false: anteprime di 30 s; null: verifica in corso. */
+  premium: boolean | null;
+  previewEnded: boolean;
   playTrack: (
     track: MusicPlayerTrack,
     streamPath: string,
@@ -94,6 +97,19 @@ export function isOpenStream(track: Pick<MusicPlayerTrack, 'playbackMode'>) {
     track.playbackMode === 'youtube'
   );
 }
+
+/** Audio Solco con anteprima di 30 s per gli utenti free: radio, podcast e Jamendo. */
+export function isPreviewTrack(track: Pick<MusicPlayerTrack, 'playbackMode'> | null | undefined) {
+  return (
+    track?.playbackMode === 'radio' ||
+    track?.playbackMode === 'podcast' ||
+    track?.playbackMode === 'jamendo'
+  );
+}
+
+export const FREE_PREVIEW_SECONDS = 30;
+const STORAGE_KEY = 'solco.player.v1';
+const MAX_RECONNECTS = 3;
 
 export function isYouTubeTrack(track: Pick<MusicPlayerTrack, 'playbackMode'> | null | undefined) {
   return track?.playbackMode === 'youtube';
@@ -292,6 +308,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const ytHostRef = useRef<HTMLDivElement>(null);
   const ytPlayerRef = useRef<YouTubeEngine | null>(null);
   const [ytRequest, setYtRequest] = useState(0);
+  const [premium, setPremium] = useState<boolean | null>(null);
+  const [previewEnded, setPreviewEnded] = useState(false);
+  const reconnectsRef = useRef(0);
+  const pendingSeekRef = useRef<number | null>(null);
+  const restoredRef = useRef(false);
   const ytEvents = useRef({
     onPlaying: () => {},
     onPaused: () => {},
@@ -327,6 +348,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       }
       const audio = audioRef.current;
       if (!audio) return;
+      setPreviewEnded(false);
       setErrorMessage(null);
       setStatus('loading');
       setElapsedSeconds(0);
@@ -335,7 +357,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       audio.preload = 'none';
       try {
         // Check Audius's stream authorization before requesting audio bytes.
-        await verifyPlayback(track);
+        // Open streams start synchronously inside the tap: iOS Safari blocks play() after an await.
+        if (!isOpenStream(track)) await verifyPlayback(track);
         audio.src = track.streamPath;
         audio.load();
         await audio.play();
@@ -445,6 +468,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (status === 'paused') {
+      if (previewEnded) {
+        await playCurrentTrack(currentTrack);
+        return;
+      }
       if (isLiveTrack(currentTrack)) {
         // A paused live stream would resume from stale buffered audio: reconnect instead.
         await playCurrentTrack(currentTrack);
@@ -463,7 +490,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
     await playCurrentTrack(currentTrack);
-  }, [currentTrack, playCurrentTrack, releaseAudio, status]);
+  }, [currentTrack, playCurrentTrack, previewEnded, releaseAudio, status]);
 
   const seekTo = useCallback(
     (seconds: number) => {
@@ -498,6 +525,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     setDurationSeconds(0);
     setErrorMessage(null);
     setExpanded(false);
+    setPreviewEnded(false);
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // Storage unavailable (private mode): nothing to clear.
+    }
   }, [releaseAudio]);
 
   const toggleShuffle = useCallback(() => setShuffle((value) => !value), []);
@@ -509,6 +542,20 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const handleTimeUpdate = () => {
     const audio = audioRef.current;
     if (!audio) return;
+    if (
+      premium !== true &&
+      isPreviewTrack(currentTrack) &&
+      audio.currentTime >= FREE_PREVIEW_SECONDS &&
+      !previewEnded
+    ) {
+      // The server only sends the first seconds anyway; stop exactly at 30 s and offer Premium.
+      audio.pause();
+      setPreviewEnded(true);
+      setStatus('paused');
+      setElapsedSeconds(FREE_PREVIEW_SECONDS);
+      return;
+    }
+    if (audio.currentTime > 2) reconnectsRef.current = 0;
     setElapsedSeconds(audio.currentTime);
     if (!isLiveTrack(currentTrack) && Number.isFinite(audio.duration))
       setDurationSeconds(audio.duration);
@@ -524,6 +571,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   const handleEnded = () => {
     const audio = audioRef.current;
+    if (premium !== true && isPreviewTrack(currentTrack)) {
+      // The truncated preview stream finished before 30 s (low bitrate): same as preview end.
+      setPreviewEnded(true);
+      setStatus('paused');
+      return;
+    }
     if (repeat === 'one' && isYouTubeTrack(currentTrack) && ytPlayerRef.current) {
       ytPlayerRef.current.seekTo(0, true);
       ytPlayerRef.current.playVideo();
@@ -545,6 +598,16 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   const handleError = () => {
     if (!currentTrack) return;
+    if (previewEnded) return;
+    if (isLiveTrack(currentTrack) && reconnectsRef.current < MAX_RECONNECTS) {
+      // Live radio drops on network changes (Wi-Fi ↔ mobile): reconnect with backoff.
+      const attempt = reconnectsRef.current;
+      reconnectsRef.current += 1;
+      const track = currentTrack;
+      setStatus('loading');
+      window.setTimeout(() => void playCurrentTrack(track), 1000 * 2 ** attempt);
+      return;
+    }
     setStatus('error');
     setErrorMessage(
       isOpenStream(currentTrack)
@@ -713,6 +776,122 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     };
   }, [showFull]);
 
+  // Premium check: full and background listening vs 30-second previews.
+  useEffect(() => {
+    let cancelled = false;
+    const check = () => {
+      fetch('/api/music/access', { credentials: 'same-origin', cache: 'no-store' })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((body: { premium?: unknown } | null) => {
+          if (!cancelled) setPremium(body?.premium === true);
+        })
+        .catch(() => {
+          if (!cancelled) setPremium(false);
+        });
+    };
+    check();
+    // Re-check when the listener comes back (e.g. after subscribing in another tab).
+    window.addEventListener('focus', check);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', check);
+    };
+  }, []);
+
+  // Background listening is a Premium feature: free audio pauses when Solco is hidden.
+  useEffect(() => {
+    if (premium === true || !currentTrack || isYouTubeTrack(currentTrack)) return;
+    const pauseHidden = () => {
+      if (document.visibilityState === 'hidden' && status === 'playing') {
+        audioRef.current?.pause();
+        setStatus('paused');
+      }
+    };
+    document.addEventListener('visibilitychange', pauseHidden);
+    return () => document.removeEventListener('visibilitychange', pauseHidden);
+  }, [currentTrack, premium, status]);
+
+  // Network back after a drop: resume live radio automatically.
+  useEffect(() => {
+    const resume = () => {
+      if (currentTrack && isLiveTrack(currentTrack) && status === 'error' && !previewEnded) {
+        reconnectsRef.current = 0;
+        void playCurrentTrack(currentTrack);
+      }
+    };
+    window.addEventListener('online', resume);
+    return () => window.removeEventListener('online', resume);
+  }, [currentTrack, playCurrentTrack, previewEnded, status]);
+
+  // Restore the last queue (paused) after a reload or when reopening the app.
+  useEffect(() => {
+    if (restoredRef.current || process.env.NODE_ENV === 'test') return;
+    restoredRef.current = true;
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? 'null') as {
+        queue?: MusicPlayerTrack[];
+        index?: number;
+        position?: number;
+      } | null;
+      if (!saved?.queue?.length || typeof saved.index !== 'number') return;
+      const restored = saved.queue
+        .map((item) => {
+          const path = trackStreamPath(item);
+          return path ? { ...item, streamPath: path } : null;
+        })
+        .filter((item): item is ActiveTrack => item !== null);
+      const track = restored[saved.index];
+      if (!track) return;
+      setQueue(restored);
+      setQueueIndex(saved.index);
+      setCurrentTrack(track);
+      setStatus('idle');
+      if (!isLiveTrack(track) && typeof saved.position === 'number' && saved.position > 5) {
+        pendingSeekRef.current = saved.position;
+        setElapsedSeconds(saved.position);
+      }
+    } catch {
+      // Corrupt or unavailable storage: start empty.
+    }
+  }, []);
+
+  // Save queue and position (throttled to whole seconds).
+  const savedSecond = Math.floor(elapsedSeconds / 5);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: saves every 5 s of progress, not every tick.
+  useEffect(() => {
+    if (!restoredRef.current || !currentTrack || queueIndex < 0) return;
+    try {
+      window.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({
+          queue: queue.slice(0, 100).map(({ streamPath: _path, ...item }) => item),
+          index: queueIndex,
+          position: isLiveTrack(currentTrack) ? 0 : elapsedSeconds,
+        }),
+      );
+    } catch {
+      // Quota or private mode: persistence is best-effort.
+    }
+  }, [currentTrack, queue, queueIndex, savedSecond]);
+
+  // Lock-screen / notification scrubber (Android, iOS 15+).
+  useEffect(() => {
+    if (!('mediaSession' in navigator) || !currentTrack) return;
+    try {
+      if (isLiveTrack(currentTrack) || !durationSeconds || durationSeconds < elapsedSeconds) {
+        navigator.mediaSession.setPositionState?.();
+      } else {
+        navigator.mediaSession.setPositionState?.({
+          duration: durationSeconds,
+          position: Math.min(elapsedSeconds, durationSeconds),
+          playbackRate: 1,
+        });
+      }
+    } catch {
+      // Older browsers: no position state.
+    }
+  }, [currentTrack, durationSeconds, elapsedSeconds]);
+
   // Navigating to another page collapses the full-screen player.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reacts to route changes only.
   useEffect(() => {
@@ -734,8 +913,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         artist: currentTrack.artistName,
         album: currentTrack.sourceLabel,
         artwork: currentTrack.artworkUrl
-          ? [{ src: currentTrack.artworkUrl, sizes: '512x512' }]
-          : [],
+          ? ['96x96', '192x192', '512x512'].map((sizes) => ({
+              src: currentTrack.artworkUrl as string,
+              sizes,
+            }))
+          : [{ src: '/solco-android-icon.svg', sizes: '512x512', type: 'image/svg+xml' }],
       });
     } catch {
       mediaSession.metadata = null;
@@ -746,6 +928,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     const handlers: Array<[MediaSessionAction, MediaSessionActionHandler]> = [
       ['play', () => void togglePlayback()],
       ['pause', () => void togglePlayback()],
+      ['stop', () => stopPlayback()],
       ['previoustrack', () => void previousTrack()],
       ['nexttrack', () => void nextTrack()],
       [
@@ -776,7 +959,16 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         }
       }
     };
-  }, [currentTrack, elapsedSeconds, nextTrack, previousTrack, seekTo, status, togglePlayback]);
+  }, [
+    currentTrack,
+    elapsedSeconds,
+    nextTrack,
+    previousTrack,
+    seekTo,
+    status,
+    stopPlayback,
+    togglePlayback,
+  ]);
 
   const live = isLiveTrack(currentTrack);
   const hasNext =
@@ -809,6 +1001,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         shuffle,
         repeat,
         expanded,
+        premium,
+        previewEnded,
         playTrack,
         togglePlayback,
         previousTrack,
@@ -831,7 +1025,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         onPause={() => setStatus((current) => (current === 'playing' ? 'paused' : current))}
         onTimeUpdate={handleTimeUpdate}
         onDurationChange={handleTimeUpdate}
-        onLoadedMetadata={handleTimeUpdate}
+        onLoadedMetadata={() => {
+          const audio = audioRef.current;
+          if (audio && pendingSeekRef.current !== null && Number.isFinite(audio.duration)) {
+            audio.currentTime = Math.min(pendingSeekRef.current, audio.duration);
+            pendingSeekRef.current = null;
+          }
+          handleTimeUpdate();
+        }}
         onEnded={handleEnded}
         onError={handleError}
       >
@@ -862,6 +1063,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                 <strong>{currentTrack.title}</strong>
                 <span>
                   {live ? <em className={styles.liveBadge}>LIVE</em> : null}
+                  {premium !== true && isPreviewTrack(currentTrack) ? (
+                    <em className={styles.previewBadge}>ANTEPRIMA 30s</em>
+                  ) : null}
                   {currentTrack.artistName} · {currentTrack.sourceLabel}
                 </span>
               </span>
@@ -886,6 +1090,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                 <SkipForward aria-hidden="true" />
               </button>
             </div>
+            {previewEnded ? (
+              <output className={styles.upsell} aria-live="polite">
+                Fine dell’anteprima di 30 secondi.{' '}
+                <a href="/piani">Ascolta tutto, anche in background, con Premium</a>
+              </output>
+            ) : null}
             {errorMessage && !showFull ? (
               <output className={styles.miniError} aria-live="polite">
                 {errorMessage}

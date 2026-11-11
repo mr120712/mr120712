@@ -1,6 +1,8 @@
 // @polsia:user-owned — reindirizza il player allo stream HTTPS ufficiale della stazione.
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { currentUserHasPremium } from '@/lib/business/premium-access.server';
+import { previewResponse } from '@/lib/music/preview-stream.server';
 import { resolveStationStream } from '@/lib/music/radio-browser.server';
 
 export const dynamic = 'force-dynamic';
@@ -14,8 +16,10 @@ export async function GET(
   if (!url) {
     return NextResponse.json({ error: 'station_unavailable' }, { status: 404 });
   }
+  // Free listeners get a 30-second preview, enforced here; Premium streams the official source.
+  if (!(await currentUserHasPremium())) return previewResponse(url);
   return NextResponse.redirect(url, {
     status: 302,
-    headers: { 'Cache-Control': 'public, max-age=60, s-maxage=600' },
+    headers: { 'Cache-Control': 'private, no-store', Vary: 'Cookie' },
   });
 }
