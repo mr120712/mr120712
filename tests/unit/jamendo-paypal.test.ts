@@ -57,6 +57,7 @@ beforeEach(() => {
   vi.stubEnv('PAYPAL_CLIENT_SECRET', 'client-secret-example-123');
   vi.stubEnv('PAYPAL_ENV', 'sandbox');
   vi.stubEnv('JAMENDO_CLIENT_ID', 'jamendo-id');
+  vi.stubEnv('JAMENDO_COMMERCIAL_LICENSE', 'confirmed');
   db.plans.clear();
   resetPayPalTokenCache();
   clearJamendoCache();

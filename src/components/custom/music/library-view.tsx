@@ -348,7 +348,7 @@ export function LibraryView() {
   const active: TabId = isTab(requested) ? requested : 'playlist';
 
   return (
-    <div className={styles.page}>
+    <main className={styles.page}>
       <header>
         <h1 className={styles.pageTitle}>Libreria</h1>
         <p className={styles.lead}>Playlist, preferiti, radio, podcast e ascolti recenti.</p>
@@ -395,6 +395,6 @@ export function LibraryView() {
           </div>
         </>
       )}
-    </div>
+    </main>
   );
 }

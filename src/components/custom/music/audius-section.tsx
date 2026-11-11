@@ -5,6 +5,7 @@
 
 import { Pause, Play } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
+import { AudiusLicenseNotice } from '@/components/custom/music/audius-license-notice';
 import { FallbackArt } from '@/components/custom/music/fallback-art';
 import { type MusicPlayerTrack, useMusicPlayer } from '@/components/custom/music/music-player';
 import { apiFetch } from '@/lib/api-client';
@@ -119,6 +120,7 @@ export function AudiusSection({
                 <span>
                   {[track.artistName, duration(track.durationSeconds)].filter(Boolean).join(' · ')}
                 </span>
+                <AudiusLicenseNotice track={track} showTrackLink />
               </div>
               <div className={styles.rowActions}>
                 <button

@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { type FormEvent, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { AlbumCard } from '@/components/custom/music/album-card';
+import { AudiusLicenseNotice } from '@/components/custom/music/audius-license-notice';
 import { AudiusArtistCard, AudiusPlaylistCard } from '@/components/custom/music/catalog-cards';
 import { type MusicPlayerTrack, useMusicPlayer } from '@/components/custom/music/music-player';
 import { Button } from '@/components/ui/button';
@@ -24,7 +25,11 @@ import {
   type MusicTrendingResponse,
   MusicTrendingResponseSchema,
 } from '@/lib/contracts/music';
-import { getAudiusPlaybackReasonText } from '@/lib/music/audius';
+import {
+  audiusCopyrightText,
+  getAudiusPlaybackReasonText,
+  isAudiusOpenMusicLicense,
+} from '@/lib/music/audius';
 import { audiusGenres } from '@/lib/music/genres';
 import styles from './music.module.css';
 import { YouTubeQueuePlayer } from './youtube-queue-player';
@@ -91,6 +96,9 @@ function AudiusResult({
   selectedPlaylistId: string;
   onAddToPlaylist: (source: Source, sourceId: string) => void;
 }) {
+  const copyright = audiusCopyrightText(track);
+  // Another licence: Solco never plays it, so it is not saved either (it would only fail later).
+  const savable = track.playbackReason !== 'license_not_allowed';
   return (
     <article className={styles.resultCard}>
       <div className={styles.artwork}>
@@ -117,19 +125,28 @@ function AudiusResult({
               ) : null}
             </p>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => onFavorite('audius', track.id)}
-          >
-            Salva nei preferiti
-          </Button>
+          {savable ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => onFavorite('audius', track.id)}
+            >
+              Salva nei preferiti
+            </Button>
+          ) : null}
         </div>
         <div className={styles.attribution}>
-          <span>{track.licensorName ?? 'Licenziante non indicato da Audius'}</span>
-          {track.copyrightNotice ? <span>{track.copyrightNotice}</span> : null}
-          {track.license ? <span>Licenza: {track.license}</span> : null}
+          {/* OML §1.5: the artist identification goes away when the artist asks for it. */}
+          {track.attributionRemovalRequested ? null : (
+            <span>{track.licensorName ?? 'Licenziante non indicato da Audius'}</span>
+          )}
+          {copyright ? <span>{copyright}</span> : null}
+          {isAudiusOpenMusicLicense(track.license) ? (
+            <AudiusLicenseNotice track={track} showCopyright={false} />
+          ) : (
+            <span>Licenza: {track.license}</span>
+          )}
           <a href={track.trackUrl} target="_blank" rel="noreferrer">
             Brano originale su Audius
           </a>
@@ -143,11 +160,11 @@ function AudiusResult({
           </Button>
         ) : (
           <p className={styles.playbackBlocked}>
-            {getAudiusPlaybackReasonText(track.playbackReason)} Nessun audio parte finché Audius non
-            conferma lo stream.
+            {getAudiusPlaybackReasonText(track.playbackReason)}
+            {savable ? ' Nessun audio parte finché Audius non conferma lo stream.' : null}
           </p>
         )}
-        {playlists.length ? (
+        {savable && playlists.length ? (
           <Button
             type="button"
             variant="ghost"

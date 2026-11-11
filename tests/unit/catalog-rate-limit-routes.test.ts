@@ -32,6 +32,15 @@ vi.mock('@/lib/business/play-quota.server', () => ({
   consumePlayForCurrentUser: mocks.consumePlay,
   playDeniedResponse: () => Response.json({ allowed: false }, { status: 401 }),
 }));
+// Stream routes check the Free quota without writing, and record the play once audio starts.
+vi.mock('@/lib/music/stream-play.server', () => ({
+  checkStreamPlay: async (qualifiedId: string) => ({
+    qualifiedId,
+    user: null,
+    decision: await mocks.consumePlay(qualifiedId),
+  }),
+  recordStreamPlay: mocks.consumePlay,
+}));
 vi.mock('@/lib/music/music-api.server', () => ({ readYouTubeApiKey: () => 'server-only-key' }));
 vi.mock('@/lib/music/youtube-search.server', () => ({ getYouTubeVideoDetails: mocks.getDetails }));
 vi.mock('@/lib/music/podcasts.server', () => ({
@@ -40,6 +49,9 @@ vi.mock('@/lib/music/podcasts.server', () => ({
 }));
 vi.mock('@/lib/music/radio-browser.server', () => ({ listStations: mocks.listStations }));
 vi.mock('@/lib/music/jamendo.server', () => ({ listJamendoTracks: mocks.listJamendoTracks }));
+// Rate limit of the switched-on catalogue (switched off, it answers "not_configured" before the
+// limit: covered in jamendo-license.test.ts).
+vi.mock('@/lib/music/jamendo-license', () => ({ jamendoEnabled: () => true }));
 vi.mock('@/lib/music/audius-source.server', () => ({
   getAudiusAlbumCatalogDetail: mocks.albumCatalog,
 }));

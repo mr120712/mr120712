@@ -1,8 +1,10 @@
-// @polsia:user-owned — catalogo Jamendo (musica indipendente in Creative Commons), gratis per tutti.
-// Richiede JAMENDO_CLIENT_ID (https://devportal.jamendo.com). Verificare i termini Jamendo
-// per l'uso commerciale prima di vendere l'accesso.
+// @polsia:user-owned — catalogo Jamendo (musica indipendente in Creative Commons).
+// SPENTO finché il titolare non ha una licenza commerciale Jamendo: la API gratuita è solo per
+// uso non commerciale e Solco ha piani a pagamento. Si accende con JAMENDO_CLIENT_ID e
+// JAMENDO_COMMERCIAL_LICENSE=confirmed (vedi jamendo-license.ts; contatto: licensing@jamendo.com).
 import 'server-only';
 import type { JamendoTrack } from '@/lib/contracts/library';
+import { jamendoEnabled } from '@/lib/music/jamendo-license';
 
 const API = 'https://api.jamendo.com/v3.0';
 const TIMEOUT_MS = 8000;
@@ -104,7 +106,7 @@ export async function listJamendoTracks(
   input: { q?: string; tag?: string },
   fetcher: FetchLike = fetch,
 ): Promise<{ outcome: Outcome; tracks: JamendoTrack[] }> {
-  if (!jamendoClientId()) return { outcome: 'not_configured', tracks: [] };
+  if (!jamendoEnabled()) return { outcome: 'not_configured', tracks: [] };
   const params: Record<string, string> = { limit: '30' };
   if (input.q) params.search = input.q;
   if (input.tag) params.tags = input.tag;
@@ -123,7 +125,7 @@ export async function listJamendoTracks(
 }
 
 export async function resolveJamendoAudio(trackId: string, fetcher: FetchLike = fetch) {
-  if (!/^[0-9]{1,20}$/.test(trackId) || !jamendoClientId()) return null;
+  if (!/^[0-9]{1,20}$/.test(trackId) || !jamendoEnabled()) return null;
   const key = `audio:${trackId}`;
   const hit = cached<string | null>(key);
   if (hit !== undefined) return hit;

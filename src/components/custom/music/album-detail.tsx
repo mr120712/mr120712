@@ -4,6 +4,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { AudiusLicenseNotice } from '@/components/custom/music/audius-license-notice';
 import { type MusicPlayerTrack, useMusicPlayer } from '@/components/custom/music/music-player';
 import { apiFetch } from '@/lib/api-client';
 import {
@@ -11,10 +12,15 @@ import {
   AudiusAlbumDetailSchema,
   type AudiusAlbumTrack,
 } from '@/lib/contracts/music';
+import { getAudiusPlaybackReasonText } from '@/lib/music/audius';
 import styles from './album-detail.module.css';
 
-function playbackLabel(access: AudiusAlbumTrack['fullAccess']) {
-  switch (access) {
+function playbackLabel(track: AudiusAlbumTrack) {
+  // Alternative licence (not the Audius Open Music License): listen on Audius only.
+  if (track.fullAccess !== 'available' && track.playbackReason === 'license_not_allowed') {
+    return getAudiusPlaybackReasonText('license_not_allowed');
+  }
+  switch (track.fullAccess) {
     case 'available':
       return 'Audius conferma lo streaming pubblico';
     case 'rights_unverified':
@@ -174,8 +180,16 @@ export function AlbumDetail({ albumId }: { albumId: string }) {
                           track.fullAccess === 'available' ? styles.available : styles.blocked
                         }
                       >
-                        {playbackLabel(track.fullAccess)}
+                        {playbackLabel(track)}
                       </span>
+                      {track.fullAccess !== 'available' &&
+                      track.playbackReason === 'license_not_allowed' ? (
+                        <a href={track.trackUrl} target="_blank" rel="noreferrer">
+                          Ascolta su Audius
+                        </a>
+                      ) : (
+                        <AudiusLicenseNotice track={track} showTrackLink />
+                      )}
                     </div>
                     {track.fullAccess === 'available' ? (
                       <button

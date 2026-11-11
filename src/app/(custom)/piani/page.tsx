@@ -2,6 +2,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { PlanSubscribe } from '@/components/custom/plan-subscribe';
+import { FREE_MONTHLY_PLAYS } from '@/lib/business/play-quota';
 import { getSolcoProPricing } from '@/lib/business/solco-pro-pricing';
 import styles from './piani.module.css';
 
@@ -11,19 +12,20 @@ export const metadata: Metadata = {
   alternates: { canonical: '/piani' },
 };
 
+// I 40 ascolti Free valgono per brani Audius e podcast. Radio e video YouTube sono senza limiti
+// per tutti (non contano: vedi countsTowardFreeQuota), quindi non sono vantaggi Premium.
 const freeBenefits = [
-  '40 ascolti al mese con un account gratuito',
-  'Video YouTube senza limiti nel player ufficiale (non contano nei 40 ascolti)',
-  'Radio dal vivo da tutto il mondo, complete e anche in background',
-  'Brani completi da Audius e Jamendo e podcast, anche in background',
+  `${FREE_MONTHLY_PLAYS} ascolti al mese di brani Audius e podcast con un account gratuito`,
+  'Brani completi da Audius e podcast, anche in background',
+  `Radio dal vivo da tutto il mondo senza limiti: non contano nei ${FREE_MONTHLY_PLAYS} ascolti`,
+  `Video YouTube senza limiti nel player ufficiale: non contano nei ${FREE_MONTHLY_PLAYS} ascolti`,
   'Libreria con playlist, cartelle e cronologia',
 ];
 
 const proBenefits = [
-  'Ascolti illimitati',
+  'Ascolti illimitati di brani Audius e podcast',
   'Cerca con l’AI: descrivi la musica che vuoi e Claude Opus 5.5 la trova per te',
-  'Nessun limite mensile su podcast e catalogo globale Jamendo, senza pubblicità',
-  'Ascolto illimitato in background: continua a schermo bloccato o in un’altra app',
+  'Ascolto illimitato in background di brani Audius e podcast: continua a schermo bloccato o in un’altra app (non vale per i video YouTube)',
   'Statistiche avanzate',
   'Temi extra',
   'Card senza logo',
@@ -52,8 +54,12 @@ const faq = [
     a: 'Sì. Con Stripe lo fai da “Gestisci abbonamento”; con PayPal disdici il piano attuale dal tuo account PayPal e ti abboni a quello nuovo.',
   },
   {
+    q: `Cosa conta nei ${FREE_MONTHLY_PLAYS} ascolti del piano Free?`,
+    a: 'Ogni brano Audius o episodio di podcast che avvii; riprendere lo stesso brano entro 30 minuti non conta di nuovo. Le radio dal vivo e i video YouTube non contano mai, e nemmeno i brani di Apple Music ascoltati con il tuo abbonamento Apple. Il conteggio riparte ogni mese; con Premium non c’è limite.',
+  },
+  {
     q: 'Ci sono pubblicità?',
-    a: 'Solco non mostra pubblicità. I brani del catalogo globale Premium sono senza annunci; i video YouTube possono includere gli annunci di YouTube, che spariscono se hai YouTube Premium.',
+    a: 'Solco non aggiunge pubblicità, in nessun piano. Radio e podcast possono contenere gli annunci trasmessi dalla stazione o dal programma; i video YouTube possono includere gli annunci di YouTube, che spariscono se hai YouTube Premium.',
   },
 ];
 

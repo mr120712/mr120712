@@ -243,8 +243,8 @@ export function AiMusicSearch({ initiallyOpen = false }: { initiallyOpen?: boole
         <div className={styles.aiForm}>
           <p className={styles.state}>
             Descrivi a parole la musica che vuoi (“jazz rilassato per una cena tra amici”) e Claude
-            Opus 5.5 la cerca per te su YouTube, Audius, Jamendo, radio e podcast. È inclusa nei
-            piani Premium.
+            Opus 5.5 la cerca per te su YouTube, Audius, radio e podcast. È inclusa nei piani
+            Premium.
           </p>
           <div className={styles.headerActions}>
             <Button asChild>

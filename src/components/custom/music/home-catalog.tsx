@@ -4,6 +4,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import { AudiusLicenseNotice } from '@/components/custom/music/audius-license-notice';
 import {
   AudiusArtistCard,
   AudiusPlaylistCard,
@@ -101,6 +102,7 @@ function HomeTrack({
         <a className={styles.creator} href={track.artistUrl} target="_blank" rel="noreferrer">
           {track.artistName} · Profilo Audius
         </a>
+        <AudiusLicenseNotice track={track} />
         {track.playbackEligible ? (
           <button className={styles.trackPlay} type="button" onClick={onPlay} disabled={isLoading}>
             {isCurrentTrack ? (isPlaying ? 'Pausa' : 'Riprendi') : 'Riproduci'}

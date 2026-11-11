@@ -1,6 +1,7 @@
 // @polsia:user-owned — Apple Music dentro Solco (MusicKit JS). Chi è abbonato ad Apple Music
-// ascolta i brani completi, anche in background: le licenze sono quelle del suo abbonamento.
-// Senza abbonamento Apple fornisce solo anteprime. Non conta nei 40 ascolti Free di Solco.
+// ascolta i brani completi: le licenze sono quelle del suo abbonamento. Senza abbonamento Apple
+// fornisce solo anteprime. Non conta nei 40 ascolti Free di Solco. Non promettere l'ascolto a
+// schermo bloccato o in background finché non è verificato su telefoni reali (iOS e Android).
 'use client';
 
 import { Loader2, Pause, Play, Search, SkipForward } from 'lucide-react';
@@ -210,8 +211,8 @@ export function AppleMusicView() {
         </header>
         <p className={styles.state}>
           {authorized
-            ? 'Ascolti i brani completi con il tuo abbonamento Apple Music, anche a schermo bloccato. Non contano nei 40 ascolti Free di Solco.'
-            : 'Con un abbonamento Apple Music ascolti l’intero catalogo nel player di Solco, anche in background. Senza abbonamento Apple offre anteprime.'}
+            ? 'Ascolti i brani completi con il tuo abbonamento Apple Music. Non contano nei 40 ascolti Free di Solco.'
+            : 'Con un abbonamento Apple Music ascolti l’intero catalogo nel player di Solco, senza consumare i 40 ascolti Free. Senza abbonamento Apple offre anteprime.'}
         </p>
         <div className={styles.headerActions}>
           {authorized ? (

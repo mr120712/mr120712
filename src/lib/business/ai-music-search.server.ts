@@ -27,9 +27,7 @@ const PLAN_CACHE_MS = 7 * 24 * 60 * 60 * 1000;
 const ClaudePlan = z.object({
   intro: z.string().describe('One or two warm sentences in Italian about what you searched for'),
   youtubeQueries: z.array(z.string()).describe('At most 2 precise YouTube music searches'),
-  audioQueries: z
-    .array(z.string())
-    .describe('At most 2 short genre/mood searches for Audius and Jamendo'),
+  audioQueries: z.array(z.string()).describe('At most 2 short genre/mood searches for Audius'),
   radioTags: z.array(z.string()).describe('Up to 3 lowercase Radio Browser tags'),
   podcastQuery: z.string().nullable().describe('One podcast search, or null'),
   genres: z.array(z.string()).describe('Up to 4 slugs from the Solco genre list'),

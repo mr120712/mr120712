@@ -39,12 +39,17 @@ export function decidePlay(input: {
 }
 
 /**
- * I video YouTube non contano nei 40 ascolti e non vengono mai bloccati dal limite: le norme
- * delle API YouTube vietano di limitare o far pagare l'accesso ai contenuti YouTube.
- * Il limite vale per Audius, Jamendo, podcast e radio.
+ * Fonti escluse dai 40 ascolti Free: non vengono mai contate né bloccate dal limite
+ * (serve comunque l'accesso con un account).
+ * - YouTube: le norme delle API YouTube vietano di limitare o far pagare l'accesso ai
+ *   contenuti YouTube.
+ * - Radio dal vivo: lo stream è della stazione, Solco non lo vende né lo limita.
+ * Il limite vale per Audius e podcast (e per Jamendo, se mai attivato con una licenza commerciale).
  */
+export const FREE_QUOTA_EXEMPT_PREFIXES = ['youtube:', 'radio:'] as const;
+
 export function countsTowardFreeQuota(qualifiedId: string) {
-  return !qualifiedId.startsWith('youtube:');
+  return !FREE_QUOTA_EXEMPT_PREFIXES.some((prefix) => qualifiedId.startsWith(prefix));
 }
 
 export function isValidPlayId(qualifiedId: string) {

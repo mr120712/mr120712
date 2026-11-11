@@ -501,7 +501,10 @@ describe('youtube_search', () => {
     expect(mocks.storedYouTubeSearch).toHaveBeenCalledWith('vasco rossi', 10, expect.any(Function));
     // A cache miss is counted against the app-wide search pool (no per-person share).
     expect(mocks.consumeRateLimit).toHaveBeenCalledTimes(1);
-    expect(mocks.consumeRateLimit).toHaveBeenCalledWith('youtube.search.global', 'global');
+    expect(mocks.consumeRateLimit).toHaveBeenCalledWith(
+      'youtube.search.global',
+      expect.stringMatching(/^global\|\d{4}-\d{2}-\d{2}$/),
+    );
     expect(mocks.searchYouTubeMusic).toHaveBeenCalledWith(
       'vasco rossi',
       SECRETS.YOUTUBE_DATA_API_KEY,
@@ -527,7 +530,10 @@ describe('youtube_search', () => {
       'youtube_search',
       makeDeps({ youtubeSearch: deps.youtubeSearch }),
     );
-    expect(mocks.consumeRateLimit).toHaveBeenCalledWith('youtube.search.global', 'global');
+    expect(mocks.consumeRateLimit).toHaveBeenCalledWith(
+      'youtube.search.global',
+      expect.stringMatching(/^global\|\d{4}-\d{2}-\d{2}$/),
+    );
     expect(mocks.searchYouTubeMusic).not.toHaveBeenCalled();
     expect(result).toMatchObject({ status: 'fail' });
     expect(result.detail).toMatch(/Budget giornaliero delle ricerche YouTube esaurito/);

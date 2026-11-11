@@ -1,4 +1,7 @@
-// @polsia:user-owned — "Musica globale": brani completi dal catalogo Jamendo, gratis per tutti.
+// @polsia:user-owned — brani completi dal catalogo Jamendo. Il catalogo è spento finché manca una
+// licenza commerciale Jamendo (src/lib/music/jamendo-license.ts): da spento l'API risponde
+// "not_configured" e questa sezione non mostra nulla, nemmeno un invito a Premium. Anche se la
+// richiesta fallisce (rete, 429, 5xx) la sezione resta vuota: non si sa se il catalogo è acceso.
 'use client';
 
 import { Pause, Play } from 'lucide-react';
@@ -46,16 +49,17 @@ export function JamendoSection({
         : '/api/music/jamendo';
     apiFetch(path, { schema: JamendoListResponseSchema })
       .then((value) => !cancelled && setResponse(value))
-      .catch(() => !cancelled && setResponse({ outcome: 'unavailable', tracks: [] }));
+      .catch(() => !cancelled && setResponse({ outcome: 'not_configured', tracks: [] }));
     return () => {
       cancelled = true;
     };
   }, [query, tag]);
 
-  // Hide the section entirely until the owner configures Jamendo.
-  if (response?.outcome === 'not_configured') return null;
+  // Nothing at all (no heading, no loading state, no Premium teaser) until the API confirms the
+  // catalogue is on: Jamendo stays off until the owner has a commercial licence.
+  if (!response || response.outcome === 'not_configured') return null;
 
-  const tracks = response?.tracks.slice(0, 12) ?? [];
+  const tracks = response.tracks.slice(0, 12);
   const queue = tracks.map(jamendoToTrack);
   const play = (track: JamendoTrack) => {
     const item = jamendoToTrack(track);
@@ -76,12 +80,12 @@ export function JamendoSection({
       <header className={styles.sectionHeader}>
         <div>
           <p className={styles.eyebrow}>CATALOGO GLOBALE</p>
-          <h2 id={headingId}>{query || tag ? 'Brani completi' : 'Musica globale senza limiti'}</h2>
+          <h2 id={headingId}>
+            {query || tag ? 'Brani completi' : 'Musica indipendente da tutto il mondo'}
+          </h2>
         </div>
       </header>
-      {!response ? (
-        <p className={styles.state}>Caricamento del catalogo…</p>
-      ) : tracks.length === 0 ? (
+      {tracks.length === 0 ? (
         <p className={styles.state}>
           {response.outcome === 'unavailable'
             ? 'Il catalogo globale non è raggiungibile in questo momento.'

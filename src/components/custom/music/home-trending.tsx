@@ -4,6 +4,7 @@
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import { AlbumCard } from '@/components/custom/music/album-card';
+import { AudiusLicenseNotice } from '@/components/custom/music/audius-license-notice';
 import { type MusicPlayerTrack, useMusicPlayer } from '@/components/custom/music/music-player';
 import { apiFetch } from '@/lib/api-client';
 import {
@@ -128,6 +129,7 @@ export function HomeTrending() {
                   <a href={track.trackUrl} target="_blank" rel="noreferrer">
                     Apri il brano su Audius
                   </a>
+                  <AudiusLicenseNotice track={track} />
                   {track.playbackEligible ? (
                     <button
                       type="button"

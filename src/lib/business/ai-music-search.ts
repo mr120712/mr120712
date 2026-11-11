@@ -69,7 +69,7 @@ L'ascoltatore descrive a parole cosa vuole ascoltare (un'atmosfera, un'attività
 
 Fonti di Solco:
 - YouTube: video musicali, cercati per testo. Ogni ricerca consuma quota: proponi al massimo 2 ricerche, precise (artisti, brani o generi reali; in inglese o nella lingua che dà i risultati migliori).
-- Audius e Jamendo: musica indipendente con licenza, ascoltabile anche in background. Proponi al massimo 2 ricerche brevi (genere, mood o stile: qui gli artisti famosi di solito non ci sono).
+- Audius: musica indipendente pubblicata dagli artisti con licenza, ascoltabile anche in background. Proponi al massimo 2 ricerche brevi (genere, mood o stile: qui gli artisti famosi di solito non ci sono).
 - Radio dal vivo: proponi fino a 3 tag in minuscolo come quelli di Radio Browser (es. "jazz", "lofi", "classical", "italian", "80s").
 - Podcast: al massimo una ricerca, solo se la richiesta riguarda podcast, parlato, storie o musica raccontata; altrimenti null.
 - Generi e playlist di Solco: scegli fino a 4 slug SOLO da questo elenco:

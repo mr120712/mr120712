@@ -1,7 +1,11 @@
 // @polsia:user-owned
 import 'server-only';
 import { prisma } from '@/lib/db';
-import { normalizeAudiusTracks } from '@/lib/music/audius';
+import {
+  getAudiusPlaybackReasonText,
+  isAudiusOpenMusicLicense,
+  normalizeAudiusTracks,
+} from '@/lib/music/audius';
 import { createAudiusApiClient } from '@/lib/music/audius-api.server';
 import { getAudiusActivation } from '@/lib/music/audius-source.server';
 import { readYouTubeApiKey } from '@/lib/music/music-api.server';
@@ -20,6 +24,7 @@ export class MusicCollectionError extends Error {
       | 'invalid_source'
       | 'source_inactive'
       | 'metadata_unavailable'
+      | 'license_not_allowed'
       | 'duplicate_name'
       | 'not_found',
     message: string,
@@ -137,6 +142,14 @@ async function collectionMetadata(source: 'audius' | 'youtube', sourceId: string
     throw new MusicCollectionError(
       'metadata_unavailable',
       'Audius non ha restituito attribuzione completa per questo brano.',
+    );
+  }
+  // Only Open Music License tracks play on Solco: a track under another licence is not saved
+  // (its play button could only fail). The stream route re-checks the licence on every play.
+  if (track.playbackReason === 'license_not_allowed' || !isAudiusOpenMusicLicense(track.license)) {
+    throw new MusicCollectionError(
+      'license_not_allowed',
+      getAudiusPlaybackReasonText('license_not_allowed'),
     );
   }
   return {

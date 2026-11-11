@@ -5,6 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { AudiusLicenseNotice } from '@/components/custom/music/audius-license-notice';
 import {
   type MusicPlayerTrack,
   trackStreamPath,
@@ -128,6 +129,21 @@ function CollectionItem({
                 <a href={item.sourceUrl} target="_blank" rel="noreferrer">
                   Brano su Audius
                 </a>
+              ) : null}
+              {item.title && item.creatorName && item.sourceUrl ? (
+                // OML §1.5: copyright ("© <artist>"), Open Music License link; the track link is
+                // above. Only OML tracks can be saved (collections.server.ts) and the stream
+                // re-checks the licence on every play.
+                <AudiusLicenseNotice
+                  track={{
+                    license: null,
+                    copyrightNotice: null,
+                    licensorName: item.creatorName,
+                    attributionRemovalRequested: false,
+                    title: item.title,
+                    trackUrl: item.sourceUrl,
+                  }}
+                />
               ) : null}
             </div>
             {item.title &&

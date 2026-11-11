@@ -17,7 +17,7 @@ export default function GenresPage() {
       <header>
         <h1>Generi e playlist</h1>
         <p className={styles.lead}>
-          Dall’underground al club: scegli un genere per ascoltare brani, radio e catalogo globale.
+          Dall’underground al club: scegli un genere per ascoltare brani e radio.
         </p>
       </header>
       {genreFamilies.map((family) => {

@@ -6,7 +6,7 @@ import styles from '@/components/custom/music/discover.module.css';
 export const metadata: Metadata = {
   title: 'Apple Music',
   description:
-    'Collega Apple Music e ascolta l’intero catalogo nel player di Solco, anche in background.',
+    'Collega Apple Music e ascolta l’intero catalogo nel player di Solco con il tuo abbonamento Apple.',
   alternates: { canonical: '/apple-music' },
 };
 

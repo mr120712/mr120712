@@ -9,15 +9,20 @@ const mocks = vi.hoisted(() => ({
 vi.mock('server-only', () => ({}));
 vi.mock('@/lib/business/premium-access.server', () => ({ currentUserHasPremium: mocks.premium }));
 vi.mock('@/lib/music/jamendo.server', () => ({ resolveJamendoAudio: mocks.resolve }));
-vi.mock('@/lib/business/play-quota.server', () => ({
-  consumePlayForCurrentUser: vi.fn(async () => ({
-    allowed: true,
-    counted: true,
-    used: 1,
-    limit: 40,
+// The route is switched off without a commercial licence (covered in jamendo-license.test.ts).
+vi.mock('@/lib/music/jamendo-license', () => ({ jamendoEnabled: () => true }));
+vi.mock('@/lib/business/play-quota.server', () => ({ playDeniedResponse: vi.fn() }));
+// Quota flow of the stream routes (covered in stream-redirect-play-routes.test.ts).
+vi.mock('@/lib/music/stream-play.server', () => ({
+  checkStreamPlay: vi.fn(async (qualifiedId: string) => ({
+    qualifiedId,
+    user: { id: 'free-user' },
+    decision: { allowed: true, counted: true, used: 1, limit: 40 },
   })),
-  playDeniedResponse: vi.fn(),
+  willCountStreamPlay: () => true,
+  recordStreamPlay: vi.fn(async () => ({ allowed: true, counted: true, used: 1, limit: 40 })),
 }));
+vi.mock('@/lib/music/audio-probe.server', () => ({ probeAudioUrl: vi.fn(async () => true) }));
 
 import { GET } from '@/app/api/music/jamendo/[trackId]/stream/route';
 import {

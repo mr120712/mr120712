@@ -13,6 +13,11 @@ import {
 /** Add a licensor's Audius user ID here after receiving a removal request. */
 export const AUDIUS_ATTRIBUTION_REMOVAL_USER_IDS: ReadonlySet<string> = new Set();
 
+/** Testo ufficiale dell'Audius Open Music License (OML), citato nell'attribuzione dei brani. */
+export const AUDIUS_OPEN_MUSIC_LICENSE_URL =
+  'https://openaudiofoundation.org/open-music-license.pdf';
+export const AUDIUS_OPEN_MUSIC_LICENSE_NAME = 'Audius Open Music License';
+
 type RawRecord = Record<string, unknown>;
 
 export type AudiusPlaybackReason =
@@ -133,6 +138,20 @@ export function isAudiusOpenMusicLicense(license: unknown): boolean {
   if (typeof license !== 'string') return false;
   const label = license.trim();
   return label === '' || /open music license|\bOML\b/i.test(label);
+}
+
+/**
+ * Copyright notice shown with an Audius track (OML §1.5(b)). Audius rarely fills
+ * `copyright_line` (null on every sampled track), so the fallback is "© <licensor>": the licensor
+ * warrants owning the track (OML §1.7). Null when the artist asked to remove the attribution (§1.5).
+ */
+export function audiusCopyrightText(track: {
+  copyrightNotice: string | null;
+  licensorName: string | null;
+  attributionRemovalRequested: boolean;
+}): string | null {
+  if (track.attributionRemovalRequested) return null;
+  return track.copyrightNotice ?? (track.licensorName ? `© ${track.licensorName}` : null);
 }
 
 export function evaluateAudiusPlayback(input: {

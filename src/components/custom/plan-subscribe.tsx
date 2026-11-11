@@ -116,8 +116,8 @@ export function PlanSubscribe({ plans }: { plans: PlanCard[] }) {
 
       {!current && trialDays > 0 ? (
         <p className={styles.trialBanner}>
-          🎁 Prova Premium <strong>gratis per {trialDays} giorni</strong>: ascolti illimitati,
-          ascolto completo e in background. Disdici quando vuoi.
+          🎁 Prova Premium <strong>gratis per {trialDays} giorni</strong>: ascolti illimitati di
+          brani Audius e podcast, anche in background. Disdici quando vuoi.
         </p>
       ) : null}
 

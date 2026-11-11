@@ -65,6 +65,12 @@ export function createAudiusPlaybackService(apiKey = readAudiusApiKey()): Audius
 
 export function playbackFailureStatus(reason: AudiusPlaybackReason | 'source_inactive') {
   if (reason === 'rate_limited') return 429;
-  if (reason === 'access_denied' || reason === 'gated' || reason === 'not_streamable') return 403;
+  if (
+    reason === 'access_denied' ||
+    reason === 'gated' ||
+    reason === 'not_streamable' ||
+    reason === 'license_not_allowed'
+  )
+    return 403;
   return 503;
 }

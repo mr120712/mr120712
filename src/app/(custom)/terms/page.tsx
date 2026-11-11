@@ -1,6 +1,7 @@
 // @polsia:user-owned
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { FREE_MONTHLY_PLAYS } from '@/lib/business/play-quota';
 import styles from '../legal.module.css';
 
 export const metadata: Metadata = {
@@ -34,12 +35,24 @@ export default function TermsPage() {
               risposta ufficiale Audius indica che l’accesso al flusso è consentito.
             </p>
             <p>
-              Quando Audius consente lo stream, l’ascolto è disponibile senza Solco Pro. Solco
-              inoltra i byte al player senza archiviarli. Si applicano i{' '}
+              Quando Audius consente lo stream, il brano si ascolta per intero anche con il piano
+              Free, nei limiti indicati in «Piani e limite di ascolti». Solco inoltra i byte al
+              player senza archiviarli. Si applicano i{' '}
               <a href="https://audius.co/documents/TermsOfUse.pdf" target="_blank" rel="noreferrer">
                 Termini di utilizzo Audius
               </a>
               , i termini API applicabili.
+            </p>
+          </section>
+
+          <section>
+            <h2>Piani e limite di ascolti</h2>
+            <p>
+              Con un account Free puoi avviare fino a {FREE_MONTHLY_PLAYS} ascolti al mese di brani
+              Audius e podcast; riprendere lo stesso brano entro 30 minuti non conta come nuovo
+              ascolto. Le radio dal vivo e i video YouTube richiedono l’accesso ma non contano nel
+              limite. Con Premium gli ascolti di brani Audius e podcast sono illimitati. Prezzi e
+              vantaggi di ogni piano sono nella pagina <Link href="/piani">Piani</Link>.
             </p>
           </section>
 

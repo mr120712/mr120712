@@ -56,7 +56,7 @@ export default async function SignupPage({
               </li>
             </ol>
             <p className={styles.noPayment}>
-              Nessun pagamento richiesto: 40 ascolti al mese e video YouTube senza limiti.
+              Nessun pagamento richiesto: 40 ascolti al mese, radio e video YouTube senza limiti.
             </p>
           </section>
 
