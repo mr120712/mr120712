@@ -1,0 +1,936 @@
+.page {
+  --background: #08151f;
+  --foreground: #edf5f6;
+  --card: #10232f;
+  --card-foreground: #edf5f6;
+  --popover: #142a37;
+  --popover-foreground: #edf5f6;
+  --primary: #c5ed72;
+  --primary-foreground: #19261b;
+  --secondary: #182d3a;
+  --secondary-foreground: #e6f0f2;
+  --muted: #132733;
+  --muted-foreground: #b1c5cd;
+  --accent: #6bd4ca;
+  --accent-foreground: #082321;
+  --destructive: #ff9eac;
+  --border: #2c4652;
+  --input: #38545f;
+  --ring: #b9ed71;
+  color-scheme: dark;
+  width: 100%;
+  min-height: calc(100dvh - 64px);
+  margin: 0;
+  padding: clamp(30px, 6vw, 72px) max(18px, calc((100vw - 1060px) / 2)) 120px;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.topline a,
+.consent a {
+  color: var(--primary);
+  font-size: 13px;
+  text-underline-offset: 4px;
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.15em;
+}
+
+.title {
+  max-width: 750px;
+  margin: 28px 0 0;
+  font-family: var(--font-display), sans-serif;
+  font-size: clamp(36px, 7vw, 68px);
+  font-weight: 500;
+  letter-spacing: -0.055em;
+  line-height: 1.02;
+}
+
+.lead {
+  max-width: 620px;
+  margin: 15px 0 0;
+  color: var(--muted-foreground);
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.tabs {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  gap: 4px;
+  margin-top: 30px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+}
+
+.tabs button {
+  min-height: 42px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.tabs button[aria-selected="true"] {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.tabs button span {
+  opacity: 0.78;
+  font-size: 11px;
+}
+
+.tabs button:focus-visible,
+.trendingButton:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+.sourceStatus {
+  margin-top: 18px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  background: color-mix(in srgb, var(--card) 92%, transparent);
+}
+
+.statusHeading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+}
+
+.statusActive,
+.statusInactive {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--primary);
+}
+
+.statusInactive {
+  background: var(--muted-foreground);
+}
+
+.sourceStatus p {
+  margin: 8px 0 0 17px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.sourceStatus .policyNote {
+  color: var(--foreground);
+}
+
+.searchPanel {
+  margin-top: 18px;
+  padding: clamp(16px, 3vw, 24px);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 4px);
+  background: var(--card);
+}
+
+.genreSection {
+  display: grid;
+  gap: 11px;
+  margin-top: 18px;
+}
+
+.genreSection h2 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.genreChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.genreChips a {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease;
+}
+
+.genreChips a:hover {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--card));
+}
+
+.genreChips a:focus-visible,
+.categoryTabs button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+.consent label {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--foreground);
+}
+
+.searchPanel form > label {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.searchRow {
+  display: flex;
+  min-width: 0;
+  gap: 10px;
+}
+
+.inputWrap {
+  display: flex;
+  min-width: 0;
+  min-height: 48px;
+  flex: 1;
+  align-items: center;
+  gap: 11px;
+  padding: 0 14px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: var(--muted-foreground);
+}
+
+.inputWrap svg {
+  width: 17px;
+  height: 17px;
+  flex: none;
+}
+
+.inputWrap input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 15px;
+}
+
+.inputWrap input::placeholder {
+  color: var(--muted-foreground);
+  opacity: 1;
+}
+
+.consent {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.consent input {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin: 1px 0 0;
+  accent-color: var(--primary);
+}
+
+.consent p {
+  margin: 0 0 0 25px;
+}
+
+.consent div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-left: 25px;
+}
+
+.trendingButton {
+  margin-top: 13px;
+  padding: 7px 0;
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  cursor: pointer;
+}
+
+.trendingButton:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.playlistPicker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 12px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.playlistPicker select {
+  max-width: 100%;
+  min-height: 36px;
+  padding: 0 30px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+}
+
+.stateMessage {
+  display: block;
+  margin: 18px 0 0;
+  padding: 14px 16px;
+  border-left: 3px solid var(--primary);
+  background: color-mix(in srgb, var(--primary) 9%, var(--card));
+  color: var(--foreground);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.results {
+  display: grid;
+  gap: 12px;
+  margin-top: 32px;
+}
+
+.loadingMessage {
+  display: block;
+  padding: 12px 14px;
+  border-left: 2px solid var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, var(--card));
+  color: var(--foreground);
+  font-size: 12px;
+}
+
+.categoryTabs {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+}
+
+.categoryTabs button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.categoryTabs button[aria-pressed="true"] {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.categoryTabs button span {
+  margin-left: 3px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.catalogResultGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.categoryEmpty {
+  margin: 0;
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.albumResults {
+  display: grid;
+  gap: 10px;
+}
+
+.albumResults h3 {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.albumGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+  gap: 9px;
+}
+
+.resultsHeading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 3px;
+}
+
+.resultsHeading h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.resultsSource {
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.resultCard {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 16px;
+  padding: clamp(12px, 2.4vw, 18px);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--card);
+}
+
+.youtubeCard {
+  color-scheme: dark;
+  --background: #08151f;
+  --foreground: #edf5f6;
+  --card: #10232f;
+  --card-foreground: #edf5f6;
+  --popover: #142a37;
+  --popover-foreground: #edf5f6;
+  --primary: #c5ed72;
+  --primary-foreground: #19261b;
+  --secondary: #182d3a;
+  --secondary-foreground: #e6f0f2;
+  --muted: #132733;
+  --muted-foreground: #b1c5cd;
+  --accent: #6bd4ca;
+  --accent-foreground: #082321;
+  --border: #2c4652;
+  --input: #38545f;
+  --ring: #b9ed71;
+  border-color: var(--border);
+  background:
+    radial-gradient(ellipse at 90% 0%, rgb(107 212 202 / 8%), transparent 42%), var(--background);
+  box-shadow: 0 18px 44px rgb(0 0 0 / 18%);
+}
+
+.youtubeCard .youtubeArtwork {
+  border: 1px solid var(--border);
+  background: #10232f;
+}
+
+.youtubeCard.youtubeCardPlaying {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.youtubeCard.youtubeCardPlaying .youtubeArtwork {
+  display: none;
+}
+
+.artwork {
+  display: grid;
+  width: 84px;
+  aspect-ratio: 1;
+  overflow: hidden;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--secondary);
+  color: var(--primary);
+}
+
+.artwork img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.artwork svg {
+  width: 24px;
+  height: 24px;
+}
+
+.youtubeCard .artwork.youtubeArtwork {
+  width: 120px;
+  height: 76px;
+  aspect-ratio: auto;
+  align-self: start;
+  background: #191d21;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.youtubeCard .artwork.youtubeArtwork img {
+  object-fit: cover;
+}
+
+.resultContent {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  justify-items: start;
+  gap: 12px;
+}
+
+.resultHeading {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.resultHeading > div {
+  min-width: 0;
+}
+
+.resultHeading h3 {
+  margin: 7px 0 0;
+  font-family: var(--font-display), sans-serif;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.sourcePill {
+  display: inline-block;
+  padding: 4px 7px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--primary) 13%, var(--card));
+  color: var(--primary);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.youtubePill {
+  background: rgb(255 48 48 / 14%);
+  color: #ff706e;
+}
+
+.artistLine {
+  margin: 5px 0 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.artistLine a,
+.attribution a {
+  color: var(--foreground);
+  text-underline-offset: 3px;
+}
+
+.attribution {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 13px;
+  color: var(--muted-foreground);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.playbackBlocked,
+.videoDescription {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.youtubePlayerState {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+
+.youtubePlayerState > p {
+  margin: 0;
+  padding: 11px 13px;
+  border-left: 2px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--accent) 8%, var(--card));
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.youtubeFrame {
+  position: relative;
+  width: 100%;
+  min-width: 200px;
+  min-height: 200px;
+  overflow: visible;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #000;
+}
+
+.youtubeFrame iframe {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 200px;
+  min-height: 200px;
+  border: 0;
+}
+
+.youtubeCard.youtubeCardQueued {
+  border-color: var(--primary);
+}
+
+.youtubeQueue {
+  display: grid;
+  gap: 14px;
+  width: 100%;
+  min-width: 0;
+  margin-bottom: 20px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--card);
+}
+
+.youtubeQueueHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.youtubeQueueHeader h3 {
+  margin: 8px 0 0;
+  font-size: 17px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.youtubeQueueHost {
+  width: 100%;
+  height: 100%;
+}
+
+.youtubeQueueNotice {
+  display: block;
+  padding: 10px 12px;
+  border-left: 2px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  background: color-mix(in srgb, var(--accent) 8%, var(--card));
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.youtubeQueueControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.youtubeQueueControls a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.youtubeQueueControls a svg {
+  width: 14px;
+  height: 14px;
+}
+
+.youtubeQueueList {
+  display: grid;
+  gap: 4px;
+  max-height: 260px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.youtubeQueueList button {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  column-gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.youtubeQueueList button:hover,
+.youtubeQueueList button[aria-current="true"] {
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+.youtubeQueueList button span {
+  grid-row: span 2;
+  align-self: center;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.youtubeQueueList button strong {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.youtubeQueueList button em {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queueState {
+  margin-top: 32px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.queueState p {
+  color: var(--destructive);
+}
+
+.createPlaylist {
+  display: grid;
+  gap: 10px;
+  margin-top: 24px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--card);
+}
+
+.createPlaylist > label {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.createPlaylist > div {
+  display: flex;
+  gap: 10px;
+}
+
+.createPlaylist input {
+  min-width: 0;
+  min-height: 44px;
+  flex: 1;
+  padding: 0 12px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+}
+
+.collectionSection {
+  display: grid;
+  gap: 12px;
+  margin-top: 32px;
+}
+
+.collectionItems {
+  display: grid;
+  gap: 10px;
+}
+
+.emptyCollection {
+  margin: 0;
+  padding: 18px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+@media (max-width: 560px) {
+  .page {
+    width: 100%;
+  }
+
+  .topline {
+    align-items: flex-start;
+  }
+
+  .topline a {
+    max-width: 112px;
+    text-align: right;
+  }
+
+  .searchRow {
+    align-items: stretch;
+  }
+
+  .searchRow > button {
+    padding-inline: 12px;
+  }
+
+  .resultCard {
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 11px;
+    padding: 11px;
+  }
+
+  .catalogResultGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .artwork {
+    width: 64px;
+  }
+
+  .youtubeCard .artwork.youtubeArtwork {
+    width: 64px;
+    height: 54px;
+  }
+
+  .resultHeading {
+    flex-wrap: wrap;
+  }
+
+  .resultHeading > button {
+    min-height: 34px;
+    padding-inline: 9px;
+    font-size: 11px;
+  }
+
+  .resultsHeading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .createPlaylist > div {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .createPlaylist > div > button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 360px) {
+  .page {
+    width: 100%;
+  }
+
+  .tabs button {
+    padding-inline: 13px;
+  }
+
+  .searchRow {
+    flex-direction: column;
+  }
+
+  .searchRow > button {
+    width: 100%;
+  }
+
+  .resultCard {
+    grid-template-columns: 54px minmax(0, 1fr);
+    gap: 9px;
+  }
+
+  .artwork {
+    display: grid;
+    width: 54px;
+  }
+
+  .youtubeCard .artwork.youtubeArtwork {
+    display: grid;
+    width: 54px;
+  }
+}
