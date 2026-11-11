@@ -1,0 +1,132 @@
+/* @polsia:user-owned */
+.page {
+  display: grid;
+  gap: 28px;
+  width: min(calc(100% - 48px), 1200px);
+  margin: 0 auto;
+  padding: 24px 0 48px;
+}
+
+.header h1 {
+  margin: 0;
+  font-family: var(--font-display), sans-serif;
+  font-size: clamp(28px, 4vw, 42px);
+  font-weight: 650;
+  letter-spacing: -0.04em;
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+}
+
+.lead {
+  margin: 6px 0 0;
+  color: var(--muted-foreground);
+  font-size: 14px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 4px);
+  background: var(--card);
+}
+
+.card[data-plan="premium"] {
+  border-color: var(--foreground);
+}
+
+.card h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.price {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin: 0;
+}
+
+.price strong {
+  font-family: var(--font-display), sans-serif;
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.price span,
+.annual {
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+
+.annual {
+  margin: 0;
+}
+
+.benefits {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+}
+
+.benefits li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.benefits svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+}
+
+.soon {
+  margin: 6px 0 0;
+  padding: 6px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  text-align: center;
+}
+
+.purchase {
+  display: grid;
+  gap: 12px;
+}
+
+.purchase h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+}
+
+@media (max-width: 620px) {
+  .page {
+    width: calc(100% - 32px);
+  }
+}

@@ -1,22 +1,22 @@
 .page {
-  --background: #08151f;
-  --foreground: #edf5f6;
-  --card: #10232f;
-  --card-foreground: #edf5f6;
-  --popover: #142a37;
-  --popover-foreground: #edf5f6;
-  --primary: #c5ed72;
-  --primary-foreground: #19261b;
-  --secondary: #182d3a;
-  --secondary-foreground: #e6f0f2;
-  --muted: #132733;
-  --muted-foreground: #b1c5cd;
-  --accent: #6bd4ca;
-  --accent-foreground: #082321;
-  --destructive: #ff9eac;
-  --border: #2c4652;
-  --input: #38545f;
-  --ring: #b9ed71;
+  --background: #131313;
+  --foreground: #f3f3f3;
+  --card: #202020;
+  --card-foreground: #f3f3f3;
+  --popover: #262626;
+  --popover-foreground: #f3f3f3;
+  --primary: #dcdcdc;
+  --primary-foreground: #222222;
+  --secondary: #292929;
+  --secondary-foreground: #eeeeee;
+  --muted: #242424;
+  --muted-foreground: #c1c1c1;
+  --accent: #bdbdbd;
+  --accent-foreground: #1d1d1d;
+  --destructive: #b4b4b4;
+  --border: #414141;
+  --input: #4f4f4f;
+  --ring: #d9d9d9;
   color-scheme: dark;
   width: 100%;
   min-height: calc(100dvh - 64px);
@@ -454,32 +454,32 @@
 
 .youtubeCard {
   color-scheme: dark;
-  --background: #08151f;
-  --foreground: #edf5f6;
-  --card: #10232f;
-  --card-foreground: #edf5f6;
-  --popover: #142a37;
-  --popover-foreground: #edf5f6;
-  --primary: #c5ed72;
-  --primary-foreground: #19261b;
-  --secondary: #182d3a;
-  --secondary-foreground: #e6f0f2;
-  --muted: #132733;
-  --muted-foreground: #b1c5cd;
-  --accent: #6bd4ca;
-  --accent-foreground: #082321;
-  --border: #2c4652;
-  --input: #38545f;
-  --ring: #b9ed71;
+  --background: #131313;
+  --foreground: #f3f3f3;
+  --card: #202020;
+  --card-foreground: #f3f3f3;
+  --popover: #262626;
+  --popover-foreground: #f3f3f3;
+  --primary: #dcdcdc;
+  --primary-foreground: #222222;
+  --secondary: #292929;
+  --secondary-foreground: #eeeeee;
+  --muted: #242424;
+  --muted-foreground: #c1c1c1;
+  --accent: #bdbdbd;
+  --accent-foreground: #1d1d1d;
+  --border: #414141;
+  --input: #4f4f4f;
+  --ring: #d9d9d9;
   border-color: var(--border);
   background:
-    radial-gradient(ellipse at 90% 0%, rgb(107 212 202 / 8%), transparent 42%), var(--background);
+    radial-gradient(ellipse at 90% 0%, rgb(189 189 189 / 8%), transparent 42%), var(--background);
   box-shadow: 0 18px 44px rgb(0 0 0 / 18%);
 }
 
 .youtubeCard .youtubeArtwork {
   border: 1px solid var(--border);
-  background: #10232f;
+  background: #202020;
 }
 
 .youtubeCard.youtubeCardPlaying {
@@ -517,7 +517,7 @@
   height: 76px;
   aspect-ratio: auto;
   align-self: start;
-  background: #191d21;
+  background: #1c1c1c;
   color: #fff;
   font-size: 12px;
   font-weight: 700;
@@ -570,8 +570,8 @@
 }
 
 .youtubePill {
-  background: rgb(255 48 48 / 14%);
-  color: #ff706e;
+  background: rgb(92 92 92 / 14%);
+  color: #8e8e8e;
 }
 
 .artistLine {

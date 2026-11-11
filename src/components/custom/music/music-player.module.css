@@ -3,18 +3,18 @@
 .mini,
 .full {
   color-scheme: dark;
-  --background: #0b0f0d;
-  --foreground: #f1f4ef;
-  --card: #151b17;
-  --card-foreground: #f1f4ef;
-  --primary: #b5ed5d;
-  --primary-foreground: #11170d;
-  --secondary: #222b24;
-  --muted: #202820;
-  --muted-foreground: #b5c0b5;
-  --border: #303a32;
-  --ring: #b5ed5d;
-  --destructive: #ff9c9c;
+  --background: #000000;
+  --foreground: #fafafa;
+  --card: #141414;
+  --card-foreground: #fafafa;
+  --primary: #ffffff;
+  --primary-foreground: #000000;
+  --secondary: #222222;
+  --muted: #1c1c1c;
+  --muted-foreground: #a3a3a3;
+  --border: #2e2e2e;
+  --ring: #ffffff;
+  --destructive: #b1b1b1;
   --radius: 0.75rem;
   color: var(--foreground);
 }
@@ -165,8 +165,8 @@
   margin-right: 6px;
   padding: 1px 6px;
   border-radius: 4px;
-  background: #e5484d;
-  color: #fff;
+  background: #ffffff;
+  color: #000000;
   font-size: 10px;
   font-style: normal;
   font-weight: 750;

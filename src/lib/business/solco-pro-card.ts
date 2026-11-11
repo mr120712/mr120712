@@ -49,14 +49,14 @@ export function buildSolcoListeningCardSvg(card: SolcoProCard) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1200" viewBox="0 0 1200 1200" role="img" aria-labelledby="title description">
   <title id="title">${escapeXml(albumName)} — ${escapeXml(artistName)}</title>
   <desc id="description">Card del diario d’ascolto del ${safeDate}</desc>
-  <rect width="1200" height="1200" fill="#10232f" rx="44"/>
-  <circle cx="1010" cy="160" r="260" fill="#c5ed72" opacity=".13"/>
-  <path d="M96 160h1008" stroke="#83d9d1" stroke-opacity=".34"/>
-  <text x="96" y="128" fill="#c5ed72" font-family="Arial,sans-serif" font-size="28" font-weight="700" letter-spacing="5">UN ASCOLTO DA RICORDARE</text>
-  <text x="96" y="430" fill="#edf5f6" font-family="Arial,sans-serif" font-size="70" font-weight="700">${albumLines}</text>
-  <text x="96" y="590" fill="#b1c5cd" font-family="Arial,sans-serif" font-size="40">${artistLines}</text>
-  <text x="96" y="710" fill="#c5ed72" font-family="Arial,sans-serif" font-size="54">${stars}</text>
-  <text x="96" y="810" fill="#edf5f6" font-family="Arial,sans-serif" font-size="30" font-style="italic">${noteLines}</text>
-  <text x="96" y="1080" fill="#b1c5cd" font-family="Arial,sans-serif" font-size="28">${safeDate}</text>
+  <rect width="1200" height="1200" fill="#202020" rx="44"/>
+  <circle cx="1010" cy="160" r="260" fill="#dcdcdc" opacity=".13"/>
+  <path d="M96 160h1008" stroke="#c6c6c6" stroke-opacity=".34"/>
+  <text x="96" y="128" fill="#dcdcdc" font-family="Arial,sans-serif" font-size="28" font-weight="700" letter-spacing="5">UN ASCOLTO DA RICORDARE</text>
+  <text x="96" y="430" fill="#f3f3f3" font-family="Arial,sans-serif" font-size="70" font-weight="700">${albumLines}</text>
+  <text x="96" y="590" fill="#c1c1c1" font-family="Arial,sans-serif" font-size="40">${artistLines}</text>
+  <text x="96" y="710" fill="#dcdcdc" font-family="Arial,sans-serif" font-size="54">${stars}</text>
+  <text x="96" y="810" fill="#f3f3f3" font-family="Arial,sans-serif" font-size="30" font-style="italic">${noteLines}</text>
+  <text x="96" y="1080" fill="#c1c1c1" font-family="Arial,sans-serif" font-size="28">${safeDate}</text>
 </svg>`;
 }

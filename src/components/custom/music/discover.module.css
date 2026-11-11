@@ -368,7 +368,7 @@ a.tileTitle:hover {
   height: 7px;
   margin-right: 5px;
   border-radius: 50%;
-  background: #e5484d;
+  background: currentColor;
   vertical-align: middle;
 }
 

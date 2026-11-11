@@ -33,6 +33,7 @@ export const navItems: NavItem[] = [
   { label: 'Podcast', href: '/podcasts', group: 'primary', order: 2 },
   { label: 'Libreria', href: '/library', group: 'primary', order: 3 },
   { label: 'Community', href: '/community', group: 'primary', order: 4 },
+  { label: 'Piani', href: '/piani', group: 'primary', order: 5 },
   { label: 'Messaggi', href: '/messages', group: 'secondary', requiresAuth: true, order: 0 },
   { label: 'Privacy', href: '/privacy', group: 'footer', order: 0 },
   { label: 'Termini', href: '/terms', group: 'footer', order: 1 },

@@ -8,13 +8,13 @@ export const siteDescription =
 // PWA + social-share colors, aligned with the light and dark Solco themes.
 export const brandVisual = {
   /** PWA browser-UI / status-bar color — usually your background or primary. */
-  themeColor: '#08151f',
+  themeColor: '#000000',
   /** PWA splash + install background. */
-  backgroundColor: '#08151f',
+  backgroundColor: '#000000',
   /** Social-share (OG/Twitter) image. */
   og: {
-    background: '#08151f',
-    foreground: '#edf5f6',
+    background: '#000000',
+    foreground: '#fafafa',
     /** Second line under the site name; '' hides it. */
     tagline: 'Ogni ascolto lascia un solco.',
     /** Optional https PNG/JPEG background photo; '' keeps the plain-color card. */

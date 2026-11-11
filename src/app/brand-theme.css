@@ -1,4 +1,4 @@
-/* @polsia:user-owned — identità visiva Solco, condivisa da landing, accesso e workspace. */
+/* @polsia:user-owned — identità visiva Solco: design monocromatico (bianco e nero). */
 
 @theme inline {
   --color-status-positive: var(--status-positive);
@@ -8,67 +8,67 @@
 
 :root {
   color-scheme: light;
-  --background: #eff4f6;
-  --foreground: #12212b;
-  --card: #fbfdfe;
-  --card-foreground: #12212b;
-  --popover: #fbfdfe;
-  --popover-foreground: #12212b;
-  --primary: #17645e;
-  --primary-foreground: #f7fffc;
-  --secondary: #dfebee;
-  --secondary-foreground: #18303a;
-  --muted: #e7eef1;
-  --muted-foreground: #435964;
-  --accent: #d9f29d;
-  --accent-foreground: #1a2b21;
-  --destructive: #a4364b;
-  --border: #c7d6dc;
-  --input: #b2c5cc;
-  --ring: #087a72;
-  --status-positive: #176353;
-  --status-warning: #76520b;
-  --rating: #765707;
-  --rating-fill: #c49a2d;
-  --ambient-line: #427d7c;
+  --background: #f5f5f5;
+  --foreground: #0a0a0a;
+  --card: #ffffff;
+  --card-foreground: #0a0a0a;
+  --popover: #ffffff;
+  --popover-foreground: #0a0a0a;
+  --primary: #0a0a0a;
+  --primary-foreground: #ffffff;
+  --secondary: #ebebeb;
+  --secondary-foreground: #171717;
+  --muted: #ededed;
+  --muted-foreground: #525252;
+  --accent: #e0e0e0;
+  --accent-foreground: #0a0a0a;
+  --destructive: #8f1d1d;
+  --border: #d4d4d4;
+  --input: #bdbdbd;
+  --ring: #0a0a0a;
+  --status-positive: #262626;
+  --status-warning: #404040;
+  --rating: #262626;
+  --rating-fill: #404040;
+  --ambient-line: #a3a3a3;
   --font-display: "Space Grotesk", "Space Grotesk Fallback", Arial, sans-serif;
   --font-body: "Space Grotesk", "Space Grotesk Fallback", Arial, sans-serif;
   --radius: 0.75rem;
   --elevation-1: rgb(20 54 66 / 8%);
   --elevation-2: rgb(15 45 58 / 12%);
   --elevation-3: rgb(10 33 46 / 17%);
-  --shadow-brand-color: rgb(22 100 94 / 20%);
+  --shadow-brand-color: rgb(0 0 0 / 14%);
 }
 
 .dark {
   color-scheme: dark;
-  --background: #08151f;
-  --foreground: #edf5f6;
-  --card: #10232f;
-  --card-foreground: #edf5f6;
-  --popover: #142a37;
-  --popover-foreground: #edf5f6;
-  --primary: #c5ed72;
-  --primary-foreground: #19261b;
-  --secondary: #182d3a;
-  --secondary-foreground: #e6f0f2;
-  --muted: #132733;
-  --muted-foreground: #b1c5cd;
-  --accent: #6bd4ca;
-  --accent-foreground: #082321;
-  --destructive: #ff9eac;
-  --border: #2c4652;
-  --input: #38545f;
-  --ring: #b9ed71;
-  --status-positive: #81e4b8;
-  --status-warning: #f0ca69;
-  --rating: #f0ce75;
-  --rating-fill: #f0ce75;
-  --ambient-line: #83d9d1;
+  --background: #000000;
+  --foreground: #fafafa;
+  --card: #111111;
+  --card-foreground: #fafafa;
+  --popover: #171717;
+  --popover-foreground: #fafafa;
+  --primary: #ffffff;
+  --primary-foreground: #000000;
+  --secondary: #1c1c1c;
+  --secondary-foreground: #f5f5f5;
+  --muted: #161616;
+  --muted-foreground: #a3a3a3;
+  --accent: #2a2a2a;
+  --accent-foreground: #fafafa;
+  --destructive: #ff8a8a;
+  --border: #2e2e2e;
+  --input: #3d3d3d;
+  --ring: #ffffff;
+  --status-positive: #e5e5e5;
+  --status-warning: #d4d4d4;
+  --rating: #e5e5e5;
+  --rating-fill: #d4d4d4;
+  --ambient-line: #525252;
   --elevation-1: rgb(0 0 0 / 22%);
   --elevation-2: rgb(0 0 0 / 32%);
   --elevation-3: rgb(0 0 0 / 42%);
-  --shadow-brand-color: rgb(197 237 114 / 18%);
+  --shadow-brand-color: rgb(255 255 255 / 10%);
 }
 
 :root[data-solco-pro-theme="blue-hour"] {

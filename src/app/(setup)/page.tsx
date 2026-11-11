@@ -1,6 +1,6 @@
 // @polsia:user-owned — Home di Solco in stile app di streaming (schede, caroselli, player).
 
-import { Library, Mic, Radio, Search, TrendingUp } from 'lucide-react';
+import { Crown, Library, Mic, Radio, Search, TrendingUp } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { HomeCatalog } from '@/components/custom/music/home-catalog';
@@ -22,6 +22,7 @@ const shortcuts = [
   { href: '/radio', label: 'Radio', icon: Radio },
   { href: '/podcasts', label: 'Podcast', icon: Mic },
   { href: '/library', label: 'Libreria', icon: Library },
+  { href: '/piani', label: 'Premium', icon: Crown },
 ];
 
 export default function HomePage() {
