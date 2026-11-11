@@ -30,6 +30,15 @@ export const ACTION_RATE_LIMITS = {
     { requests: 100, windowMs: 86_400_000 },
   ],
   'product.check.global': [{ requests: 50, windowMs: 86_400_000 }],
+  // Background checks: runs started by the public status endpoint (whole app) and by admins.
+  'monitor.run': [
+    { requests: 4, windowMs: 3_600_000 },
+    { requests: 60, windowMs: 86_400_000 },
+  ],
+  'monitor.run.admin': [
+    { requests: 5, windowMs: 600_000 },
+    { requests: 40, windowMs: 86_400_000 },
+  ],
   'solco.pro.write': [
     { requests: 20, windowMs: 60_000 },
     { requests: 200, windowMs: 86_400_000 },
@@ -258,6 +267,8 @@ const actionLabels: Record<RateLimitAction, string> = {
   'auth.verification_email.global': 'le email di verifica di oggi',
   'subscriptions.sync': 'le verifiche dell’abbonamento',
   'product.check.global': 'i controlli prodotto di oggi',
+  'monitor.run': 'i controlli automatici',
+  'monitor.run.admin': 'i controlli manuali',
   'solco.pro.write': 'le modifiche a Solco Pro',
   'listening.write': 'le modifiche agli ascolti',
   'music.ai_search': 'le ricerche con l’AI',
