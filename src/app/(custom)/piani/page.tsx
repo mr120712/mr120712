@@ -13,7 +13,7 @@ export const metadata: Metadata = {
 
 const freeBenefits = [
   '40 ascolti al mese con un account gratuito',
-  'Brani e video da YouTube nel player Solco',
+  'Video YouTube senza limiti nel player ufficiale (non contano nei 40 ascolti)',
   'Radio dal vivo da tutto il mondo, complete e anche in background',
   'Brani completi da Audius e Jamendo e podcast, anche in background',
   'Libreria con playlist, cartelle e cronologia',

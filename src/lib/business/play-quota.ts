@@ -38,6 +38,15 @@ export function decidePlay(input: {
   return { allowed: true, counted: true, used: input.usedThisMonth + 1, limit: FREE_MONTHLY_PLAYS };
 }
 
+/**
+ * I video YouTube non contano nei 40 ascolti e non vengono mai bloccati dal limite: le norme
+ * delle API YouTube vietano di limitare o far pagare l'accesso ai contenuti YouTube.
+ * Il limite vale per Audius, Jamendo, podcast e radio.
+ */
+export function countsTowardFreeQuota(qualifiedId: string) {
+  return !qualifiedId.startsWith('youtube:');
+}
+
 export function isValidPlayId(qualifiedId: string) {
   return /^(audius:[A-Za-z0-9_-]{1,128}|radio:[A-Za-z0-9_-]{1,128}|podcast:[0-9]{1,20}~[A-Za-z0-9_-]{1,64}|jamendo:[0-9]{1,20}|youtube:[A-Za-z0-9_-]{11})$/.test(
     qualifiedId,

@@ -1,6 +1,7 @@
 // @polsia:user-owned — conta e limita gli ascolti degli account free (40 al mese).
 import 'server-only';
 import {
+  countsTowardFreeQuota,
   decidePlay,
   FREE_MONTHLY_PLAYS,
   type PlayDecision,
@@ -12,7 +13,10 @@ import { prisma } from '@/lib/db';
 import { getSessionUser } from '@/lib/require-auth';
 
 export async function monthlyPlays(userId: string, now = new Date()) {
-  return prisma.musicPlay.count({ where: { userId, month: romeMonth(now) } });
+  // YouTube rows from before the exemption never count either.
+  return prisma.musicPlay.count({
+    where: { userId, month: romeMonth(now), NOT: { qualifiedId: { startsWith: 'youtube:' } } },
+  });
 }
 
 /** Autorizza (e registra) l'avvio di un brano per l'utente indicato. */
@@ -30,6 +34,15 @@ export async function consumePlay(
     });
   }
   const premium = await hasPremiumAccess(user.id);
+  if (!countsTowardFreeQuota(qualifiedId)) {
+    // YouTube: free for every signed-in listener, never counted nor blocked.
+    return {
+      allowed: true,
+      counted: false,
+      used: premium ? 0 : await monthlyPlays(user.id, now),
+      limit: premium ? null : FREE_MONTHLY_PLAYS,
+    };
+  }
   const [usedThisMonth, recent] = premium
     ? [0, null]
     : await Promise.all([

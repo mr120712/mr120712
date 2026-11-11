@@ -14,8 +14,21 @@ vi.mock('@/lib/db', () => ({
   prisma: {
     musicPlay: {
       count: vi.fn(
-        async ({ where }: { where: { userId: string; month: string } }) =>
-          mocks.plays.filter((p) => p.userId === where.userId && p.month === where.month).length,
+        async ({
+          where,
+        }: {
+          where: {
+            userId: string;
+            month: string;
+            NOT?: { qualifiedId: { startsWith: string } };
+          };
+        }) =>
+          mocks.plays.filter(
+            (p) =>
+              p.userId === where.userId &&
+              p.month === where.month &&
+              !(where.NOT && p.qualifiedId.startsWith(where.NOT.qualifiedId.startsWith)),
+          ).length,
       ),
       findFirst: vi.fn(
         async ({
@@ -74,11 +87,11 @@ describe('limite di ascolti per gli account free', () => {
     const user = { id: 'free-user' };
     const now = new Date('2026-11-20T10:00:00Z');
     for (let i = 0; i < FREE_MONTHLY_PLAYS; i += 1) {
-      const decision = await consumePlay(user, `youtube:video${String(i).padStart(6, '0')}`, now);
+      const decision = await consumePlay(user, `jamendo:${1000 + i}`, now);
       expect(decision.allowed).toBe(true);
     }
     // Same track again within 30 minutes: allowed, not counted.
-    expect(await consumePlay(user, 'youtube:video000039', now)).toMatchObject({
+    expect(await consumePlay(user, 'jamendo:1039', now)).toMatchObject({
       allowed: true,
       counted: false,
     });
@@ -93,6 +106,36 @@ describe('limite di ascolti per gli account free', () => {
     expect(await consumePlay(user, 'radio:new-station', nextMonth)).toMatchObject({
       allowed: true,
       used: 1,
+    });
+  });
+
+  it('i video YouTube non contano e non vengono mai bloccati (norme YouTube)', async () => {
+    const user = { id: 'yt-user' };
+    const now = new Date('2026-11-20T10:00:00Z');
+    for (let i = 0; i < FREE_MONTHLY_PLAYS; i += 1) {
+      await consumePlay(user, `jamendo:${2000 + i}`, now);
+    }
+    // A stale YouTube row from before the exemption is ignored by the monthly count.
+    mocks.plays.push({
+      userId: user.id,
+      qualifiedId: 'youtube:oldvideo000',
+      month: romeMonth(now),
+      createdAt: now,
+    });
+    expect(await consumePlay(user, 'radio:x', now)).toMatchObject({
+      allowed: false,
+      used: 40,
+    });
+    expect(await consumePlay(user, 'youtube:dQw4w9WgXcQ', now)).toMatchObject({
+      allowed: true,
+      counted: false,
+      used: 40,
+    });
+    expect(mocks.plays.filter((p) => p.qualifiedId === 'youtube:dQw4w9WgXcQ')).toHaveLength(0);
+    // Guests still need an account.
+    expect(await consumePlay(null, 'youtube:dQw4w9WgXcQ', now)).toMatchObject({
+      allowed: false,
+      reason: 'login_required',
     });
   });
 

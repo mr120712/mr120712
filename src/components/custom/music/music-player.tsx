@@ -873,8 +873,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Listening time for rewards (invites and "ascolta e guadagna"): one tick per minute played.
+  // YouTube videos never earn rewards: YouTube's policies forbid rewarding users for watching.
+  const rewardable = Boolean(currentTrack) && !isYouTubeTrack(currentTrack);
   useEffect(() => {
-    if (!signedIn || status !== 'playing') return;
+    if (!signedIn || status !== 'playing' || !rewardable) return;
     const timer = window.setInterval(() => {
       fetch('/api/rewards', {
         method: 'POST',
@@ -884,7 +886,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       }).catch(() => undefined);
     }, 60_000);
     return () => window.clearInterval(timer);
-  }, [signedIn, status]);
+  }, [rewardable, signedIn, status]);
 
   // Network back after a drop: resume live radio automatically.
   useEffect(() => {
