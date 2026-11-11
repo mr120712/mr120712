@@ -14,7 +14,7 @@ import {
   Shuffle,
   SkipBack,
   SkipForward,
-  Square,
+  X,
 } from 'lucide-react';
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
@@ -1032,6 +1032,19 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
               className={`${styles.videoDock} ${showFull ? styles.videoDockExpanded : ''}`}
               data-youtube-official-frame
             >
+              {showFull ? null : (
+                <div className={styles.videoBar}>
+                  <span>{currentTrack.title}</span>
+                  <button
+                    type="button"
+                    className={styles.videoClose}
+                    onClick={stopPlayback}
+                    aria-label="Chiudi il video e ferma il player"
+                  >
+                    <X aria-hidden="true" />
+                  </button>
+                </div>
+              )}
               <div ref={ytHostRef} className={styles.videoHost} />
             </div>
           ) : null}
@@ -1076,6 +1089,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
               >
                 <SkipForward aria-hidden="true" />
               </button>
+              <button
+                className={styles.miniSkip}
+                type="button"
+                onClick={stopPlayback}
+                aria-label="Chiudi il player"
+              >
+                <X aria-hidden="true" />
+              </button>
             </div>
             {previewEnded ? (
               <output className={styles.upsell} aria-live="polite">
@@ -1117,7 +1138,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                 onClick={stopPlayback}
                 aria-label="Chiudi player"
               >
-                <Square aria-hidden="true" />
+                <X aria-hidden="true" />
               </button>
             </header>
 

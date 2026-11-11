@@ -125,6 +125,29 @@ describe('player YouTube personalizzato', () => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
   });
 
+  it('il pulsante X sopra il video chiude il player e distrugge il player YouTube', async () => {
+    const container = await mount();
+    await act(async () => {
+      container.querySelector('button')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const close = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Chiudi il video e ferma il player"]',
+    );
+    expect(close).not.toBeNull();
+    // The bar sits above the official player, never on top of it.
+    expect(close?.closest('[class*="videoBar"]')?.nextElementSibling?.className).toMatch(
+      /videoHost/,
+    );
+    await act(async () => close?.click());
+    expect(yt.destroy).toHaveBeenCalled();
+    expect(container.querySelector('[data-youtube-official-frame]')).toBeNull();
+    expect(container.querySelector('aside[aria-label="Player musicale Solco"]')).toBeNull();
+  });
+
   it('salta i video non incorporabili', async () => {
     const container = await mount();
     await act(async () => {

@@ -213,8 +213,8 @@
 }
 
 .iconButton:last-child svg {
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
 }
 
 .playerLabel {
@@ -494,9 +494,9 @@
   z-index: 39;
   right: 8px;
   bottom: calc(var(--tab-bar-offset, 0px) + var(--mini-player-height, 64px) + 18px);
+  display: flex;
+  flex-direction: column;
   width: min(400px, calc(100% - 16px));
-  min-height: 200px;
-  aspect-ratio: 16 / 9;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -521,12 +521,63 @@
   box-shadow: 0 24px 60px rgb(0 0 0 / 45%);
 }
 
-.videoHost,
+.videoHost {
+  width: 100%;
+  min-height: 200px;
+  aspect-ratio: 16 / 9;
+}
+
 .videoHost iframe {
   display: block;
   width: 100%;
   height: 100%;
   border: 0;
+}
+
+/* Bar above the video (never over it: YouTube forbids overlays on its player). */
+.videoBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 4px 0 12px;
+  background: var(--card);
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.videoBar span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.videoClose {
+  display: inline-grid;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+}
+
+.videoClose:hover {
+  background: color-mix(in srgb, var(--foreground) 12%, transparent);
+}
+
+.videoClose:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+.videoClose svg {
+  width: 18px;
+  height: 18px;
 }
 
 /* Video mode: the video sits fixed at the top, the rest of the player scrolls below it. */
