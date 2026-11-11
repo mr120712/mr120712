@@ -73,6 +73,31 @@ function thumbnailUrl(snippet: YouTubeItem['snippet']): string | null {
   }
 }
 
+const htmlEntities: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+};
+
+/** YouTube Data API returns HTML-escaped titles (e.g. "&amp;", "&#39;"). */
+export function decodeYouTubeText(value: string) {
+  return value.replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z]+);/gi, (match, code: string) => {
+    if (code[0] === '#') {
+      const point =
+        code[1]?.toLowerCase() === 'x'
+          ? Number.parseInt(code.slice(2), 16)
+          : Number.parseInt(code.slice(1), 10);
+      return Number.isFinite(point) && point > 0 && point <= 0x10ffff
+        ? String.fromCodePoint(point)
+        : match;
+    }
+    return htmlEntities[code.toLowerCase()] ?? match;
+  });
+}
+
 export function normalizeYouTubeVideo(item: unknown): YouTubeVideoSearchResult | null {
   if (!isRecord(item)) return null;
   const id = isRecord(item.id) ? item.id.videoId : item.id;
@@ -104,12 +129,12 @@ export function normalizeYouTubeVideo(item: unknown): YouTubeVideoSearchResult |
   return {
     provider: 'youtube',
     videoId: id,
-    title: title.trim(),
-    channelTitle: channelTitle.trim(),
+    title: decodeYouTubeText(title.trim()),
+    channelTitle: decodeYouTubeText(channelTitle.trim()),
     channelId,
     description:
       typeof snippet.description === 'string' && snippet.description.trim()
-        ? snippet.description.trim()
+        ? decodeYouTubeText(snippet.description.trim())
         : null,
     publishedAt,
     thumbnailUrl: thumbnailUrl(snippet),

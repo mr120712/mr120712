@@ -4,9 +4,19 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
-import { getYouTubeMusicChart, parseYouTubeDuration } from '@/lib/music/youtube-search.server';
+import {
+  decodeYouTubeText,
+  getYouTubeMusicChart,
+  parseYouTubeDuration,
+} from '@/lib/music/youtube-search.server';
 
 describe('classifica YouTube', () => {
+  it('decodifica le entità HTML nei titoli', () => {
+    expect(decodeYouTubeText('Soldi (Prod. Dardust &amp; Charlie) &#39;24 &quot;live&quot;')).toBe(
+      'Soldi (Prod. Dardust & Charlie) \'24 "live"',
+    );
+  });
+
   it('converte le durate ISO 8601', () => {
     expect(parseYouTubeDuration('PT3M21S')).toBe(201);
     expect(parseYouTubeDuration('PT1H2M')).toBe(3720);
