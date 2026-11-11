@@ -4,6 +4,7 @@
 import { Play, Shuffle } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { AudiusSection } from '@/components/custom/music/audius-section';
 import { JamendoSection } from '@/components/custom/music/jamendo-section';
 import { videoToTrack } from '@/components/custom/music/live-tracks';
 import { trackStreamPath, useMusicPlayer } from '@/components/custom/music/music-player';
@@ -102,6 +103,7 @@ export function GenreDetail({ genre }: { genre: GenreEntry }) {
         </section>
       ) : null}
 
+      <AudiusSection query={genre.query} />
       {genre.jamendoTag ? <JamendoSection tag={genre.jamendoTag} /> : null}
     </div>
   );

@@ -14,6 +14,7 @@ import {
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { InstallAppBanner } from '@/components/custom/install-app-banner';
+import { AudiusSection } from '@/components/custom/music/audius-section';
 import { JamendoSection } from '@/components/custom/music/jamendo-section';
 import { PodcastHomeRow } from '@/components/custom/music/podcast-home-row';
 import { RadioHomeRow } from '@/components/custom/music/radio-home-row';
@@ -80,6 +81,7 @@ export default function HomePage() {
 
         <div className={styles.feed}>
           <YouTubeCharts />
+          <AudiusSection />
           <JamendoSection />
           <RadioHomeRow />
           <PodcastHomeRow />

@@ -1,6 +1,7 @@
 // @polsia:user-owned
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { consumePlayForCurrentUser, playDeniedResponse } from '@/lib/business/play-quota.server';
 import {
   createAudiusPlaybackService,
   playbackFailureStatus,
@@ -28,6 +29,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ trac
 
   const service = createAudiusPlaybackService();
   if (!service.configured) return jsonError('source_inactive', 503);
+  // Free accounts: 40 full plays a month (sign-in required); Premium is unlimited.
+  // A replay of the same track within the replay window (and range requests) is not counted again.
+  const play = await consumePlayForCurrentUser(`audius:${trackId}`);
+  if (!play.allowed) return playDeniedResponse(play);
   const verdict = await service.check(trackId);
   if (!verdict.allowed) return jsonError(verdict.reason, playbackFailureStatus(verdict.reason));
 

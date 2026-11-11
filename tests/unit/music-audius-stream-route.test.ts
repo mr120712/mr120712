@@ -6,9 +6,15 @@ const mocks = vi.hoisted(() => ({
   configured: true,
   check: vi.fn(),
   streamTrack: vi.fn(),
+  consumePlay: vi.fn(async () => ({ allowed: true, counted: true, used: 1, limit: 40 })),
 }));
 
 vi.mock('server-only', () => ({}));
+vi.mock('@/lib/business/play-quota.server', () => ({
+  consumePlayForCurrentUser: mocks.consumePlay,
+  playDeniedResponse: (play: { reason: string }) =>
+    Response.json(play, { status: play.reason === 'login_required' ? 401 : 402 }),
+}));
 vi.mock('@/lib/music/audius-playback.server', () => ({
   createAudiusPlaybackService: () => ({
     configured: mocks.configured,
@@ -79,5 +85,21 @@ describe('stream Audius pubblico', () => {
 
     expect(response.status).toBe(502);
     expect(await response.json()).toEqual({ error: 'stream_unavailable' });
+  });
+});
+
+describe('quota Free sullo stream Audius', () => {
+  it('conta l’ascolto e blocca oltre i 40 del mese', async () => {
+    mocks.streamTrack.mockClear();
+    mocks.consumePlay.mockResolvedValueOnce({
+      allowed: false,
+      reason: 'monthly_limit',
+      used: 40,
+      limit: 40,
+    } as never);
+    const blocked = await requestFor();
+    expect(blocked.status).toBe(402);
+    expect(mocks.consumePlay).toHaveBeenCalledWith('audius:track-71');
+    expect(mocks.streamTrack).not.toHaveBeenCalled();
   });
 });

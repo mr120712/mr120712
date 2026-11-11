@@ -5,6 +5,7 @@ import { Search } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useState } from 'react';
+import { AudiusSection } from '@/components/custom/music/audius-section';
 import { SearchExtras } from '@/components/custom/music/search-extras';
 import { YouTubeVideoList } from '@/components/custom/music/youtube-video-list';
 import { apiFetch } from '@/lib/api-client';
@@ -130,6 +131,7 @@ export function YouTubeSearchPage({ initialQuery }: { initialQuery: string }) {
               <YouTubeVideoList videos={videos} />
             )}
           </section>
+          <AudiusSection key={`audius-${query}`} query={query} />
           <SearchExtras key={query} query={query} />
         </>
       )}

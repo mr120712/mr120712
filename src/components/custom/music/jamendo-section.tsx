@@ -130,8 +130,8 @@ export function JamendoSection({
         </ol>
       )}
       <p className={styles.state}>
-        Musica indipendente da tutto il mondo (Jamendo, licenza Creative Commons). Anteprime di 30
-        secondi gratis; con Premium ascolto completo, senza pubblicità e in background.
+        Musica indipendente da tutto il mondo (Jamendo, licenza Creative Commons). Brani completi e
+        anche in background: con Free contano nei 40 ascolti del mese, con Premium sono illimitati.
       </p>
     </section>
   );
