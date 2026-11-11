@@ -131,9 +131,11 @@ export function YouTubeSearchPage({
               <p className={styles.state}>Cerco “{query}”…</p>
             ) : videos.length === 0 ? (
               <p className={styles.state}>
-                {response.outcome === 'unavailable'
-                  ? 'YouTube non è disponibile in questo momento (quota giornaliera o configurazione).'
-                  : 'Nessun risultato.'}
+                {response.outcome !== 'unavailable'
+                  ? 'Nessun risultato.'
+                  : response.sourceStatus.unavailableReason === 'quota_exceeded'
+                    ? 'Le ricerche YouTube di oggi sono esaurite: tornano disponibili verso le 9:00. Intanto trovi radio, podcast, classifiche e generi qui sotto e nella Home.'
+                    : 'YouTube non è disponibile in questo momento. Riprova tra poco.'}
               </p>
             ) : (
               <YouTubeVideoList videos={videos} />
