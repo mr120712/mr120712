@@ -40,6 +40,7 @@ export type AccountDeletionTransaction = {
   referralCode: UserOwnedRecords;
   listeningDay: UserOwnedRecords;
   userRewardProfile: UserOwnedRecords;
+  musicPlay: UserOwnedRecords;
   referral: {
     deleteMany(args: {
       where: { OR: Array<{ inviterId: string } | { inviteeId: string }> };
@@ -77,6 +78,7 @@ export async function deleteAccountData(
   await transaction.referralCode.deleteMany({ where: { userId } });
   await transaction.listeningDay.deleteMany({ where: { userId } });
   await transaction.userRewardProfile.deleteMany({ where: { userId } });
+  await transaction.musicPlay.deleteMany({ where: { userId } });
   await transaction.referral.deleteMany({
     where: { OR: [{ inviterId: userId }, { inviteeId: userId }] },
   });

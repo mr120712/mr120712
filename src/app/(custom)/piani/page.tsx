@@ -12,6 +12,7 @@ export const metadata: Metadata = {
 };
 
 const freeBenefits = [
+  '40 ascolti al mese con un account gratuito',
   'Brani e video da YouTube nel player Solco',
   'Radio dal vivo da tutto il mondo, complete e anche in background',
   'Anteprime di 30 secondi di podcast e catalogo globale Jamendo',
@@ -19,6 +20,7 @@ const freeBenefits = [
 ];
 
 const proBenefits = [
+  'Ascolti illimitati',
   'Ascolto completo di podcast e catalogo globale Jamendo, senza pubblicità',
   'Ascolto in background: continua a schermo bloccato o in un’altra app',
   'Statistiche avanzate',

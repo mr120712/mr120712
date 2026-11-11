@@ -64,6 +64,7 @@ describe('cancellazione dell’account Solco', () => {
       referralCode: ownedModel('referralCode'),
       listeningDay: ownedModel('listeningDay'),
       userRewardProfile: ownedModel('userRewardProfile'),
+      musicPlay: ownedModel('musicPlay'),
       referral: {
         deleteMany: async ({ where }) => {
           operations.push(`referral:${JSON.stringify(where.OR)}`);
@@ -107,6 +108,7 @@ describe('cancellazione dell’account Solco', () => {
       'referralCode:user-17',
       'listeningDay:user-17',
       'userRewardProfile:user-17',
+      'musicPlay:user-17',
       'referral:[{"inviterId":"user-17"},{"inviteeId":"user-17"}]',
       'verification:[{"identifier":"listener@example.test"},{"identifier":{"endsWith":":listener@example.test"}}]',
       'user:user-17',

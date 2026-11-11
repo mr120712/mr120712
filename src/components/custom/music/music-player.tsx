@@ -68,6 +68,11 @@ type MusicPlayerValue = {
   /** true: ascolto completo e in background; false: anteprime di 30 s; null: verifica in corso. */
   premium: boolean | null;
   previewEnded: boolean;
+  /** Motivo del blocco dell'ultimo avvio (account free / ospite), null se nessuno. */
+  playBlock: PlayBlock | null;
+  /** Ascolti usati questo mese e limite (null = illimitati). */
+  playsUsed: number | null;
+  playsLimit: number | null;
   playTrack: (
     track: MusicPlayerTrack,
     streamPath: string,
@@ -249,6 +254,47 @@ function failureMessage(error: unknown, track: MusicPlayerTrack | null) {
   return 'La verifica o lo stream Audius è fallito. Nessun audio è stato lasciato in riproduzione.';
 }
 
+export type PlayBlock = 'login_required' | 'monthly_limit';
+
+type PlayPermit = { allowed: boolean; reason?: PlayBlock; used?: number; limit?: number | null };
+
+/** Chiede al server il permesso di avviare un brano (limite di 40 ascolti al mese per i free). */
+async function requestPlayPermit(qualifiedId: string): Promise<PlayPermit> {
+  try {
+    const response = await fetch('/api/music/plays', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ qualifiedId }),
+    });
+    const body = (await response.json().catch(() => ({}))) as {
+      allowed?: unknown;
+      reason?: unknown;
+      used?: unknown;
+      limit?: unknown;
+    };
+    if (
+      body.allowed === false &&
+      (body.reason === 'login_required' || body.reason === 'monthly_limit')
+    ) {
+      return {
+        allowed: false,
+        reason: body.reason,
+        used: typeof body.used === 'number' ? body.used : undefined,
+        limit: typeof body.limit === 'number' ? body.limit : null,
+      };
+    }
+    return {
+      allowed: true,
+      used: typeof body.used === 'number' ? body.used : undefined,
+      limit: typeof body.limit === 'number' ? body.limit : null,
+    };
+  } catch {
+    // Network failure: let the server-side stream check decide (it enforces the same limit).
+    return { allowed: true };
+  }
+}
+
 /** Registra un ascolto nella cronologia della Libreria (solo utenti autenticati; errori ignorati). */
 function recordPlay(track: MusicPlayerTrack) {
   void apiFetch('/api/music/library', {
@@ -306,6 +352,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const [ytRequest, setYtRequest] = useState(0);
   const [premium, setPremium] = useState<boolean | null>(null);
   const [signedIn, setSignedIn] = useState(false);
+  const [playBlock, setPlayBlock] = useState<PlayBlock | null>(null);
+  const [playsUsed, setPlaysUsed] = useState<number | null>(null);
+  const [playsLimit, setPlaysLimit] = useState<number | null>(null);
   const [previewEnded, setPreviewEnded] = useState(false);
   const reconnectsRef = useRef(0);
   const pendingSeekRef = useRef<number | null>(null);
@@ -331,14 +380,32 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     audio.load();
   }, []);
 
+  const applyPermit = useCallback((permit: PlayPermit) => {
+    if (permit.used !== undefined) setPlaysUsed(permit.used);
+    if (permit.limit !== undefined) setPlaysLimit(permit.limit);
+    setPlayBlock(permit.allowed ? null : (permit.reason ?? null));
+  }, []);
+
   const playCurrentTrack = useCallback(
     async (track: ActiveTrack) => {
       if (isYouTubeTrack(track)) {
         audioRef.current?.pause();
         setErrorMessage(null);
+        setPlayBlock(null);
         setStatus('loading');
         setElapsedSeconds(0);
         setDurationSeconds(track.durationSeconds ?? 0);
+        const permit = await requestPlayPermit(track.qualifiedId);
+        applyPermit(permit);
+        if (!permit.allowed) {
+          try {
+            ytPlayerRef.current?.pauseVideo();
+          } catch {
+            // Player not ready.
+          }
+          setStatus('idle');
+          return;
+        }
         // The engine effect loads the video once the visible dock is mounted.
         setYtRequest((value) => value + 1);
         return;
@@ -346,6 +413,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       const audio = audioRef.current;
       if (!audio) return;
       setPreviewEnded(false);
+      setPlayBlock(null);
       setErrorMessage(null);
       setStatus('loading');
       setElapsedSeconds(0);
@@ -355,10 +423,30 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       try {
         // Check Audius's stream authorization before requesting audio bytes.
         // Open streams start synchronously inside the tap: iOS Safari blocks play() after an await.
-        if (!isOpenStream(track)) await verifyPlayback(track);
+        // The permit request runs alongside: open streams must start inside the tap (iOS).
+        const permitRequest = requestPlayPermit(track.qualifiedId);
+        if (!isOpenStream(track)) {
+          const early = await permitRequest;
+          applyPermit(early);
+          if (!early.allowed) {
+            releaseAudio();
+            setStatus('idle');
+            return;
+          }
+          await verifyPlayback(track);
+        }
         audio.src = track.streamPath;
         audio.load();
-        await audio.play();
+        const playing = audio.play();
+        const permit = await permitRequest;
+        applyPermit(permit);
+        if (!permit.allowed) {
+          playing.catch(() => undefined);
+          releaseAudio();
+          setStatus('idle');
+          return;
+        }
+        await playing;
         setStatus('playing');
       } catch (error) {
         releaseAudio();
@@ -366,7 +454,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         setErrorMessage(failureMessage(error, track));
       }
     },
-    [releaseAudio],
+    [applyPermit, releaseAudio],
   );
 
   const playTrack = useCallback(
@@ -779,11 +867,22 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     const check = () => {
       fetch('/api/music/access', { credentials: 'same-origin', cache: 'no-store' })
         .then((response) => (response.ok ? response.json() : null))
-        .then((body: { premium?: unknown; signedIn?: unknown } | null) => {
-          if (cancelled) return;
-          setPremium(body?.premium === true);
-          setSignedIn(body?.signedIn === true);
-        })
+        .then(
+          (
+            body: {
+              premium?: unknown;
+              signedIn?: unknown;
+              playsUsed?: unknown;
+              playsLimit?: unknown;
+            } | null,
+          ) => {
+            if (cancelled) return;
+            setPremium(body?.premium === true);
+            setSignedIn(body?.signedIn === true);
+            setPlaysUsed(typeof body?.playsUsed === 'number' ? body.playsUsed : null);
+            setPlaysLimit(typeof body?.playsLimit === 'number' ? body.playsLimit : null);
+          },
+        )
         .catch(() => {
           if (!cancelled) setPremium(false);
         });
@@ -1003,6 +1102,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         expanded,
         premium,
         previewEnded,
+        playBlock,
+        playsUsed,
+        playsLimit,
         playTrack,
         togglePlayback,
         previousTrack,
@@ -1111,6 +1213,21 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                 <X aria-hidden="true" />
               </button>
             </div>
+            {playBlock ? (
+              <output className={styles.upsell} aria-live="polite">
+                {playBlock === 'login_required' ? (
+                  <>
+                    Per ascoltare serve un account gratuito. <a href="/signup">Registrati</a> o{' '}
+                    <a href="/login">accedi</a>.
+                  </>
+                ) : (
+                  <>
+                    Hai usato i {playsLimit ?? 40} ascolti gratuiti di questo mese.{' '}
+                    <a href="/piani">Passa a Premium per ascolti illimitati</a>.
+                  </>
+                )}
+              </output>
+            ) : null}
             {previewEnded ? (
               <output className={styles.upsell} aria-live="polite">
                 Fine dell’anteprima di 30 secondi.{' '}
@@ -1168,6 +1285,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                   {live ? <em className={styles.liveBadge}>LIVE</em> : null}
                   {currentTrack.artistName} · {currentTrack.sourceLabel}
                 </span>
+                {playsLimit !== null && playsUsed !== null ? (
+                  <p className={styles.adNote}>
+                    Ascolti gratuiti questo mese: {Math.min(playsUsed, playsLimit)} di {playsLimit}.{' '}
+                    <a href="/piani">Illimitati con Premium</a>
+                  </p>
+                ) : null}
                 {youtubeActive ? (
                   <p className={styles.adNote}>
                     Eventuali annunci nei video sono di YouTube: Solco non li controlla. Con YouTube

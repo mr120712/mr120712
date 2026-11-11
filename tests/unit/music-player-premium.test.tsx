@@ -98,6 +98,45 @@ afterEach(async () => {
 });
 
 describe('player: free con anteprima, Premium completo e in background', () => {
+  it('blocca il player e invita a Premium dopo i 40 ascolti del mese', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        String(url).includes('/api/music/plays')
+          ? new Response(
+              JSON.stringify({ allowed: false, reason: 'monthly_limit', used: 40, limit: 40 }),
+              {
+                status: 402,
+              },
+            )
+          : new Response(
+              JSON.stringify({ premium: false, signedIn: true, playsUsed: 40, playsLimit: 40 }),
+            ),
+      ),
+    );
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    roots.push(root);
+    await act(async () =>
+      root.render(
+        <MusicPlayerProvider>
+          <Probe />
+        </MusicPlayerProvider>,
+      ),
+    );
+    await act(async () => {
+      [...container.querySelectorAll('button')].find((b) => b.textContent === 'Radio')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain('Hai usato i 40 ascolti gratuiti di questo mese.');
+    expect(container.querySelector('a[href="/piani"]')).not.toBeNull();
+    expect(container.querySelector('audio')?.getAttribute('src')).toBeNull();
+  });
+
   it('le radio sono gratuite: nessuna anteprima e nessuno stop a 30 secondi', async () => {
     const container = await mount(false);
     const radioButton = [...container.querySelectorAll('button')].find(

@@ -1,0 +1,12 @@
+// @polsia:user-owned — ascolti degli account free (limite mensile).
+model MusicPlay {
+  id          String   @id @default(cuid())
+  userId      String
+  qualifiedId String
+  /// Mese di calendario in Italia, "YYYY-MM".
+  month       String
+  createdAt   DateTime @default(now())
+
+  @@index([userId, month])
+  @@index([userId, qualifiedId, createdAt])
+}

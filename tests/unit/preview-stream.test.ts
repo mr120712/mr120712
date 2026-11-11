@@ -9,6 +9,15 @@ const mocks = vi.hoisted(() => ({
 vi.mock('server-only', () => ({}));
 vi.mock('@/lib/business/premium-access.server', () => ({ currentUserHasPremium: mocks.premium }));
 vi.mock('@/lib/music/jamendo.server', () => ({ resolveJamendoAudio: mocks.resolve }));
+vi.mock('@/lib/business/play-quota.server', () => ({
+  consumePlayForCurrentUser: vi.fn(async () => ({
+    allowed: true,
+    counted: true,
+    used: 1,
+    limit: 40,
+  })),
+  playDeniedResponse: vi.fn(),
+}));
 
 import { GET } from '@/app/api/music/jamendo/[trackId]/stream/route';
 import {
