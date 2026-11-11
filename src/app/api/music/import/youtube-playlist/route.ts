@@ -1,6 +1,8 @@
 // @polsia:user-owned — importa una playlist pubblica YouTube nella Libreria.
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { enforceRateLimit } from '@/lib/business/rate-limit.server';
+import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
 import {
   YouTubePlaylistImportResponseSchema,
   YouTubePlaylistImportSchema,
@@ -53,7 +55,11 @@ export async function POST(request: Request) {
   }
   const auth = await signedIn(request);
   if ('response' in auth) return auth.response;
-  const body = YouTubePlaylistImportSchema.safeParse(await request.json().catch(() => null));
+  const limited = await enforceRateLimit('library.import', `user:${auth.user.id}`);
+  if (limited) return limited;
+  const payload = await readJsonLimited(request, 2 * 1024);
+  if (!payload.ok) return limitedJsonError(payload);
+  const body = YouTubePlaylistImportSchema.safeParse(payload.value);
   const playlistId = body.success ? parsePlaylistId(body.data.url) : null;
   if (!body.success || !playlistId) {
     return NextResponse.json(

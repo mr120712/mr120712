@@ -12,5 +12,8 @@ export async function GET(
   const { podcastId, episodeKey } = await params;
   const url = await resolveEpisodeAudio(podcastId, episodeKey);
   if (!url) return NextResponse.json({ error: 'episode_unavailable' }, { status: 404 });
-  return NextResponse.redirect(url, { status: 302, headers: { 'Cache-Control': 'no-store' } });
+  return NextResponse.redirect(url, {
+    status: 302,
+    headers: { 'Cache-Control': 'public, max-age=3600, s-maxage=86400' },
+  });
 }

@@ -22,7 +22,9 @@ export async function GET(
     status: detail.outcome === 'no_results' && !detail.podcast ? 404 : 200,
     headers: {
       'Cache-Control':
-        detail.outcome === 'unavailable' ? 'no-store' : 'public, max-age=600, s-maxage=1800',
+        detail.outcome === 'unavailable'
+          ? 'no-store'
+          : 'public, max-age=600, s-maxage=1800, stale-while-revalidate=86400',
     },
   });
 }

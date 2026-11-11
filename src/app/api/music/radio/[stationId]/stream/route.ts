@@ -14,5 +14,8 @@ export async function GET(
   if (!url) {
     return NextResponse.json({ error: 'station_unavailable' }, { status: 404 });
   }
-  return NextResponse.redirect(url, { status: 302, headers: { 'Cache-Control': 'no-store' } });
+  return NextResponse.redirect(url, {
+    status: 302,
+    headers: { 'Cache-Control': 'public, max-age=60, s-maxage=600' },
+  });
 }

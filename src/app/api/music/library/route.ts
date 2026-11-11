@@ -1,6 +1,8 @@
 // @polsia:user-owned — Libreria personale: lettura e modifiche (radio, podcast, cartelle, cronologia).
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { enforceRateLimit } from '@/lib/business/rate-limit.server';
+import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
 import {
   LibraryMutationResponseSchema,
   LibraryMutationSchema,
@@ -48,7 +50,11 @@ export async function POST(request: Request) {
   }
   const auth = await signedIn(request);
   if ('response' in auth) return auth.response;
-  const body = LibraryMutationSchema.safeParse(await request.json().catch(() => null));
+  const limited = await enforceRateLimit('library.write', `user:${auth.user.id}`);
+  if (limited) return limited;
+  const payload = await readJsonLimited(request, 8 * 1024);
+  if (!payload.ok) return limitedJsonError(payload);
+  const body = LibraryMutationSchema.safeParse(payload.value);
   if (!body.success) {
     return NextResponse.json(
       { errors: { body: 'Controlla i dati della Libreria.' } },

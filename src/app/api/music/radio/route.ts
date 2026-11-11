@@ -21,7 +21,9 @@ export async function GET(request: Request) {
   return NextResponse.json(RadioListResponseSchema.parse(result), {
     headers: {
       'Cache-Control':
-        result.outcome === 'unavailable' ? 'no-store' : 'public, max-age=300, s-maxage=600',
+        result.outcome === 'unavailable'
+          ? 'no-store'
+          : 'public, max-age=300, s-maxage=600, stale-while-revalidate=3600',
     },
   });
 }

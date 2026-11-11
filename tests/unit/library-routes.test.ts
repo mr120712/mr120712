@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => {
   return {
     requireAuth: vi.fn(),
     sameOrigin: vi.fn(),
+    enforceRateLimit: vi.fn(async () => null as Response | null),
     prisma: {
       userSavedStation: model(),
       userPodcastFollow: model(),
@@ -32,6 +33,7 @@ vi.mock('server-only', () => ({}));
 vi.mock('@/lib/require-auth', () => ({ requireAuth: mocks.requireAuth }));
 vi.mock('@/lib/same-origin', () => ({ sameOrigin: mocks.sameOrigin }));
 vi.mock('@/lib/db', () => ({ prisma: mocks.prisma }));
+vi.mock('@/lib/business/rate-limit.server', () => ({ enforceRateLimit: mocks.enforceRateLimit }));
 
 import { GET, POST } from '@/app/api/music/library/route';
 
@@ -77,6 +79,16 @@ describe('API Libreria', () => {
     mocks.sameOrigin.mockReturnValueOnce(false);
     const response = await POST(post({ action: 'clear_history' }));
     expect(response.status).toBe(403);
+    expect(mocks.prisma.userPlaybackHistory.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('applica il limite di frequenza per utente', async () => {
+    mocks.enforceRateLimit.mockResolvedValueOnce(
+      Response.json({ error: 'rate_limited' }, { status: 429 }),
+    );
+    const response = await POST(post({ action: 'clear_history' }));
+    expect(response.status).toBe(429);
+    expect(mocks.enforceRateLimit).toHaveBeenCalledWith('library.write', 'user:account-a');
     expect(mocks.prisma.userPlaybackHistory.deleteMany).not.toHaveBeenCalled();
   });
 

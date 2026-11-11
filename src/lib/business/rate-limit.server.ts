@@ -60,6 +60,14 @@ export const ACTION_RATE_LIMITS = {
     { requests: 20, windowMs: 60_000 },
     { requests: 100, windowMs: 3_600_000 },
   ],
+  'library.write': [
+    { requests: 60, windowMs: 60_000 },
+    { requests: 600, windowMs: 3_600_000 },
+  ],
+  'library.import': [
+    { requests: 3, windowMs: 600_000 },
+    { requests: 20, windowMs: 86_400_000 },
+  ],
 } as const satisfies Record<string, readonly WindowLimit[]>;
 
 export type RateLimitAction = keyof typeof ACTION_RATE_LIMITS;
@@ -206,6 +214,8 @@ const actionLabels: Record<RateLimitAction, string> = {
   'shops.update': 'le modifiche ai negozi',
   'products.create': 'la creazione di prodotti',
   'products.update': 'le modifiche ai prodotti',
+  'library.write': 'le modifiche alla Libreria',
+  'library.import': 'l’importazione di playlist',
 };
 
 export async function enforceRateLimit(

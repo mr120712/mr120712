@@ -12,7 +12,9 @@ export async function GET(request: Request) {
   return NextResponse.json(PodcastListResponseSchema.parse(result), {
     headers: {
       'Cache-Control':
-        result.outcome === 'unavailable' ? 'no-store' : 'public, max-age=600, s-maxage=1800',
+        result.outcome === 'unavailable'
+          ? 'no-store'
+          : 'public, max-age=600, s-maxage=1800, stale-while-revalidate=86400',
     },
   });
 }
