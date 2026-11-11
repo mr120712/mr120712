@@ -42,7 +42,7 @@ function errorMessage(error: unknown) {
 
 export function PlanSubscribe({ plans }: { plans: PlanCard[] }) {
   const { data: session } = useSession();
-  const [period, setPeriod] = useState<BillingPeriod>('month');
+  const [period, setPeriod] = useState<BillingPeriod>('year');
   const [state, setState] = useState<SubscriptionState | null>(null);
   const [pending, setPending] = useState<string | null>(null);
 
@@ -53,6 +53,14 @@ export function PlanSubscribe({ plans }: { plans: PlanCard[] }) {
   }, []);
 
   const current = state?.subscription?.active ? state.subscription : null;
+  const bestSaving = Math.max(
+    0,
+    ...plans
+      .filter((plan) => plan.monthlyEuroCents > 0)
+      .map((plan) =>
+        Math.round((plan.annualSavingsEuroCents / (plan.monthlyEuroCents * 12)) * 100),
+      ),
+  );
 
   const subscribe = async (planId: PaidPlanId, provider: 'stripe' | 'paypal' = 'stripe') => {
     setPending(`${provider}:${planId}`);
@@ -95,11 +103,11 @@ export function PlanSubscribe({ plans }: { plans: PlanCard[] }) {
     <>
       <fieldset className={styles.periods}>
         <legend className="sr-only">Periodo di fatturazione</legend>
+        <button type="button" aria-pressed={period === 'year'} onClick={() => setPeriod('year')}>
+          Annuale{bestSaving > 0 ? ` · risparmi fino al ${bestSaving}%` : ''}
+        </button>
         <button type="button" aria-pressed={period === 'month'} onClick={() => setPeriod('month')}>
           Mensile
-        </button>
-        <button type="button" aria-pressed={period === 'year'} onClick={() => setPeriod('year')}>
-          Annuale · risparmia
         </button>
       </fieldset>
 
@@ -132,6 +140,7 @@ export function PlanSubscribe({ plans }: { plans: PlanCard[] }) {
           const isCurrent = current?.planId === plan.id;
           return (
             <li key={plan.id} className={styles.card} data-plan={plan.id}>
+              {plan.id === 'premium' ? <span className={styles.badge}>Più scelto</span> : null}
               <h2>{plan.name}</h2>
               <p className={styles.price}>
                 <strong>{free ? 'Gratis' : euro.format(amount / 100)}</strong>
@@ -139,7 +148,8 @@ export function PlanSubscribe({ plans }: { plans: PlanCard[] }) {
               </p>
               {!free && period === 'year' ? (
                 <p className={styles.annual}>
-                  Risparmi {euro.format(plan.annualSavingsEuroCents / 100)} rispetto al mensile
+                  Pari a {euro.format(plan.annualEuroCents / 1200)}/mese · risparmi{' '}
+                  {euro.format(plan.annualSavingsEuroCents / 100)} all’anno
                 </p>
               ) : null}
               <ul className={styles.benefits}>

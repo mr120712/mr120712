@@ -1,7 +1,6 @@
 // @polsia:user-owned — pagina dei piani Solco (Free, Premium, Premium Plus, Family).
 import type { Metadata } from 'next';
 import { PlanSubscribe } from '@/components/custom/plan-subscribe';
-import { SolcoProPurchase } from '@/components/custom/solco-pro-purchase';
 import { getSolcoProPricing } from '@/lib/business/solco-pro-pricing';
 import styles from './piani.module.css';
 
@@ -23,6 +22,29 @@ const proBenefits = [
   'Temi extra',
   'Card senza logo',
   'Creazione di brani',
+];
+
+const faq = [
+  {
+    q: 'Come vengo addebitato?',
+    a: 'All’inizio dell’abbonamento e poi a ogni rinnovo, ogni mese o ogni anno secondo il periodo scelto. Con Stripe trovi ricevute e fatture in “Gestisci abbonamento”; con PayPal nel tuo account PayPal.',
+  },
+  {
+    q: 'Posso disdire quando voglio?',
+    a: 'Sì, in qualsiasi momento: da “Gestisci abbonamento” (Stripe) o dal tuo account PayPal. Premium resta attivo fino alla fine del periodo già pagato e non ci sono altri addebiti.',
+  },
+  {
+    q: 'Quali metodi di pagamento accettate?',
+    a: 'Carte di credito e di debito, Apple Pay e Google Pay tramite Stripe, oppure PayPal.',
+  },
+  {
+    q: 'Posso cambiare piano?',
+    a: 'Sì. Con Stripe lo fai da “Gestisci abbonamento”; con PayPal disdici il piano attuale dal tuo account PayPal e ti abboni a quello nuovo.',
+  },
+  {
+    q: 'Ci sono pubblicità?',
+    a: 'Solco non mostra pubblicità. I brani del catalogo globale Premium sono senza annunci; i video YouTube possono includere gli annunci di YouTube, che spariscono se hai YouTube Premium.',
+  },
 ];
 
 export default function PlansPage() {
@@ -47,10 +69,15 @@ export default function PlansPage() {
         }))}
       />
 
-      <details className={styles.purchase}>
-        <summary>Preferisci un pagamento singolo? Solco Pro per un mese</summary>
-        <SolcoProPurchase />
-      </details>
+      <section className={styles.faq} aria-labelledby="faq-heading">
+        <h2 id="faq-heading">Domande frequenti</h2>
+        {faq.map((item) => (
+          <details key={item.q}>
+            <summary>{item.q}</summary>
+            <p>{item.a}</p>
+          </details>
+        ))}
+      </section>
     </main>
   );
 }
