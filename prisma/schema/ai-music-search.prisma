@@ -1,0 +1,10 @@
+// @polsia:user-owned — piani della ricerca AI (Claude) per descrizione, riusati per 7 giorni:
+// la stessa richiesta non viene pagata due volte.
+model AiMusicSearchCache {
+  key       String   @id
+  payload   Json
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}

@@ -116,6 +116,8 @@ export function AppleMusicView() {
     };
   }, []);
 
+  // Subscribes once MusicKit is ready: `state` flips to 'ready' after musicRef is set.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-run when MusicKit becomes ready.
   useEffect(() => {
     const music = musicRef.current;
     if (!music) return;
@@ -232,7 +234,7 @@ export function AppleMusicView() {
         <header className={styles.sectionHeader}>
           <h2 id="apple-search">Cerca su Apple Music</h2>
         </header>
-        <form onSubmit={search} className={styles.headerActions} role="search">
+        <form onSubmit={search} className={styles.headerActions}>
           <label className="sr-only" htmlFor="apple-query">
             Cerca brani su Apple Music
           </label>

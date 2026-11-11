@@ -557,3 +557,50 @@ fieldset.chips {
     animation: none;
   }
 }
+
+.aiPanel {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--primary) 6%, transparent);
+}
+
+.aiForm {
+  display: grid;
+  gap: 12px;
+}
+
+.aiResults {
+  display: grid;
+  gap: 8px;
+}
+
+.aiIntro {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+ul.moodGrid {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.moodGrid button {
+  min-height: 56px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.moodGrid button:hover {
+  background: color-mix(in srgb, var(--foreground) 6%, var(--background));
+}

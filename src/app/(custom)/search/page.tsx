@@ -10,9 +10,9 @@ export const metadata: Metadata = {
 export default async function SearchPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string | string[] }>;
+  searchParams: Promise<{ q?: string | string[]; ai?: string | string[] }>;
 }) {
   const params = await searchParams;
   const initialQuery = typeof params.q === 'string' ? params.q.slice(0, 80) : '';
-  return <YouTubeSearchPage initialQuery={initialQuery} />;
+  return <YouTubeSearchPage initialQuery={initialQuery} initialAi={params.ai === '1'} />;
 }

@@ -5,6 +5,7 @@ import { Search } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useState } from 'react';
+import { AiMusicSearch } from '@/components/custom/music/ai-music-search';
 import { AudiusSection } from '@/components/custom/music/audius-section';
 import { SearchExtras } from '@/components/custom/music/search-extras';
 import { YouTubeVideoList } from '@/components/custom/music/youtube-video-list';
@@ -26,7 +27,13 @@ function errorText(error: unknown) {
   return 'La ricerca non è riuscita. Riprova tra poco.';
 }
 
-export function YouTubeSearchPage({ initialQuery }: { initialQuery: string }) {
+export function YouTubeSearchPage({
+  initialQuery,
+  initialAi = false,
+}: {
+  initialQuery: string;
+  initialAi?: boolean;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const [draft, setDraft] = useState(initialQuery);
@@ -93,6 +100,7 @@ export function YouTubeSearchPage({ initialQuery }: { initialQuery: string }) {
         La ricerca dei brani usa YouTube: la tua query viene inviata a Google.{' '}
         <Link href="/privacy">Privacy</Link>
       </p>
+      <AiMusicSearch initiallyOpen={initialAi} />
 
       {!query ? (
         <section className={styles.section} aria-labelledby="moods-heading">

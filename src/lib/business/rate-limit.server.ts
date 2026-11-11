@@ -11,6 +11,11 @@ export const ACTION_RATE_LIMITS = {
     { requests: 8, windowMs: 10_000 },
     { requests: 30, windowMs: 60_000 },
   ],
+  // Each AI search is a paid Claude request: a few per minute, 30 per day per account.
+  'music.ai_search': [
+    { requests: 3, windowMs: 60_000 },
+    { requests: 30, windowMs: 86_400_000 },
+  ],
   'ai.chat': [
     { requests: 12, windowMs: 60_000 },
     { requests: 60, windowMs: 3_600_000 },
@@ -205,6 +210,7 @@ export async function consumeRateLimit(
 
 const actionLabels: Record<RateLimitAction, string> = {
   'music.search': 'le ricerche musicali',
+  'music.ai_search': 'le ricerche con l’AI',
   'ai.chat': 'le richieste all’assistente',
   'solco.support': 'le richieste al supporto',
   'admin.assistant': 'le richieste all’assistente amministrativo',

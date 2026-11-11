@@ -9,6 +9,7 @@ import {
   Radio,
   Search,
   Smartphone,
+  Sparkles,
   TrendingUp,
 } from 'lucide-react';
 import type { Metadata } from 'next';
@@ -32,6 +33,7 @@ export const metadata: Metadata = {
 };
 
 const shortcuts = [
+  { href: '/search?ai=1', label: 'Cerca con l’AI', icon: Sparkles },
   { href: '#tendenze', label: 'Classifiche', icon: TrendingUp },
   { href: '/generi', label: 'Generi', icon: Disc3 },
   { href: '/radio', label: 'Radio', icon: Radio },

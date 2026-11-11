@@ -160,6 +160,18 @@ export default function PrivacyPage() {
               l’elenco aggiornato dei responsabili e i flussi realmente attivi prima di compilare
               Data safety.
             </p>
+            <p>
+              Ricerca con l’AI: se usi “Cerca con l’AI” da un account, la descrizione che scrivi
+              viene inviata ad Anthropic (modello Claude) tramite la sua API per preparare le
+              ricerche; le ricerche risultanti vengono poi inviate a YouTube e alle altre fonti come
+              una ricerca normale. Non inviamo ad Anthropic il tuo nome, la tua email o altri dati
+              dell’account. Per lo stesso testo Solco riusa il piano già preparato per 7 giorni.
+              Consulta l’
+              <a href="https://www.anthropic.com/legal/privacy" target="_blank" rel="noreferrer">
+                informativa privacy di Anthropic
+              </a>
+              .
+            </p>
           </section>
 
           <section>
