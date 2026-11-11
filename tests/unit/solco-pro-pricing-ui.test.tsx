@@ -83,35 +83,50 @@ describe('sezione dei prezzi nel dashboard Solco', () => {
     expect(container.textContent).toContain('Prezzi mostrati, non prezzi Stripe confermati.');
     expect(container.textContent).toContain('Non risultano mappature Stripe ricorrenti in EUR.');
     expect(container.textContent).toContain('verifiche legali, fiscali e del provider');
-    expect(container.textContent).toContain('Gli acquisti a pagamento e i cambi di piano o cadenza non sono disponibili.');
-    expect(container.textContent).toContain('La matrice delle funzionalità e dei limiti per questi quattro piani non è disponibile.');
-    const paidPlanActions = [...container.querySelectorAll<HTMLButtonElement>('[data-plan-id="premium"] button, [data-plan-id="premium-plus"] button, [data-plan-id="family"] button')];
+    expect(container.textContent).toContain(
+      'Gli acquisti a pagamento e i cambi di piano o cadenza non sono disponibili.',
+    );
+    expect(container.textContent).toContain(
+      'La matrice delle funzionalità e dei limiti per questi quattro piani non è disponibile.',
+    );
+    const paidPlanActions = [
+      ...container.querySelectorAll<HTMLButtonElement>(
+        '[data-plan-id="premium"] button, [data-plan-id="premium-plus"] button, [data-plan-id="family"] button',
+      ),
+    ];
     expect(paidPlanActions).toHaveLength(3);
     expect(paidPlanActions.every((button) => button.disabled)).toBe(true);
-    expect(container.querySelector<HTMLButtonElement>('[data-plan-id="free"] button')?.disabled).toBe(false);
+    expect(
+      container.querySelector<HTMLButtonElement>('[data-plan-id="free"] button')?.disabled,
+    ).toBe(false);
     expect(mocks.apiFetch).toHaveBeenCalledTimes(2);
-    expect(mocks.apiFetch).toHaveBeenCalledWith('/api/solco-pro/plans', expect.objectContaining({ schema: expect.anything() }));
+    expect(mocks.apiFetch).toHaveBeenCalledWith(
+      '/api/solco-pro/plans',
+      expect.objectContaining({ schema: expect.anything() }),
+    );
     expect(container.textContent).toContain('La scelta Free viene salvata solo per il tuo account');
   });
 
   it('salva la scelta Free con la cadenza esplicitamente selezionata', async () => {
-    mocks.apiFetch.mockImplementation((path: string, options?: { method?: string; body?: string }) => {
-      if (path === '/api/solco-pro/plans') return Promise.resolve(getSolcoProPricing());
-      if (options?.method === 'POST') {
-        return Promise.resolve({
-          selection: {
-            planId: 'free',
-            billingPeriod: options.body?.includes('"billingPeriod":"year"') ? 'year' : 'month',
-            amountEuroCents: 0,
-            currency: 'EUR',
-            state: 'active',
-            selectedAt: '2026-11-09T12:00:00.000Z',
-            renewalAt: null,
-          },
-        });
-      }
-      return Promise.resolve({ selection: null });
-    });
+    mocks.apiFetch.mockImplementation(
+      (path: string, options?: { method?: string; body?: string }) => {
+        if (path === '/api/solco-pro/plans') return Promise.resolve(getSolcoProPricing());
+        if (options?.method === 'POST') {
+          return Promise.resolve({
+            selection: {
+              planId: 'free',
+              billingPeriod: options.body?.includes('"billingPeriod":"year"') ? 'year' : 'month',
+              amountEuroCents: 0,
+              currency: 'EUR',
+              state: 'active',
+              selectedAt: '2026-11-09T12:00:00.000Z',
+              renewalAt: null,
+            },
+          });
+        }
+        return Promise.resolve({ selection: null });
+      },
+    );
     await render(<SolcoProPlanOptions />);
 
     const annual = container.querySelector<HTMLInputElement>('input[value="year"]');
@@ -129,7 +144,9 @@ describe('sezione dei prezzi nel dashboard Solco', () => {
         schema: expect.anything(),
       }),
     );
-    expect(container.textContent).toContain('Piano Free annuale selezionato: 0 €. Nessun rinnovo o addebito.');
+    expect(container.textContent).toContain(
+      'Piano Free annuale selezionato: 0 €. Nessun rinnovo o addebito.',
+    );
   });
 
   it('ripristina la cadenza Free salvata e allinea il prezzo riepilogato', async () => {
@@ -151,7 +168,11 @@ describe('sezione dei prezzi nel dashboard Solco', () => {
     await render(<SolcoProPlanOptions />);
 
     expect(container.querySelector<HTMLInputElement>('input[value="year"]')?.checked).toBe(true);
-    expect(container.querySelector('[data-plan-id="free"] p[aria-live="polite"]')?.textContent).toContain('0 €/anno');
-    expect(container.textContent).toContain('Piano Free annuale selezionato: 0 €. Nessun rinnovo o addebito.');
+    expect(
+      container.querySelector('[data-plan-id="free"] p[aria-live="polite"]')?.textContent,
+    ).toContain('0 €/anno');
+    expect(container.textContent).toContain(
+      'Piano Free annuale selezionato: 0 €. Nessun rinnovo o addebito.',
+    );
   });
 });

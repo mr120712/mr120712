@@ -55,15 +55,24 @@ const roots: Array<ReturnType<typeof createRoot>> = [];
 
 async function mount(access: string) {
   mocks.apiFetch.mockImplementation(async (path: string) =>
-    path === '/api/music/albums/album-71' ? { album, tracks: [{ ...track, fullAccess: access }] } : { allowed: true },
+    path === '/api/music/albums/album-71'
+      ? { album, tracks: [{ ...track, fullAccess: access }] }
+      : { allowed: true },
   );
   const container = document.createElement('div');
   const root = createRoot(container);
   roots.push(root);
-  await act(async () => root.render(
-    <MusicPlayerProvider><AlbumDetail albumId="album-71" /></MusicPlayerProvider>,
-  ));
-  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  await act(async () =>
+    root.render(
+      <MusicPlayerProvider>
+        <AlbumDetail albumId="album-71" />
+      </MusicPlayerProvider>,
+    ),
+  );
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
   return container;
 }
 
@@ -102,7 +111,10 @@ describe('stati di accesso nella pagina album', () => {
     const container = await mount('available');
     const play = container.querySelector<HTMLButtonElement>('button');
     if (!play) throw new Error('Controllo autorizzato non trovato.');
-    await act(async () => { play.click(); await Promise.resolve(); });
+    await act(async () => {
+      play.click();
+      await Promise.resolve();
+    });
     expect(container.textContent).toContain('Audius conferma lo streaming pubblico');
     expect(mocks.apiFetch.mock.calls.map(([path]) => path)).toContain(
       '/api/music/audius/tracks/track-71/playback',

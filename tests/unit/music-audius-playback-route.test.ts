@@ -16,7 +16,11 @@ vi.mock('@/lib/music/audius-playback.server', () => ({
     streamTrack: mocks.streamTrack,
   }),
   playbackFailureStatus: (reason: string) =>
-    reason === 'rate_limited' ? 429 : ['gated', 'access_denied', 'not_streamable'].includes(reason) ? 403 : 503,
+    reason === 'rate_limited'
+      ? 429
+      : ['gated', 'access_denied', 'not_streamable'].includes(reason)
+        ? 403
+        : 503,
 }));
 
 import { GET } from '@/app/api/music/audius/tracks/[trackId]/playback/route';

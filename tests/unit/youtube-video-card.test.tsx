@@ -42,7 +42,8 @@ async function mount(selected = false) {
 
 afterEach(async () => {
   for (const root of mountedRoots.splice(0)) await act(async () => root.unmount());
-  if (originalVisibilityState) Object.defineProperty(document, 'visibilityState', originalVisibilityState);
+  if (originalVisibilityState)
+    Object.defineProperty(document, 'visibilityState', originalVisibilityState);
   else Reflect.deleteProperty(document, 'visibilityState');
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -88,8 +89,8 @@ describe('player ufficiale YouTube', () => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
     await act(async () => document.dispatchEvent(new Event('visibilitychange')));
     expect(container.querySelector('iframe')).toBeNull();
-    const reload = [...container.querySelectorAll<HTMLButtonElement>('button')].find((item) =>
-      item.textContent?.trim() === 'Ricarica player YouTube',
+    const reload = [...container.querySelectorAll<HTMLButtonElement>('button')].find(
+      (item) => item.textContent?.trim() === 'Ricarica player YouTube',
     );
     if (!reload) throw new Error('Controllo per riaprire il player non trovato.');
     await act(async () => reload.click());

@@ -1,7 +1,9 @@
 // @polsia:user-owned
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
+
 vi.mock('server-only', () => ({}));
+
 import { createYouTubeSearchCache } from '@/lib/music/youtube-search-cache.server';
 
 describe('cache volatile della ricerca YouTube', () => {
@@ -23,7 +25,9 @@ describe('cache volatile della ricerca YouTube', () => {
   it('condivide una richiesta concorrente e non conserva quota/esiti API non disponibili', async () => {
     const cache = createYouTubeSearchCache({ ttlMs: 60_000 });
     let finish: ((value: { outcome: string }) => void) | undefined;
-    const pending = new Promise<{ outcome: string }>((resolve) => { finish = resolve; });
+    const pending = new Promise<{ outcome: string }>((resolve) => {
+      finish = resolve;
+    });
     const load = vi.fn(() => pending);
     const first = cache.get('ambient', load);
     const second = cache.get('AMBIENT', load);

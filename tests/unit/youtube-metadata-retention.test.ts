@@ -5,7 +5,9 @@ import { describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ updateMany: vi.fn().mockResolvedValue({ count: 0 }) }));
 
 vi.mock('server-only', () => ({}));
-vi.mock('@/lib/db', () => ({ prisma: { userMusicCollectionItem: { updateMany: mocks.updateMany } } }));
+vi.mock('@/lib/db', () => ({
+  prisma: { userMusicCollectionItem: { updateMany: mocks.updateMany } },
+}));
 
 import {
   expireYouTubeCollectionMetadata,

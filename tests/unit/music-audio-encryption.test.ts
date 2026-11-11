@@ -33,11 +33,13 @@ describe('cifratura dei segmenti audio custoditi da Solco', () => {
     const ciphertext = Buffer.from(segment.ciphertext, 'base64');
     ciphertext[0] = (ciphertext[0] ?? 0) ^ 1;
 
-    expect(() => decryptStoredAudioSegment(
-      { ...segment, ciphertext: ciphertext.toString('base64') },
-      privateKey,
-      'track:42:segment:0',
-    )).toThrow();
+    expect(() =>
+      decryptStoredAudioSegment(
+        { ...segment, ciphertext: ciphertext.toString('base64') },
+        privateKey,
+        'track:42:segment:0',
+      ),
+    ).toThrow();
     expect(() => decryptStoredAudioSegment(segment, privateKey, 'track:99:segment:0')).toThrow();
   });
 

@@ -7,10 +7,10 @@ vi.mock('server-only', () => ({}));
 vi.mock('@/modules/file-upload/server', () => ({ signFileUrls: signFiles }));
 
 import {
-  inspectPrivateEvidenceFile,
-  inspectPrivateAudioSource,
-  InvalidPrivateEvidenceFile,
   InvalidPrivateAudioSource,
+  InvalidPrivateEvidenceFile,
+  inspectPrivateAudioSource,
+  inspectPrivateEvidenceFile,
 } from '@/lib/music/private-audio-source.server';
 
 function makeSilentWav(durationSeconds: number) {
@@ -46,14 +46,17 @@ describe('ispezione del file audio privato caricato', () => {
     const bytes = makeSilentWav(1);
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(bytes, {
-          headers: { 'content-type': 'audio/wav', 'content-length': String(bytes.length) },
-        }),
+      vi.fn(
+        async () =>
+          new Response(bytes, {
+            headers: { 'content-type': 'audio/wav', 'content-length': String(bytes.length) },
+          }),
       ),
     );
 
-    await expect(inspectPrivateAudioSource('private/audio.wav', 'audio/wav', bytes.length)).resolves.toMatchObject({
+    await expect(
+      inspectPrivateAudioSource('private/audio.wav', 'audio/wav', bytes.length),
+    ).resolves.toMatchObject({
       mimeType: 'audio/wav',
       byteLength: bytes.length,
       durationSeconds: 1,
@@ -64,10 +67,11 @@ describe('ispezione del file audio privato caricato', () => {
     const bytes = Buffer.from('non è audio');
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(bytes, {
-          headers: { 'content-type': 'audio/wav', 'content-length': String(bytes.length) },
-        }),
+      vi.fn(
+        async () =>
+          new Response(bytes, {
+            headers: { 'content-type': 'audio/wav', 'content-length': String(bytes.length) },
+          }),
       ),
     );
 
@@ -81,10 +85,11 @@ describe('ispezione del file audio privato caricato', () => {
     signFiles.mockResolvedValue(new Map([['private/rights.pdf', 'https://storage.test/rights']]));
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(bytes, {
-          headers: { 'content-type': 'application/pdf', 'content-length': String(bytes.length) },
-        }),
+      vi.fn(
+        async () =>
+          new Response(bytes, {
+            headers: { 'content-type': 'application/pdf', 'content-length': String(bytes.length) },
+          }),
       ),
     );
 
@@ -98,10 +103,11 @@ describe('ispezione del file audio privato caricato', () => {
     signFiles.mockResolvedValue(new Map([['private/rights.pdf', 'https://storage.test/rights']]));
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        new Response(bytes, {
-          headers: { 'content-type': 'application/pdf', 'content-length': String(bytes.length) },
-        }),
+      vi.fn(
+        async () =>
+          new Response(bytes, {
+            headers: { 'content-type': 'application/pdf', 'content-length': String(bytes.length) },
+          }),
       ),
     );
 

@@ -2,11 +2,16 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const databaseMocks = vi.hoisted(() => ({ upsert: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() }));
+const databaseMocks = vi.hoisted(() => ({
+  upsert: vi.fn(),
+  findUnique: vi.fn(),
+  updateMany: vi.fn(),
+}));
 
 vi.mock('server-only', () => ({}));
 vi.mock('@/lib/db', () => ({ prisma: { audiusRequestBudget: databaseMocks } }));
 
+import { AudiusAlbumDetailSchema, MusicHomeResponseSchema } from '@/lib/contracts/music';
 import {
   evaluateAudiusPlayback,
   mapAudiusAlbumDetail,
@@ -14,13 +19,6 @@ import {
   normalizeAudiusArtists,
   normalizeAudiusTracks,
 } from '@/lib/music/audius';
-import { AudiusAlbumDetailSchema, MusicHomeResponseSchema } from '@/lib/contracts/music';
-import {
-  getAudiusActivation,
-  getAudiusHomeCatalog,
-  runAudiusSearch,
-  runAudiusTrending,
-} from '@/lib/music/audius-source.server';
 import {
   AUDIUS_APP_NAME,
   AUDIUS_METADATA_CACHE_TTL_MS,
@@ -28,6 +26,12 @@ import {
   clearAudiusMetadataCacheForTests,
   createAudiusApiClient,
 } from '@/lib/music/audius-api.server';
+import {
+  getAudiusActivation,
+  getAudiusHomeCatalog,
+  runAudiusSearch,
+  runAudiusTrending,
+} from '@/lib/music/audius-source.server';
 
 const trackFixture = {
   id: 'track-71',
@@ -45,7 +49,9 @@ const trackFixture = {
   access_authorities: [],
   access: { stream: true },
   user: {
-    id: 'artist-71', name: 'Sample Artist', handle: 'sample-artist',
+    id: 'artist-71',
+    name: 'Sample Artist',
+    handle: 'sample-artist',
     profile_picture: { '150x150': 'https://audius.co/images/profile.jpg' },
   },
 };
@@ -72,7 +78,10 @@ describe('metadati e autorizzazione Audius', () => {
     const fetcher = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', fetcher);
     const catalog = MusicHomeResponseSchema.parse(await getAudiusHomeCatalog());
-    expect(catalog.sourceStatus).toMatchObject({ active: false, unavailableReason: 'not_configured' });
+    expect(catalog.sourceStatus).toMatchObject({
+      active: false,
+      unavailableReason: 'not_configured',
+    });
     expect(catalog.trending).toEqual({ outcome: 'unavailable', tracks: [] });
     expect(catalog.releases.albums).toEqual([]);
     expect(catalog.playlists.playlists).toEqual([]);
@@ -138,20 +147,30 @@ describe('metadati e autorizzazione Audius', () => {
       true,
     );
     expect(detail).not.toBeNull();
-    expect(AudiusAlbumDetailSchema.parse({
-      album: detail?.album,
-      tracks: detail?.tracks.map((track) => ({ ...track, fullAccess: 'rights_unverified' })),
-    })).toMatchObject({
+    expect(
+      AudiusAlbumDetailSchema.parse({
+        album: detail?.album,
+        tracks: detail?.tracks.map((track) => ({ ...track, fullAccess: 'rights_unverified' })),
+      }),
+    ).toMatchObject({
       album: { id: 'album-71', title: 'Album di esempio' },
       tracks: [{ id: 'track-71', albumId: 'album-71', fullAccess: 'rights_unverified' }],
     });
-    expect(mapAudiusAlbumDetail({ data: [] }, { data: [trackFixture] }, 'album-71', true)).toBeNull();
-    expect(mapAudiusAlbumDetail({ data: albumFixture }, { data: null }, 'album-71', true)?.tracks).toEqual([]);
+    expect(
+      mapAudiusAlbumDetail({ data: [] }, { data: [trackFixture] }, 'album-71', true),
+    ).toBeNull();
+    expect(
+      mapAudiusAlbumDetail({ data: albumFixture }, { data: null }, 'album-71', true)?.tracks,
+    ).toEqual([]);
   });
 
   it('non inventa l’artista o il link quando l’attribuzione manca', () => {
-    expect(normalizeAudiusTracks({ data: [{ ...trackFixture, user: { id: 'artist-71' } }] }, true)).toEqual([]);
-    expect(normalizeAudiusArtists({ data: [{ id: 'artist-72', name: 'Senza handle' }] })).toEqual([]);
+    expect(
+      normalizeAudiusTracks({ data: [{ ...trackFixture, user: { id: 'artist-71' } }] }, true),
+    ).toEqual([]);
+    expect(normalizeAudiusArtists({ data: [{ id: 'artist-72', name: 'Senza handle' }] })).toEqual(
+      [],
+    );
   });
 
   it('mantiene separati stream consentito, negato e sconosciuto', () => {
@@ -162,34 +181,66 @@ describe('metadati e autorizzazione Audius', () => {
       trackIsStreamGated: false,
       accessAuthorities: [],
     };
-    expect(evaluateAudiusPlayback({ ...base, accessCanStream: true })).toEqual({ allowed: true, reason: 'ready' });
-    expect(evaluateAudiusPlayback({ ...base, accessCanStream: false })).toEqual({ allowed: false, reason: 'access_denied' });
-    expect(evaluateAudiusPlayback({ ...base, accessCanStream: null })).toEqual({ allowed: false, reason: 'access_unknown' });
-    expect(evaluateAudiusPlayback({ ...base, accessCanStream: true, isStreamable: false })).toEqual({ allowed: false, reason: 'not_streamable' });
-    expect(evaluateAudiusPlayback({ ...base, accessCanStream: true, isAvailable: null })).toEqual({ allowed: false, reason: 'state_unknown' });
-    expect(evaluateAudiusPlayback({ ...base, accessCanStream: true, accessAuthorities: undefined })).toEqual({
+    expect(evaluateAudiusPlayback({ ...base, accessCanStream: true })).toEqual({
+      allowed: true,
+      reason: 'ready',
+    });
+    expect(evaluateAudiusPlayback({ ...base, accessCanStream: false })).toEqual({
+      allowed: false,
+      reason: 'access_denied',
+    });
+    expect(evaluateAudiusPlayback({ ...base, accessCanStream: null })).toEqual({
       allowed: false,
       reason: 'access_unknown',
     });
-    expect(evaluateAudiusPlayback({ ...base, accessCanStream: true, accessAuthorities: ['wallet-71'] })).toEqual({
+    expect(evaluateAudiusPlayback({ ...base, accessCanStream: true, isStreamable: false })).toEqual(
+      { allowed: false, reason: 'not_streamable' },
+    );
+    expect(evaluateAudiusPlayback({ ...base, accessCanStream: true, isAvailable: null })).toEqual({
+      allowed: false,
+      reason: 'state_unknown',
+    });
+    expect(
+      evaluateAudiusPlayback({ ...base, accessCanStream: true, accessAuthorities: undefined }),
+    ).toEqual({
+      allowed: false,
+      reason: 'access_unknown',
+    });
+    expect(
+      evaluateAudiusPlayback({ ...base, accessCanStream: true, accessAuthorities: ['wallet-71'] }),
+    ).toEqual({
       allowed: false,
       reason: 'gated',
     });
-    expect(evaluateAudiusPlayback({ ...base, accessCanStream: true, trackIsStreamGated: true })).toEqual({
+    expect(
+      evaluateAudiusPlayback({ ...base, accessCanStream: true, trackIsStreamGated: true }),
+    ).toEqual({
       allowed: false,
       reason: 'gated',
     });
   });
 
   it('non rende ascoltabile una risposta con accesso o stato pubblico assente', () => {
-    const missingAccess = normalizeAudiusTracks({
-      data: [{ ...trackFixture, access: undefined }],
-    }, true);
-    const missingAuthorities = normalizeAudiusTracks({
-      data: [{ ...trackFixture, access_authorities: undefined }],
-    }, true);
-    expect(missingAccess[0]).toMatchObject({ playbackEligible: false, playbackReason: 'access_unknown' });
-    expect(missingAuthorities[0]).toMatchObject({ playbackEligible: false, playbackReason: 'access_unknown' });
+    const missingAccess = normalizeAudiusTracks(
+      {
+        data: [{ ...trackFixture, access: undefined }],
+      },
+      true,
+    );
+    const missingAuthorities = normalizeAudiusTracks(
+      {
+        data: [{ ...trackFixture, access_authorities: undefined }],
+      },
+      true,
+    );
+    expect(missingAccess[0]).toMatchObject({
+      playbackEligible: false,
+      playbackReason: 'access_unknown',
+    });
+    expect(missingAuthorities[0]).toMatchObject({
+      playbackEligible: false,
+      playbackReason: 'access_unknown',
+    });
   });
 
   it('attiva la fonte quando esiste la credenziale senza richiedere gate editoriali separati', () => {
@@ -214,9 +265,14 @@ describe('metadati e autorizzazione Audius', () => {
   });
 
   it('non impone paywall o durata di anteprima quando Audius autorizza lo stream', () => {
-    const [track] = normalizeAudiusTracks({
-      data: [{ ...trackFixture, license: 'Licenza indicata da Audius', copyright_line: undefined }],
-    }, true);
+    const [track] = normalizeAudiusTracks(
+      {
+        data: [
+          { ...trackFixture, license: 'Licenza indicata da Audius', copyright_line: undefined },
+        ],
+      },
+      true,
+    );
     expect(track).toMatchObject({
       title: 'Brano di esempio',
       artistName: 'Sample Artist',
@@ -228,7 +284,9 @@ describe('metadati e autorizzazione Audius', () => {
 
   it('distingue limite Audius nelle tendenze e non interroga una fonte disattivata', async () => {
     const limited = await runAudiusTrending(true, {
-      trending: vi.fn(async () => { throw new AudiusApiError('rate_limited', 'limit', 37); }),
+      trending: vi.fn(async () => {
+        throw new AudiusApiError('rate_limited', 'limit', 37);
+      }),
     });
     expect(limited).toMatchObject({ outcome: 'unavailable', retryAfterSeconds: 37 });
 
@@ -251,12 +309,14 @@ describe('client Audius: host, attribuzione e cache', () => {
       if (url.pathname.endsWith('/tracks/search')) return Response.json({ data: [trackFixture] });
       if (url.pathname.endsWith('/users/search')) {
         return Response.json({
-          data: [{
-            id: 'artist-71',
-            name: 'Sample Artist',
-            handle: 'sample-artist',
-            profile_picture: { '150x150': 'https://audius.co/images/profile.jpg' },
-          }],
+          data: [
+            {
+              id: 'artist-71',
+              name: 'Sample Artist',
+              handle: 'sample-artist',
+              profile_picture: { '150x150': 'https://audius.co/images/profile.jpg' },
+            },
+          ],
         });
       }
       return Response.json({ data: [] });
@@ -272,10 +332,16 @@ describe('client Audius: host, attribuzione e cache', () => {
     const results = await client.search('Electronic', true);
     const calls = fetcher.mock.calls.map(([input]) => new URL(String(input)));
     expect(results).toMatchObject({ outcome: 'results', tracks: [{ id: 'track-71' }] });
-    expect(results.artists).toMatchObject([{ name: 'Sample Artist', artworkUrl: 'https://audius.co/images/profile.jpg' }]);
+    expect(results.artists).toMatchObject([
+      { name: 'Sample Artist', artworkUrl: 'https://audius.co/images/profile.jpg' },
+    ]);
     expect(calls[0]?.searchParams.get('app_name')).toBe(AUDIUS_APP_NAME);
-    expect(calls.find((url) => url.hostname === 'first.audius.co')?.pathname).toBe('/v1/tracks/search');
-    expect(calls.filter((url) => url.pathname.endsWith('/tracks/search'))[1]?.hostname).toBe('discoveryprovider.audius.co');
+    expect(calls.find((url) => url.hostname === 'first.audius.co')?.pathname).toBe(
+      '/v1/tracks/search',
+    );
+    expect(calls.filter((url) => url.pathname.endsWith('/tracks/search'))[1]?.hostname).toBe(
+      'discoveryprovider.audius.co',
+    );
     expect(calls.every((url) => !url.hostname.endsWith('malicious.example'))).toBe(true);
     expect(JSON.stringify(results)).not.toContain('server-test-key');
   });
@@ -288,10 +354,14 @@ describe('client Audius: host, attribuzione e cache', () => {
       if (url.pathname.endsWith('/tracks/search')) return Response.json({ data: [trackFixture] });
       if (url.pathname.endsWith('/users/search')) {
         return Response.json({
-          data: [{
-            id: 'artist-71', name: 'Sample Artist', handle: 'sample-artist',
-            profile_picture: { '150x150': 'https://audius.co/images/profile.jpg' },
-          }],
+          data: [
+            {
+              id: 'artist-71',
+              name: 'Sample Artist',
+              handle: 'sample-artist',
+              profile_picture: { '150x150': 'https://audius.co/images/profile.jpg' },
+            },
+          ],
         });
       }
       if (url.pathname.endsWith('/stream')) {

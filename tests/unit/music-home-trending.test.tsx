@@ -21,36 +21,42 @@ import { HomeTrending } from '@/components/custom/music/home-trending';
 
 const response: MusicTrendingResponse = {
   outcome: 'results',
-  tracks: [{
-    provider: 'audius',
-    id: 'track-71',
-    qualifiedId: 'audius:track-71',
-    title: 'Traccia di tendenza',
-    artistName: 'Artista',
-    artistHandle: 'artista',
-    artistId: 'artist-71',
-    artistQualifiedId: 'audius:artist-71',
-    artistUrl: 'https://audius.co/artista',
-    trackUrl: 'https://audius.co/artista/traccia',
-    artworkUrl: 'https://audius.co/images/traccia.jpg',
-    durationSeconds: 180,
-    genre: null,
-    mood: null,
-    tags: null,
-    releaseDate: null,
-    license: null,
-    licensorName: null,
-    copyrightNotice: null,
-    producerCopyrightNotice: null,
-    attributionRemovalRequested: false,
-    attributionComplete: true,
-    playbackEligible: true,
-    playbackReason: 'ready',
-  }],
+  tracks: [
+    {
+      provider: 'audius',
+      id: 'track-71',
+      qualifiedId: 'audius:track-71',
+      title: 'Traccia di tendenza',
+      artistName: 'Artista',
+      artistHandle: 'artista',
+      artistId: 'artist-71',
+      artistQualifiedId: 'audius:artist-71',
+      artistUrl: 'https://audius.co/artista',
+      trackUrl: 'https://audius.co/artista/traccia',
+      artworkUrl: 'https://audius.co/images/traccia.jpg',
+      durationSeconds: 180,
+      genre: null,
+      mood: null,
+      tags: null,
+      releaseDate: null,
+      license: null,
+      licensorName: null,
+      copyrightNotice: null,
+      producerCopyrightNotice: null,
+      attributionRemovalRequested: false,
+      attributionComplete: true,
+      playbackEligible: true,
+      playbackReason: 'ready',
+    },
+  ],
   albums: [],
   sourceStatus: {
-    id: 'audius', label: 'Audius', active: true, searchOutcome: 'results',
-    summary: 'Catalogo attivo.', prerequisite: 'Audius non configurata.',
+    id: 'audius',
+    label: 'Audius',
+    active: true,
+    searchOutcome: 'results',
+    summary: 'Catalogo attivo.',
+    prerequisite: 'Audius non configurata.',
   },
 };
 const roots: Array<ReturnType<typeof createRoot>> = [];
@@ -61,7 +67,9 @@ async function mount() {
   const root = createRoot(container);
   roots.push(root);
   await act(async () => root.render(<HomeTrending />));
-  await act(async () => { await Promise.resolve(); });
+  await act(async () => {
+    await Promise.resolve();
+  });
   return container;
 }
 

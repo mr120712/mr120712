@@ -1,16 +1,15 @@
 // @polsia:user-owned — regole dei premi (pure: nessun accesso al database, testabili).
 
 export const REWARDS = {
-  /** Amico invitato: 1 mese a entrambi quando l'amico si qualifica. */
-  referralDays: 30,
-  /** Bonus all'invitante al 3° e al 5° amico qualificato. */
-  referralMilestones: [
-    { friends: 3, days: 90 },
-    { friends: 5, days: 180 },
+  /** Bonus di benvenuto all'amico invitato, una sola volta, dopo il suo primo pagamento. */
+  inviteeWelcomeDays: 30,
+  /** Premio TOTALE per chi invita, in base agli amici che hanno pagato Premium. */
+  referralTiers: [
+    { friends: 1, totalDays: 30 },
+    { friends: 3, totalDays: 90 },
+    { friends: 5, totalDays: 180 },
+    { friends: 10, totalDays: 360 },
   ],
-  /** Un amico si qualifica con almeno 30 minuti di ascolto in almeno 2 giorni diversi. */
-  qualifyMinSeconds: 30 * 60,
-  qualifyMinDays: 2,
   /** Fondatori: i primi 100 iscritti. */
   founderLimit: 100,
   founderDays: 30,
@@ -57,12 +56,6 @@ export function grantWindow(input: {
 
 export type ListeningDayRow = { day: string; seconds: number };
 
-export function isReferralQualified(days: ListeningDayRow[]) {
-  const active = days.filter((row) => row.seconds > 0);
-  const total = active.reduce((sum, row) => sum + row.seconds, 0);
-  return active.length >= REWARDS.qualifyMinDays && total >= REWARDS.qualifyMinSeconds;
-}
-
 export function qualifyingListeningDays(days: ListeningDayRow[]) {
   return days.filter((row) => row.seconds >= REWARDS.listeningDayMinSeconds).length;
 }
@@ -72,9 +65,30 @@ export function listeningRewardsEarned(days: ListeningDayRow[]) {
   return Math.floor(qualifyingListeningDays(days) / REWARDS.listeningDaysPerReward);
 }
 
-/** Bonus traguardo dovuti dato il numero di amici qualificati. */
-export function referralMilestonesReached(qualifiedFriends: number) {
-  return REWARDS.referralMilestones.filter((m) => qualifiedFriends >= m.friends);
+/**
+ * Premi progressivi per chi invita: per ogni soglia raggiunta, i giorni da aggiungere
+ * (differenza rispetto alla soglia precedente). Sommati danno il premio totale della soglia.
+ */
+export function referralTierGrants(paidFriends: number) {
+  let previous = 0;
+  const grants: { friends: number; days: number; totalDays: number }[] = [];
+  for (const tier of REWARDS.referralTiers) {
+    if (paidFriends < tier.friends) break;
+    grants.push({
+      friends: tier.friends,
+      days: tier.totalDays - previous,
+      totalDays: tier.totalDays,
+    });
+    previous = tier.totalDays;
+  }
+  return grants;
+}
+
+/** Premio totale raggiunto e prossima soglia. */
+export function referralProgress(paidFriends: number) {
+  const reached = referralTierGrants(paidFriends);
+  const next = REWARDS.referralTiers.find((tier) => paidFriends < tier.friends) ?? null;
+  return { totalDays: reached.at(-1)?.totalDays ?? 0, next };
 }
 
 /** "MM-DD" valido (29 febbraio incluso). */

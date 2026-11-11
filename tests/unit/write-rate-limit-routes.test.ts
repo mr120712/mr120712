@@ -50,9 +50,9 @@ vi.mock('@/lib/db', () => ({
   },
 }));
 
-import { PATCH as updateCommunityProfile } from '@/app/api/community/me/route';
-import { POST as follow } from '@/app/api/community/follows/route';
 import { DELETE as unfollow } from '@/app/api/community/follows/[profileId]/route';
+import { POST as follow } from '@/app/api/community/follows/route';
+import { PATCH as updateCommunityProfile } from '@/app/api/community/me/route';
 import { PATCH as updateProduct } from '@/app/api/products/[productId]/route';
 import { POST as addProduct } from '@/app/api/shops/[shopId]/products/route';
 import { PATCH as updateShop } from '@/app/api/shops/[shopId]/route';
@@ -88,16 +88,28 @@ beforeEach(() => {
   mocks.shopUpdateMany.mockResolvedValue({ count: 1 });
   mocks.productFindFirst.mockResolvedValue({ id: 'product-1' });
   mocks.productCreate.mockResolvedValue({
-    id: 'product-new', shopId: 'shop-1', name: 'Album', url: 'https://shop.example/album',
-    expectedPriceCents: 2500, expectedAvailability: true, createdAt: new Date(), updatedAt: new Date(),
+    id: 'product-new',
+    shopId: 'shop-1',
+    name: 'Album',
+    url: 'https://shop.example/album',
+    expectedPriceCents: 2500,
+    expectedAvailability: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
   });
   mocks.productUpdateMany.mockResolvedValue({ count: 1 });
   mocks.profileFindUnique.mockResolvedValue({
-    id: 'profile-target', userId: 'user-2', profileVisibility: 'public',
+    id: 'profile-target',
+    userId: 'user-2',
+    profileVisibility: 'public',
   });
   mocks.profileUpsert.mockResolvedValue({
-    id: 'profile-own', userId: user.id, profileRole: 'fan', profileVisibility: 'private',
-    followersVisibility: 'private', followingVisibility: 'private',
+    id: 'profile-own',
+    userId: user.id,
+    profileRole: 'fan',
+    profileVisibility: 'private',
+    followersVisibility: 'private',
+    followingVisibility: 'private',
   });
   mocks.userFindMany.mockResolvedValue([{ id: 'user-2', name: 'Secondo account' }]);
   mocks.userFollowUpsert.mockResolvedValue({ id: 'follow-1' });
@@ -124,8 +136,11 @@ describe('azioni di scrittura a budget per account', () => {
     mocks.enforceRateLimit.mockResolvedValueOnce(deniedResponse());
     const addProductResponse = await addProduct(
       request('/api/shops/shop-1/products', {
-        name: 'Album', url: 'https://shop.example/album', expectedPriceCents: 2500,
-        expectedAvailability: true, currency: 'EUR',
+        name: 'Album',
+        url: 'https://shop.example/album',
+        expectedPriceCents: 2500,
+        expectedAvailability: true,
+        currency: 'EUR',
       }),
       shopParams,
     );
@@ -144,7 +159,9 @@ describe('azioni di scrittura a budget per account', () => {
   });
 
   it('limita follow, unfollow e modifica community senza cambiare le letture', async () => {
-    const followResponse = await follow(request('/api/community/follows', { profileId: 'profile-target' }));
+    const followResponse = await follow(
+      request('/api/community/follows', { profileId: 'profile-target' }),
+    );
     expect(followResponse.status).toBe(429);
     expect(mocks.enforceRateLimit).toHaveBeenLastCalledWith('community.follow', 'user:user-1');
     expect(mocks.userFollowUpsert).not.toHaveBeenCalled();
@@ -152,7 +169,8 @@ describe('azioni di scrittura a budget per account', () => {
     mocks.enforceRateLimit.mockResolvedValueOnce(deniedResponse());
     const unfollowResponse = await unfollow(
       new Request('https://solco.test/api/community/follows/profile-target', {
-        method: 'DELETE', headers: { origin: 'https://solco.test' },
+        method: 'DELETE',
+        headers: { origin: 'https://solco.test' },
       }),
       profileParams,
     );
@@ -163,8 +181,10 @@ describe('azioni di scrittura a budget per account', () => {
     mocks.enforceRateLimit.mockResolvedValueOnce(deniedResponse());
     const profileResponse = await updateCommunityProfile(
       request('/api/community/me', {
-        profileRole: 'artist', profileVisibility: 'public',
-        followersVisibility: 'private', followingVisibility: 'private',
+        profileRole: 'artist',
+        profileVisibility: 'public',
+        followersVisibility: 'private',
+        followingVisibility: 'private',
       }),
     );
     expect(profileResponse.status).toBe(429);

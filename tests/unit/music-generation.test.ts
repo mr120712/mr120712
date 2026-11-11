@@ -46,7 +46,9 @@ describe('API di creazione musicale', () => {
     const forbidden = Response.json({ error: 'pro_required' }, { status: 403 });
     mocks.requireSolcoPro.mockResolvedValueOnce({ allowed: false, response: forbidden });
 
-    const response = await POST(request('POST', { prompt: 'Un brano strumentale lento e delicato.' }));
+    const response = await POST(
+      request('POST', { prompt: 'Un brano strumentale lento e delicato.' }),
+    );
 
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: 'pro_required' });
@@ -56,16 +58,20 @@ describe('API di creazione musicale', () => {
   it('rifiuta richieste cross-origin prima di controlli Pro o operazioni applicative', async () => {
     mocks.sameOrigin.mockReturnValueOnce(false);
 
-    const response = await POST(request('POST', { prompt: 'Un brano strumentale lento e delicato.' }, 'https://altro.test'));
+    const response = await POST(
+      request('POST', { prompt: 'Un brano strumentale lento e delicato.' }, 'https://altro.test'),
+    );
 
     expect(response.status).toBe(403);
     expect(mocks.requireSolcoPro).not.toHaveBeenCalled();
   });
 
   it('non dichiara successo né crea un risultato quando manca il provider musicale', async () => {
-    const response = await POST(request('POST', {
-      prompt: 'Un brano strumentale lento, con piano e percussioni leggere.',
-    }));
+    const response = await POST(
+      request('POST', {
+        prompt: 'Un brano strumentale lento, con piano e percussioni leggere.',
+      }),
+    );
 
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: 'music_provider_not_configured' });

@@ -41,7 +41,11 @@ const track = {
 
 beforeEach(() => {
   vi.resetAllMocks();
-  mocks.activation.mockReturnValue({ active: true, blockers: [], apiKey: 'server-only-fixture-key' });
+  mocks.activation.mockReturnValue({
+    active: true,
+    blockers: [],
+    apiKey: 'server-only-fixture-key',
+  });
   mocks.trending.mockResolvedValue({ tracks: [track], outcome: 'results' });
   mocks.albums.mockResolvedValue({ albums: [], outcome: 'no_results' });
 });
@@ -53,7 +57,13 @@ describe('tendenze Audius della home', () => {
     expect(response.status).toBe(200);
     expect(body).toMatchObject({
       outcome: 'results',
-      tracks: [{ title: 'Titolo ufficiale', artistName: 'Artista ufficiale', artworkUrl: track.artworkUrl }],
+      tracks: [
+        {
+          title: 'Titolo ufficiale',
+          artistName: 'Artista ufficiale',
+          artworkUrl: track.artworkUrl,
+        },
+      ],
       sourceStatus: { id: 'audius', active: true },
     });
     expect(JSON.stringify(body)).not.toContain('server-only-fixture-key');

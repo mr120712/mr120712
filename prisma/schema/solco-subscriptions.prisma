@@ -9,6 +9,8 @@ model SolcoSubscription {
   status               String
   currentPeriodEnd     DateTime?
   cancelAtPeriodEnd    Boolean   @default(false)
+  /// First invoice verified as paid on Stripe (amount > 0): counts for referral rewards.
+  firstPaidAt          DateTime?
   checkedAt            DateTime  @default(now())
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
@@ -32,6 +34,8 @@ model PayPalSubscription {
   paypalSubscriptionId String    @unique
   status               String
   nextBillingAt        DateTime?
+  /// First payment verified on PayPal (last_payment amount > 0): counts for referral rewards.
+  firstPaidAt          DateTime?
   checkedAt            DateTime  @default(now())
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt

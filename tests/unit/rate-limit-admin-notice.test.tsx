@@ -51,7 +51,9 @@ describe('nota amministrativa sui limiti', () => {
   });
 
   it('distingue la protezione applicativa dalla saturazione della rete', () => {
-    expect(RATE_LIMIT_PROTECTION_NOTICE).toContain('solo quando una richiesta raggiunge l’applicazione');
+    expect(RATE_LIMIT_PROTECTION_NOTICE).toContain(
+      'solo quando una richiesta raggiunge l’applicazione',
+    );
     expect(RATE_LIMIT_PROTECTION_NOTICE).toContain('saturazione della banda o delle connessioni');
     expect(RATE_LIMIT_PROTECTION_NOTICE).toContain('IP condivisi');
     expect(RATE_LIMIT_PROTECTION_NOTICE).toContain('IP ruotati');

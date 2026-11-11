@@ -47,9 +47,12 @@ vi.mock('@/lib/db', () => ({
   },
 }));
 
-import { GET, POST } from '@/app/api/admin/music-rights/route';
 import { PATCH } from '@/app/api/admin/music-rights/[sourceId]/route';
-import { InvalidPrivateAudioSource, PrivateAudioStorageUnavailable } from '@/lib/music/private-audio-source.server';
+import { GET, POST } from '@/app/api/admin/music-rights/route';
+import {
+  InvalidPrivateAudioSource,
+  PrivateAudioStorageUnavailable,
+} from '@/lib/music/private-audio-source.server';
 
 const admin = { allowed: true, user: { id: 'verified-admin-3' } };
 const catalogDetail = {
@@ -80,15 +83,21 @@ beforeEach(() => {
   mocks.sameOrigin.mockReturnValue(true);
   mocks.requireAdmin.mockResolvedValue(admin);
   mocks.catalog.mockResolvedValue(catalogDetail);
-  mocks.inspectAudio.mockResolvedValue({ mimeType: 'audio/mp4', byteLength: 4000, durationSeconds: 183.25 });
+  mocks.inspectAudio.mockResolvedValue({
+    mimeType: 'audio/mp4',
+    byteLength: 4000,
+    durationSeconds: 183.25,
+  });
   mocks.inspectEvidence.mockResolvedValue({ mimeType: 'application/pdf', byteLength: 900 });
   mocks.sourceFindMany.mockResolvedValue([]);
   mocks.sourceCreate.mockResolvedValue({ id: 'source-registered-1' });
   mocks.evidenceCreate.mockResolvedValue({ id: 'evidence-registered-1' });
-  mocks.transaction.mockImplementation(async (callback) => callback({
-    musicPlaybackSource: { create: mocks.sourceCreate },
-    musicRightsEvidence: { create: mocks.evidenceCreate },
-  }));
+  mocks.transaction.mockImplementation(async (callback) =>
+    callback({
+      musicPlaybackSource: { create: mocks.sourceCreate },
+      musicRightsEvidence: { create: mocks.evidenceCreate },
+    }),
+  );
 });
 
 describe('gestione amministrativa delle fonti e dei diritti', () => {
@@ -101,25 +110,38 @@ describe('gestione amministrativa delle fonti e dei diritti', () => {
     expect(denied.status).toBe(403);
     expect(mocks.sourceFindMany).not.toHaveBeenCalled();
 
-    mocks.sourceFindMany.mockResolvedValueOnce([{
-      id: 'source-registered-1', albumId: 'album-71', trackId: 'track-71',
-      completeness: 'full_track', durationSeconds: 183.25, active: true,
-      fileKey: 'private/audio-secret.m4a', evidenceFileKey: 'private/rights-secret.pdf',
-      rightsEvidence: {
-        validFrom: new Date('2026-11-01T00:00:00.000Z'),
-        validUntil: new Date('2027-11-01T00:00:00.000Z'),
-        verifiedAt: new Date('2026-11-01T00:00:00.000Z'),
-        verifiedByUserId: 'verified-admin-3', revokedAt: null,
+    mocks.sourceFindMany.mockResolvedValueOnce([
+      {
+        id: 'source-registered-1',
+        albumId: 'album-71',
+        trackId: 'track-71',
+        completeness: 'full_track',
+        durationSeconds: 183.25,
+        active: true,
+        fileKey: 'private/audio-secret.m4a',
+        evidenceFileKey: 'private/rights-secret.pdf',
+        rightsEvidence: {
+          validFrom: new Date('2026-11-01T00:00:00.000Z'),
+          validUntil: new Date('2027-11-01T00:00:00.000Z'),
+          verifiedAt: new Date('2026-11-01T00:00:00.000Z'),
+          verifiedByUserId: 'verified-admin-3',
+          revokedAt: null,
+        },
       },
-    }]);
+    ]);
     const response = await GET(new Request('https://solco.test/api/admin/music-rights'));
     const body = await response.json();
     expect(response.status).toBe(200);
     expect(body.records[0]).toMatchObject({
-      albumId: 'album-71', trackId: 'track-71', active: true,
-      rightsState: 'current', verifiedByUserId: 'verified-admin-3',
+      albumId: 'album-71',
+      trackId: 'track-71',
+      active: true,
+      rightsState: 'current',
+      verifiedByUserId: 'verified-admin-3',
     });
-    expect(JSON.stringify(body)).not.toMatch(/private\/audio|private\/rights|fileKey|evidenceFileKey/);
+    expect(JSON.stringify(body)).not.toMatch(
+      /private\/audio|private\/rights|fileKey|evidenceFileKey/,
+    );
   });
 
   it('nega chiamate dirette e non-admin prima di leggere o modificare fonti', async () => {
@@ -165,26 +187,30 @@ describe('gestione amministrativa delle fonti e dei diritti', () => {
       900,
     );
     expect(mocks.transaction).toHaveBeenCalledOnce();
-    expect(mocks.sourceCreate).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        albumId: 'album-71',
-        trackId: 'track-71',
-        completeness: 'full_track',
-        durationSeconds: 183.25,
-        active: true,
-        createdByUserId: 'verified-admin-3',
+    expect(mocks.sourceCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          albumId: 'album-71',
+          trackId: 'track-71',
+          completeness: 'full_track',
+          durationSeconds: 183.25,
+          active: true,
+          createdByUserId: 'verified-admin-3',
+        }),
+        select: { id: true },
       }),
-      select: { id: true },
-    }));
-    expect(mocks.evidenceCreate).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        albumId: 'album-71',
-        trackId: 'track-71',
-        grant: 'solco_streaming',
-        durationSeconds: 183.25,
-        verifiedByUserId: 'verified-admin-3',
+    );
+    expect(mocks.evidenceCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          albumId: 'album-71',
+          trackId: 'track-71',
+          grant: 'solco_streaming',
+          durationSeconds: 183.25,
+          verifiedByUserId: 'verified-admin-3',
+        }),
       }),
-    }));
+    );
     expect(JSON.stringify(body)).not.toMatch(/company\/private|\.pdf|\.m4a/);
   });
 
@@ -211,9 +237,13 @@ describe('gestione amministrativa delle fonti e dei diritti', () => {
       params: Promise.resolve({ sourceId: 'source-registered-1' }),
     });
     expect(deactivated.status).toBe(200);
-    expect(await deactivated.json()).toEqual({ sourceId: 'source-registered-1', state: 'deactivated' });
+    expect(await deactivated.json()).toEqual({
+      sourceId: 'source-registered-1',
+      state: 'deactivated',
+    });
     expect(mocks.sourceUpdate).toHaveBeenCalledWith({
-      where: { id: 'source-registered-1' }, data: { active: false },
+      where: { id: 'source-registered-1' },
+      data: { active: false },
     });
 
     const revoked = await PATCH(post({ action: 'revoke_evidence' }, 'PATCH'), {
@@ -222,7 +252,8 @@ describe('gestione amministrativa delle fonti e dei diritti', () => {
     expect(revoked.status).toBe(200);
     expect(await revoked.json()).toEqual({ sourceId: 'source-registered-1', state: 'revoked' });
     expect(mocks.evidenceUpdate).toHaveBeenCalledWith({
-      where: { id: 'evidence-registered-1' }, data: { revokedAt: expect.any(Date) },
+      where: { id: 'evidence-registered-1' },
+      data: { revokedAt: expect.any(Date) },
     });
   });
 });

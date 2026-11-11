@@ -45,8 +45,8 @@ vi.mock('@/lib/db', () => ({
   },
 }));
 
-import { GET as getInbox, POST as startConversation } from '@/app/api/messages/route';
 import { GET as getThread, POST as sendMessage } from '@/app/api/messages/[conversationId]/route';
+import { GET as getInbox, POST as startConversation } from '@/app/api/messages/route';
 
 type TestUser = { id: string; name: string };
 type TestMessage = { id: string; senderId: string; content: string; createdAt: Date };
@@ -107,14 +107,21 @@ describe('messaggi privati', () => {
     mocks.conversationFindMany.mockResolvedValue([
       { ...conversation, messages: [...conversation.messages].reverse() },
     ]);
-    mocks.conversationFindFirst.mockImplementation(async (args: { where: { OR: Array<Record<string, string>> } }) => {
-      const requestedUserId = args.where.OR[0]?.participantAId ?? args.where.OR[1]?.participantBId;
-      return requestedUserId === alice.id || requestedUserId === ben.id ? conversation : null;
-    });
+    mocks.conversationFindFirst.mockImplementation(
+      async (args: { where: { OR: Array<Record<string, string>> } }) => {
+        const requestedUserId =
+          args.where.OR[0]?.participantAId ?? args.where.OR[1]?.participantBId;
+        return requestedUserId === alice.id || requestedUserId === ben.id ? conversation : null;
+      },
+    );
     mocks.conversationUpsert.mockResolvedValue(conversation);
     mocks.conversationUpdate.mockResolvedValue(conversation);
     mocks.conversationUpdateMany.mockResolvedValue({ count: 1 });
-    mocks.profileFindUnique.mockResolvedValue({ id: 'profile-b', userId: ben.id, profileVisibility: 'public' });
+    mocks.profileFindUnique.mockResolvedValue({
+      id: 'profile-b',
+      userId: ben.id,
+      profileVisibility: 'public',
+    });
     mocks.profileFindMany.mockResolvedValue([
       { userId: alice.id, profileRole: 'fan' },
       { userId: ben.id, profileRole: 'artist' },
@@ -124,12 +131,14 @@ describe('messaggi privati', () => {
       { id: alice.id, name: 'Alice' },
       { id: ben.id, name: 'Ben' },
     ] satisfies TestUser[]);
-    mocks.messageCreate.mockImplementation(async (args: { data: Omit<TestMessage, 'id' | 'createdAt'> & { createdAt?: Date } }) => ({
-      id: 'message-new',
-      senderId: args.data.senderId,
-      content: args.data.content,
-      createdAt: args.data.createdAt ?? time2,
-    }));
+    mocks.messageCreate.mockImplementation(
+      async (args: { data: Omit<TestMessage, 'id' | 'createdAt'> & { createdAt?: Date } }) => ({
+        id: 'message-new',
+        senderId: args.data.senderId,
+        content: args.data.content,
+        createdAt: args.data.createdAt ?? time2,
+      }),
+    );
     const transactionClient: TransactionClient = {
       conversation: {
         upsert: mocks.conversationUpsert,
@@ -138,8 +147,9 @@ describe('messaggi privati', () => {
       },
       message: { create: mocks.messageCreate },
     };
-    mocks.transaction.mockImplementation(async (operation: (tx: TransactionClient) => Promise<unknown>) =>
-      operation(transactionClient),
+    mocks.transaction.mockImplementation(
+      async (operation: (tx: TransactionClient) => Promise<unknown>) =>
+        operation(transactionClient),
     );
   });
 
@@ -155,15 +165,19 @@ describe('messaggi privati', () => {
     const readByAlice = await getThread(request('/api/messages/thread-ab'), params());
     expect(readByAlice.status).toBe(200);
     expect((await readByAlice.json()).messages).toHaveLength(2);
-    expect((await sendMessage(sendRequest({ content: 'Risposta di Alice' }), params())).status).toBe(201);
+    expect(
+      (await sendMessage(sendRequest({ content: 'Risposta di Alice' }), params())).status,
+    ).toBe(201);
 
     mocks.requireAuth.mockResolvedValue(ben);
     const readByBen = await getThread(request('/api/messages/thread-ab'), params());
     expect(readByBen.status).toBe(200);
-    expect((await readByBen.json()).messages.map((message: TestMessage) => message.content)).toEqual([
-      'Ciao Ben', 'Ciao Alice',
-    ]);
-    expect((await sendMessage(sendRequest({ content: 'Risposta di Ben' }), params())).status).toBe(201);
+    expect(
+      (await readByBen.json()).messages.map((message: TestMessage) => message.content),
+    ).toEqual(['Ciao Ben', 'Ciao Alice']);
+    expect((await sendMessage(sendRequest({ content: 'Risposta di Ben' }), params())).status).toBe(
+      201,
+    );
 
     mocks.requireAuth.mockResolvedValue(stranger);
     const thirdPartyRead = await getThread(request('/api/messages/thread-ab'), params());
@@ -209,13 +223,22 @@ describe('messaggi privati', () => {
       }),
     );
     expect(response.status).toBe(201);
-    expect(await response.json()).toMatchObject({ conversationId: 'thread-ab', message: { content: 'Ciao di nuovo' } });
-    expect(mocks.conversationUpsert).toHaveBeenCalledWith(expect.objectContaining({
-      where: { participantAId_participantBId: { participantAId: alice.id, participantBId: ben.id } },
-    }));
-    expect(mocks.messageCreate).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ conversationId: conversation.id, senderId: alice.id }),
-    }));
+    expect(await response.json()).toMatchObject({
+      conversationId: 'thread-ab',
+      message: { content: 'Ciao di nuovo' },
+    });
+    expect(mocks.conversationUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          participantAId_participantBId: { participantAId: alice.id, participantBId: ben.id },
+        },
+      }),
+    );
+    expect(mocks.messageCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ conversationId: conversation.id, senderId: alice.id }),
+      }),
+    );
   });
 
   it('restituisce 429 prima di creare una conversazione e non applica un limite globale', async () => {
@@ -245,15 +268,15 @@ describe('messaggi privati', () => {
   });
 
   it('rifiuta un corpo troppo grande e verifica i partecipanti prima di consumare il budget', async () => {
-    const oversized = await sendMessage(
-      sendRequest({ content: 'x'.repeat(30_000) }),
-      params(),
-    );
+    const oversized = await sendMessage(sendRequest({ content: 'x'.repeat(30_000) }), params());
     expect(oversized.status).toBe(413);
     expect(mocks.enforceRateLimit).not.toHaveBeenCalled();
 
     mocks.requireAuth.mockResolvedValue(stranger);
-    const unauthorizedConversation = await sendMessage(sendRequest({ content: 'Non mio' }), params());
+    const unauthorizedConversation = await sendMessage(
+      sendRequest({ content: 'Non mio' }),
+      params(),
+    );
     expect(unauthorizedConversation.status).toBe(404);
     expect(mocks.enforceRateLimit).not.toHaveBeenCalled();
     expect(mocks.messageCreate).not.toHaveBeenCalled();
@@ -263,16 +286,20 @@ describe('messaggi privati', () => {
     const response = await getInbox(request('/api/messages'));
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      conversations: [{
-        id: conversation.id,
-        participant: { id: ben.id, name: 'Ben', role: 'artist' },
-        lastMessage: { content: 'Ciao Alice' },
-      }],
+      conversations: [
+        {
+          id: conversation.id,
+          participant: { id: ben.id, name: 'Ben', role: 'artist' },
+          lastMessage: { content: 'Ciao Alice' },
+        },
+      ],
     });
-    expect(mocks.conversationFindMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { OR: [{ participantAId: alice.id }, { participantBId: alice.id }] },
-      orderBy: [{ lastMessageAt: 'desc' }, { id: 'asc' }],
-    }));
+    expect(mocks.conversationFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { OR: [{ participantAId: alice.id }, { participantBId: alice.id }] },
+        orderBy: [{ lastMessageAt: 'desc' }, { id: 'asc' }],
+      }),
+    );
   });
 
   it('lascia fuori dai budget le letture ordinarie della inbox e della conversazione', async () => {

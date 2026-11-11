@@ -68,8 +68,19 @@ beforeEach(() => {
   mocks.productFindFirst.mockResolvedValue(product);
   mocks.checkCreate.mockResolvedValue({ id: 'check-1', createdAt: new Date(), checkedAt: null });
   mocks.checkUpdate.mockResolvedValue({ id: 'check-1', createdAt: new Date(), checkedAt: null });
-  mocks.fetchPage.mockResolvedValue({ markdown: 'Prezzo 25 EUR', title: 'Album', fetchedAt: new Date().toISOString(), truncated: false });
-  mocks.generateObject.mockResolvedValue({ price: null, currency: null, availability: 'unknown', priceEvidence: null, availabilityEvidence: null });
+  mocks.fetchPage.mockResolvedValue({
+    markdown: 'Prezzo 25 EUR',
+    title: 'Album',
+    fetchedAt: new Date().toISOString(),
+    truncated: false,
+  });
+  mocks.generateObject.mockResolvedValue({
+    price: null,
+    currency: null,
+    availability: 'unknown',
+    priceEvidence: null,
+    availabilityEvidence: null,
+  });
 });
 
 describe('avvio dei controlli prodotto', () => {

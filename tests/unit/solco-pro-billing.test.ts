@@ -23,19 +23,19 @@ vi.mock('@/lib/stripe-billing/client', () => ({
   getSubscriptionStatus: mocks.getSubscriptionStatus,
 }));
 
-import { POST as createCheckout } from '@/app/api/stripe-billing/checkout/route';
 import { GET as checkoutStatus } from '@/app/api/solco-pro/status/route';
 import { POST as createPortal } from '@/app/api/solco-pro/subscription/portal/route';
+import { POST as createCheckout } from '@/app/api/stripe-billing/checkout/route';
 import {
+  getSolcoProCheckoutStatusMessage,
   SOLCO_PRO_CHECKOUT_UNAVAILABLE_MESSAGE,
   SOLCO_PRO_OFFER_SUMMARY,
   SOLCO_PRO_PAYMENT_METHOD,
   SOLCO_PRO_PRICE,
-  getSolcoProCheckoutStatusMessage,
 } from '@/lib/business/solco-pro-billing';
 import {
-  solcoProCheckoutStatusSchema,
   type SolcoProCheckoutStatus,
+  solcoProCheckoutStatusSchema,
 } from '@/lib/contracts/solco-pro';
 
 const account = { id: 'user-1', email: 'listener@example.test' };
@@ -64,7 +64,9 @@ describe('billing Solco Pro una tantum', () => {
     expect(SOLCO_PRO_OFFER_SUMMARY).toBe('24,00 EUR una tantum · 1 mese di accesso');
     expect(SOLCO_PRO_PAYMENT_METHOD).toBe('Stripe');
     expect(SOLCO_PRO_CHECKOUT_UNAVAILABLE_MESSAGE).toContain('un mese');
-    expect(SOLCO_PRO_CHECKOUT_UNAVAILABLE_MESSAGE).toContain('accredito sul conto bancario configurato');
+    expect(SOLCO_PRO_CHECKOUT_UNAVAILABLE_MESSAGE).toContain(
+      'accredito sul conto bancario configurato',
+    );
     expect(SOLCO_PRO_CHECKOUT_UNAVAILABLE_MESSAGE).toContain('chargesEnabled è true');
     expect(SOLCO_PRO_CHECKOUT_UNAVAILABLE_MESSAGE).toContain('accountStatus è complete');
   });
@@ -81,7 +83,9 @@ describe('billing Solco Pro una tantum', () => {
     );
 
     expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: 'solco_pro_eur_recurring_checkout_unavailable' });
+    expect(await response.json()).toEqual({
+      error: 'solco_pro_eur_recurring_checkout_unavailable',
+    });
   });
 
   it('ignora i parametri di ritorno del browser e mostra la readiness server-side', async () => {
@@ -140,9 +144,7 @@ describe('billing Solco Pro una tantum', () => {
   });
 
   it('non apre il portale subscription per l’offerta non ricorrente', async () => {
-    const response = await createPortal(
-      request('/api/solco-pro/subscription/portal', 'POST'),
-    );
+    const response = await createPortal(request('/api/solco-pro/subscription/portal', 'POST'));
 
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({

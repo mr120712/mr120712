@@ -35,7 +35,7 @@ export const navItems: NavItem[] = [
   { label: 'Libreria', href: '/library', group: 'primary', order: 3 },
   { label: 'Community', href: '/community', group: 'primary', order: 4 },
   { label: 'Piani', href: '/piani', group: 'primary', order: 5 },
-  { label: 'Premi', href: '/premi', group: 'primary', order: 5 },
+  { label: 'Invita amici', href: '/premi', group: 'primary', order: 5 },
   { label: 'Messaggi', href: '/messages', group: 'secondary', requiresAuth: true, order: 0 },
   { label: 'Installa l’app', href: '/app', group: 'primary', order: 6 },
   { label: 'Privacy', href: '/privacy', group: 'footer', order: 0 },

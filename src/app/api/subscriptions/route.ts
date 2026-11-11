@@ -6,6 +6,7 @@ import {
   isPayPalSubscriptionActive,
   paypalEnabled,
 } from '@/lib/business/paypal-subscriptions.server';
+import { evaluateRewards } from '@/lib/business/rewards.server';
 import {
   getUserSubscription,
   isSubscriptionActive,
@@ -30,6 +31,8 @@ export async function GET() {
       getUserSubscription(user.id),
       getUserPayPalSubscription(user.id),
     ]);
+    // A payment verified during the refresh above may complete an invite.
+    await evaluateRewards(user.id).catch(() => undefined);
     const subscription =
       stripe && isSubscriptionActive(stripe)
         ? {

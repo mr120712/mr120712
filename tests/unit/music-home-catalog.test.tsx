@@ -1,6 +1,7 @@
 // @polsia:user-owned
-import { act } from 'react';
+
 import type { ReactNode } from 'react';
+import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MusicHomeResponse, MusicSearchSource } from '@/lib/contracts/music';
@@ -28,11 +29,17 @@ vi.mock('@/lib/api-client', () => ({ apiFetch: mocks.apiFetch }));
 vi.mock('@/components/custom/music/music-player', () => ({ useMusicPlayer: () => mocks.player }));
 vi.mock('next/link', () => ({
   default: ({ href, children, ...props }: { href: string; children: ReactNode }) => (
-    <a href={href} {...props}>{children}</a>
+    <a href={href} {...props}>
+      {children}
+    </a>
   ),
 }));
 vi.mock('next/image', () => ({
-  default: ({ alt }: { alt: string }) => <span role="img" aria-label={alt}>{alt}</span>,
+  default: ({ alt }: { alt: string }) => (
+    <span role="img" aria-label={alt}>
+      {alt}
+    </span>
+  ),
 }));
 
 import { HomeCatalog } from '@/components/custom/music/home-catalog';
@@ -78,32 +85,50 @@ const populated: MusicHomeResponse = {
   trending: { outcome: 'results', tracks: [track] },
   releases: {
     outcome: 'results',
-    albums: [{
-      provider: 'audius', id: 'album-71', qualifiedId: 'audius:album:album-71',
-      title: 'Uscita di prova', artistName: 'Artista di prova',
-      artistUrl: 'https://audius.co/artista-prova',
-      albumUrl: 'https://audius.co/artista-prova/uscita',
-      artworkUrl: 'https://audius.co/images/album.jpg', releaseDate: null, trackCount: 8,
-    }],
+    albums: [
+      {
+        provider: 'audius',
+        id: 'album-71',
+        qualifiedId: 'audius:album:album-71',
+        title: 'Uscita di prova',
+        artistName: 'Artista di prova',
+        artistUrl: 'https://audius.co/artista-prova',
+        albumUrl: 'https://audius.co/artista-prova/uscita',
+        artworkUrl: 'https://audius.co/images/album.jpg',
+        releaseDate: null,
+        trackCount: 8,
+      },
+    ],
   },
   playlists: {
     outcome: 'results',
-    playlists: [{
-      provider: 'audius', id: 'playlist-71', qualifiedId: 'audius:playlist:playlist-71',
-      title: 'Selezione di prova', artistName: 'Curatore di prova',
-      artistUrl: 'https://audius.co/curatore',
-      playlistUrl: 'https://audius.co/curatore/selezione',
-      artworkUrl: 'https://audius.co/images/playlist.jpg', trackCount: 12,
-    }],
+    playlists: [
+      {
+        provider: 'audius',
+        id: 'playlist-71',
+        qualifiedId: 'audius:playlist:playlist-71',
+        title: 'Selezione di prova',
+        artistName: 'Curatore di prova',
+        artistUrl: 'https://audius.co/curatore',
+        playlistUrl: 'https://audius.co/curatore/selezione',
+        artworkUrl: 'https://audius.co/images/playlist.jpg',
+        trackCount: 12,
+      },
+    ],
   },
   artists: {
     outcome: 'results',
-    artists: [{
-      provider: 'audius', id: 'artist-71', qualifiedId: 'audius:artist-71',
-      name: 'Artista di prova', handle: 'artista-prova',
-      artworkUrl: 'https://audius.co/images/artista.jpg',
-      profileUrl: 'https://audius.co/artista-prova',
-    }],
+    artists: [
+      {
+        provider: 'audius',
+        id: 'artist-71',
+        qualifiedId: 'audius:artist-71',
+        name: 'Artista di prova',
+        handle: 'artista-prova',
+        artworkUrl: 'https://audius.co/images/artista.jpg',
+        profileUrl: 'https://audius.co/artista-prova',
+      },
+    ],
   },
 };
 
@@ -158,18 +183,24 @@ describe('catalogo Audius nella Home', () => {
   it('mostra dati attribuiti nell’ordine richiesto, tutti i generi e la navigazione verso Cerca', async () => {
     const container = await mount();
     const sectionIds = ['tendenze', 'nuove-uscite', 'playlist', 'artisti', 'generi'];
-    const renderedSectionIds = [...container.querySelectorAll<HTMLElement>('section[id]')].map((section) => section.id);
+    const renderedSectionIds = [...container.querySelectorAll<HTMLElement>('section[id]')].map(
+      (section) => section.id,
+    );
     expect(sectionIds.map((id) => renderedSectionIds.indexOf(id))).toEqual([0, 1, 2, 3, 4]);
     expect(container.textContent).toContain('Traccia di prova');
     expect(container.textContent).toContain('Uscita di prova');
     expect(container.textContent).toContain('Selezione di prova');
     expect(container.textContent).toContain('Artista di prova');
-    expect(container.querySelector('a[href="https://audius.co/artista-prova/traccia-di-prova"]')).not.toBeNull();
+    expect(
+      container.querySelector('a[href="https://audius.co/artista-prova/traccia-di-prova"]'),
+    ).not.toBeNull();
     expect(container.querySelector('a[href="https://audius.co/artista-prova"]')).not.toBeNull();
     expect(container.querySelector('a[href="/search?q=Electronic"]')).not.toBeNull();
 
     const genres = [...container.querySelectorAll<HTMLAnchorElement>('#generi a')];
-    expect(genres.map((item) => [item.querySelector('strong')?.textContent, item.getAttribute('href')])).toEqual([
+    expect(
+      genres.map((item) => [item.querySelector('strong')?.textContent, item.getAttribute('href')]),
+    ).toEqual([
       ['Electronic', '/search?q=Electronic'],
       ['Hip-Hop', '/search?q=Hip-Hop'],
       ['Rock', '/search?q=Rock'],
@@ -201,13 +232,19 @@ describe('catalogo Audius nella Home', () => {
 
   it('distingue caricamento, catalogo senza risultati e credenziale mancante', async () => {
     let resolveResponse: ((value: MusicHomeResponse) => void) | undefined;
-    mocks.apiFetch.mockReturnValueOnce(new Promise((resolve) => { resolveResponse = resolve; }));
+    mocks.apiFetch.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveResponse = resolve;
+      }),
+    );
     const container = await mount();
     expect(container.textContent).toContain('Caricamento le tendenze Audius…');
 
     await act(async () => resolveResponse?.(empty));
     expect(container.textContent).toContain('Audius non ha restituito le tendenze disponibili.');
-    expect(container.textContent).toContain('Audius non ha restituito le nuove uscite disponibili.');
+    expect(container.textContent).toContain(
+      'Audius non ha restituito le nuove uscite disponibili.',
+    );
     expect(container.textContent).toContain('Audius non ha restituito le playlist disponibili.');
     expect(container.textContent).toContain('Audius non ha restituito gli artisti disponibili.');
 

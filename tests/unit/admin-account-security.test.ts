@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
+import { authConfig } from '@/lib/auth-config';
 import {
   normalizePersistedAdminRoles,
   REQUESTED_ADMIN_EMAIL,
+  type RoleUpdateStore,
   resolveAdminAccess,
   resolveInitialSignupRole,
-  type RoleUpdateStore,
 } from '@/lib/business/admin-account-policy';
-import { authConfig } from '@/lib/auth-config';
 
 vi.mock('@/lib/db', () => ({
   prisma: { user: { updateMany: vi.fn() } },
@@ -99,9 +99,7 @@ describe('normalizzazione persistente dei ruoli', () => {
 
     await normalizePersistedAdminRoles(store, requestedUserId);
 
-    expect(calls).toEqual([
-      { where: { id: requestedUserId }, data: { role: 'admin' } },
-    ]);
+    expect(calls).toEqual([{ where: { id: requestedUserId }, data: { role: 'admin' } }]);
     expect(users).toEqual([
       before[0],
       { ...before[1], role: 'admin' },

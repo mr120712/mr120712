@@ -42,9 +42,9 @@ import {
   getSolcoProReadiness,
   persistVerifiedSolcoProPurchase,
   requireSolcoPro,
+  type SolcoProStripeCheckoutGateway,
   startSolcoProCheckout,
   verifySolcoProPurchase,
-  type SolcoProStripeCheckoutGateway,
 } from '@/lib/business/solco-pro-entitlement';
 
 const account = { id: 'user-a', email: 'listener@example.test' };

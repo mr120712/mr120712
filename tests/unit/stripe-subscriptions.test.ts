@@ -2,11 +2,30 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({
-  upsert: vi.fn(async (args: { create: Record<string, unknown> }) => ({ ...args.create })),
-}));
+const mocks = vi.hoisted(() => {
+  let stored: Record<string, unknown> | null = null;
+  return {
+    upsert: vi.fn(async (args: { create: Record<string, unknown> }) => {
+      stored = { id: 'row-1', firstPaidAt: null, ...args.create };
+      return stored;
+    }),
+    updateMany: vi.fn(async (args: { data: Record<string, unknown> }) => {
+      if (stored) Object.assign(stored, args.data);
+      return { count: 1 };
+    }),
+    findUniqueOrThrow: vi.fn(async () => stored),
+  };
+});
 vi.mock('server-only', () => ({}));
-vi.mock('@/lib/db', () => ({ prisma: { solcoSubscription: { upsert: mocks.upsert } } }));
+vi.mock('@/lib/db', () => ({
+  prisma: {
+    solcoSubscription: {
+      upsert: mocks.upsert,
+      updateMany: mocks.updateMany,
+      findUniqueOrThrow: mocks.findUniqueOrThrow,
+    },
+  },
+}));
 
 import {
   confirmSubscriptionCheckout,
@@ -95,9 +114,32 @@ describe('abbonamenti Stripe', () => {
     ).rejects.toMatchObject({ code: 'incomplete' });
     expect(mocks.upsert).not.toHaveBeenCalled();
 
-    const ok = vi
-      .fn()
-      .mockResolvedValue(json({ client_reference_id: 'user-1', status: 'complete', subscription }));
+    // Completed but nothing charged (e.g. a 100% coupon): no verified payment.
+    const free = vi.fn().mockResolvedValue(
+      json({
+        client_reference_id: 'user-1',
+        status: 'complete',
+        payment_status: 'no_payment_required',
+        amount_total: 0,
+        subscription,
+      }),
+    );
+    const unpaid = await confirmSubscriptionCheckout(
+      'user-1',
+      'cs_test_1',
+      free as unknown as typeof fetch,
+    );
+    expect(unpaid).toMatchObject({ firstPaidAt: null });
+
+    const ok = vi.fn().mockResolvedValue(
+      json({
+        client_reference_id: 'user-1',
+        status: 'complete',
+        payment_status: 'paid',
+        amount_total: 499,
+        subscription,
+      }),
+    );
     const row = await confirmSubscriptionCheckout(
       'user-1',
       'cs_test_1',
@@ -109,6 +151,7 @@ describe('abbonamenti Stripe', () => {
       stripeSubscriptionId: 'sub_1',
       status: 'active',
     });
+    expect((row as { firstPaidAt: unknown }).firstPaidAt).toBeInstanceOf(Date);
   });
 
   it('considera attivo solo uno stato valido e non scaduto', () => {

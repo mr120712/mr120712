@@ -1,4 +1,4 @@
-import { act, type AnchorHTMLAttributes, type ReactNode } from 'react';
+import { type AnchorHTMLAttributes, act, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -93,9 +93,9 @@ describe('percorso d’acquisto Solco Pro', () => {
     expect(container.textContent).toContain('Il checkout EUR non è ancora disponibile');
     expect(container.textContent).not.toContain('PayPal');
     expect(container.querySelectorAll('button')).toHaveLength(0);
-    expect([...container.querySelectorAll('a')].map((anchor) => anchor.getAttribute('href'))).toEqual([
-      '/#piani',
-    ]);
+    expect(
+      [...container.querySelectorAll('a')].map((anchor) => anchor.getAttribute('href')),
+    ).toEqual(['/#piani']);
   });
 
   it('mostra attivo e scadenza solo dopo la risposta server-side', async () => {

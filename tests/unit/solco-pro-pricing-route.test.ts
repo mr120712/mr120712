@@ -31,10 +31,12 @@ describe('endpoint autenticato dei prezzi Solco', () => {
       'premium-plus',
       'family',
     ]);
-    expect(result.plans.map((plan: { monthlyEuroCents: number; annualEuroCents: number }) => [
-      plan.monthlyEuroCents,
-      plan.annualEuroCents,
-    ])).toEqual([
+    expect(
+      result.plans.map((plan: { monthlyEuroCents: number; annualEuroCents: number }) => [
+        plan.monthlyEuroCents,
+        plan.annualEuroCents,
+      ]),
+    ).toEqual([
       [0, 0],
       [499, 4999],
       [799, 7999],
@@ -49,7 +51,9 @@ describe('endpoint autenticato dei prezzi Solco', () => {
   });
 
   it('nega la lettura anonima', async () => {
-    mocks.requireAuth.mockRejectedValueOnce(Response.json({ error: 'Unauthorized' }, { status: 401 }));
+    mocks.requireAuth.mockRejectedValueOnce(
+      Response.json({ error: 'Unauthorized' }, { status: 401 }),
+    );
     const response = await getPlans(new Request('https://solco.test/api/solco-pro/plans'));
 
     expect(response.status).toBe(401);

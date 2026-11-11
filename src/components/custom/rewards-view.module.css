@@ -167,3 +167,26 @@
     width: calc(100% - 32px);
   }
 }
+
+.tierTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.tierTable th,
+.tierTable td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.tierTable th {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.tierTable tr[aria-current="true"] td {
+  font-weight: 700;
+}

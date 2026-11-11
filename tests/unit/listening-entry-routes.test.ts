@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { SessionUser } from '@/lib/require-auth';
 import type { CreateListeningEntry } from '@/lib/contracts/music';
+import type { SessionUser } from '@/lib/require-auth';
 
 type EntryRow = {
   id: string;
@@ -50,9 +50,9 @@ vi.mock('@/lib/db', () => ({
   },
 }));
 
+import { PATCH } from '@/app/api/listening-entries/[entryId]/route';
 import { GET, POST } from '@/app/api/listening-entries/route';
 import { GET as GETUsage } from '@/app/api/listening-entries/usage/route';
-import { PATCH } from '@/app/api/listening-entries/[entryId]/route';
 
 const accountA = { id: 'account-a' } as unknown as SessionUser;
 const accountB = { id: 'account-b' } as unknown as SessionUser;
@@ -66,17 +66,42 @@ const transactionClient: MockTransactionClient = {
 };
 const rows: EntryRow[] = [
   {
-    id: 'entry-a', userId: 'account-a', albumId: '101', catalogProvider: 'legacy', albumName: 'Album A', artistName: 'Artista A',
-    artworkUrl: null, releaseDate: '2007-10-10T07:00:00Z',
-    genre: 'Alternative', trackCount: 10, storeUrl: null,
-    rating: 4.5, note: 'Nota A', listenedOn: new Date('2026-11-01T12:00:00Z'),
-    context: null, createdAt: new Date('2026-11-01T12:00:00Z'), updatedAt: new Date('2026-11-01T12:00:00Z'),
+    id: 'entry-a',
+    userId: 'account-a',
+    albumId: '101',
+    catalogProvider: 'legacy',
+    albumName: 'Album A',
+    artistName: 'Artista A',
+    artworkUrl: null,
+    releaseDate: '2007-10-10T07:00:00Z',
+    genre: 'Alternative',
+    trackCount: 10,
+    storeUrl: null,
+    rating: 4.5,
+    note: 'Nota A',
+    listenedOn: new Date('2026-11-01T12:00:00Z'),
+    context: null,
+    createdAt: new Date('2026-11-01T12:00:00Z'),
+    updatedAt: new Date('2026-11-01T12:00:00Z'),
   },
   {
-    id: 'entry-b', userId: 'account-b', albumId: '202', catalogProvider: 'legacy', albumName: 'Album B', artistName: 'Artista B',
-    artworkUrl: null, releaseDate: null, genre: null, trackCount: null, storeUrl: null,
-    rating: 3, note: 'Nota B', listenedOn: new Date('2026-11-02T12:00:00Z'),
-    context: 'treno', createdAt: new Date('2026-11-02T12:00:00Z'), updatedAt: new Date('2026-11-02T12:00:00Z'),
+    id: 'entry-b',
+    userId: 'account-b',
+    albumId: '202',
+    catalogProvider: 'legacy',
+    albumName: 'Album B',
+    artistName: 'Artista B',
+    artworkUrl: null,
+    releaseDate: null,
+    genre: null,
+    trackCount: null,
+    storeUrl: null,
+    rating: 3,
+    note: 'Nota B',
+    listenedOn: new Date('2026-11-02T12:00:00Z'),
+    context: 'treno',
+    createdAt: new Date('2026-11-02T12:00:00Z'),
+    updatedAt: new Date('2026-11-02T12:00:00Z'),
   },
 ];
 
@@ -137,22 +162,34 @@ describe('API del diario personale', () => {
     );
 
     const resultA = await GET(request('/api/listening-entries'));
-    expect((await resultA.json()).entries.map((entry: { id: string }) => entry.id)).toEqual(['entry-a']);
+    expect((await resultA.json()).entries.map((entry: { id: string }) => entry.id)).toEqual([
+      'entry-a',
+    ]);
 
     mocks.requireAuth.mockResolvedValue(accountB);
     const resultB = await GET(request('/api/listening-entries'));
-    expect((await resultB.json()).entries.map((entry: { id: string }) => entry.id)).toEqual(['entry-b']);
-    expect(mocks.findMany).toHaveBeenNthCalledWith(1, expect.objectContaining({ where: { userId: 'account-a' } }));
-    expect(mocks.findMany).toHaveBeenNthCalledWith(2, expect.objectContaining({ where: { userId: 'account-b' } }));
+    expect((await resultB.json()).entries.map((entry: { id: string }) => entry.id)).toEqual([
+      'entry-b',
+    ]);
+    expect(mocks.findMany).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ where: { userId: 'account-a' } }),
+    );
+    expect(mocks.findMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ where: { userId: 'account-b' } }),
+    );
   });
 
   it('rifiuta una scrittura cross-origin prima di autenticazione e database', async () => {
     mocks.sameOrigin.mockReturnValue(false);
-    const response = await POST(request('/api/listening-entries', {
-      method: 'POST',
-      headers: { origin: 'https://altra-origine.test', 'content-type': 'application/json' },
-      body: JSON.stringify({ albumId: '101' }),
-    }));
+    const response = await POST(
+      request('/api/listening-entries', {
+        method: 'POST',
+        headers: { origin: 'https://altra-origine.test', 'content-type': 'application/json' },
+        body: JSON.stringify({ albumId: '101' }),
+      }),
+    );
 
     expect(response.status).toBe(403);
     expect(mocks.requireAuth).not.toHaveBeenCalled();
@@ -178,21 +215,25 @@ describe('API del diario personale', () => {
     expect(body.entry).not.toHaveProperty('previewUrl');
     expect(body.entry).not.toHaveProperty('videoUrl');
     expect(mocks.create).toHaveBeenCalledTimes(1);
-    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        catalogProvider: 'legacy',
-        releaseDate: '2007-10-10T07:00:00Z',
-        genre: 'Alternative',
-        trackCount: 10,
-        artworkUrl: null,
+    expect(mocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          catalogProvider: 'legacy',
+          releaseDate: '2007-10-10T07:00:00Z',
+          genre: 'Alternative',
+          trackCount: 10,
+          artworkUrl: null,
+        }),
       }),
-    }));
-    expect(mocks.count).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        userId: 'account-a',
-        createdAt: expect.objectContaining({ gte: expect.any(Date), lt: expect.any(Date) }),
+    );
+    expect(mocks.count).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          userId: 'account-a',
+          createdAt: expect.objectContaining({ gte: expect.any(Date), lt: expect.any(Date) }),
+        }),
       }),
-    }));
+    );
     expect(mocks.transaction).toHaveBeenCalledWith(
       expect.any(Function),
       expect.objectContaining({ isolationLevel: 'Serializable' }),
@@ -200,12 +241,14 @@ describe('API del diario personale', () => {
   });
 
   it('mantiene assenti i metadati che il catalogo non ha restituito', async () => {
-    const response = await POST(createRequest({
-      artworkUrl: null,
-      releaseDate: null,
-      genre: null,
-      trackCount: null,
-    }));
+    const response = await POST(
+      createRequest({
+        artworkUrl: null,
+        releaseDate: null,
+        genre: null,
+        trackCount: null,
+      }),
+    );
 
     expect(response.status).toBe(201);
     expect((await response.json()).entry).toMatchObject({
@@ -214,14 +257,16 @@ describe('API del diario personale', () => {
       genre: null,
       trackCount: null,
     });
-    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        artworkUrl: null,
-        releaseDate: null,
-        genre: null,
-        trackCount: null,
+    expect(mocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          artworkUrl: null,
+          releaseDate: null,
+          genre: null,
+          trackCount: null,
+        }),
       }),
-    }));
+    );
   });
 
   it('rifiuta la quarantunesima registrazione con 409 senza salvarla', async () => {
@@ -246,8 +291,14 @@ describe('API del diario personale', () => {
 
     expect(exhausted.status).toBe(409);
     expect(available.status).toBe(201);
-    expect(mocks.count).toHaveBeenNthCalledWith(1, expect.objectContaining({ where: expect.objectContaining({ userId: 'account-a' }) }));
-    expect(mocks.count).toHaveBeenNthCalledWith(2, expect.objectContaining({ where: expect.objectContaining({ userId: 'account-b' }) }));
+    expect(mocks.count).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ where: expect.objectContaining({ userId: 'account-a' }) }),
+    );
+    expect(mocks.count).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ where: expect.objectContaining({ userId: 'account-b' }) }),
+    );
     expect(mocks.create).toHaveBeenCalledTimes(1);
   });
 
@@ -353,7 +404,9 @@ describe('API del diario personale', () => {
     );
 
     expect(response.status).toBe(404);
-    expect(mocks.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'entry-b', userId: 'account-a' } }));
+    expect(mocks.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'entry-b', userId: 'account-a' } }),
+    );
     expect(mocks.findFirst).not.toHaveBeenCalled();
   });
 
@@ -364,7 +417,12 @@ describe('API del diario personale', () => {
       request('/api/listening-entries/entry-a', {
         method: 'PATCH',
         headers: { origin: 'https://solco.test', 'content-type': 'application/json' },
-        body: JSON.stringify({ rating: 5, note: 'Nuova nota', listenedOn: '2026-11-08', context: 'casa' }),
+        body: JSON.stringify({
+          rating: 5,
+          note: 'Nuova nota',
+          listenedOn: '2026-11-08',
+          context: 'casa',
+        }),
       }),
       { params: Promise.resolve({ entryId: 'entry-a' }) },
     );
@@ -382,9 +440,11 @@ describe('API del diario personale', () => {
       genre: 'Alternative',
       trackCount: 10,
     });
-    expect(mocks.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'entry-a', userId: 'account-a' },
-      data: { rating: 5, note: 'Nuova nota', listenedOn: expect.any(Date), context: 'casa' },
-    }));
+    expect(mocks.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'entry-a', userId: 'account-a' },
+        data: { rating: 5, note: 'Nuova nota', listenedOn: expect.any(Date), context: 'casa' },
+      }),
+    );
   });
 });

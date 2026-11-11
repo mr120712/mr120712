@@ -51,10 +51,20 @@ describe('stato delle fonti musicali Solco', () => {
       youtubeConfigured: true,
     });
 
-    expect(missing).toMatchObject({ active: false, searchOutcome: 'inactive', unavailableReason: 'not_configured' });
+    expect(missing).toMatchObject({
+      active: false,
+      searchOutcome: 'inactive',
+      unavailableReason: 'not_configured',
+    });
     expect(missing.prerequisite).toContain('YOUTUBE_DATA_API_KEY');
-    expect(quota).toMatchObject({ searchOutcome: 'unavailable', unavailableReason: 'quota_exceeded' });
-    expect(apiError).toMatchObject({ searchOutcome: 'unavailable', unavailableReason: 'api_error' });
+    expect(quota).toMatchObject({
+      searchOutcome: 'unavailable',
+      unavailableReason: 'quota_exceeded',
+    });
+    expect(apiError).toMatchObject({
+      searchOutcome: 'unavailable',
+      unavailableReason: 'api_error',
+    });
     expect(JSON.stringify([missing, quota, apiError])).not.toContain('test-key');
   });
 
@@ -65,7 +75,11 @@ describe('stato delle fonti musicali Solco', () => {
     );
     expect(statuses.map((item) => item.id)).toEqual(['audius', 'youtube']);
     expect(statuses[0]).toMatchObject({ label: 'Solco', active: false, searchOutcome: 'inactive' });
-    expect(statuses[1]).toMatchObject({ label: 'YouTube', active: true, searchOutcome: 'no_results' });
+    expect(statuses[1]).toMatchObject({
+      label: 'YouTube',
+      active: true,
+      searchOutcome: 'no_results',
+    });
     expect(YOUTUBE_PREREQUISITE).toContain('YOUTUBE_DATA_API_KEY');
   });
 });

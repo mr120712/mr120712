@@ -75,7 +75,8 @@ export default function PlansPage() {
       />
 
       <p className={styles.lead}>
-        Vuoi Premium gratis? <Link href="/premi">Invita amici e guadagna giorni di Premium</Link>.
+        Vuoi Premium gratis? <Link href="/premi#invita">Invita amici, ottieni Premium gratis</Link>:
+        30 giorni a entrambi per ogni amico che si abbona, fino a 12 mesi.
       </p>
 
       <section className={styles.faq} aria-labelledby="faq-heading">

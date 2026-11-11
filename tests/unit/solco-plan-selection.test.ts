@@ -28,9 +28,10 @@ const selectedAt = new Date('2026-11-09T12:00:00.000Z');
 function request(path: string, method = 'GET', body?: unknown) {
   return new Request(`https://solco.example${path}`, {
     method,
-    headers: method === 'POST'
-      ? { origin: 'https://solco.example', 'content-type': 'application/json' }
-      : undefined,
+    headers:
+      method === 'POST'
+        ? { origin: 'https://solco.example', 'content-type': 'application/json' }
+        : undefined,
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 }
@@ -40,39 +41,44 @@ beforeEach(() => {
   mocks.requireAuth.mockResolvedValue(account);
   mocks.sameOrigin.mockReturnValue(true);
   mocks.selectionFindUnique.mockResolvedValue(null);
-  mocks.selectionUpsert.mockImplementation(async ({ create }: { create: { billingPeriod: string } }) => ({
-    planId: 'free',
-    billingPeriod: create.billingPeriod,
-    updatedAt: selectedAt,
-  }));
+  mocks.selectionUpsert.mockImplementation(
+    async ({ create }: { create: { billingPeriod: string } }) => ({
+      planId: 'free',
+      billingPeriod: create.billingPeriod,
+      updatedAt: selectedAt,
+    }),
+  );
 });
 
 describe('scelta del piano Free Solco', () => {
-  it.each(['month', 'year'] as const)('salva Free a 0 EUR con cadenza %s per il solo account autenticato', async (billingPeriod) => {
-    const response = await POST(
-      request('/api/solco-pro/plan-selection', 'POST', { planId: 'free', billingPeriod }),
-    );
+  it.each(['month', 'year'] as const)(
+    'salva Free a 0 EUR con cadenza %s per il solo account autenticato',
+    async (billingPeriod) => {
+      const response = await POST(
+        request('/api/solco-pro/plan-selection', 'POST', { planId: 'free', billingPeriod }),
+      );
 
-    expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
-      selection: {
-        planId: 'free',
-        billingPeriod,
-        amountEuroCents: 0,
-        currency: 'EUR',
-        state: 'active',
-        selectedAt: selectedAt.toISOString(),
-        renewalAt: null,
-      },
-    });
-    expect(mocks.selectionUpsert).toHaveBeenCalledWith({
-      where: { userId: account.id },
-      create: { userId: account.id, planId: 'free', billingPeriod },
-      update: { billingPeriod },
-      select: { planId: true, billingPeriod: true, updatedAt: true },
-    });
-    expect(response.headers.get('cache-control')).toContain('private, no-store');
-  });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        selection: {
+          planId: 'free',
+          billingPeriod,
+          amountEuroCents: 0,
+          currency: 'EUR',
+          state: 'active',
+          selectedAt: selectedAt.toISOString(),
+          renewalAt: null,
+        },
+      });
+      expect(mocks.selectionUpsert).toHaveBeenCalledWith({
+        where: { userId: account.id },
+        create: { userId: account.id, planId: 'free', billingPeriod },
+        update: { billingPeriod },
+        select: { planId: true, billingPeriod: true, updatedAt: true },
+      });
+      expect(response.headers.get('cache-control')).toContain('private, no-store');
+    },
+  );
 
   it('legge solo la selezione dell’account corrente senza cache condivisa', async () => {
     mocks.selectionFindUnique.mockResolvedValueOnce({
@@ -102,7 +108,9 @@ describe('scelta del piano Free Solco', () => {
     expect(crossOrigin.status).toBe(403);
     expect(mocks.requireAuth).not.toHaveBeenCalled();
 
-    mocks.requireAuth.mockRejectedValueOnce(Response.json({ error: 'Unauthorized' }, { status: 401 }));
+    mocks.requireAuth.mockRejectedValueOnce(
+      Response.json({ error: 'Unauthorized' }, { status: 401 }),
+    );
     const anonymous = await POST(
       request('/api/solco-pro/plan-selection', 'POST', { planId: 'free', billingPeriod: 'month' }),
     );
@@ -110,10 +118,15 @@ describe('scelta del piano Free Solco', () => {
     expect(mocks.selectionUpsert).not.toHaveBeenCalled();
 
     const paid = await POST(
-      request('/api/solco-pro/plan-selection', 'POST', { planId: 'premium', billingPeriod: 'month' }),
+      request('/api/solco-pro/plan-selection', 'POST', {
+        planId: 'premium',
+        billingPeriod: 'month',
+      }),
     );
     expect(paid.status).toBe(409);
-    expect(await paid.json()).toEqual({ error: 'solco_paid_plan_unavailable_until_eur_prices_are_verified' });
+    expect(await paid.json()).toEqual({
+      error: 'solco_paid_plan_unavailable_until_eur_prices_are_verified',
+    });
     expect(mocks.selectionUpsert).not.toHaveBeenCalled();
 
     const alteredPrice = await POST(
@@ -135,7 +148,9 @@ describe('scelta del piano Free Solco', () => {
     );
 
     expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({ error: 'solco_contract_change_requires_provider_confirmation' });
+    expect(await response.json()).toEqual({
+      error: 'solco_contract_change_requires_provider_confirmation',
+    });
     expect(mocks.selectionUpsert).not.toHaveBeenCalled();
   });
 });

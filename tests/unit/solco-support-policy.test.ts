@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { describe, expect, it } from 'vitest';
 import {
   assessSupportQuestion,
   buildSupportMessages,
@@ -45,14 +45,18 @@ describe('perimetro dell’assistenza Solco', () => {
     expect(messages[0]?.role).toBe('system');
     expect(messages[0]?.content).toContain('mezza stella');
     expect(messages[0]?.content).toContain('una nota e un contesto facoltativo');
-    expect(messages[0]?.content).toContain('si ritrovano nel diario personale e si possono modificare');
+    expect(messages[0]?.content).toContain(
+      'si ritrovano nel diario personale e si possono modificare',
+    );
     expect(messages[0]?.content).toContain('40 ascolti registrati al mese');
     expect(messages[0]?.content).toContain('24,00 EUR una tantum');
     expect(messages[0]?.content).toContain('un mese di accesso');
     expect(messages[0]?.content).toContain('Stripe ospitato e gestito da Polsia');
     expect(messages[0]?.content).toContain('non serve una distinta verifica bancaria');
     expect(messages[0]?.content).toContain('supporta soltanto importi USD');
-    expect(messages[0]?.content).not.toMatch(/2,99|24 € all'anno|Stripe Billing|non decide la durata/);
+    expect(messages[0]?.content).not.toMatch(
+      /2,99|24 € all'anno|Stripe Billing|non decide la durata/,
+    );
     expect(messages[0]?.content).toContain('statistiche avanzate, temi extra e card senza logo');
     expect(messages[0]?.content).toContain('diritti di streaming riferiti a quel brano');
     expect(messages[0]?.content).toContain('La disponibilità non è universale');
@@ -63,7 +67,8 @@ describe('perimetro dell’assistenza Solco', () => {
   it('dichiara 40 registrazioni Free nella landing, nella scheda Play e nel prompt', () => {
     const landing = readFileSync(resolve(process.cwd(), 'src/app/(setup)/page.tsx'), 'utf8');
     const playListing = readFileSync(resolve(process.cwd(), 'android/store-listing.it.md'), 'utf8');
-    const supportPrompt = buildSupportMessages('Quanti ascolti posso salvare con Free?')[0]?.content;
+    const supportPrompt = buildSupportMessages('Quanti ascolti posso salvare con Free?')[0]
+      ?.content;
 
     expect(FREE_MONTHLY_LISTEN_LIMIT).toBe(40);
     expect(landing).toContain('Free resta gratis con {FREE_MONTHLY_LISTEN_LIMIT} ascolti al mese');
@@ -72,7 +77,9 @@ describe('perimetro dell’assistenza Solco', () => {
     expect(supportPrompt).toContain('40 ascolti registrati al mese');
     expect(landing).toMatch(/diritti di\s+streaming\s+per Solco sono verificabili/);
     expect(playListing).toContain('diritti di streaming per Solco sono verificabili');
-    expect(`${landing}\n${playListing}\n${supportPrompt}`).not.toMatch(/\b20\s+(?:ascolti|registrazioni)/i);
+    expect(`${landing}\n${playListing}\n${supportPrompt}`).not.toMatch(
+      /\b20\s+(?:ascolti|registrazioni)/i,
+    );
   });
 
   it('mantiene nella landing i vantaggi Solco Pro e la condizione sui diritti verificabili', () => {

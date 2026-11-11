@@ -3,13 +3,12 @@ import 'server-only';
 import {
   grantWindow,
   isBirthdayToday,
-  isReferralQualified,
   listeningRewardsEarned,
   makeReferralCode,
   monthsBetween,
   qualifyingListeningDays,
   REWARDS,
-  referralMilestonesReached,
+  referralTierGrants,
   romeDay,
 } from '@/lib/business/rewards';
 import { prisma } from '@/lib/db';
@@ -19,7 +18,6 @@ const REFERRAL_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 export type GrantReason =
   | 'referral_invitee'
   | 'referral_inviter'
-  | 'referral_milestone'
   | 'founder'
   | 'listening'
   | 'loyalty'
@@ -158,13 +156,22 @@ async function evaluateFounder(userId: string, now: Date) {
   return rank;
 }
 
-async function evaluateReferralAsInvitee(
-  userId: string,
-  days: { day: string; seconds: number }[],
-  now: Date,
-) {
+/** true se l'utente ha almeno un pagamento Premium verificato (Stripe o PayPal). */
+async function hasVerifiedPayment(userId: string) {
+  const [stripe, paypal] = await Promise.all([
+    prisma.solcoSubscription.count({ where: { userId, firstPaidAt: { not: null } } }),
+    prisma.payPalSubscription.count({ where: { userId, firstPaidAt: { not: null } } }),
+  ]);
+  return stripe + paypal > 0;
+}
+
+/**
+ * L'invito si converte una sola volta, al primo pagamento Premium verificato dell'amico:
+ * l'amico riceve il benvenuto, chi invita i premi progressivi delle soglie raggiunte.
+ */
+async function evaluateReferralAsInvitee(userId: string, now: Date) {
   const referral = await prisma.referral.findUnique({ where: { inviteeId: userId } });
-  if (!referral || referral.qualifiedAt || !isReferralQualified(days)) return;
+  if (!referral || referral.qualifiedAt || !(await hasVerifiedPayment(userId))) return;
   const updated = await prisma.referral.updateMany({
     where: { id: referral.id, qualifiedAt: null },
     data: { qualifiedAt: now },
@@ -173,26 +180,24 @@ async function evaluateReferralAsInvitee(
   await grantPremium({
     userId,
     reason: 'referral_invitee',
-    days: REWARDS.referralDays,
-    refKey: `ref-in:${userId}`,
+    days: REWARDS.inviteeWelcomeDays,
+    refKey: `ref-welcome:${userId}`,
     now,
   });
-  await grantPremium({
-    userId: referral.inviterId,
-    reason: 'referral_inviter',
-    days: REWARDS.referralDays,
-    refKey: `ref-out:${userId}`,
-    now,
+  await grantInviterTiers(referral.inviterId, now);
+}
+
+/** Assegna a chi invita i premi delle soglie raggiunte, ognuna una sola volta. */
+export async function grantInviterTiers(inviterId: string, now = new Date()) {
+  const paidFriends = await prisma.referral.count({
+    where: { inviterId, qualifiedAt: { not: null } },
   });
-  const qualified = await prisma.referral.count({
-    where: { inviterId: referral.inviterId, qualifiedAt: { not: null } },
-  });
-  for (const milestone of referralMilestonesReached(qualified)) {
+  for (const tier of referralTierGrants(paidFriends)) {
     await grantPremium({
-      userId: referral.inviterId,
-      reason: 'referral_milestone',
-      days: milestone.days,
-      refKey: `ref-milestone:${referral.inviterId}:${milestone.friends}`,
+      userId: inviterId,
+      reason: 'referral_inviter',
+      days: tier.days,
+      refKey: `ref-tier:${inviterId}:${tier.friends}`,
       now,
     });
   }
@@ -238,7 +243,7 @@ export async function evaluateRewards(userId: string, now = new Date()) {
     where: { userId },
     select: { day: true, seconds: true },
   });
-  await evaluateReferralAsInvitee(userId, days, now);
+  await evaluateReferralAsInvitee(userId, now);
   const earned = listeningRewardsEarned(days);
   for (let n = 1; n <= earned; n += 1) {
     await grantPremium({

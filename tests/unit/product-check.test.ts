@@ -37,7 +37,9 @@ describe('product check interpretation', () => {
     expect(result.price.status).toBe('match');
     expect(result.availability.status).toBe('match');
     expect(result.links.length).toBeGreaterThan(0);
-    expect(result.issues.some((issue) => issue.field === 'redirect' && issue.kind === 'unverifiable')).toBe(true);
+    expect(
+      result.issues.some((issue) => issue.field === 'redirect' && issue.kind === 'unverifiable'),
+    ).toBe(true);
   });
 
   it('marks discordant facts as anomalies and retains detected links for individual review', () => {
@@ -80,7 +82,9 @@ describe('product check interpretation', () => {
     expect(result.availability.status).toBe('unverifiable');
     expect(result.price.reason).toContain('troncato');
     expect(inaccessible.page.status).toBe('unverifiable');
-    expect(inaccessible.issues.some((issue) => issue.field === 'page' && issue.kind === 'unverifiable')).toBe(true);
+    expect(
+      inaccessible.issues.some((issue) => issue.field === 'page' && issue.kind === 'unverifiable'),
+    ).toBe(true);
   });
 
   it('stores a separate correction row for each anomaly or unverifiable field', () => {
@@ -99,8 +103,15 @@ describe('product check interpretation', () => {
 
     expect(rows).toHaveLength(result.issues.length);
     expect(rows.map((row) => row.field)).toEqual(['Pagina', 'Prezzo', 'Disponibilità']);
-    expect(rows.every((row) => row.productUrl === pageRead.sourceUrl && row.reason.length > 0 && row.action.length > 0)).toBe(true);
-    expect(rows.map((row) => row.id)).toEqual(result.issues.map((issue) => `product-1:${issue.id}`));
+    expect(
+      rows.every(
+        (row) =>
+          row.productUrl === pageRead.sourceUrl && row.reason.length > 0 && row.action.length > 0,
+      ),
+    ).toBe(true);
+    expect(rows.map((row) => row.id)).toEqual(
+      result.issues.map((issue) => `product-1:${issue.id}`),
+    );
   });
 
   it('updates a link read and continues to flag its redirect as unverifiable', () => {

@@ -20,8 +20,8 @@ vi.mock('@/lib/stripe-billing/client', () => ({
   createCustomerPortalSession: mocks.createCustomerPortalSession,
 }));
 
-import { GET as getEntitlement } from '@/app/api/solco-pro/subscription/route';
 import { POST as createPortal } from '@/app/api/solco-pro/subscription/portal/route';
+import { GET as getEntitlement } from '@/app/api/solco-pro/subscription/route';
 
 const account = { id: 'listener-1', email: 'listener@example.test' };
 
@@ -103,9 +103,7 @@ describe('stato accesso Solco Pro una tantum', () => {
   });
 
   it('rifiuta la gestione dei pagamenti e non crea un portale Stripe', async () => {
-    const response = await createPortal(
-      request('/api/solco-pro/subscription/portal', 'POST'),
-    );
+    const response = await createPortal(request('/api/solco-pro/subscription/portal', 'POST'));
 
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({
@@ -127,9 +125,7 @@ describe('stato accesso Solco Pro una tantum', () => {
 
   it('applica same-origin prima dell’autenticazione sui POST', async () => {
     mocks.sameOrigin.mockReturnValueOnce(false);
-    const response = await createPortal(
-      request('/api/solco-pro/subscription/portal', 'POST'),
-    );
+    const response = await createPortal(request('/api/solco-pro/subscription/portal', 'POST'));
     expect(response.status).toBe(403);
     expect(mocks.requireAuth).not.toHaveBeenCalled();
   });

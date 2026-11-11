@@ -58,8 +58,8 @@ describe('pannello Abbonamento e pagamenti Solco', () => {
       'Acquisto precedente Solco Pro confermato: 24,00 € una tantum per un mese, senza rinnovo.',
     );
     expect(container.textContent).toContain('Accesso attivo fino al 1 dicembre 2026.');
-    const portalButton = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
-      button.textContent?.includes('Portale di fatturazione non disponibile'),
+    const portalButton = [...container.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent?.includes('Portale di fatturazione non disponibile'),
     );
     expect(portalButton?.disabled).toBe(true);
     expect(container.textContent).toContain(

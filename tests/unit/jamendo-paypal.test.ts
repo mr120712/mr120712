@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const db = vi.hoisted(() => {
   const plans = new Map<string, { key: string; paypalPlanId: string }>();
+  const stored: { row: Record<string, unknown> | null } = { row: null };
   return {
     plans,
     prisma: {
@@ -17,7 +18,15 @@ const db = vi.hoisted(() => {
         }),
       },
       payPalSubscription: {
-        upsert: vi.fn(async ({ create }: { create: Record<string, unknown> }) => create),
+        upsert: vi.fn(async ({ create }: { create: Record<string, unknown> }) => {
+          stored.row = { id: 'pp-row', firstPaidAt: null, ...create };
+          return stored.row;
+        }),
+        updateMany: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          if (stored.row) Object.assign(stored.row, data);
+          return { count: 1 };
+        }),
+        findUniqueOrThrow: vi.fn(async () => stored.row),
       },
       solcoSubscription: { findFirst: vi.fn(async () => null) },
     },
@@ -30,6 +39,7 @@ import {
   confirmPayPalSubscription,
   createPayPalSubscription,
   paypalEnabled,
+  paypalPaymentVerified,
   resetPayPalTokenCache,
 } from '@/lib/business/paypal-subscriptions.server';
 import {
@@ -98,6 +108,17 @@ describe('Jamendo', () => {
 });
 
 describe('PayPal', () => {
+  it('considera valido solo un pagamento attivo con importo incassato', () => {
+    const paid = (value: string, status = 'ACTIVE') => ({
+      status,
+      billing_info: { last_payment: { amount: { value, currency_code: 'EUR' } } },
+    });
+    expect(paypalPaymentVerified(paid('4.99'))).toBe(true);
+    expect(paypalPaymentVerified(paid('0.00'))).toBe(false);
+    expect(paypalPaymentVerified(paid('4.99', 'APPROVED'))).toBe(false);
+    expect(paypalPaymentVerified({ status: 'ACTIVE' })).toBe(false);
+  });
+
   it('crea prodotto e piano una sola volta e restituisce il link di approvazione', async () => {
     expect(paypalEnabled()).toBe(true);
     const fetcher = vi.fn(async (url: string, init?: RequestInit) => {

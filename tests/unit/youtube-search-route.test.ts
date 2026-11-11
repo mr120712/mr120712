@@ -49,7 +49,14 @@ function request(source: string, query: string, consent = false) {
 
 beforeEach(() => {
   mocks.searchMusic.mockReset().mockResolvedValue({
-    source: 'youtube', outcome: 'results', tracks: [], artists: [], playlists: [], albums: [], videos: [video], sourceStatus: youtubeStatus,
+    source: 'youtube',
+    outcome: 'results',
+    tracks: [],
+    artists: [],
+    playlists: [],
+    albums: [],
+    videos: [video],
+    sourceStatus: youtubeStatus,
   });
   mocks.getMusicSourceStatuses.mockReset().mockReturnValue([youtubeStatus]);
 });
@@ -75,8 +82,30 @@ describe('route di ricerca musicale per fonte', () => {
 
   it('mantiene distinti nessun risultato e quota esaurita', async () => {
     mocks.searchMusic
-      .mockResolvedValueOnce({ source: 'youtube', outcome: 'no_results', tracks: [], artists: [], playlists: [], albums: [], videos: [], sourceStatus: { ...youtubeStatus, searchOutcome: 'no_results' } })
-      .mockResolvedValueOnce({ source: 'youtube', outcome: 'unavailable', tracks: [], artists: [], playlists: [], albums: [], videos: [], sourceStatus: { ...youtubeStatus, searchOutcome: 'unavailable', unavailableReason: 'quota_exceeded' } });
+      .mockResolvedValueOnce({
+        source: 'youtube',
+        outcome: 'no_results',
+        tracks: [],
+        artists: [],
+        playlists: [],
+        albums: [],
+        videos: [],
+        sourceStatus: { ...youtubeStatus, searchOutcome: 'no_results' },
+      })
+      .mockResolvedValueOnce({
+        source: 'youtube',
+        outcome: 'unavailable',
+        tracks: [],
+        artists: [],
+        playlists: [],
+        albums: [],
+        videos: [],
+        sourceStatus: {
+          ...youtubeStatus,
+          searchOutcome: 'unavailable',
+          unavailableReason: 'quota_exceeded',
+        },
+      });
 
     const empty = await GET(request('youtube', 'nobody', true));
     const quota = await GET(request('youtube', 'ambient', true));

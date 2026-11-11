@@ -194,13 +194,18 @@ export async function confirmSubscriptionCheckout(
     throw new StripeSubscriptionError('incomplete', 'Il pagamento non risulta completato.');
   }
   const sub = readSubscription(session.subscription as StripeObject);
+  // A valid payment: Stripe marks the session paid and something was actually charged.
+  const paid =
+    session.payment_status === 'paid' &&
+    typeof session.amount_total === 'number' &&
+    session.amount_total > 0;
   if (!sub.id || sub.userId !== userId || !sub.planId || !sub.period) {
     throw new StripeSubscriptionError(
       'account_mismatch',
       'Abbonamento non associato a questo account.',
     );
   }
-  return prisma.solcoSubscription.upsert({
+  const row = await prisma.solcoSubscription.upsert({
     where: { stripeSubscriptionId: sub.id },
     create: {
       userId,
@@ -218,6 +223,15 @@ export async function confirmSubscriptionCheckout(
       cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
       checkedAt: new Date(),
     },
+  });
+  if (paid && !row.firstPaidAt) await markFirstPayment(row.id);
+  return prisma.solcoSubscription.findUniqueOrThrow({ where: { id: row.id } });
+}
+
+async function markFirstPayment(rowId: string) {
+  await prisma.solcoSubscription.updateMany({
+    where: { id: rowId, firstPaidAt: null },
+    data: { firstPaidAt: new Date() },
   });
 }
 
@@ -245,14 +259,23 @@ export async function getUserSubscription(
     (row.currentPeriodEnd !== null && row.currentPeriodEnd.getTime() <= now.getTime());
   if (!stale) return row;
   try {
-    const sub = readSubscription(
-      await stripeRequest(
-        'GET',
-        `/subscriptions/${encodeURIComponent(row.stripeSubscriptionId)}`,
-        {},
-        fetcher,
-      ),
+    const raw = await stripeRequest(
+      'GET',
+      `/subscriptions/${encodeURIComponent(row.stripeSubscriptionId)}`,
+      { 'expand[]': 'latest_invoice' },
+      fetcher,
     );
+    const sub = readSubscription(raw);
+    const invoice = raw.latest_invoice as StripeObject | undefined;
+    if (
+      !row.firstPaidAt &&
+      invoice &&
+      invoice.status === 'paid' &&
+      typeof invoice.amount_paid === 'number' &&
+      invoice.amount_paid > 0
+    ) {
+      await markFirstPayment(row.id);
+    }
     return await prisma.solcoSubscription.update({
       where: { id: row.id },
       data: {

@@ -8,14 +8,13 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
 import { useSession } from '@/lib/auth-client';
-import { REWARDS } from '@/lib/business/rewards';
+import { REWARDS, referralProgress } from '@/lib/business/rewards';
 import { type RewardsSummary, RewardsSummarySchema } from '@/lib/contracts/rewards';
 import styles from './rewards-view.module.css';
 
 const reasonLabels: Record<string, string> = {
-  referral_invitee: 'Invito accettato',
-  referral_inviter: 'Amico invitato',
-  referral_milestone: 'Traguardo inviti',
+  referral_invitee: 'Benvenuto da un amico',
+  referral_inviter: 'Amici abbonati',
   founder: 'Fondatore Solco',
   listening: 'Ascolta e guadagna',
   loyalty: 'Utente fedele',
@@ -137,7 +136,7 @@ export function RewardsView() {
   };
 
   const qualified = summary?.friends.qualified ?? 0;
-  const nextMilestone = REWARDS.referralMilestones.find((m) => qualified < m.friends);
+  const progress = referralProgress(qualified);
 
   return (
     <main className={styles.page}>
@@ -169,20 +168,39 @@ export function RewardsView() {
             </div>
           </section>
 
-          <section className={styles.card} aria-labelledby="invite-heading">
+          <section className={styles.card} aria-labelledby="invite-heading" id="invita">
             <Users aria-hidden="true" className={styles.icon} />
-            <h2 id="invite-heading">Invita i tuoi amici</h2>
-            <ul className={styles.tiers}>
-              <li>
-                <strong>1 amico</strong> 1 mese di Premium a entrambi
-              </li>
-              <li>
-                <strong>3 amici</strong> +3 mesi di Premium
-              </li>
-              <li>
-                <strong>5 amici</strong> +6 mesi di Premium (VIP)
-              </li>
-            </ul>
+            <h2 id="invite-heading">Invita amici, ottieni Premium gratis</h2>
+            <p>
+              Condividi il tuo link. Quando un amico si registra e completa il suo primo pagamento
+              Premium, <strong>entrambi ricevete 30 giorni di Premium gratis</strong>. Più amici si
+              abbonano, più cresce il tuo premio:
+            </p>
+            <table className={styles.tierTable}>
+              <thead>
+                <tr>
+                  <th scope="col">Amici abbonati</th>
+                  <th scope="col">Premio totale</th>
+                </tr>
+              </thead>
+              <tbody>
+                {REWARDS.referralTiers.map((tier) => (
+                  <tr
+                    key={tier.friends}
+                    aria-current={qualified >= tier.friends ? 'true' : undefined}
+                  >
+                    <td>{tier.friends}</td>
+                    <td>
+                      {tier.totalDays / 30} {tier.totalDays === 30 ? 'mese' : 'mesi'} Premium
+                      {qualified >= tier.friends ? ' ✓' : ''}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className={styles.muted}>
+              Il tuo codice: <strong>{summary.code}</strong>
+            </p>
             <div className={styles.inviteRow}>
               <input readOnly value={inviteUrl} aria-label="Il tuo link di invito" />
               <Button type="button" onClick={() => void share()}>
@@ -201,15 +219,16 @@ export function RewardsView() {
               </Button>
             </div>
             <p className={styles.muted}>
-              Amici registrati: {summary.friends.joined} · qualificati: {qualified}
-              {nextMilestone
-                ? ` · prossimo traguardo: ${nextMilestone.friends} amici`
-                : ' · tutti i traguardi raggiunti!'}
+              Amici registrati: {summary.friends.joined} · abbonati: {qualified} · premio totale:{' '}
+              {progress.totalDays / 30} {progress.totalDays === 30 ? 'mese' : 'mesi'}
+              {progress.next
+                ? ` · prossima soglia: ${progress.next.friends} amici (${progress.next.totalDays / 30} mesi)`
+                : ' · hai raggiunto il premio massimo!'}
             </p>
-            <Progress value={qualified} max={5} />
+            <Progress value={qualified} max={10} />
             <p className={styles.small}>
-              Un amico conta quando si registra con il tuo link e ascolta almeno 30 minuti in 2
-              giorni diversi.
+              I premi si assegnano solo dopo la verifica del pagamento da parte di Stripe o PayPal.
+              Ogni amico conta una sola volta e il suo bonus di benvenuto vale una sola volta.
             </p>
           </section>
 

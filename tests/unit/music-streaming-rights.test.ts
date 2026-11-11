@@ -189,17 +189,57 @@ describe('resolver di fonti e prove musicali', () => {
 
   it.each([
     ['fonte assente o disattivata', [], [evidence({ completeness: undefined })]],
-    ['fonte di un altro album', [source({ completeness: 'full_track', albumId: 'album-other' })], [evidence({ grant: 'solco_streaming' })]],
-    ['fonte di un altro brano', [source({ completeness: 'full_track', trackId: 'track-other' })], [evidence({ grant: 'solco_streaming' })]],
-    ['fonte non completa', [source({ completeness: 'preview_excerpt' })], [evidence({ grant: 'solco_streaming' })]],
-    ['fonte con MIME non audio', [source({ completeness: 'full_track', mimeType: 'application/pdf' })], [evidence({ grant: 'solco_streaming' })]],
+    [
+      'fonte di un altro album',
+      [source({ completeness: 'full_track', albumId: 'album-other' })],
+      [evidence({ grant: 'solco_streaming' })],
+    ],
+    [
+      'fonte di un altro brano',
+      [source({ completeness: 'full_track', trackId: 'track-other' })],
+      [evidence({ grant: 'solco_streaming' })],
+    ],
+    [
+      'fonte non completa',
+      [source({ completeness: 'preview_excerpt' })],
+      [evidence({ grant: 'solco_streaming' })],
+    ],
+    [
+      'fonte con MIME non audio',
+      [source({ completeness: 'full_track', mimeType: 'application/pdf' })],
+      [evidence({ grant: 'solco_streaming' })],
+    ],
     ['prova mancante', [source({ completeness: 'full_track' })], []],
-    ['grant di sola anteprima', [source({ completeness: 'full_track' })], [evidence({ grant: 'solco_preview' })]],
-    ['prova revocata', [source({ completeness: 'full_track' })], [evidence({ grant: 'solco_streaming', revokedAt: now })]],
-    ['prova scaduta', [source({ completeness: 'full_track' })], [evidence({ grant: 'solco_streaming', validUntil: new Date(now.getTime() - 1) })]],
-    ['prova non ancora valida', [source({ completeness: 'full_track' })], [evidence({ grant: 'solco_streaming', validFrom: new Date(now.getTime() + 1) })]],
-    ['identità verificatrice assente', [source({ completeness: 'full_track' })], [evidence({ grant: 'solco_streaming', verifiedByUserId: '' })]],
-    ['durata discordante', [source({ completeness: 'full_track', durationSeconds: 183 })], [evidence({ grant: 'solco_streaming', durationSeconds: 182 })]],
+    [
+      'grant di sola anteprima',
+      [source({ completeness: 'full_track' })],
+      [evidence({ grant: 'solco_preview' })],
+    ],
+    [
+      'prova revocata',
+      [source({ completeness: 'full_track' })],
+      [evidence({ grant: 'solco_streaming', revokedAt: now })],
+    ],
+    [
+      'prova scaduta',
+      [source({ completeness: 'full_track' })],
+      [evidence({ grant: 'solco_streaming', validUntil: new Date(now.getTime() - 1) })],
+    ],
+    [
+      'prova non ancora valida',
+      [source({ completeness: 'full_track' })],
+      [evidence({ grant: 'solco_streaming', validFrom: new Date(now.getTime() + 1) })],
+    ],
+    [
+      'identità verificatrice assente',
+      [source({ completeness: 'full_track' })],
+      [evidence({ grant: 'solco_streaming', verifiedByUserId: '' })],
+    ],
+    [
+      'durata discordante',
+      [source({ completeness: 'full_track', durationSeconds: 183 })],
+      [evidence({ grant: 'solco_streaming', durationSeconds: 182 })],
+    ],
   ])('chiude la risoluzione per %s', async (_label, sources, evidences) => {
     mocks.findSources.mockResolvedValue(sources);
     mocks.findEvidence.mockResolvedValue(evidences);
@@ -210,18 +250,28 @@ describe('resolver di fonti e prove musicali', () => {
   it('nega fonti o prove ambigue e un errore di database non produce un risultato verificato', async () => {
     mocks.findSources.mockResolvedValue([
       source({ completeness: 'full_track' }),
-      source({ id: 'source-2', fileKey: 'company_1/private/music/track-2.m4a', completeness: 'full_track' }),
+      source({
+        id: 'source-2',
+        fileKey: 'company_1/private/music/track-2.m4a',
+        completeness: 'full_track',
+      }),
     ]);
-    expect(await resolveVerifiedTrackPlayback('album-1', 'track-1', now)).toMatchObject({ state: 'ambiguous' });
+    expect(await resolveVerifiedTrackPlayback('album-1', 'track-1', now)).toMatchObject({
+      state: 'ambiguous',
+    });
 
     mocks.findSources.mockResolvedValue([source({ completeness: 'full_track' })]);
     mocks.findEvidence.mockResolvedValue([
       evidence({ grant: 'solco_streaming' }),
       evidence({ id: 'evidence-2', grant: 'solco_streaming' }),
     ]);
-    expect(await resolveVerifiedTrackPlayback('album-1', 'track-1', now)).toMatchObject({ state: 'ambiguous' });
+    expect(await resolveVerifiedTrackPlayback('album-1', 'track-1', now)).toMatchObject({
+      state: 'ambiguous',
+    });
 
     mocks.findSources.mockRejectedValueOnce(new Error('database unavailable'));
-    await expect(resolveVerifiedTrackPlayback('album-1', 'track-1', now)).rejects.toThrow('database unavailable');
+    await expect(resolveVerifiedTrackPlayback('album-1', 'track-1', now)).rejects.toThrow(
+      'database unavailable',
+    );
   });
 });

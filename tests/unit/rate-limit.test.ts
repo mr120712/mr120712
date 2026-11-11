@@ -6,22 +6,23 @@ const mocks = vi.hoisted(() => {
   const rows = new Map<string, { action: string; identityHash: string; timestamps: unknown }>();
   const keyFromWhere = (where: { action_identityHash: { action: string; identityHash: string } }) =>
     `${where.action_identityHash.action}:${where.action_identityHash.identityHash}`;
-  const findUnique = vi.fn(async (args: { where: { action_identityHash: { action: string; identityHash: string } } }) =>
-    rows.get(keyFromWhere(args.where)) ?? null,
+  const findUnique = vi.fn(
+    async (args: { where: { action_identityHash: { action: string; identityHash: string } } }) =>
+      rows.get(keyFromWhere(args.where)) ?? null,
   );
-  const upsert = vi.fn(async (args: {
-    where: { action_identityHash: { action: string; identityHash: string } };
-    create: { action: string; identityHash: string; timestamps: unknown };
-    update: { timestamps: unknown };
-  }) => {
-    const key = keyFromWhere(args.where);
-    const current = rows.get(key);
-    const next = current
-      ? { ...current, timestamps: args.update.timestamps }
-      : args.create;
-    rows.set(key, next);
-    return next;
-  });
+  const upsert = vi.fn(
+    async (args: {
+      where: { action_identityHash: { action: string; identityHash: string } };
+      create: { action: string; identityHash: string; timestamps: unknown };
+      update: { timestamps: unknown };
+    }) => {
+      const key = keyFromWhere(args.where);
+      const current = rows.get(key);
+      const next = current ? { ...current, timestamps: args.update.timestamps } : args.create;
+      rows.set(key, next);
+      return next;
+    },
+  );
   const client = { actionRateLimit: { findUnique, upsert } };
   const transaction = vi.fn(async (operation: (value: typeof client) => Promise<unknown>) =>
     operation(client),
@@ -58,9 +59,13 @@ describe('limiti per azione e identità', () => {
     const burstBlocked = await consumeRateLimit('music.search', identity, now);
     expect(burstBlocked).toMatchObject({ allowed: false, status: 429, retryAfterSeconds: 10 });
 
-    expect(await consumeRateLimit('music.search', 'user:artista-b', now)).toEqual({ allowed: true });
+    expect(await consumeRateLimit('music.search', 'user:artista-b', now)).toEqual({
+      allowed: true,
+    });
     expect(await consumeRateLimit('messages.send', identity, now)).toEqual({ allowed: true });
-    expect(await consumeRateLimit('music.search', identity, now + 10_000)).toEqual({ allowed: true });
+    expect(await consumeRateLimit('music.search', identity, now + 10_000)).toEqual({
+      allowed: true,
+    });
 
     const sustainedStart = now + 20_000;
     const sustainedIdentity = 'user:artista-c';
@@ -83,13 +88,17 @@ describe('limiti per azione e identità', () => {
       sustainedStart + 30_003,
     );
     expect(sustainedBlocked).toMatchObject({ allowed: false, status: 429, retryAfterSeconds: 30 });
-    expect(await consumeRateLimit('music.search', sustainedIdentity, sustainedStart + 60_000)).toEqual({
+    expect(
+      await consumeRateLimit('music.search', sustainedIdentity, sustainedStart + 60_000),
+    ).toEqual({
       allowed: true,
     });
   });
 
   it('ignora X-Forwarded-For e accetta solo IP validi dai due header fidati', () => {
-    expect(getRateLimitIdentity(null, new Headers({ 'x-forwarded-for': '198.51.100.4' }))).toBeNull();
+    expect(
+      getRateLimitIdentity(null, new Headers({ 'x-forwarded-for': '198.51.100.4' })),
+    ).toBeNull();
     expect(
       getRateLimitIdentity(
         null,
@@ -99,9 +108,9 @@ describe('limiti per azione e identità', () => {
         }),
       ),
     ).toBe('ip:203.0.113.8');
-    expect(
-      getRateLimitIdentity(null, new Headers({ 'x-real-ip': '2001:db8::8' })),
-    ).toBe('ip:2001:db8::8');
+    expect(getRateLimitIdentity(null, new Headers({ 'x-real-ip': '2001:db8::8' }))).toBe(
+      'ip:2001:db8::8',
+    );
     expect(
       getRateLimitIdentity(null, new Headers({ 'cf-connecting-ip': '198.51.100.4, 10.0.0.1' })),
     ).toBeNull();

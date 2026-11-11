@@ -30,8 +30,8 @@ vi.mock('@/lib/db', () => ({
   },
 }));
 
-import { GET as getOverview, PATCH as updateOverview } from '@/app/api/solco-pro/overview/route';
 import { GET as getCard } from '@/app/api/solco-pro/card/route';
+import { GET as getOverview, PATCH as updateOverview } from '@/app/api/solco-pro/overview/route';
 import { buildSolcoListeningCardSvg } from '@/lib/business/solco-pro-card';
 import { calculateSolcoProStatistics } from '@/lib/business/solco-pro-statistics';
 import type { SolcoProCard } from '@/lib/contracts/solco-pro';
@@ -124,22 +124,28 @@ describe('vantaggi Solco Pro', () => {
   it('limita statistiche, preferenze e card all’account autenticato e attivo', async () => {
     const overview = await getOverview(request('/api/solco-pro/overview'));
     expect(overview.status).toBe(200);
-    expect(mocks.listeningFindMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { userId: userA.id },
-    }));
+    expect(mocks.listeningFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: userA.id },
+      }),
+    );
     expect(mocks.preferenceFindUnique).toHaveBeenCalledWith({ where: { userId: userA.id } });
 
-    const patch = await updateOverview(request('/api/solco-pro/overview', {
-      method: 'PATCH',
-      headers: { origin: 'https://solco.test', 'content-type': 'application/json' },
-      body: JSON.stringify({ theme: 'amber' }),
-    }));
+    const patch = await updateOverview(
+      request('/api/solco-pro/overview', {
+        method: 'PATCH',
+        headers: { origin: 'https://solco.test', 'content-type': 'application/json' },
+        body: JSON.stringify({ theme: 'amber' }),
+      }),
+    );
     expect(patch.status).toBe(200);
-    expect(mocks.preferenceUpsert).toHaveBeenCalledWith(expect.objectContaining({
-      where: { userId: userA.id },
-      update: { theme: 'amber' },
-      create: { userId: userA.id, theme: 'amber' },
-    }));
+    expect(mocks.preferenceUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: userA.id },
+        update: { theme: 'amber' },
+        create: { userId: userA.id, theme: 'amber' },
+      }),
+    );
 
     const card = await getCard(request('/api/solco-pro/card?entry_id=entry-a'));
     expect(card.status).toBe(200);
@@ -152,17 +158,21 @@ describe('vantaggi Solco Pro', () => {
         note: 'Una nota personale.',
       },
     });
-    expect(mocks.listeningFindFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'entry-a', userId: userA.id },
-    }));
+    expect(mocks.listeningFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'entry-a', userId: userA.id },
+      }),
+    );
 
     mocks.requireAuth.mockResolvedValue(userB);
     mocks.listeningFindFirst.mockResolvedValue(null);
     const otherAccountCard = await getCard(request('/api/solco-pro/card?entry_id=entry-a'));
     expect(otherAccountCard.status).toBe(404);
-    expect(mocks.listeningFindFirst).toHaveBeenLastCalledWith(expect.objectContaining({
-      where: { id: 'entry-a', userId: userB.id },
-    }));
+    expect(mocks.listeningFindFirst).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: { id: 'entry-a', userId: userB.id },
+      }),
+    );
   });
 
   it('restituisce statistiche vuote per un altro account, senza condividere i record', async () => {
@@ -175,9 +185,11 @@ describe('vantaggi Solco Pro', () => {
     const body = await response.json();
     expect(response.status).toBe(200);
     expect(body.statistics.totalListens).toBe(0);
-    expect(mocks.listeningFindMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { userId: userB.id },
-    }));
+    expect(mocks.listeningFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: userB.id },
+      }),
+    );
   });
 
   it('nega Free e stato non verificabile prima di leggere dati Pro', async () => {
@@ -192,11 +204,13 @@ describe('vantaggi Solco Pro', () => {
     const freeCard = await getCard(request('/api/solco-pro/card?entry_id=entry-a'));
     expect(freeCard.status).toBe(403);
     expect(mocks.listeningFindFirst).not.toHaveBeenCalled();
-    const freeThemeUpdate = await updateOverview(request('/api/solco-pro/overview', {
-      method: 'PATCH',
-      headers: { origin: 'https://solco.test', 'content-type': 'application/json' },
-      body: JSON.stringify({ theme: 'amber' }),
-    }));
+    const freeThemeUpdate = await updateOverview(
+      request('/api/solco-pro/overview', {
+        method: 'PATCH',
+        headers: { origin: 'https://solco.test', 'content-type': 'application/json' },
+        body: JSON.stringify({ theme: 'amber' }),
+      }),
+    );
     expect(freeThemeUpdate.status).toBe(403);
     expect(mocks.preferenceUpsert).not.toHaveBeenCalled();
 

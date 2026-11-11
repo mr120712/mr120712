@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { randomBytes } from 'node:crypto';
-import { config as loadDotEnv } from 'dotenv';
 import { resolve } from 'node:path';
+import { config as loadDotEnv } from 'dotenv';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 const sendEmailMock = vi.hoisted(() => vi.fn());
@@ -63,7 +63,10 @@ async function register(email: string, claimedRole?: string, name = 'Account di 
 }
 
 async function expectSuccessfulSignup(response: Response) {
-  const body = (await response.clone().text()).replaceAll(password, '[credenziale sintetica oscurata]');
+  const body = (await response.clone().text()).replaceAll(
+    password,
+    '[credenziale sintetica oscurata]',
+  );
   expect(response.status, body).toBe(200);
 }
 
@@ -160,7 +163,10 @@ describe('flusso di bootstrap admin con verifica email sintetica', () => {
     vi.stubEnv('ADMIN_USER_ID', '');
     const forgedSignup = await register(memberEmail, 'admin');
     expect(forgedSignup.status).toBe(400);
-    const forgedBody = (await forgedSignup.text()).replaceAll(password, '[credenziale sintetica oscurata]');
+    const forgedBody = (await forgedSignup.text()).replaceAll(
+      password,
+      '[credenziale sintetica oscurata]',
+    );
     expect(forgedBody).toContain('FIELD_NOT_ALLOWED');
 
     const response = await register(memberEmail);

@@ -73,19 +73,23 @@ describe('route di ricerca musicale', () => {
   });
 
   it('normalizza metadati YouTube server-side e non restituisce la chiave', async () => {
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({
-      items: [{
-        id: { videoId: 'dQw4w9WgXcQ' },
-        snippet: {
-          title: 'Titolo ufficiale',
-          channelTitle: 'Canale ufficiale',
-          channelId: 'UCsample123',
-          description: 'Descrizione ufficiale.',
-          publishedAt: '2024-05-06T10:00:00Z',
-          thumbnails: { medium: { url: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg' } },
-        },
-      }],
-    }));
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      Response.json({
+        items: [
+          {
+            id: { videoId: 'dQw4w9WgXcQ' },
+            snippet: {
+              title: 'Titolo ufficiale',
+              channelTitle: 'Canale ufficiale',
+              channelId: 'UCsample123',
+              description: 'Descrizione ufficiale.',
+              publishedAt: '2024-05-06T10:00:00Z',
+              thumbnails: { medium: { url: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg' } },
+            },
+          },
+        ],
+      }),
+    );
     vi.stubEnv('YOUTUBE_DATA_API_KEY', 'secret-test-key');
     vi.stubGlobal('fetch', fetcher);
 
@@ -94,27 +98,32 @@ describe('route di ricerca musicale', () => {
     expect(body).toMatchObject({
       source: 'youtube',
       outcome: 'results',
-      videos: [{
-        videoId: 'dQw4w9WgXcQ',
-        title: 'Titolo ufficiale',
-        channelTitle: 'Canale ufficiale',
-        channelId: 'UCsample123',
-        description: 'Descrizione ufficiale.',
-        publishedAt: '2024-05-06T10:00:00.000Z',
-      }],
+      videos: [
+        {
+          videoId: 'dQw4w9WgXcQ',
+          title: 'Titolo ufficiale',
+          channelTitle: 'Canale ufficiale',
+          channelId: 'UCsample123',
+          description: 'Descrizione ufficiale.',
+          publishedAt: '2024-05-06T10:00:00.000Z',
+        },
+      ],
     });
     expect(JSON.stringify(body)).not.toContain('secret-test-key');
     expect(JSON.stringify(body)).not.toMatch(/streamUrl|mediaBytes|downloadUrl/i);
     expect(fetcher).toHaveBeenCalledOnce();
-    expect(new URL(String(fetcher.mock.calls[0]?.[0])).searchParams.get('key')).toBe('secret-test-key');
+    expect(new URL(String(fetcher.mock.calls[0]?.[0])).searchParams.get('key')).toBe(
+      'secret-test-key',
+    );
   });
 
   it('distingue quota, errore API e nessun risultato senza fallback Audius', async () => {
     vi.stubEnv('YOUTUBE_DATA_API_KEY', 'server-key');
-    const quota = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json(
-      { error: { errors: [{ reason: 'quotaExceeded' }] } },
-      { status: 403 },
-    ));
+    const quota = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({ error: { errors: [{ reason: 'quotaExceeded' }] } }, { status: 403 }),
+      );
     vi.stubGlobal('fetch', quota);
     const quotaResponse = await GET(request('jazz', 'youtube', true, '192.0.2.86'));
     expect(await quotaResponse.json()).toMatchObject({
@@ -122,10 +131,11 @@ describe('route di ricerca musicale', () => {
       sourceStatus: { unavailableReason: 'quota_exceeded' },
     });
 
-    const apiError = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json(
-      { error: { errors: [{ reason: 'backendError' }] } },
-      { status: 500 },
-    ));
+    const apiError = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({ error: { errors: [{ reason: 'backendError' }] } }, { status: 500 }),
+      );
     vi.stubGlobal('fetch', apiError);
     const errorResponse = await GET(request('rock', 'youtube', true, '192.0.2.87'));
     expect(await errorResponse.json()).toMatchObject({
@@ -189,7 +199,10 @@ describe('route di ricerca musicale', () => {
 
   it('usa l’identità dell’account quando la sessione è presente', async () => {
     vi.stubEnv('YOUTUBE_DATA_API_KEY', 'server-key');
-    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ items: [] })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ items: [] })),
+    );
     mocks.getSession.mockResolvedValueOnce({ user: { id: 'artista-1' } });
     const response = await GET(request('ambient', 'youtube', true, '192.0.2.91'));
 

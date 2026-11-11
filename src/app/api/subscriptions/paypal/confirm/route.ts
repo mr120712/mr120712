@@ -6,6 +6,7 @@ import {
   isPayPalSubscriptionActive,
 } from '@/lib/business/paypal-subscriptions.server';
 import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
+import { evaluateRewards } from '@/lib/business/rewards.server';
 import {
   privateHeaders,
   signedIn,
@@ -36,6 +37,8 @@ export async function POST(request: Request) {
   }
   try {
     const row = await confirmPayPalSubscription(auth.user.id, body.data.subscriptionId);
+    // First verified payment: converts the invite (if any) and assigns referral rewards.
+    await evaluateRewards(auth.user.id).catch(() => undefined);
     return NextResponse.json(
       { planId: row.planId, period: row.period, active: isPayPalSubscriptionActive(row) },
       { headers: privateHeaders },

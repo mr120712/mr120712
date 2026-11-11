@@ -11,9 +11,14 @@ vi.mock('@/lib/music/youtube-search.server', () => ({ getYouTubeVideoDetails: mo
 import { GET } from '@/app/api/music/youtube/videos/[videoId]/route';
 
 const video = {
-  provider: 'youtube', videoId: 'dQw4w9WgXcQ', title: 'Video ufficiale',
-  channelTitle: 'Canale ufficiale', channelId: 'UCsample123', description: null,
-  publishedAt: null, thumbnailUrl: null,
+  provider: 'youtube',
+  videoId: 'dQw4w9WgXcQ',
+  title: 'Video ufficiale',
+  channelTitle: 'Canale ufficiale',
+  channelId: 'UCsample123',
+  description: null,
+  publishedAt: null,
+  thumbnailUrl: null,
 };
 
 async function getEligibility() {
@@ -43,15 +48,25 @@ describe('verifica prima dell’embed YouTube ufficiale', () => {
     const quota = await getEligibility();
     expect((await quota.json()).message).toContain('quota');
 
-    mocks.getDetails.mockResolvedValueOnce({ outcome: 'found', details: { video, madeForKids: null } });
+    mocks.getDetails.mockResolvedValueOnce({
+      outcome: 'found',
+      details: { video, madeForKids: null },
+    });
     const unknown = await getEligibility();
     expect((await unknown.json()).eligibility).toBe('unknown');
   });
 
   it('restituisce il permesso soltanto per dettagli correnti e audience verificata', async () => {
-    mocks.getDetails.mockResolvedValue({ outcome: 'found', details: { video, madeForKids: false } });
+    mocks.getDetails.mockResolvedValue({
+      outcome: 'found',
+      details: { video, madeForKids: false },
+    });
     const response = await getEligibility();
-    expect(await response.json()).toMatchObject({ videoId: video.videoId, eligibility: 'playable', video });
+    expect(await response.json()).toMatchObject({
+      videoId: video.videoId,
+      eligibility: 'playable',
+      video,
+    });
     expect(mocks.getDetails).toHaveBeenCalledWith(video.videoId, 'server-only-key');
   });
 

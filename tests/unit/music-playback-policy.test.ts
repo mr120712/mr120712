@@ -36,9 +36,10 @@ const verified: VerifiedTrackPlayback = {
   },
   checkSourceAvailable: async () => true,
   checkRightsEvidenceAvailable: async () => true,
-  openStream: async () => new Response(new Uint8Array([1, 2, 3]), {
-    headers: { 'content-type': 'audio/mpeg' },
-  }),
+  openStream: async () =>
+    new Response(new Uint8Array([1, 2, 3]), {
+      headers: { 'content-type': 'audio/mpeg' },
+    }),
 };
 
 const verifiedPreview: TrackPreviewResolution = {
@@ -63,9 +64,10 @@ const verifiedPreview: TrackPreviewResolution = {
     validFrom: '2026-11-08T11:00:00.000Z',
     validUntil: '2026-11-09T11:00:00.000Z',
   },
-  openPreview: async () => new Response(new Uint8Array([1, 2, 3]), {
-    headers: { 'content-type': 'audio/mpeg' },
-  }),
+  openPreview: async () =>
+    new Response(new Uint8Array([1, 2, 3]), {
+      headers: { 'content-type': 'audio/mpeg' },
+    }),
 };
 
 function isPlayable(candidate: unknown) {
@@ -181,7 +183,10 @@ describe('policy dell’anteprima Free', () => {
   it('nega prove scadute o incoerenti e risoluzioni non disponibili', () => {
     expect(
       isVerifiedTrackPreview(
-        { ...verifiedPreview, rights: { ...verifiedPreview.rights, validUntil: '2026-11-08T11:59:59.999Z' } },
+        {
+          ...verifiedPreview,
+          rights: { ...verifiedPreview.rights, validUntil: '2026-11-08T11:59:59.999Z' },
+        },
         albumId,
         trackId,
         now,

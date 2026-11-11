@@ -103,9 +103,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       .then((response) => (response.ok ? response.json() : null))
       .then((body: { result?: string } | null) => {
         if (body?.result === 'claimed') {
-          toast.success(
-            'Invito registrato! Ascolta 30 minuti in 2 giorni per ricevere 1 mese di Premium.',
-          );
+          toast.success('Invito registrato! Quando attivi Premium ricevi 30 giorni gratis in più.');
         }
       })
       .catch(() => undefined);

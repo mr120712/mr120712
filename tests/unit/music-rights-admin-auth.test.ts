@@ -19,19 +19,25 @@ describe('autorizzazione amministrativa dei diritti musicali', () => {
     expect(anonymous.allowed).toBe(false);
     if (!anonymous.allowed) expect(anonymous.response.status).toBe(401);
 
-    mocks.getSession.mockResolvedValueOnce({ user: { id: 'member-1', role: 'user', emailVerified: true } });
+    mocks.getSession.mockResolvedValueOnce({
+      user: { id: 'member-1', role: 'user', emailVerified: true },
+    });
     const member = await requireVerifiedMusicRightsAdmin(request);
     expect(member.allowed).toBe(false);
     if (!member.allowed) expect(member.response.status).toBe(403);
 
-    mocks.getSession.mockResolvedValueOnce({ user: { id: 'admin-1', role: 'admin', emailVerified: false } });
+    mocks.getSession.mockResolvedValueOnce({
+      user: { id: 'admin-1', role: 'admin', emailVerified: false },
+    });
     const unverifiedAdmin = await requireVerifiedMusicRightsAdmin(request);
     expect(unverifiedAdmin.allowed).toBe(false);
     if (!unverifiedAdmin.allowed) expect(unverifiedAdmin.response.status).toBe(403);
   });
 
   it('accetta solo la sessione server-side di admin verificato e chiude in caso di errore auth', async () => {
-    mocks.getSession.mockResolvedValueOnce({ user: { id: 'admin-1', role: 'admin', emailVerified: true } });
+    mocks.getSession.mockResolvedValueOnce({
+      user: { id: 'admin-1', role: 'admin', emailVerified: true },
+    });
     expect(await requireVerifiedMusicRightsAdmin(request)).toEqual({
       allowed: true,
       user: { id: 'admin-1' },

@@ -16,9 +16,7 @@ describe('withIdleConnectionLimit', () => {
   });
 
   test('adds the limit to a URL without a query string', () => {
-    expect(withIdleConnectionLimit('REDACTED/db')).toBe(
-      `REDACTED/db?${limit}`,
-    );
+    expect(withIdleConnectionLimit('REDACTED/db')).toBe(`REDACTED/db?${limit}`);
   });
 
   test('appends the limit after existing parameters', () => {
@@ -31,9 +29,7 @@ describe('withIdleConnectionLimit', () => {
   });
 
   test('keeps the encoded credentials as they are', () => {
-    expect(withIdleConnectionLimit('REDACTED/db')).toBe(
-      `REDACTED/db?${limit}`,
-    );
+    expect(withIdleConnectionLimit('REDACTED/db')).toBe(`REDACTED/db?${limit}`);
   });
 
   test('keeps a value the app already set', () => {
@@ -47,8 +43,6 @@ describe('withIdleConnectionLimit', () => {
     expect(withIdleConnectionLimit('prisma+postgres://accelerate.prisma-data.net/?api_key=k')).toBe(
       'prisma+postgres://accelerate.prisma-data.net/?api_key=k',
     );
-    expect(withIdleConnectionLimit('REDACTED/db#x')).toBe(
-      'REDACTED/db#x',
-    );
+    expect(withIdleConnectionLimit('REDACTED/db#x')).toBe('REDACTED/db#x');
   });
 });

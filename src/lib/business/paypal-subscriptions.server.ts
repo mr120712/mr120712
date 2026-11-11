@@ -212,6 +212,22 @@ function parseCustomId(value: unknown) {
   return { userId, planId, period };
 }
 
+/** PayPal reports the last captured payment; a positive amount means money was charged. */
+export function paypalPaymentVerified(sub: PayPalObject) {
+  const last = (sub.billing_info as PayPalObject | undefined)?.last_payment as
+    | PayPalObject
+    | undefined;
+  const value = Number((last?.amount as PayPalObject | undefined)?.value ?? 0);
+  return sub.status === 'ACTIVE' && Number.isFinite(value) && value > 0;
+}
+
+async function markPayPalFirstPayment(rowId: string) {
+  await prisma.payPalSubscription.updateMany({
+    where: { id: rowId, firstPaidAt: null },
+    data: { firstPaidAt: new Date() },
+  });
+}
+
 function nextBilling(sub: PayPalObject) {
   const time = (sub.billing_info as PayPalObject | undefined)?.next_billing_time;
   const date = typeof time === 'string' ? new Date(time) : null;
@@ -244,7 +260,7 @@ export async function confirmPayPalSubscription(
       'L’abbonamento non è stato approvato su PayPal.',
     );
   }
-  return prisma.payPalSubscription.upsert({
+  const row = await prisma.payPalSubscription.upsert({
     where: { paypalSubscriptionId: subscriptionId },
     create: {
       userId,
@@ -256,6 +272,8 @@ export async function confirmPayPalSubscription(
     },
     update: { status, nextBillingAt: nextBilling(sub), checkedAt: new Date() },
   });
+  if (paypalPaymentVerified(sub) && !row.firstPaidAt) await markPayPalFirstPayment(row.id);
+  return prisma.payPalSubscription.findUniqueOrThrow({ where: { id: row.id } });
 }
 
 export function isPayPalSubscriptionActive(row: { status: string } | null) {
@@ -281,6 +299,7 @@ export async function getUserPayPalSubscription(
       null,
       fetcher,
     );
+    if (!row.firstPaidAt && paypalPaymentVerified(sub)) await markPayPalFirstPayment(row.id);
     return await prisma.payPalSubscription.update({
       where: { id: row.id },
       data: {

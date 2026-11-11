@@ -19,20 +19,20 @@ const activePro = { allowed: true, user: { id: 'pro-user-1' }, entitlement: { id
 
 function verified(
   openStream = vi.fn(async (range: string | null) => {
-  if (range) {
-    return new Response(new Uint8Array([2, 3, 4]), {
-      status: 206,
-      headers: {
-        'content-type': 'audio/mp4',
-        'content-length': '3',
-        'content-range': 'bytes 2-4/10',
-      },
+    if (range) {
+      return new Response(new Uint8Array([2, 3, 4]), {
+        status: 206,
+        headers: {
+          'content-type': 'audio/mp4',
+          'content-length': '3',
+          'content-range': 'bytes 2-4/10',
+        },
+      });
+    }
+    return new Response(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), {
+      status: 200,
+      headers: { 'content-type': 'audio/mp4', 'content-length': '10' },
     });
-  }
-  return new Response(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), {
-    status: 200,
-    headers: { 'content-type': 'audio/mp4', 'content-length': '10' },
-  });
   }),
   checkSourceAvailable = vi.fn(async () => true),
 ) {
@@ -77,24 +77,27 @@ describe('stream privato per brani Solco Pro', () => {
     ['anonimo', 401, { error: 'unauthorized' }],
     ['non Pro o entitlement scaduto', 403, { error: 'pro_required' }],
     ['entitlement non verificabile', 503, { error: 'entitlement_unavailable' }],
-  ])('nega lo stream a un utente %s anche su byte-range, senza leggere diritti o storage', async (_label, status, body) => {
-    mocks.requirePro.mockResolvedValueOnce({
-      allowed: false,
-      response: Response.json(body, { status }),
-    });
-    const response = await GET(
-      new Request('https://solco.test/api/music/albums/album-71/tracks/track-71/stream', {
-        headers: { range: 'bytes=0-1' },
-      }),
-      params,
-    );
-    expect(response.status).toBe(status);
-    expect(response.headers.get('content-type')).toContain('application/json');
-    expect(await response.json()).toMatchObject(body);
-    expect(response.headers.get('cache-control')).toContain('no-store');
-    expect(mocks.catalogCheck).not.toHaveBeenCalled();
-    expect(mocks.resolve).not.toHaveBeenCalled();
-  });
+  ])(
+    'nega lo stream a un utente %s anche su byte-range, senza leggere diritti o storage',
+    async (_label, status, body) => {
+      mocks.requirePro.mockResolvedValueOnce({
+        allowed: false,
+        response: Response.json(body, { status }),
+      });
+      const response = await GET(
+        new Request('https://solco.test/api/music/albums/album-71/tracks/track-71/stream', {
+          headers: { range: 'bytes=0-1' },
+        }),
+        params,
+      );
+      expect(response.status).toBe(status);
+      expect(response.headers.get('content-type')).toContain('application/json');
+      expect(await response.json()).toMatchObject(body);
+      expect(response.headers.get('cache-control')).toContain('no-store');
+      expect(mocks.catalogCheck).not.toHaveBeenCalled();
+      expect(mocks.resolve).not.toHaveBeenCalled();
+    },
+  );
 
   it('nega se album o brano non sono nel catalogo Audius corrente', async () => {
     mocks.catalogCheck.mockResolvedValueOnce({ state: 'not_found' });
@@ -145,17 +148,17 @@ describe('stream privato per brani Solco Pro', () => {
     expect(response.headers.get('content-type')).toBe('audio/mp4');
     expect(response.headers.get('cache-control')).toContain('no-store');
     expect(response.headers.get('content-disposition')).toBe('inline');
-    expect(JSON.stringify(Object.fromEntries(response.headers))).not.toMatch(/signed|fileKey|sourceId/i);
+    expect(JSON.stringify(Object.fromEntries(response.headers))).not.toMatch(
+      /signed|fileKey|sourceId/i,
+    );
     expect(mocks.catalogCheck).toHaveBeenCalledWith('album-71', 'track-71');
   });
 
   it('ricontrolla Pro prima di una richiesta byte-range successiva', async () => {
-    mocks.requirePro
-      .mockResolvedValueOnce(activePro)
-      .mockResolvedValueOnce({
-        allowed: false,
-        response: Response.json({ error: 'pro_required' }, { status: 403 }),
-      });
+    mocks.requirePro.mockResolvedValueOnce(activePro).mockResolvedValueOnce({
+      allowed: false,
+      response: Response.json({ error: 'pro_required' }, { status: 403 }),
+    });
     const full = await GET(
       new Request('https://solco.test/api/music/albums/album-71/tracks/track-71/stream'),
       params,
@@ -202,7 +205,12 @@ describe('stream privato per brani Solco Pro', () => {
 
   it('nega senza aprire il brano quando il file privato registrato non è verificabile', async () => {
     const openStream = vi.fn();
-    mocks.resolve.mockResolvedValueOnce(verified(openStream, vi.fn(async () => false)));
+    mocks.resolve.mockResolvedValueOnce(
+      verified(
+        openStream,
+        vi.fn(async () => false),
+      ),
+    );
     const response = await GET(
       new Request('https://solco.test/api/music/albums/album-71/tracks/track-71/stream'),
       params,
@@ -213,9 +221,13 @@ describe('stream privato per brani Solco Pro', () => {
   });
 
   it('chiude senza audio se lo storage non è disponibile o i byte non corrispondono alla fonte', async () => {
-    mocks.resolve.mockResolvedValueOnce(verified(vi.fn(async () => {
-      throw new Error('private storage unavailable');
-    })));
+    mocks.resolve.mockResolvedValueOnce(
+      verified(
+        vi.fn(async () => {
+          throw new Error('private storage unavailable');
+        }),
+      ),
+    );
     const storageFailure = await GET(
       new Request('https://solco.test/api/music/albums/album-71/tracks/track-71/stream'),
       params,
@@ -224,10 +236,17 @@ describe('stream privato per brani Solco Pro', () => {
     expect(storageFailure.headers.get('content-type')).toContain('application/json');
     expect(await storageFailure.json()).toEqual({ error: 'stream_unavailable' });
 
-    mocks.resolve.mockResolvedValueOnce(verified(vi.fn(async () => new Response(new Uint8Array([9]), {
-      status: 200,
-      headers: { 'content-type': 'application/pdf', 'content-length': '10' },
-    }))));
+    mocks.resolve.mockResolvedValueOnce(
+      verified(
+        vi.fn(
+          async () =>
+            new Response(new Uint8Array([9]), {
+              status: 200,
+              headers: { 'content-type': 'application/pdf', 'content-length': '10' },
+            }),
+        ),
+      ),
+    );
     const invalidSource = await GET(
       new Request('https://solco.test/api/music/albums/album-71/tracks/track-71/stream'),
       params,

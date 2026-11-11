@@ -37,7 +37,7 @@ const shortcuts = [
   { href: '/podcasts', label: 'Podcast', icon: Mic },
   { href: '/library', label: 'Libreria', icon: Library },
   { href: '/piani', label: 'Premium', icon: Crown },
-  { href: '/premi', label: 'Premi', icon: Gift },
+  { href: '/premi#invita', label: 'Invita amici', icon: Gift },
   { href: '/app', label: 'Installa l’app', icon: Smartphone },
 ];
 

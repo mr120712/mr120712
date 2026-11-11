@@ -5,8 +5,8 @@ import {
   isActiveSolcoProEntitlement,
   mapSolcoProBusinessAccountStatus,
   SOLCO_PRO_ACCESS_DURATION,
-  SOLCO_PRO_STRIPE_BUSINESS_ACCOUNT,
   SOLCO_PRO_PRICE_EURO_CENTS,
+  SOLCO_PRO_STRIPE_BUSINESS_ACCOUNT,
   type SolcoProCheckoutOrder,
   type SolcoProStripePaymentEvidence,
   type SolcoProStripeReadiness,
@@ -171,9 +171,9 @@ describe('policy di acquisto Solco Pro con Stripe', () => {
 
     expect(isActiveSolcoProEntitlement(result.entitlement, 'user-a', now)).toBe(true);
     expect(isActiveSolcoProEntitlement(result.entitlement, 'user-b', now)).toBe(false);
-    expect(isActiveSolcoProEntitlement(result.entitlement, 'user-a', result.entitlement.validUntil)).toBe(
-      false,
-    );
+    expect(
+      isActiveSolcoProEntitlement(result.entitlement, 'user-a', result.entitlement.validUntil),
+    ).toBe(false);
     expect(
       isActiveSolcoProEntitlement(
         { ...result.entitlement, validFrom: new Date('2027-02-01T12:00:00.000Z') },

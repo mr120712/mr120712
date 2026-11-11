@@ -83,7 +83,10 @@ describe('API della pagina album Audius', () => {
     expect(missing.status).toBe(404);
 
     mocks.catalog.mockResolvedValueOnce({ state: 'unavailable', reason: 'catalog_unavailable' });
-    const unavailable = await GET(new Request('https://solco.test/api/music/albums/album-71'), params);
+    const unavailable = await GET(
+      new Request('https://solco.test/api/music/albums/album-71'),
+      params,
+    );
     expect(unavailable.status).toBe(503);
     expect(await unavailable.json()).toEqual({ error: 'catalog_unavailable' });
   });

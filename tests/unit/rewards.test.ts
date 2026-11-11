@@ -142,11 +142,11 @@ vi.mock('@/lib/db', () => ({ prisma: db.prisma }));
 import {
   grantWindow,
   isBirthdayToday,
-  isReferralQualified,
   listeningRewardsEarned,
   monthsBetween,
   normalizeBirthday,
-  referralMilestonesReached,
+  referralProgress,
+  referralTierGrants,
 } from '@/lib/business/rewards';
 import {
   claimReferral,
@@ -177,27 +177,26 @@ describe('regole dei premi', () => {
     );
   });
 
-  it('qualifica un invito solo con 30 minuti in almeno 2 giorni', () => {
-    expect(isReferralQualified([{ day: 'a', seconds: 3600 }])).toBe(false);
-    expect(
-      isReferralQualified([
-        { day: 'a', seconds: 600 },
-        { day: 'b', seconds: 600 },
-      ]),
-    ).toBe(false);
-    expect(
-      isReferralQualified([
-        { day: 'a', seconds: 1200 },
-        { day: 'b', seconds: 600 },
-      ]),
-    ).toBe(true);
+  it('premi progressivi per chi invita: 1, 3, 6, 12 mesi totali senza duplicati', () => {
+    const total = (friends: number) =>
+      referralTierGrants(friends).reduce((sum, tier) => sum + tier.days, 0);
+    expect(total(0)).toBe(0);
+    expect(total(1)).toBe(30);
+    expect(total(2)).toBe(30);
+    expect(total(3)).toBe(90);
+    expect(total(5)).toBe(180);
+    expect(total(9)).toBe(180);
+    expect(total(10)).toBe(360);
+    expect(total(25)).toBe(360);
+    expect(referralTierGrants(5).map((tier) => tier.days)).toEqual([30, 60, 90]);
+    expect(referralProgress(4).next?.friends).toBe(5);
+    expect(referralProgress(10).next).toBeNull();
   });
 
   it('calcola ascolta e guadagna, traguardi, compleanno e mesi', () => {
     const tenDays = Array.from({ length: 10 }, (_, i) => ({ day: `d${i}`, seconds: 600 }));
     expect(listeningRewardsEarned(tenDays)).toBe(1);
     expect(listeningRewardsEarned(tenDays.slice(1))).toBe(0);
-    expect(referralMilestonesReached(4).map((m) => m.friends)).toEqual([3]);
     expect(normalizeBirthday('02-29')).toBe('02-29');
     expect(normalizeBirthday('02-30')).toBeNull();
     expect(isBirthdayToday('11-11', now)).toBe(true);
@@ -236,10 +235,11 @@ describe('premi sul server', () => {
     expect(await recordListening('u1', 60, now)).toBe(false);
   });
 
-  it('premia invitato e invitante quando l’amico si qualifica, con i traguardi', async () => {
+  it('converte l’invito solo dopo un pagamento verificato e premia con le soglie', async () => {
     for (let i = 0; i < 150; i += 1) addUser(`early${i}`, day(-400 + i)); // nobody else is a founder
     addUser('inviter', day(-60));
-    for (const friend of ['f1', 'f2', 'f3']) {
+    const friends = ['f1', 'f2', 'f3'];
+    for (const friend of friends) {
       addUser(friend, day(-3));
       db.table('referral').push({
         id: `r-${friend}`,
@@ -247,23 +247,63 @@ describe('premi sul server', () => {
         inviteeId: friend,
         qualifiedAt: null,
       });
-      db.table('listeningDay').push(
-        { id: `${friend}-a`, userId: friend, day: '2026-11-09', seconds: 1200, updatedAt: day(-2) },
-        { id: `${friend}-b`, userId: friend, day: '2026-11-10', seconds: 900, updatedAt: day(-1) },
-      );
+    }
+    // Registered and listening, but no verified payment yet: nothing is granted.
+    await evaluateRewards('f1', now);
+    expect(
+      db.table('premiumGrant').filter((g) => String(g.reason).startsWith('referral')),
+    ).toHaveLength(0);
+
+    for (const friend of friends) {
+      db.table('solcoSubscription').push({
+        id: `s-${friend}`,
+        userId: friend,
+        status: 'active',
+        firstPaidAt: now,
+        createdAt: now,
+      });
       await evaluateRewards(friend, now);
     }
     const grants = db.table('premiumGrant');
-    expect(grants.filter((g) => g.reason === 'referral_invitee')).toHaveLength(3);
-    expect(
-      grants.filter((g) => g.userId === 'inviter' && g.reason === 'referral_inviter'),
-    ).toHaveLength(3);
-    expect(grants.filter((g) => g.reason === 'referral_milestone').map((g) => g.days)).toEqual([
-      90,
+    expect(grants.filter((g) => g.reason === 'referral_invitee').map((g) => g.days)).toEqual([
+      30, 30, 30,
     ]);
-    // Re-evaluating never grants twice.
+    const inviterDays = grants
+      .filter((g) => g.userId === 'inviter' && g.reason === 'referral_inviter')
+      .reduce((sum, g) => sum + (g.days as number), 0);
+    expect(inviterDays).toBe(90); // 3 paying friends = 3 months total
+
+    // Re-evaluating (another payment, page reload) never grants twice.
+    await evaluateRewards('f1', now);
+    db.table('payPalSubscription').push({
+      id: 'p-f1',
+      userId: 'f1',
+      status: 'ACTIVE',
+      firstPaidAt: now,
+      createdAt: now,
+    });
     await evaluateRewards('f1', now);
     expect(db.table('premiumGrant')).toHaveLength(grants.length);
+  });
+
+  it('un pagamento senza importo verificato non converte l’invito', async () => {
+    addUser('inviter', day(-60));
+    addUser('f9', day(-1));
+    db.table('referral').push({
+      id: 'r-f9',
+      inviterId: 'inviter',
+      inviteeId: 'f9',
+      qualifiedAt: null,
+    });
+    db.table('solcoSubscription').push({
+      id: 's-f9',
+      userId: 'f9',
+      status: 'active',
+      firstPaidAt: null,
+      createdAt: now,
+    });
+    await evaluateRewards('f9', now);
+    expect(db.table('referral')[0]?.qualifiedAt).toBeNull();
   });
 
   it('i primi 100 iscritti sono fondatori', async () => {

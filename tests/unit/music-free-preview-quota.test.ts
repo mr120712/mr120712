@@ -1,7 +1,9 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const usageRows = vi.hoisted(() => new Map<string, { userId: string; consumedMilliseconds: number }>());
+const usageRows = vi.hoisted(
+  () => new Map<string, { userId: string; consumedMilliseconds: number }>(),
+);
 
 vi.mock('server-only', () => ({}));
 vi.mock('@/lib/db', () => ({

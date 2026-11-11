@@ -116,10 +116,7 @@ describe('form di accesso Solco', () => {
     mocks.signInEmail.mockResolvedValue({
       error: { code: 'INVALID_EMAIL_OR_PASSWORD', status: 401 },
     });
-    const container = await mount(
-      <SignInForm />,
-      '/login?callbackURL=%2Fprofile%3Ftab%3Dascolti',
-    );
+    const container = await mount(<SignInForm />, '/login?callbackURL=%2Fprofile%3Ftab%3Dascolti');
     await fill(container, { email: 'ascoltatore@example.test', password: 'errata-pass' });
     await submit(container);
 
@@ -141,7 +138,9 @@ describe('form di accesso Solco', () => {
       'Connessione non riuscita',
     );
 
-    mocks.signInEmail.mockResolvedValueOnce({ error: { code: 'INTERNAL_SERVER_ERROR', status: 500 } });
+    mocks.signInEmail.mockResolvedValueOnce({
+      error: { code: 'INTERNAL_SERVER_ERROR', status: 500 },
+    });
     const serviceContainer = await mount(<SignInForm />, '/login');
     await fill(serviceContainer, { email: 'a@example.test', password: 'password-valid' });
     await submit(serviceContainer);
@@ -154,10 +153,7 @@ describe('form di accesso Solco', () => {
 describe('form di registrazione Solco', () => {
   it('crea l’account con nome, email e password e segue la callback locale', async () => {
     mocks.signUpEmail.mockResolvedValue({ error: null });
-    const container = await mount(
-      <SignUpForm />,
-      '/signup?callbackURL=%2Fdashboard%2Fcollections',
-    );
+    const container = await mount(<SignUpForm />, '/signup?callbackURL=%2Fdashboard%2Fcollections');
     await fill(container, {
       name: 'Ada Ascoltatrice',
       email: 'ada@example.test',
@@ -216,7 +212,9 @@ describe('form di registrazione Solco', () => {
       'Connessione non riuscita',
     );
 
-    mocks.signUpEmail.mockResolvedValueOnce({ error: { code: 'INTERNAL_SERVER_ERROR', status: 500 } });
+    mocks.signUpEmail.mockResolvedValueOnce({
+      error: { code: 'INTERNAL_SERVER_ERROR', status: 500 },
+    });
     const serviceContainer = await mount(<SignUpForm />, '/signup');
     await fill(serviceContainer, {
       name: 'Ada',

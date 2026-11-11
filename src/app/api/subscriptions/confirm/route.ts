@@ -2,6 +2,7 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
+import { evaluateRewards } from '@/lib/business/rewards.server';
 import {
   confirmSubscriptionCheckout,
   isSubscriptionActive,
@@ -36,6 +37,8 @@ export async function POST(request: Request) {
   }
   try {
     const row = await confirmSubscriptionCheckout(auth.user.id, body.data.sessionId);
+    // First verified payment: converts the invite (if any) and assigns referral rewards.
+    await evaluateRewards(auth.user.id).catch(() => undefined);
     return NextResponse.json(
       { planId: row.planId, period: row.period, active: isSubscriptionActive(row) },
       { headers: privateHeaders },

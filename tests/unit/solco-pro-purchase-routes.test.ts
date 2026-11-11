@@ -17,9 +17,9 @@ vi.mock('@/lib/business/solco-pro-entitlement', () => ({
   persistVerifiedSolcoProPurchase: mocks.persistPurchase,
 }));
 
-import { POST as checkout } from '@/app/api/stripe-billing/checkout/route';
 import { GET as getReadiness } from '@/app/api/solco-pro/purchase/readiness/route';
 import { POST as verifyPurchase } from '@/app/api/solco-pro/purchase/verify/route';
+import { POST as checkout } from '@/app/api/stripe-billing/checkout/route';
 
 const account = { id: 'session-user', email: 'listener@example.test' };
 
@@ -49,11 +49,7 @@ describe('route acquisto Solco Pro con Stripe', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       state: 'unavailable',
-      missing: [
-        'stripe_eur_checkout',
-        'stripe_eur_verification',
-        'stripe_bank_payout',
-      ],
+      missing: ['stripe_eur_checkout', 'stripe_eur_verification', 'stripe_bank_payout'],
       businessAccount: { exists: true, chargesEnabled: true, accountStatus: 'complete' },
     });
   });
@@ -80,7 +76,9 @@ describe('route acquisto Solco Pro con Stripe', () => {
     );
 
     expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({ error: 'solco_pro_eur_recurring_checkout_unavailable' });
+    expect(await response.json()).toEqual({
+      error: 'solco_pro_eur_recurring_checkout_unavailable',
+    });
   });
 
   it('nega l’accesso su pagamento simulato non confermato e su identità inviata dal client', async () => {
