@@ -2,13 +2,14 @@
 //
 // iOS sospende una pagina bloccata o in background poco dopo che l'audio si ferma, e Chrome
 // rallenta i timer delle pagine nascoste. Il passaggio al brano successivo quindi deve avvenire
-// nello stesso evento 'ended', sullo stesso elemento <audio>, senza attese di rete: ~20 secondi
-// prima della fine il player prepara il successivo (scelta congelata, anche in casuale; verifica
-// dei diritti e del limite Free con richieste che NON consumano ascolti; copertina in cache) e a
-// fine brano cambia solo src e chiama play().
+// nello stesso evento 'ended', senza attese di rete: ~20 secondi prima della fine il player
+// prepara il successivo (scelta congelata, anche in casuale; verifica dei diritti e del limite Free
+// con richieste che NON consumano ascolti; copertina in cache). Per Audius e gli album Solco un
+// secondo elemento <audio> ne carica anche i primi secondi e a fine brano parte subito (vedi
+// audio-decks.ts); altrimenti si cambia src sullo stesso elemento e si chiama play().
 //
-// Mai consumare un ascolto in anticipo: niente POST /api/music/plays né richieste allo /stream
-// prima che il brano parta davvero.
+// Mai consumare un ascolto in anticipo: niente POST /api/music/plays prima che il brano parta. Il
+// precaricamento chiede allo /stream solo un Range da 0, servito come primo blocco che non conta.
 import { countsTowardFreeQuota, REPLAY_WINDOW_MS } from '@/lib/business/play-quota';
 
 /** Quanti secondi prima della fine si prepara il brano successivo. */
@@ -142,7 +143,7 @@ export function rightsVerdictFromReason(reason: unknown): RightsVerdict {
 }
 
 export type AdvanceDecision =
-  /** Cambio sincrono di src sullo stesso elemento, nello stesso evento. */
+  /** Avvio sincrono nello stesso evento: deck di riserva già pronto o nuovo src sull'elemento attivo. */
   | { kind: 'switch' }
   /** Percorso normale con verifiche di rete (video YouTube, diritti non ancora verificati). */
   | { kind: 'async' }

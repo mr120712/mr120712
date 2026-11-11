@@ -112,6 +112,8 @@ beforeEach(() => {
   mocks.user.mockReset().mockResolvedValue({ id: 'free-user' });
   mocks.premium.mockReset().mockResolvedValue(false);
   mocks.check.mockReset().mockResolvedValue({ allowed: true });
+  // A 10-byte file fits in the free first chunk, so even "bytes=0-1" counts the play here; the
+  // first-chunk rules on real-size tracks are covered in stream-first-chunk-route.test.ts.
   mocks.streamTrack
     .mockReset()
     .mockImplementation(async () => audioResponse({ status: 206, range: 'bytes 0-1/10' }).response);

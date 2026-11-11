@@ -617,12 +617,13 @@ describe('sessione audio e riconnessioni', () => {
     expect(session.playbackState).toBe('none');
   });
 
-  it('primeAudio sblocca l’elemento audio dentro il tocco senza dichiarare la sessione', async () => {
+  it('primeAudio sblocca i due elementi audio dentro il tocco senza dichiarare la sessione', async () => {
     const { container } = await mountPlayer();
     const load = vi.mocked(HTMLMediaElement.prototype.load);
     load.mockClear();
     act(() => button(container, 'Prepara audio').click());
-    expect(load).toHaveBeenCalledTimes(1);
+    // One load() per deck (active + spare for the gapless advance), synchronously in the tap.
+    expect(load.mock.contexts).toEqual([...container.querySelectorAll('audio')]);
     // Nothing found yet (the YouTube video may go on): 'playback' only right before play().
     expect(audioSession.type).toBe('auto');
   });

@@ -21,6 +21,7 @@ import { usePathname } from 'next/navigation';
 import {
   createContext,
   type ReactNode,
+  type SyntheticEvent,
   useCallback,
   useContext,
   useEffect,
@@ -30,6 +31,17 @@ import {
 import { apiFetch } from '@/lib/api-client';
 import { soundcloudSearchUrl, spotifySearchUrl } from '@/lib/business/shared-song';
 import { AudiusPlaybackCheckSchema } from '@/lib/contracts/music';
+import {
+  AudioDecks,
+  GAPLESS_DECKS_ENABLED,
+  HAVE_METADATA,
+  preloadDeck,
+  releaseDeck,
+  type SpareLoad,
+  sameSpareLoad,
+  spareReadyFor,
+  wantsSparePreload,
+} from '@/lib/music/audio-decks';
 import {
   declarePlaybackSession,
   primeMediaElement,
@@ -489,7 +501,10 @@ function Artwork({ track, size }: { track: MusicPlayerTrack; size: number }) {
 
 export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const audioRef = useRef<HTMLAudioElement>(null);
+  // Two <audio> decks (see audio-decks.ts). decks.current is the one playing: every
+  // single-element path below uses it and follows the swaps; the spare only preloads the first
+  // seconds of the next Audius/Solco track.
+  const [decks] = useState(() => new AudioDecks());
   const recordedRef = useRef<string | null>(null);
   const [currentTrack, setCurrentTrack] = useState<ActiveTrack | null>(null);
   const [queue, setQueue] = useState<ActiveTrack[]>([]);
@@ -544,18 +559,23 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     onProgress: (_elapsed: number, _duration: number) => {},
   });
 
+  /** The spare deck stops preloading: queue changed, next item not Audius/Solco, playback stopped. */
+  const releaseSpare = useCallback(() => {
+    decks.spare = null;
+    releaseDeck(decks.spareDeck);
+  }, [decks]);
+
+  // Both decks: nothing audible and no preload left downloading. Inside a tap, the load() of each
+  // deck also unlocks it on iOS (see primeMediaElement).
   const releaseAudio = useCallback(() => {
     try {
       ytPlayerRef.current?.pauseVideo();
     } catch {
       // The IFrame player may still be initialising.
     }
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.pause();
-    audio.removeAttribute('src');
-    audio.load();
-  }, []);
+    releaseSpare();
+    releaseDeck(decks.current);
+  }, [decks, releaseSpare]);
 
   const applyPermit = useCallback((permit: PlayPermit) => {
     if (permit.used !== undefined) setPlaysUsed(permit.used);
@@ -627,7 +647,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       const request = ++playRequestRef.current;
       if ((track.playbackMode === 'song' || isYouTubeTrack(track)) && isPageHidden()) {
         // YouTube never starts while Solco is hidden (API terms): it waits for the listener.
-        audioRef.current?.pause();
+        decks.current?.pause();
         deferredVideoRef.current = track.qualifiedId;
         setPlayBlock(null);
         setErrorMessage(YOUTUBE_HIDDEN_NOTICE);
@@ -637,7 +657,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       }
       deferredVideoRef.current = null;
       if (track.playbackMode === 'song') {
-        audioRef.current?.pause();
+        decks.current?.pause();
         setErrorMessage(null);
         setPlayBlock(null);
         setStatus('loading');
@@ -664,7 +684,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         track = resolved.track;
       }
       if (isYouTubeTrack(track)) {
-        audioRef.current?.pause();
+        decks.current?.pause();
         // The 'playback' audio session is for Solco's own audio, never for YouTube.
         releasePlaybackSession();
         setErrorMessage(null);
@@ -688,7 +708,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         setYtRequest((value) => value + 1);
         return;
       }
-      const audio = audioRef.current;
+      const audio = decks.current;
       if (!audio) return;
       setPreviewEnded(false);
       setPlayBlock(null);
@@ -746,7 +766,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         setErrorMessage(failureMessage(error, track));
       }
     },
-    [applyPermit, releaseAudio, showNowPlaying],
+    [applyPermit, decks, releaseAudio, showNowPlaying],
   );
 
   const playTrack = useCallback(
@@ -844,7 +864,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       setElapsedSeconds(0);
       return;
     }
-    const audio = audioRef.current;
+    const audio = decks.current;
     if (audio && !isLiveTrack(currentTrack) && audio.currentTime > 5) {
       audio.currentTime = 0;
       setElapsedSeconds(0);
@@ -853,7 +873,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     if (queueIndex > 0 && !advanceRef.current(queueIndex - 1)) {
       await playQueueIndex(queueIndex - 1);
     }
-  }, [currentTrack, playQueueIndex, queueIndex]);
+  }, [currentTrack, decks, playQueueIndex, queueIndex]);
 
   const nextTrack = useCallback(async () => {
     const index = followingIndex(repeat === 'all');
@@ -874,7 +894,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         setElapsedSeconds(seconds);
         return;
       }
-      const audio = audioRef.current;
+      const audio = decks.current;
       if (
         !audio ||
         isLiveTrack(currentTrack) ||
@@ -886,7 +906,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       audio.currentTime = Math.min(seconds, audio.duration);
       setElapsedSeconds(audio.currentTime);
     },
-    [currentTrack],
+    [currentTrack, decks],
   );
 
   const stopPlayback = useCallback(() => {
@@ -924,8 +944,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   // Only unlocks the element: the 'playback' session is declared right before play(), so a search
   // that finds nothing leaves it untouched while the YouTube video goes on.
   const primeAudio = useCallback(() => {
-    primeMediaElement(audioRef.current);
-  }, []);
+    primeMediaElement(decks.current);
+    // The spare deck too: on iOS each element is unlocked by its own load() inside a tap.
+    primeMediaElement(decks.spareDeck);
+  }, [decks]);
 
   /** Pause from a button, the lock screen, the notification or the headset. */
   const pausePlayback = () => {
@@ -944,7 +966,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     // Paused while the next item was starting: cancel that start, do not restart it.
     if (status === 'loading') playRequestRef.current += 1;
     clearTimer(reconnectTimerRef);
-    audioRef.current?.pause();
+    decks.current?.pause();
     setStatus('paused');
     setBuffering(false);
     setSessionPlaybackState('paused');
@@ -1004,8 +1026,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       }
       return playCurrentTrack(track);
     }
-    const audio = audioRef.current;
+    const audio = decks.current;
     if (!audio) return undefined;
+    // A tap or a lock-screen press: unlock idle decks now (no await before this), so the spare can
+    // start the next track on its own later (e.g. a queue restored after a reload).
+    primeMediaElement(audio);
+    primeMediaElement(decks.spareDeck);
     const hasSource = Boolean(audio.getAttribute('src'));
     if (status === 'loading') {
       // Already starting (e.g. play pressed on the lock screen between two tracks).
@@ -1065,8 +1091,50 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  /**
+   * First seconds of the next Audius/Solco track on the spare deck, once its rights are verified
+   * and no Free-plan block is predicted. The stream answers a Range from byte 0 with the first
+   * chunk only and records no play for it; the play counts when the track really continues.
+   * preloadDeck uses preload='metadata' (never 'auto'), so a paused spare never asks for that
+   * counted continuation by itself.
+   */
+  const preloadOnSpare = (index: number, next: ActiveTrack, rights: RightsVerdict) => {
+    const spare = decks.spareDeck;
+    if (!spare) return;
+    const decision = decideAdvance({
+      mode: next.playbackMode,
+      qualifiedId: next.qualifiedId,
+      rights,
+      access: accessRef.current,
+      replay: isReplay(startedAtRef.current, next.qualifiedId, Date.now()),
+    });
+    const planned = repeat === 'one' ? null : followingIndex(repeat === 'all');
+    if (
+      planned !== index ||
+      queue[index]?.qualifiedId !== next.qualifiedId ||
+      !wantsSparePreload({
+        enabled: GAPLESS_DECKS_ENABLED,
+        mode: next.playbackMode,
+        repeatOne: repeat === 'one',
+        decision,
+      })
+    ) {
+      releaseSpare();
+      return;
+    }
+    const wanted: SpareLoad = { index, qualifiedId: next.qualifiedId, src: next.streamPath };
+    if (sameSpareLoad(decks.spare, wanted)) return;
+    // A new src + load() also aborts whatever the spare was loading before.
+    decks.spare = wanted;
+    preloadDeck(spare, next.streamPath);
+  };
+  // Latest queue/repeat for the preload decided when the checks answer (set every render).
+  const preloadOnSpareRef = useRef(preloadOnSpare);
+  preloadOnSpareRef.current = preloadOnSpare;
+
   // About 20 s before the end: freeze the next item and check it with requests that never
   // consume a Free play (rights: GET …/playback; quota: GET /api/music/access); warm its artwork.
+  // Then the spare deck preloads its first seconds (Audius/Solco only, see preloadOnSpare).
   const prepareNext = () => {
     if (!currentTrack) return;
     const index = followingIndex(repeat === 'all');
@@ -1084,6 +1152,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
     const entry: PreparedNext = { from, index, qualifiedId: next.qualifiedId, rights: 'pending' };
     preparedRef.current = entry;
+    // The spare holds another track (shuffle or queue changed): no stray download.
+    const wanted: SpareLoad = { index, qualifiedId: next.qualifiedId, src: next.streamPath };
+    if (decks.spare && !sameSpareLoad(decks.spare, wanted)) releaseSpare();
     if (next.artworkUrl) {
       try {
         const image = new window.Image();
@@ -1098,12 +1169,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       ? prefetchRights(next)
       : Promise.resolve('allowed');
     void Promise.all([rights, loadAccess()]).then(([verdict]) => {
-      if (preparedRef.current === entry) entry.rights = verdict;
+      if (preparedRef.current !== entry) return;
+      entry.rights = verdict;
+      preloadOnSpareRef.current(index, next, verdict);
     });
   };
 
   const handleTimeUpdate = () => {
-    const audio = audioRef.current;
+    const audio = decks.current;
     if (!audio) return;
     if (audio.currentTime > 2) reconnectsRef.current = 0;
     if (mediaRetryRef.current > 0 && audio.currentTime > retryPositionRef.current + 30) {
@@ -1188,6 +1261,66 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   };
 
   /**
+   * Gapless start: the spare deck already holds the first seconds of `next`. play() on it in the
+   * same event, then the roles swap and the old deck is released. If play() is refused, the old
+   * deck (unlocked: it was just playing) takes today's synchronous src switch.
+   */
+  const startOnSpare = (index: number, next: ActiveTrack, spare: HTMLAudioElement) => {
+    const old = decks.current;
+    if (!old) return;
+    const request = ++playRequestRef.current;
+    try {
+      ytPlayerRef.current?.pauseVideo();
+    } catch {
+      // The IFrame player may still be initialising.
+    }
+    recordedRef.current = null;
+    mediaRetryRef.current = 0;
+    reconnectsRef.current = 0;
+    pendingSeekRef.current = null;
+    // The continuation of the stream counts the play on the server: refresh the counter once it plays.
+    refreshOnPlayingRef.current = true;
+    restartListeningSample(listeningRef.current);
+    declarePlaybackSession();
+    // Only one deck is ever audible: a skip in the middle of a track silences it first.
+    old.pause();
+    spare.loop = old.loop;
+    let playing: Promise<void>;
+    try {
+      playing = spare.play();
+    } catch (error) {
+      playing = Promise.reject(error);
+    }
+    decks.swap();
+    decks.spare = null;
+    releaseDeck(old);
+    showNowPlaying(next);
+    setSessionPlaybackState('playing');
+    setQueueIndex(index);
+    setCurrentTrack(next);
+    setPreviewEnded(false);
+    setPlayBlock(null);
+    setErrorMessage(null);
+    setStatus('loading');
+    setElapsedSeconds(0);
+    setDurationSeconds(next.durationSeconds ?? 0);
+    playing.then(
+      () => {
+        if (request === playRequestRef.current) setStatus('playing');
+      },
+      (error: unknown) => {
+        // A newer request (pause while loading, another item, close) owns the decks now.
+        if (request !== playRequestRef.current || isDomError(error, 'AbortError')) return;
+        if (!decks.isActive(spare)) return;
+        // Never a silent queue: back to the deck that was playing, with today's src switch.
+        decks.swap();
+        releaseDeck(spare);
+        startSynchronously(index, next, old);
+      },
+    );
+  };
+
+  /**
    * Starts queue item `index` synchronously when that is safe: an audio item whose rights were
    * verified ahead (Audius/Solco) or an open stream (Jamendo, podcast, radio), with no Free-plan
    * block predicted. iOS suspends a locked page soon after its audio stops, so a network wait
@@ -1196,7 +1329,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
    */
   const advanceTo = (index: number): boolean => {
     const next = queue[index];
-    const audio = audioRef.current;
+    const audio = decks.current;
     if (!next || !audio) return false;
     const prepared = preparedRef.current;
     preparedRef.current = null;
@@ -1238,13 +1371,22 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       if (!advanceTo(after)) void playQueueIndex(after);
       return true;
     }
+    // The spare deck holds exactly this track with data ready: no network wait at all.
+    const spare = decks.spareDeck;
+    const wanted: SpareLoad = { index, qualifiedId: next.qualifiedId, src: next.streamPath };
+    if (spare && spareReadyFor(spare, decks.spare, wanted)) {
+      startOnSpare(index, next, spare);
+      return true;
+    }
+    // Not preloaded, another track or not ready: today's src switch on the playing element.
+    releaseSpare();
     startSynchronously(index, next, audio);
     return true;
   };
   advanceRef.current = advanceTo;
 
   const handleEnded = () => {
-    const audio = audioRef.current;
+    const audio = decks.current;
     if (repeat === 'one' && isYouTubeTrack(currentTrack) && ytPlayerRef.current) {
       ytPlayerRef.current.seekTo(0, true);
       ytPlayerRef.current.playVideo();
@@ -1306,7 +1448,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   };
 
   const handleError = () => {
-    const audio = audioRef.current;
+    const audio = decks.current;
     if (!currentTrack || !audio) return;
     if (previewEnded) return;
     // An error of a released element (no source) belongs to a playback already stopped.
@@ -1363,7 +1505,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   /** Keeps the system scrubber in step with the element (the OS extrapolates between updates). */
   const syncPositionState = () => {
     const session = mediaSessionOrNull();
-    const audio = audioRef.current;
+    const audio = decks.current;
     if (!session || !audio) return;
     applyPositionState(
       session,
@@ -1381,6 +1523,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       setSessionPlaybackState(audio.paused ? 'paused' : 'playing');
     }
   };
+  // Latest closure for the Now Playing effect (set every render).
+  const syncPositionStateRef = useRef(syncPositionState);
+  syncPositionStateRef.current = syncPositionState;
 
   // System controls (lock screen, Control Center, Android notification, headset): which actions
   // exist depends on the kind of item (see media-session.ts). Handlers read the latest state.
@@ -1413,7 +1558,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         void nextTrack();
         return;
       default: {
-        const audio = audioRef.current;
+        const audio = decks.current;
         if (!audio || !currentTrack || isLiveTrack(currentTrack) || isYouTubeTrack(currentTrack)) {
           return;
         }
@@ -1460,8 +1605,40 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const handleDurationChange = () => {
+    handleTimeUpdate();
+    syncPositionState();
+  };
+
+  const handleLoadedMetadata = () => {
+    const audio = decks.current;
+    if (audio && pendingSeekRef.current !== null && Number.isFinite(audio.duration)) {
+      audio.currentTime = Math.min(pendingSeekRef.current, audio.duration);
+      pendingSeekRef.current = null;
+    }
+    handleTimeUpdate();
+    syncPositionState();
+  };
+
+  /** Media events drive the player only from the active deck: the spare is silent, preloading. */
+  const onActiveDeck = (handler: () => void) => (event: SyntheticEvent<HTMLAudioElement>) => {
+    if (decks.isActive(event.currentTarget)) handler();
+  };
+
+  const handleDeckError = (event: SyntheticEvent<HTMLAudioElement>) => {
+    const deck = event.currentTarget;
+    if (decks.isActive(deck)) {
+      handleError();
+      return;
+    }
+    // The preload failed (rights, quota, network): released quietly, the advance takes today's
+    // path and its own error handling.
+    const held = decks.spare;
+    if (held && deck === decks.spareDeck && deck.getAttribute('src') === held.src) releaseSpare();
+  };
+
   const handlePause = () => {
-    const audio = audioRef.current;
+    const audio = decks.current;
     restartListeningSample(listeningRef.current);
     setBuffering(false);
     // The 'pause' fired at the end of an item: 'ended' moves on, Now Playing stays "playing".
@@ -1817,10 +1994,22 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   // Now Playing metadata, once per item (iOS lock screen and Control Center, Android notification).
   useEffect(() => {
     showNowPlaying(currentTrack);
-    // A new item starts without a scrubber until its own metadata loads (see syncPositionState).
-    applyPositionState(mediaSessionOrNull(), null);
+    const audio = decks.current;
+    if (
+      currentTrack &&
+      audio &&
+      audio.getAttribute('src') === currentTrack.streamPath &&
+      audio.readyState >= HAVE_METADATA
+    ) {
+      // Gapless swap: the former spare loaded this item's metadata while it was the spare (events
+      // ignored then), and its 'playing' may have run before this effect. Re-sync, do not clear.
+      syncPositionStateRef.current();
+    } else {
+      // A new item starts without a scrubber until its own metadata loads (see syncPositionState).
+      applyPositionState(mediaSessionOrNull(), null);
+    }
     if (!currentTrack) setSessionPlaybackState('none');
-  }, [currentTrack, showNowPlaying]);
+  }, [currentTrack, decks, showNowPlaying]);
 
   // System controls for this kind of item; set again on every 'playing' (see handlePlaying).
   // biome-ignore lint/correctness/useExhaustiveDependencies: the plan is read from sessionPlanRef; these values change it.
@@ -1858,16 +2047,26 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
   }, [currentTrack, status]);
 
+  // Shuffle, repeat or the queue changed what comes next: a spare holding another track stops.
+  useEffect(() => {
+    const held = decks.spare;
+    if (!held) return;
+    const index = repeat === 'one' ? null : followingIndex(repeat === 'all');
+    if (index === null || index !== held.index || queue[index]?.qualifiedId !== held.qualifiedId) {
+      releaseSpare();
+    }
+  }, [decks, followingIndex, queue, releaseSpare, repeat]);
+
   // Repeat one: the element loops by itself and never reaches 'ended' (no gap, no new request).
   useEffect(() => {
-    const audio = audioRef.current;
+    const audio = decks.current;
     if (!audio) return;
     audio.loop =
       repeat === 'one' &&
       Boolean(currentTrack) &&
       !isLiveTrack(currentTrack) &&
       !isYouTubeTrack(currentTrack);
-  }, [currentTrack, repeat]);
+  }, [currentTrack, decks, repeat]);
 
   // The YouTube video on screen, offered as the same song on Audius ("Ascolta in background").
   const backgroundVideo =
@@ -1900,6 +2099,31 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const errorLink = failureLink(errorMessage, currentTrack);
   const showCounter =
     playsLimit !== null && playsUsed !== null && showsFreePlayCounter(currentTrack?.playbackMode);
+
+  // Both decks get the same attributes; only the active one drives the player (see onActiveDeck).
+  const renderDeck = (bind: (element: HTMLAudioElement | null) => void) => (
+    <audio
+      ref={bind}
+      hidden
+      preload="none"
+      aria-hidden="true"
+      tabIndex={-1}
+      // Status follows the element: 'playing' only once audio really flows, not on play().
+      onPlaying={onActiveDeck(handlePlaying)}
+      onPause={onActiveDeck(handlePause)}
+      onWaiting={onActiveDeck(() => setBuffering(true))}
+      onSeeking={onActiveDeck(() => restartListeningSample(listeningRef.current))}
+      onSeeked={onActiveDeck(syncPositionState)}
+      onRateChange={onActiveDeck(syncPositionState)}
+      onTimeUpdate={onActiveDeck(handleTimeUpdate)}
+      onDurationChange={onActiveDeck(handleDurationChange)}
+      onLoadedMetadata={onActiveDeck(handleLoadedMetadata)}
+      onEnded={onActiveDeck(handleEnded)}
+      onError={handleDeckError}
+    >
+      <track kind="captions" src="/music-captions.vtt" srcLang="it" label="Musica" />
+    </audio>
+  );
 
   const progress =
     !live && durationSeconds > 0 ? Math.min(100, (elapsedSeconds / durationSeconds) * 100) : 0;
@@ -1946,38 +2170,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       }}
     >
       {children}
-      <audio
-        ref={audioRef}
-        hidden
-        preload="none"
-        aria-hidden="true"
-        tabIndex={-1}
-        // Status follows the element: 'playing' only once audio really flows, not on play().
-        onPlaying={handlePlaying}
-        onPause={handlePause}
-        onWaiting={() => setBuffering(true)}
-        onSeeking={() => restartListeningSample(listeningRef.current)}
-        onSeeked={syncPositionState}
-        onRateChange={syncPositionState}
-        onTimeUpdate={handleTimeUpdate}
-        onDurationChange={() => {
-          handleTimeUpdate();
-          syncPositionState();
-        }}
-        onLoadedMetadata={() => {
-          const audio = audioRef.current;
-          if (audio && pendingSeekRef.current !== null && Number.isFinite(audio.duration)) {
-            audio.currentTime = Math.min(pendingSeekRef.current, audio.duration);
-            pendingSeekRef.current = null;
-          }
-          handleTimeUpdate();
-          syncPositionState();
-        }}
-        onEnded={handleEnded}
-        onError={handleError}
-      >
-        <track kind="captions" src="/music-captions.vtt" srcLang="it" label="Musica" />
-      </audio>
+      {renderDeck(decks.bindFirst)}
+      {GAPLESS_DECKS_ENABLED ? renderDeck(decks.bindSecond) : null}
       {currentTrack && !hidePlayer ? (
         <>
           {youtubeActive ? (
