@@ -1,0 +1,61 @@
+/* @polsia:user-owned */
+.page {
+  display: grid;
+  justify-items: start;
+  gap: 16px;
+  width: min(calc(100% - 48px), 640px);
+  margin: 0 auto;
+  padding: 40px 0 56px;
+}
+
+.icon {
+  display: grid;
+  width: 64px;
+  height: 64px;
+  place-items: center;
+  border-radius: 16px;
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.icon svg {
+  width: 30px;
+  height: 30px;
+}
+
+.page h1 {
+  margin: 0;
+  font-family: var(--font-display), sans-serif;
+  font-size: clamp(28px, 4vw, 40px);
+  font-weight: 650;
+  letter-spacing: -0.04em;
+}
+
+.lead {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+.meta {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.steps {
+  display: grid;
+  gap: 10px;
+  margin: 8px 0 0;
+  padding-left: 20px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+@media (max-width: 620px) {
+  .page {
+    width: calc(100% - 32px);
+  }
+}

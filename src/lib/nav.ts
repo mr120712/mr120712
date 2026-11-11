@@ -35,6 +35,7 @@ export const navItems: NavItem[] = [
   { label: 'Community', href: '/community', group: 'primary', order: 4 },
   { label: 'Piani', href: '/piani', group: 'primary', order: 5 },
   { label: 'Messaggi', href: '/messages', group: 'secondary', requiresAuth: true, order: 0 },
+  { label: 'App Android', href: '/app', group: 'primary', order: 6 },
   { label: 'Privacy', href: '/privacy', group: 'footer', order: 0 },
   { label: 'Termini', href: '/terms', group: 'footer', order: 1 },
 ];

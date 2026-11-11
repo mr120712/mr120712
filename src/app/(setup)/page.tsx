@@ -1,8 +1,9 @@
 // @polsia:user-owned — Home di Solco in stile app di streaming (schede, caroselli, player).
 
-import { Crown, Library, Mic, Radio, Search, TrendingUp } from 'lucide-react';
+import { Crown, Library, Mic, Radio, Search, Smartphone, TrendingUp } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { InstallAppBanner } from '@/components/custom/install-app-banner';
 import { JamendoSection } from '@/components/custom/music/jamendo-section';
 import { PodcastHomeRow } from '@/components/custom/music/podcast-home-row';
 import { RadioHomeRow } from '@/components/custom/music/radio-home-row';
@@ -24,6 +25,7 @@ const shortcuts = [
   { href: '/podcasts', label: 'Podcast', icon: Mic },
   { href: '/library', label: 'Libreria', icon: Library },
   { href: '/piani', label: 'Premium', icon: Crown },
+  { href: '/app', label: 'App Android', icon: Smartphone },
 ];
 
 const genres = [
@@ -70,6 +72,8 @@ export default function HomePage() {
           </nav>
         </section>
 
+        <InstallAppBanner />
+
         <RecentlyPlayedRow />
 
         <div className={styles.feed}>
@@ -92,6 +96,7 @@ export default function HomePage() {
         <footer className={styles.footer}>
           <p>Solco · Ogni ascolto lascia un solco.</p>
           <nav aria-label="Navigazione a piè di pagina">
+            <Link href="/app">App Android</Link>
             <Link href="/community">Community</Link>
             <Link href="/privacy">Privacy</Link>
             <Link href="/terms">Termini</Link>
