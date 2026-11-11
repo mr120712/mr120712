@@ -2,6 +2,7 @@
 // Add <meta>/<link> here (verification, preconnect) — React hoists them. For scripts use
 // next/script with the passed `nonce` (CSP-safe). Edit freely.
 
+import { socialLinks } from '@/lib/brand';
 import { siteDescription, siteName, siteUrl } from '@/lib/site';
 
 // Structured data: Google shows the site name and a search box for Solco in results.
@@ -13,6 +14,8 @@ const structuredData = JSON.stringify([
     url: siteUrl,
     description: siteDescription,
     inLanguage: 'it-IT',
+    // schema.org sameAs: Solco's official profiles elsewhere (the public Telegram channel).
+    sameAs: [socialLinks.telegram],
     potentialAction: {
       '@type': 'SearchAction',
       target: `${siteUrl}/search?q={search_term_string}`,

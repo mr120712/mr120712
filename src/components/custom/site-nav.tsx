@@ -8,6 +8,7 @@ import { usePathname } from 'next/navigation';
 import * as React from 'react';
 import { AuthNav } from '@/components/custom/auth-nav';
 import { SnowToggle } from '@/components/custom/snowfall';
+import { TelegramButton } from '@/components/custom/telegram-button';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -344,6 +345,9 @@ export function AppTopBar() {
                       ))}
                     </div>
                   )}
+                  <div className="mt-2 flex flex-col gap-1 border-t border-border pt-4">
+                    <TelegramButton variant="menu" onClick={() => setOpen(false)} />
+                  </div>
                 </nav>
               </SheetContent>
             </Sheet>
@@ -374,6 +378,7 @@ export function SiteFooter() {
             <Link href={item.href}>{item.label}</Link>
           </Button>
         ))}
+        <TelegramButton variant="link" />
       </nav>
     </footer>
   );

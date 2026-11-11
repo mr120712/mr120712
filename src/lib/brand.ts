@@ -21,3 +21,9 @@ export const brandVisual = {
     image: '',
   },
 } as const;
+
+// Public social channels (external URLs). Kept out of src/lib/nav.ts on purpose:
+// nav.ts feeds the sitemap and the internal navigation, which list Solco pages only.
+export const socialLinks = {
+  telegram: 'https://t.me/solcomusic',
+} as const;

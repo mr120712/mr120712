@@ -117,11 +117,27 @@
 
 .footer nav {
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 8px 16px;
 }
 
 .footer a {
   color: inherit;
+}
+
+/* Telegram link (a <Button variant="link">): sized like the plain footer links. */
+.footerTelegram {
+  height: auto;
+  padding: 0;
+  gap: 5px;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+}
+
+.footerTelegram svg {
+  width: 13px;
+  height: 13px;
 }
 
 @media (max-width: 620px) {

@@ -24,6 +24,7 @@
 //     ],
 //     optional: [{ label: 'Changelog', href: '/changelog' }],
 //   };
+import { socialLinks } from '@/lib/brand';
 import type { LlmsConfig } from '@/lib/llms';
 
 export const llmsConfig: LlmsConfig = {
@@ -39,4 +40,16 @@ export const llmsConfig: LlmsConfig = {
     '/premi': 'Invita amici e ottieni Premium gratis.',
     '/app': 'Installa Solco su Android e iPhone.',
   },
+  sections: [
+    {
+      title: 'Canali ufficiali',
+      links: [
+        {
+          label: 'Canale Telegram di Solco',
+          href: socialLinks.telegram,
+          description: 'Novità, playlist e anteprime.',
+        },
+      ],
+    },
+  ],
 };

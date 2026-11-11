@@ -24,6 +24,7 @@ import { RecentlyPlayedRow } from '@/components/custom/music/recently-played-row
 import { TikTokClips } from '@/components/custom/music/tiktok-clips';
 import { YouTubeCharts } from '@/components/custom/music/youtube-charts';
 import { AppTopBar } from '@/components/custom/site-nav';
+import { TelegramButton } from '@/components/custom/telegram-button';
 import { genreCatalog } from '@/lib/music/genre-catalog';
 import styles from './home.module.css';
 
@@ -104,6 +105,7 @@ export default function HomePage() {
               <Link href="/generi">Tutti i generi →</Link>
             </nav>
           </section>
+          <TelegramButton variant="card" />
         </div>
 
         <footer className={styles.footer}>
@@ -113,6 +115,7 @@ export default function HomePage() {
             <Link href="/community">Community</Link>
             <Link href="/privacy">Privacy</Link>
             <Link href="/terms">Termini</Link>
+            <TelegramButton variant="link" className={styles.footerTelegram} />
           </nav>
         </footer>
       </main>
