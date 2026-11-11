@@ -1,5 +1,6 @@
 // @polsia:user-owned — pagina dei piani Solco (Free, Premium, Premium Plus, Family).
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { PlanSubscribe } from '@/components/custom/plan-subscribe';
 import { getSolcoProPricing } from '@/lib/business/solco-pro-pricing';
 import styles from './piani.module.css';
@@ -72,6 +73,10 @@ export default function PlansPage() {
               : ['Tutto quello che c’è in Free', ...proBenefits],
         }))}
       />
+
+      <p className={styles.lead}>
+        Vuoi Premium gratis? <Link href="/premi">Invita amici e guadagna giorni di Premium</Link>.
+      </p>
 
       <section className={styles.faq} aria-labelledby="faq-heading">
         <h2 id="faq-heading">Domande frequenti</h2>

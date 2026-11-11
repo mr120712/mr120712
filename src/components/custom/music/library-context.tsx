@@ -89,6 +89,28 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
     void refresh();
   }, [refresh]);
 
+  // Arrived through an invite link (/invito/<code>): link the new account to the inviter.
+  useEffect(() => {
+    if (!signedIn || !document.cookie.split('; ').some((part) => part.startsWith('solco_ref='))) {
+      return;
+    }
+    fetch('/api/rewards', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'claim_referral' }),
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { result?: string } | null) => {
+        if (body?.result === 'claimed') {
+          toast.success(
+            'Invito registrato! Ascolta 30 minuti in 2 giorni per ricevere 1 mese di Premium.',
+          );
+        }
+      })
+      .catch(() => undefined);
+  }, [signedIn]);
+
   const mutate = useCallback(
     async (action: LibraryMutation, successMessage?: string) => {
       if (!signedIn) {

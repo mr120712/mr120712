@@ -305,6 +305,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const ytPlayerRef = useRef<YouTubeEngine | null>(null);
   const [ytRequest, setYtRequest] = useState(0);
   const [premium, setPremium] = useState<boolean | null>(null);
+  const [signedIn, setSignedIn] = useState(false);
   const [previewEnded, setPreviewEnded] = useState(false);
   const reconnectsRef = useRef(0);
   const pendingSeekRef = useRef<number | null>(null);
@@ -778,8 +779,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     const check = () => {
       fetch('/api/music/access', { credentials: 'same-origin', cache: 'no-store' })
         .then((response) => (response.ok ? response.json() : null))
-        .then((body: { premium?: unknown } | null) => {
-          if (!cancelled) setPremium(body?.premium === true);
+        .then((body: { premium?: unknown; signedIn?: unknown } | null) => {
+          if (cancelled) return;
+          setPremium(body?.premium === true);
+          setSignedIn(body?.signedIn === true);
         })
         .catch(() => {
           if (!cancelled) setPremium(false);
@@ -793,6 +796,20 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('focus', check);
     };
   }, []);
+
+  // Listening time for rewards (invites and "ascolta e guadagna"): one tick per minute played.
+  useEffect(() => {
+    if (!signedIn || status !== 'playing') return;
+    const timer = window.setInterval(() => {
+      fetch('/api/rewards', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'listen', seconds: 60 }),
+      }).catch(() => undefined);
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [signedIn, status]);
 
   // Network back after a drop: resume live radio automatically.
   useEffect(() => {

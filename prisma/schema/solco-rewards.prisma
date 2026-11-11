@@ -1,0 +1,52 @@
+// @polsia:user-owned — premi Solco: Premium gratuito per inviti, fondatori, ascolto, fedeltà e compleanno.
+
+/// Periodo di Premium regalato. refKey rende ogni premio assegnabile una sola volta.
+model PremiumGrant {
+  id        String   @id @default(cuid())
+  userId    String
+  reason    String
+  days      Int
+  startsAt  DateTime
+  endsAt    DateTime
+  refKey    String   @unique
+  createdAt DateTime @default(now())
+
+  @@index([userId, endsAt])
+}
+
+model ReferralCode {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  code      String   @unique
+  createdAt DateTime @default(now())
+}
+
+model Referral {
+  id          String    @id @default(cuid())
+  inviterId   String
+  inviteeId   String    @unique
+  createdAt   DateTime  @default(now())
+  qualifiedAt DateTime?
+
+  @@index([inviterId, qualifiedAt])
+}
+
+/// Secondi di ascolto per giorno (Europe/Rome), per premi e qualifica degli inviti.
+model ListeningDay {
+  id        String   @id @default(cuid())
+  userId    String
+  day       String
+  seconds   Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, day])
+}
+
+model UserRewardProfile {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  birthday      String?
+  founderNumber Int?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
