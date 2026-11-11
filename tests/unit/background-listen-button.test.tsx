@@ -3,10 +3,15 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ playTrack: vi.fn(), toast: vi.fn(), success: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  playTrack: vi.fn(),
+  primeAudio: vi.fn(),
+  toast: vi.fn(),
+  success: vi.fn(),
+}));
 vi.mock('sonner', () => ({ toast: Object.assign(mocks.toast, { success: mocks.success }) }));
 vi.mock('@/components/custom/music/music-player', () => ({
-  useMusicPlayer: () => ({ playTrack: mocks.playTrack }),
+  useMusicPlayer: () => ({ playTrack: mocks.playTrack, primeAudio: mocks.primeAudio }),
   trackStreamPath: (track: { qualifiedId: string }) =>
     `/api/music/jamendo/${track.qualifiedId.split(':')[1]}/stream`,
 }));

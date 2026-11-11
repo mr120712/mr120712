@@ -362,8 +362,11 @@ describe('player Solco Pro', () => {
       'button[aria-label="Riproduci Primo brano"]',
     );
     if (!resume) throw new Error('Controllo ripresa non trovato.');
+    const play = vi.mocked(HTMLMediaElement.prototype.play);
     await act(async () => {
       resume.click();
+      // play() runs inside the tap, before the access check answers (iOS drops a later play()).
+      expect(play).toHaveBeenCalledTimes(2);
       await Promise.resolve();
     });
     expect(mocks.apiFetch).toHaveBeenCalledTimes(2);

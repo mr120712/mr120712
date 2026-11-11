@@ -110,7 +110,15 @@ export function BackgroundListenButton({
     <button
       type="button"
       className={compact ? styles.iconButton : styles.backgroundButton}
-      onClick={() => void listen()}
+      onClick={() => {
+        // First, inside the tap: unlock the shared <audio> element. The searches below take a
+        // network round trip, after which iOS no longer treats play() as part of the tap
+        // (NotAllowedError on the first background switch). The 'playback' audio session is
+        // declared by the player right before play(), so a search that finds nothing leaves the
+        // YouTube video with the browser's default session.
+        player.primeAudio();
+        void listen();
+      }}
       disabled={searching}
       aria-label={label}
       title="Ascolta in background"
