@@ -84,3 +84,17 @@ describe('flashcard: ripasso Leitner', () => {
     expect(masteredCount(cards, progress)).toBe(1);
   });
 });
+
+import { theoryCards } from '@/lib/music/flashcard-theory';
+
+describe('flashcard: mazzo teoria e storia', () => {
+  it('ha carte verificate, brevi e con id unici', () => {
+    expect(theoryCards.length).toBeGreaterThanOrEqual(40);
+    expect(new Set(theoryCards.map((card) => card.id)).size).toBe(theoryCards.length);
+    for (const card of theoryCards) {
+      expect(card.front.length).toBeLessThanOrEqual(120);
+      expect(card.back.length).toBeLessThanOrEqual(320);
+      expect(['teoria', 'storia', 'produzione', 'strumenti']).toContain(card.topic);
+    }
+  });
+});
