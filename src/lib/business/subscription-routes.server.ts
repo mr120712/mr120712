@@ -33,7 +33,13 @@ export function stripeErrorResponse(error: unknown) {
               ? 409
               : 502;
     return NextResponse.json(
-      { error: error.code, message: error.message },
+      {
+        error: error.code,
+        message: error.message,
+        ...(error instanceof StripeSubscriptionError && error.stripeCode
+          ? { stripeCode: error.stripeCode }
+          : {}),
+      },
       { status, headers: privateHeaders },
     );
   }

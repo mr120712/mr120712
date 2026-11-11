@@ -19,6 +19,8 @@ export class StripeSubscriptionError extends Error {
       | 'account_mismatch'
       | 'incomplete',
     message: string,
+    /** Stripe's own error code (e.g. "account_invalid"); never contains secrets. */
+    readonly stripeCode: string | null = null,
   ) {
     super(message);
     this.name = 'StripeSubscriptionError';
@@ -78,9 +80,21 @@ async function stripeRequest(
   }
   const body = (await response.json().catch(() => ({}))) as StripeObject;
   if (!response.ok) {
+    const error = (body.error ?? {}) as StripeObject;
+    const stripeCode = String(error.code ?? error.type ?? `http_${response.status}`).slice(0, 80);
+    console.error('[stripe] request failed', {
+      path,
+      status: response.status,
+      code: stripeCode,
+      message: typeof error.message === 'string' ? error.message.slice(0, 300) : null,
+    });
     if (response.status === 404)
-      throw new StripeSubscriptionError('not_found', 'Non trovato su Stripe.');
-    throw new StripeSubscriptionError('stripe_error', 'Stripe ha rifiutato la richiesta.');
+      throw new StripeSubscriptionError('not_found', 'Non trovato su Stripe.', stripeCode);
+    throw new StripeSubscriptionError(
+      'stripe_error',
+      'Stripe ha rifiutato la richiesta.',
+      stripeCode,
+    );
   }
   return body;
 }
