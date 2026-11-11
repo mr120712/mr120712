@@ -1,7 +1,10 @@
 // @vitest-environment node
 // @polsia:user-owned
 import { describe, expect, it } from 'vitest';
-import { deleteAccountData, type AccountDeletionTransaction } from '@/lib/business/account-deletion';
+import {
+  type AccountDeletionTransaction,
+  deleteAccountData,
+} from '@/lib/business/account-deletion';
 import {
   ACCOUNT_DELETION_CONFIRMATION,
   AccountDeletionRequestSchema,
@@ -31,7 +34,11 @@ describe('cancellazione dell’account Solco', () => {
       },
     });
     const userFollow = {
-      deleteMany: async ({ where }: { where: { OR: Array<{ followerId: string } | { followedId: string }> } }) => {
+      deleteMany: async ({
+        where,
+      }: {
+        where: { OR: Array<{ followerId: string } | { followedId: string }> };
+      }) => {
         operations.push(`userFollow:${JSON.stringify(where.OR)}`);
         return { count: 1 };
       },
@@ -48,6 +55,21 @@ describe('cancellazione dell’account Solco', () => {
       solcoProCheckoutOrder: ownedModel('solcoProCheckoutOrder'),
       productCheck: ownedModel('productCheck'),
       shop: ownedModel('shop'),
+      userMusicFolder: ownedModel('userMusicFolder'),
+      userSavedStation: ownedModel('userSavedStation'),
+      userPodcastFollow: ownedModel('userPodcastFollow'),
+      userPlaybackHistory: ownedModel('userPlaybackHistory'),
+      userHiddenItem: ownedModel('userHiddenItem'),
+      premiumGrant: ownedModel('premiumGrant'),
+      referralCode: ownedModel('referralCode'),
+      listeningDay: ownedModel('listeningDay'),
+      userRewardProfile: ownedModel('userRewardProfile'),
+      referral: {
+        deleteMany: async ({ where }) => {
+          operations.push(`referral:${JSON.stringify(where.OR)}`);
+          return { count: 1 };
+        },
+      },
       user: {
         delete: async ({ where }) => {
           operations.push(`user:${where.id}`);
@@ -76,6 +98,16 @@ describe('cancellazione dell’account Solco', () => {
       'solcoProPreference:user-17',
       'productCheck:user-17',
       'shop:user-17',
+      'userMusicFolder:user-17',
+      'userSavedStation:user-17',
+      'userPodcastFollow:user-17',
+      'userPlaybackHistory:user-17',
+      'userHiddenItem:user-17',
+      'premiumGrant:user-17',
+      'referralCode:user-17',
+      'listeningDay:user-17',
+      'userRewardProfile:user-17',
+      'referral:[{"inviterId":"user-17"},{"inviteeId":"user-17"}]',
       'verification:[{"identifier":"listener@example.test"},{"identifier":{"endsWith":":listener@example.test"}}]',
       'user:user-17',
     ]);

@@ -31,6 +31,20 @@ export type AccountDeletionTransaction = {
   solcoProCheckoutOrder: UserOwnedRecords;
   productCheck: UserOwnedRecords;
   shop: UserOwnedRecords;
+  userMusicFolder: UserOwnedRecords;
+  userSavedStation: UserOwnedRecords;
+  userPodcastFollow: UserOwnedRecords;
+  userPlaybackHistory: UserOwnedRecords;
+  userHiddenItem: UserOwnedRecords;
+  premiumGrant: UserOwnedRecords;
+  referralCode: UserOwnedRecords;
+  listeningDay: UserOwnedRecords;
+  userRewardProfile: UserOwnedRecords;
+  referral: {
+    deleteMany(args: {
+      where: { OR: Array<{ inviterId: string } | { inviteeId: string }> };
+    }): Promise<unknown>;
+  };
   user: AuthUserRecord;
   verification: VerificationRecords;
 };
@@ -53,6 +67,19 @@ export async function deleteAccountData(
   await transaction.solcoProPreference.deleteMany({ where: { userId } });
   await transaction.productCheck.deleteMany({ where: { userId } });
   await transaction.shop.deleteMany({ where: { userId } });
+  // Library and rewards data added with the app restructure.
+  await transaction.userMusicFolder.deleteMany({ where: { userId } });
+  await transaction.userSavedStation.deleteMany({ where: { userId } });
+  await transaction.userPodcastFollow.deleteMany({ where: { userId } });
+  await transaction.userPlaybackHistory.deleteMany({ where: { userId } });
+  await transaction.userHiddenItem.deleteMany({ where: { userId } });
+  await transaction.premiumGrant.deleteMany({ where: { userId } });
+  await transaction.referralCode.deleteMany({ where: { userId } });
+  await transaction.listeningDay.deleteMany({ where: { userId } });
+  await transaction.userRewardProfile.deleteMany({ where: { userId } });
+  await transaction.referral.deleteMany({
+    where: { OR: [{ inviterId: userId }, { inviteeId: userId }] },
+  });
   await transaction.verification.deleteMany({
     where: { OR: [{ identifier: email }, { identifier: { endsWith: `:${email}` } }] },
   });
