@@ -40,7 +40,8 @@ const trackFixture = {
   artwork: { '480x480': 'https://audius.co/images/cover.jpg' },
   duration: 183,
   genre: 'Electronic',
-  license: 'open_music_license',
+  // Real Audius shape: no label means the default Audius Open Music License (OML §1.1).
+  license: null,
   copyright_line: { year: 2025, text: 'Sample Artist' },
   producer_copyright_line: { year: 2025, text: 'Sample Producer' },
   is_available: true,
@@ -173,11 +174,41 @@ describe('metadati e autorizzazione Audius', () => {
     );
   });
 
+  it('riproduce solo i brani con la Open Music License (licenza vuota o OML)', () => {
+    const base = {
+      sourceActive: true,
+      isAvailable: true,
+      isStreamable: true,
+      trackIsStreamGated: false,
+      accessCanStream: true,
+      accessAuthorities: null,
+    };
+    for (const license of [null, undefined, '', '  ', 'Audius Open Music License', 'OML']) {
+      expect(evaluateAudiusPlayback({ ...base, license })).toEqual({
+        allowed: true,
+        reason: 'ready',
+      });
+    }
+    for (const license of [
+      'All rights reserved',
+      'Attribution-NonCommercial-NoDerivs CC BY-NC-ND',
+      'Attribution CC BY',
+      'qualcos’altro',
+      42,
+    ]) {
+      expect(evaluateAudiusPlayback({ ...base, license })).toEqual({
+        allowed: false,
+        reason: 'license_not_allowed',
+      });
+    }
+  });
+
   it('mantiene separati stream consentito, negato e sconosciuto', () => {
     const base = {
       sourceActive: true,
       isAvailable: true,
       isStreamable: true,
+      license: null,
       trackIsStreamGated: false,
       accessAuthorities: [],
     };
@@ -185,6 +216,10 @@ describe('metadati e autorizzazione Audius', () => {
       allowed: true,
       reason: 'ready',
     });
+    // What the Audius API really sends for open tracks: access_authorities null.
+    expect(
+      evaluateAudiusPlayback({ ...base, accessCanStream: true, accessAuthorities: null }),
+    ).toEqual({ allowed: true, reason: 'ready' });
     expect(evaluateAudiusPlayback({ ...base, accessCanStream: false })).toEqual({
       allowed: false,
       reason: 'access_denied',
@@ -266,11 +301,7 @@ describe('metadati e autorizzazione Audius', () => {
 
   it('non impone paywall o durata di anteprima quando Audius autorizza lo stream', () => {
     const [track] = normalizeAudiusTracks(
-      {
-        data: [
-          { ...trackFixture, license: 'Licenza indicata da Audius', copyright_line: undefined },
-        ],
-      },
+      { data: [{ ...trackFixture, license: null, copyright_line: undefined }] },
       true,
     );
     expect(track).toMatchObject({

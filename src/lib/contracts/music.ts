@@ -64,6 +64,7 @@ const AudiusTrackFieldsSchema = z.object({
     'gated',
     'access_denied',
     'access_unknown',
+    'license_not_allowed',
     'rate_limited',
     'state_unknown',
   ]),

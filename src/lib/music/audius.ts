@@ -21,6 +21,7 @@ export type AudiusPlaybackReason =
   | 'gated'
   | 'access_denied'
   | 'access_unknown'
+  | 'license_not_allowed'
   | 'rate_limited'
   | 'state_unknown';
 
@@ -118,10 +119,28 @@ function artworkUrl(value: unknown): string | null {
   }
 }
 
+/**
+ * True when Solco may stream the track under the Audius Open Music License.
+ * OML §1.1 covers all content on the Audius Protocol unless the artist picked an
+ * "Alternative License" (§1.3). Audius leaves `license` empty (null) for the default, so:
+ * - null, missing, empty or blank: the OML applies;
+ * - a label that clearly names the Open Music License (or "OML"): the OML applies;
+ * - anything else ("All rights reserved", any Creative Commons licence, CC BY included,
+ *   unknown text or a non-string value): an alternative licence, not playable on Solco.
+ */
+export function isAudiusOpenMusicLicense(license: unknown): boolean {
+  if (license === null || license === undefined) return true;
+  if (typeof license !== 'string') return false;
+  const label = license.trim();
+  return label === '' || /open music license|\bOML\b/i.test(label);
+}
+
 export function evaluateAudiusPlayback(input: {
   sourceActive: boolean;
   isAvailable: unknown;
   isStreamable: unknown;
+  /** The track's `license` field from Audius: only the Open Music License is playable. */
+  license: unknown;
   trackIsStreamGated: unknown;
   accessCanStream: unknown;
   accessAuthorities: unknown;
@@ -131,6 +150,10 @@ export function evaluateAudiusPlayback(input: {
   if (input.isAvailable !== true) return { allowed: false, reason: 'state_unknown' };
   if (input.isStreamable === false) return { allowed: false, reason: 'not_streamable' };
   if (input.isStreamable !== true) return { allowed: false, reason: 'state_unknown' };
+  // Before the access checks: with an alternative licence no Audius access makes it playable here.
+  if (!isAudiusOpenMusicLicense(input.license)) {
+    return { allowed: false, reason: 'license_not_allowed' };
+  }
   if (typeof input.trackIsStreamGated !== 'boolean')
     return { allowed: false, reason: 'state_unknown' };
   if (input.accessCanStream === false) {
@@ -141,8 +164,11 @@ export function evaluateAudiusPlayback(input: {
   }
   if (input.accessCanStream !== true) return { allowed: false, reason: 'access_unknown' };
   if (input.trackIsStreamGated) return { allowed: false, reason: 'gated' };
-  if (!Array.isArray(input.accessAuthorities)) return { allowed: false, reason: 'access_unknown' };
-  if (input.accessAuthorities.length > 0) return { allowed: false, reason: 'gated' };
+  // Audius sends access_authorities: null for tracks no external authority controls (every
+  // open track today): an explicit null is an empty list. A missing field stays unknown.
+  const authorities = input.accessAuthorities === null ? [] : input.accessAuthorities;
+  if (!Array.isArray(authorities)) return { allowed: false, reason: 'access_unknown' };
+  if (authorities.length > 0) return { allowed: false, reason: 'gated' };
   return { allowed: true, reason: 'ready' };
 }
 
@@ -294,6 +320,7 @@ export function normalizeAudiusTracks(
       sourceActive,
       isAvailable: record.is_available,
       isStreamable: record.is_streamable,
+      license: record.license,
       trackIsStreamGated: record.is_stream_gated,
       accessCanStream: rawAccess?.stream,
       accessAuthorities: record.access_authorities,
@@ -347,6 +374,8 @@ export function getAudiusPlaybackReasonText(reason: AudiusPlaybackReason) {
       return 'Audius non autorizza lo streaming per questo accesso.';
     case 'access_unknown':
       return 'Lo stato di accesso al flusso Audius non è verificabile.';
+    case 'license_not_allowed':
+      return "L'artista ha scelto una licenza diversa: questo brano si ascolta solo su Audius.";
     case 'rate_limited':
       return 'Audius ha limitato le richieste; attendi il tempo indicato prima di riprovare.';
     case 'state_unknown':
