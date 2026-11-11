@@ -59,6 +59,11 @@ export const authConfig: BetterAuthOptions = {
   // Apple posts back from https://appleid.apple.com: that origin is listed in
   // BETTER_AUTH_TRUSTED_ORIGINS (the framework owns trustedOrigins).
   ...(appleCredentials ? { socialProviders: { apple: appleCredentials } } : {}),
+  // Google verifies the email it returns: an existing Solco account with the same email
+  // is linked instead of failing with account_not_linked.
+  account: {
+    accountLinking: { enabled: true, trustedProviders: ['google'] },
+  },
   emailAndPassword: {
     enabled: true,
   },

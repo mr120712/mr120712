@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   signInEmail: vi.fn(),
   signInSocial: vi.fn(),
+  signInOauth2: vi.fn(),
   signUpEmail: vi.fn(),
   replace: vi.fn(),
   refresh: vi.fn(),
@@ -15,7 +16,7 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: mocks.replace, refresh: mocks.refresh }),
 }));
 vi.mock('@/lib/auth-client', () => ({
-  signIn: { email: mocks.signInEmail, social: mocks.signInSocial },
+  signIn: { email: mocks.signInEmail, social: mocks.signInSocial, oauth2: mocks.signInOauth2 },
   signUp: { email: mocks.signUpEmail },
 }));
 
@@ -65,8 +66,10 @@ async function fill(container: HTMLElement, values: Record<string, string>) {
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.stubEnv('NEXT_PUBLIC_APPLE_SIGNIN', '1');
+  vi.stubEnv('NEXT_PUBLIC_GOOGLE_SIGNIN_CLIENT_ID', 'test-client.apps.googleusercontent.com');
   mocks.signInEmail.mockReset();
   mocks.signInSocial.mockReset().mockResolvedValue({ error: null });
+  mocks.signInOauth2.mockReset().mockResolvedValue({ error: null });
   mocks.signUpEmail.mockReset();
   mocks.replace.mockReset();
   mocks.refresh.mockReset();
@@ -82,14 +85,27 @@ describe('form di accesso Solco', () => {
   it.each([
     ['login', () => <SignInForm />],
     ['signup', () => <SignUpForm />],
-  ])('%s non mostra Google e conserva il percorso Apple', async (route, createForm) => {
+  ])('%s offre Google e Apple quando sono configurati', async (route, createForm) => {
     const container = await mount(createForm(), `/${route}`);
-    expect(container.textContent?.toLowerCase()).not.toContain('google');
+    const button = (label: string) =>
+      [...container.querySelectorAll('button')].find((b) => b.textContent?.includes(label));
 
-    const apple = [...container.querySelectorAll('button')].find((button) =>
-      button.textContent?.includes('Continua con Apple'),
+    await act(async () => {
+      button('Continua con Google')?.click();
+      await Promise.resolve();
+    });
+    expect(mocks.signInOauth2).toHaveBeenCalledWith(
+      expect.objectContaining({ providerId: 'google', callbackURL: '/dashboard' }),
     );
-    expect(apple).toBeTruthy();
+
+    expect(button('Continua con Apple')).toBeTruthy();
+  });
+
+  it('avvia Apple con il provider social', async () => {
+    const container = await mount(<SignInForm />, '/login');
+    const apple = [...container.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('Continua con Apple'),
+    );
     await act(async () => {
       apple?.click();
       await Promise.resolve();
@@ -97,6 +113,12 @@ describe('form di accesso Solco', () => {
     expect(mocks.signInSocial).toHaveBeenCalledWith(
       expect.objectContaining({ provider: 'apple', callbackURL: '/dashboard' }),
     );
+  });
+
+  it('nasconde Google finché il client Google non è configurato', async () => {
+    vi.stubEnv('NEXT_PUBLIC_GOOGLE_SIGNIN_CLIENT_ID', '');
+    const container = await mount(<SignInForm />, '/login');
+    expect(container.textContent).not.toContain('Continua con Google');
   });
 
   it('nasconde “Continua con Apple” finché Apple non è configurato', async () => {
