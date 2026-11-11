@@ -3,7 +3,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import {
   AudiusArtistCard,
   AudiusPlaylistCard,
@@ -170,7 +170,7 @@ export function ResumeSection({
   );
 }
 
-export function HomeCatalog() {
+export function HomeCatalog({ afterCharts }: { afterCharts?: ReactNode } = {}) {
   const player = useMusicPlayer();
   const [response, setResponse] = useState<MusicHomeResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -248,8 +248,8 @@ export function HomeCatalog() {
       <section className={styles.section} id="tendenze" aria-labelledby="trending-heading">
         <header className={styles.sectionHeading}>
           <div>
-            <p className={styles.eyebrow}>01 / TENDENZE · AUDIUS</p>
-            <h2 id="trending-heading">In ascolto adesso</h2>
+            <p className={styles.eyebrow}>CLASSIFICHE · AUDIUS</p>
+            <h2 id="trending-heading">Top in classifica</h2>
           </div>
           <Link href="/search?q=Electronic">Cerca su Audius</Link>
         </header>
@@ -274,10 +274,12 @@ export function HomeCatalog() {
         )}
       </section>
 
+      {afterCharts}
+
       <section className={styles.section} id="nuove-uscite" aria-labelledby="releases-heading">
         <header className={styles.sectionHeading}>
           <div>
-            <p className={styles.eyebrow}>02 / CATALOGO · AUDIUS</p>
+            <p className={styles.eyebrow}>CATALOGO · AUDIUS</p>
             <h2 id="releases-heading">Nuove uscite</h2>
           </div>
         </header>
@@ -298,7 +300,7 @@ export function HomeCatalog() {
       <section className={styles.section} id="playlist" aria-labelledby="playlists-heading">
         <header className={styles.sectionHeading}>
           <div>
-            <p className={styles.eyebrow}>03 / SELEZIONI · AUDIUS</p>
+            <p className={styles.eyebrow}>SELEZIONI · AUDIUS</p>
             <h2 id="playlists-heading">Playlist da esplorare</h2>
             <p className={styles.sectionNote}>
               Playlist trovate nel catalogo Audius cercando Electronic.
@@ -322,7 +324,7 @@ export function HomeCatalog() {
       <section className={styles.section} id="artisti" aria-labelledby="artists-heading">
         <header className={styles.sectionHeading}>
           <div>
-            <p className={styles.eyebrow}>04 / PROFILI · AUDIUS</p>
+            <p className={styles.eyebrow}>PROFILI · AUDIUS</p>
             <h2 id="artists-heading">Artisti da scoprire</h2>
             <p className={styles.sectionNote}>Profili Audius trovati cercando Electronic.</p>
           </div>
@@ -344,7 +346,7 @@ export function HomeCatalog() {
       <section className={styles.section} id="generi" aria-labelledby="genres-heading">
         <header className={styles.sectionHeading}>
           <div>
-            <p className={styles.eyebrow}>05 / GENERI</p>
+            <p className={styles.eyebrow}>GENERI E MOOD</p>
             <h2 id="genres-heading">Scegli una direzione</h2>
             <p className={styles.sectionNote}>Ogni scelta avvia una ricerca sul catalogo Audius.</p>
           </div>

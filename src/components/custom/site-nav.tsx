@@ -6,6 +6,7 @@ import { ChevronDown, Menu } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import * as React from 'react';
+import { AuthNav } from '@/components/custom/auth-nav';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -96,6 +97,15 @@ function hasOwnNavigation(pathname: string) {
 }
 
 export function SiteNav() {
+  const pathname = usePathname();
+  if (hasOwnNavigation(pathname)) return null;
+  // The home page renders the same top bar itself (see src/app/(setup)/page.tsx).
+  if (pathname === '/') return null;
+  return <AppTopBar />;
+}
+
+/** Barra superiore condivisa: marchio, schede desktop, account e menu mobile. */
+export function AppTopBar() {
   const isAuthenticated = useIsAuthenticated();
   // The brand links home, so drop a redundant '/' item from the rendered links.
   const primary = visibleItems('primary', isAuthenticated).filter((item) => item.href !== '/');
@@ -111,9 +121,6 @@ export function SiteNav() {
   const [open, setOpen] = React.useState(false);
 
   const pathname = usePathname();
-  if (hasOwnNavigation(pathname)) return null;
-  // The configured landing supplies its own header and footer.
-  if (pathname === '/') return null;
 
   // Exact match for the root; segment-boundary match for everything else so
   // '/blog' highlights on '/blog/post' but '/' never matches every route.
@@ -128,7 +135,11 @@ export function SiteNav() {
         aria-label="Navigazione principale"
         className="mx-auto flex h-14 max-w-screen-xl items-center gap-2 px-4"
       >
-        <Link href="/" className="mr-2 shrink-0 truncate text-base font-semibold tracking-tight">
+        <Link
+          href="/"
+          className="mr-2 shrink-0 truncate text-base font-semibold tracking-tight"
+          aria-current={pathname === '/' ? 'page' : undefined}
+        >
           {siteName}
         </Link>
 
@@ -245,6 +256,7 @@ export function SiteNav() {
               </Button>
             ))}
           </div>
+          <AuthNav className="flex items-center gap-1" />
 
           {/* Mobile (below md): burger + drawer — only when there's something to collapse */}
           {collapsedCount > 0 && (

@@ -28,9 +28,41 @@ export interface NavItem {
 //   { label: 'Docs',    href: '/docs',    group: 'primary', menu: 'Resources' },
 //   { label: 'Sign in', href: '/login',   group: 'secondary' },
 export const navItems: NavItem[] = [
-  { label: 'Cerca musica', href: '/search', group: 'primary', order: 0 },
-  { label: 'Community', href: '/community', group: 'primary', order: 1 },
+  { label: 'Cerca', href: '/search', group: 'primary', order: 0 },
+  { label: 'Radio', href: '/radio', group: 'primary', order: 1 },
+  { label: 'Podcast', href: '/podcasts', group: 'primary', order: 2 },
+  { label: 'Libreria', href: '/library', group: 'primary', order: 3 },
+  { label: 'Community', href: '/community', group: 'primary', order: 4 },
   { label: 'Messaggi', href: '/messages', group: 'secondary', requiresAuth: true, order: 0 },
   { label: 'Privacy', href: '/privacy', group: 'footer', order: 0 },
   { label: 'Termini', href: '/terms', group: 'footer', order: 1 },
 ];
+
+/** Schede della barra in basso (mobile), nello stile delle app di streaming. */
+export type TabIcon = 'home' | 'search' | 'radio' | 'podcast' | 'library';
+
+export interface TabItem {
+  label: string;
+  href: string;
+  icon: TabIcon;
+}
+
+export const tabItems: TabItem[] = [
+  { label: 'Home', href: '/', icon: 'home' },
+  { label: 'Cerca', href: '/search', icon: 'search' },
+  { label: 'Radio', href: '/radio', icon: 'radio' },
+  { label: 'Podcast', href: '/podcasts', icon: 'podcast' },
+  { label: 'Libreria', href: '/library', icon: 'library' },
+];
+
+/** Rotte con una propria navigazione: niente barra delle schede. */
+export function hidesTabBar(pathname: string) {
+  return (
+    pathname === '/admin' ||
+    pathname.startsWith('/admin/') ||
+    pathname === '/dashboard' ||
+    pathname.startsWith('/dashboard/') ||
+    pathname === '/login' ||
+    pathname === '/signup'
+  );
+}

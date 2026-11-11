@@ -17,8 +17,13 @@
 
 'use client';
 
+import { LibraryProvider } from '@/components/custom/music/library-context';
 import { MusicPlayerProvider } from '@/components/custom/music/music-player';
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
-  return <MusicPlayerProvider>{children}</MusicPlayerProvider>;
+  return (
+    <LibraryProvider>
+      <MusicPlayerProvider>{children}</MusicPlayerProvider>
+    </LibraryProvider>
+  );
 }

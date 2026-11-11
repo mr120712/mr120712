@@ -3,7 +3,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { type FormEvent, useCallback, useEffect, useState } from 'react';
+import { type FormEvent, type ReactNode, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { type MusicPlayerTrack, useMusicPlayer } from '@/components/custom/music/music-player';
 import { Button } from '@/components/ui/button';
@@ -148,7 +148,23 @@ function CollectionItem({
   );
 }
 
-export function MusicCollections() {
+type MusicCollectionsProps = {
+  /** Inside the Library tab: no page heading, no <main> landmark. */
+  embedded?: boolean;
+  /** Show only playlists in this folder (null = root, undefined = all). Favourites always show. */
+  folderId?: string | null;
+  /** Extra controls next to each playlist heading (e.g. "move to folder"). */
+  playlistActions?: (collection: MusicCollection) => ReactNode;
+  /** Change it to re-fetch (e.g. after importing a playlist). */
+  reloadKey?: number;
+};
+
+export function MusicCollections({
+  embedded = false,
+  folderId,
+  playlistActions,
+  reloadKey = 0,
+}: MusicCollectionsProps = {}) {
   const player = useMusicPlayer();
   const [collections, setCollections] = useState<MusicCollection[]>([]);
   const [loading, setLoading] = useState(true);
@@ -168,9 +184,19 @@ export function MusicCollections() {
     }
   }, []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadKey is an explicit refetch trigger.
   useEffect(() => {
     void reload();
-  }, [reload]);
+  }, [reload, reloadKey]);
+
+  const visibleCollections =
+    folderId === undefined
+      ? collections
+      : collections.filter(
+          (collection) =>
+            collection.kind === 'favorites' || (collection.folderId ?? null) === folderId,
+        );
+  const Wrapper = embedded ? 'div' : 'main';
 
   async function createPlaylist(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -217,16 +243,20 @@ export function MusicCollections() {
   }
 
   return (
-    <main className={styles.page}>
-      <div className={styles.topline}>
-        <p className={styles.eyebrow}>SOLCO · IL TUO SPAZIO</p>
-        <Link href="/search">Cerca musica</Link>
-      </div>
-      <h1 className={styles.title}>Preferiti e playlist.</h1>
-      <p className={styles.lead}>
-        Le raccolte sono private per account e possono includere brani Audius e video YouTube. I
-        video si aprono solo nel player ufficiale visibile.
-      </p>
+    <Wrapper className={embedded ? undefined : styles.page}>
+      {embedded ? null : (
+        <>
+          <div className={styles.topline}>
+            <p className={styles.eyebrow}>SOLCO · IL TUO SPAZIO</p>
+            <Link href="/search">Cerca musica</Link>
+          </div>
+          <h1 className={styles.title}>Preferiti e playlist.</h1>
+          <p className={styles.lead}>
+            Le raccolte sono private per account e possono includere brani Audius e video YouTube. I
+            video si aprono solo nel player ufficiale visibile.
+          </p>
+        </>
+      )}
 
       <form className={styles.createPlaylist} onSubmit={(event) => void createPlaylist(event)}>
         <label htmlFor="playlist-name">Crea una playlist</label>
@@ -252,7 +282,7 @@ export function MusicCollections() {
         </p>
       ) : null}
       {!loading && !message
-        ? collections.map((collection) => {
+        ? visibleCollections.map((collection) => {
             const queue: MusicPlayerTrack[] = collection.items.flatMap((item) => {
               if (
                 item.source !== 'audius' ||
@@ -292,14 +322,17 @@ export function MusicCollections() {
                     </span>
                   </div>
                   {collection.kind === 'playlist' ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => void deletePlaylist(collection.id)}
-                    >
-                      Elimina playlist
-                    </Button>
+                    <div className={styles.playlistActions}>
+                      {playlistActions?.(collection)}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void deletePlaylist(collection.id)}
+                      >
+                        Elimina playlist
+                      </Button>
+                    </div>
                   ) : null}
                 </div>
                 {collection.items.length ? (
@@ -342,6 +375,6 @@ export function MusicCollections() {
             );
           })
         : null}
-    </main>
+    </Wrapper>
   );
 }

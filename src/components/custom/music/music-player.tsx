@@ -1,12 +1,17 @@
-// @polsia:user-owned — player unico condiviso tra le pagine musicali.
+// @polsia:user-owned — player unico condiviso tra le pagine: mini player + player a schermo intero.
 'use client';
 
 import {
+  ChevronDown,
   ExternalLink,
   ListMusic,
   Music2,
   Pause,
   Play,
+  Radio,
+  Repeat,
+  Repeat1,
+  Shuffle,
   SkipBack,
   SkipForward,
   Square,
@@ -26,6 +31,8 @@ import { apiFetch } from '@/lib/api-client';
 import { AudiusPlaybackCheckSchema } from '@/lib/contracts/music';
 import styles from './music-player.module.css';
 
+export type MusicPlaybackMode = 'audius' | 'solco' | 'radio' | 'podcast';
+
 export type MusicPlayerTrack = {
   qualifiedId: string;
   title: string;
@@ -37,9 +44,11 @@ export type MusicPlayerTrack = {
   sourceUrlLabel?: string;
   durationSeconds?: number | null;
   albumId?: string | null;
-  playbackMode?: 'audius' | 'solco';
+  playbackMode?: MusicPlaybackMode;
   credits?: string[];
 };
+
+export type RepeatMode = 'off' | 'all' | 'one';
 
 type ActiveTrack = MusicPlayerTrack & { streamPath: string };
 type PlaybackStatus = 'idle' | 'loading' | 'playing' | 'paused' | 'ended' | 'error';
@@ -52,6 +61,9 @@ type MusicPlayerValue = {
   queue: ActiveTrack[];
   queueIndex: number;
   errorMessage: string | null;
+  shuffle: boolean;
+  repeat: RepeatMode;
+  expanded: boolean;
   playTrack: (
     track: MusicPlayerTrack,
     streamPath: string,
@@ -62,9 +74,24 @@ type MusicPlayerValue = {
   nextTrack: () => Promise<void>;
   seekTo: (seconds: number) => void;
   stopPlayback: () => void;
+  toggleShuffle: () => void;
+  cycleRepeat: () => void;
+  setExpanded: (expanded: boolean) => void;
 };
 
 const MusicPlayerContext = createContext<MusicPlayerValue | null>(null);
+
+const safeId = /^[A-Za-z0-9_-]{1,128}$/;
+const HISTORY_THRESHOLD_SECONDS = 30;
+
+/** Le radio e i podcast non passano dalla verifica dei diritti Audius: sono stream pubblici. */
+export function isOpenStream(track: Pick<MusicPlayerTrack, 'playbackMode'>) {
+  return track.playbackMode === 'radio' || track.playbackMode === 'podcast';
+}
+
+export function isLiveTrack(track: Pick<MusicPlayerTrack, 'playbackMode'> | null | undefined) {
+  return track?.playbackMode === 'radio';
+}
 
 function safeStreamPath(path: string, track: MusicPlayerTrack) {
   if (typeof window === 'undefined') return null;
@@ -79,42 +106,58 @@ function safeStreamPath(path: string, track: MusicPlayerTrack) {
   }
 }
 
-function trackStreamPath(track: MusicPlayerTrack) {
+/** Percorso same-origin dello stream di un elemento riproducibile, oppure null. */
+export function trackStreamPath(track: MusicPlayerTrack) {
+  if (track.playbackMode === 'radio') {
+    const station = /^radio:([A-Za-z0-9_-]{1,128})$/.exec(track.qualifiedId)?.[1];
+    return station ? `/api/music/radio/${encodeURIComponent(station)}/stream` : null;
+  }
+  if (track.playbackMode === 'podcast') {
+    const match = /^podcast:([0-9]{1,20})~([A-Za-z0-9_-]{1,64})$/.exec(track.qualifiedId);
+    if (!match?.[1] || !match[2]) return null;
+    return `/api/music/podcasts/${match[1]}/episodes/${match[2]}/stream`;
+  }
   const match = /^audius:([A-Za-z0-9_-]{1,128})$/.exec(track.qualifiedId);
   if (!match?.[1]) return null;
   if (track.playbackMode === 'audius') {
     return `/api/music/audius/tracks/${encodeURIComponent(match[1])}/stream`;
   }
-  if (
-    track.playbackMode !== 'solco' ||
-    !track.albumId ||
-    !/^[A-Za-z0-9_-]{1,128}$/.test(track.albumId)
-  )
-    return null;
+  if (track.playbackMode !== 'solco' || !track.albumId || !safeId.test(track.albumId)) return null;
   return `/api/music/albums/${encodeURIComponent(track.albumId)}/tracks/${encodeURIComponent(match[1])}/stream`;
 }
 
 function playbackPath(track: MusicPlayerTrack) {
+  if (isOpenStream(track)) return null;
   const match = /^audius:([A-Za-z0-9_-]{1,128})$/.exec(track.qualifiedId);
   if (!match?.[1]) return null;
   if (track.playbackMode === 'audius') {
     return `/api/music/audius/tracks/${encodeURIComponent(match[1])}/playback`;
   }
-  if (
-    track.playbackMode !== 'solco' ||
-    !track.albumId ||
-    !/^[A-Za-z0-9_-]{1,128}$/.test(track.albumId)
-  )
-    return null;
+  if (track.playbackMode !== 'solco' || !track.albumId || !safeId.test(track.albumId)) return null;
   return `/api/music/albums/${encodeURIComponent(track.albumId)}/tracks/${encodeURIComponent(match[1])}/playback`;
+}
+
+async function verifyPlayback(track: MusicPlayerTrack) {
+  if (isOpenStream(track)) return;
+  const path = playbackPath(track);
+  if (!path) throw new Error('Track is not an authorized album item');
+  const verdict = await apiFetch(path, { schema: AudiusPlaybackCheckSchema });
+  if (!verdict.allowed) throw new Error(verdict.reason);
 }
 
 function formattedTime(seconds: number) {
   const value = Math.max(0, Math.floor(seconds));
-  return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, '0')}`;
+  const hours = Math.floor(value / 3600);
+  const minutes = Math.floor((value % 3600) / 60);
+  const rest = String(value % 60).padStart(2, '0');
+  return hours > 0 ? `${hours}:${String(minutes).padStart(2, '0')}:${rest}` : `${minutes}:${rest}`;
 }
 
-function failureMessage(error: unknown) {
+function failureMessage(error: unknown, track: MusicPlayerTrack | null) {
+  if (track?.playbackMode === 'radio')
+    return 'La stazione radio non risponde in questo momento. Prova un’altra stazione.';
+  if (track?.playbackMode === 'podcast')
+    return 'L’episodio non è disponibile dal feed del podcast. Riprova più tardi.';
   const cause =
     error instanceof Error && typeof error.cause === 'object' && error.cause !== null
       ? (error.cause as { error?: unknown; reason?: unknown; retryAfterSeconds?: unknown })
@@ -147,15 +190,48 @@ function failureMessage(error: unknown) {
   return 'La verifica o lo stream Audius è fallito. Nessun audio è stato lasciato in riproduzione.';
 }
 
+/** Registra un ascolto nella cronologia della Libreria (solo utenti autenticati; errori ignorati). */
+function recordPlay(track: MusicPlayerTrack) {
+  void apiFetch('/api/music/library', {
+    method: 'POST',
+    body: JSON.stringify({
+      action: 'record_play',
+      track: {
+        qualifiedId: track.qualifiedId,
+        title: track.title,
+        artistName: track.artistName,
+        artworkUrl: track.artworkUrl ?? null,
+        sourceLabel: track.sourceLabel,
+        sourceUrl: track.sourceUrl,
+        albumId: track.albumId ?? null,
+        durationSeconds: track.durationSeconds ?? null,
+        playbackMode: track.playbackMode ?? 'audius',
+      },
+    }),
+  }).catch(() => undefined);
+}
+
 export function useMusicPlayer() {
   const player = useContext(MusicPlayerContext);
   if (!player) throw new Error('useMusicPlayer deve essere usato dentro MusicPlayerProvider.');
   return player;
 }
 
+function Artwork({ track, size }: { track: MusicPlayerTrack; size: number }) {
+  if (track.artworkUrl) {
+    return <Image src={track.artworkUrl} alt="" width={size} height={size} unoptimized />;
+  }
+  return track.playbackMode === 'radio' ? (
+    <Radio aria-hidden="true" />
+  ) : (
+    <Music2 aria-hidden="true" />
+  );
+}
+
 export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const audioRef = useRef<HTMLAudioElement>(null);
+  const recordedRef = useRef<string | null>(null);
   const [currentTrack, setCurrentTrack] = useState<ActiveTrack | null>(null);
   const [queue, setQueue] = useState<ActiveTrack[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
@@ -163,6 +239,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [durationSeconds, setDurationSeconds] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [shuffle, setShuffle] = useState(false);
+  const [repeat, setRepeat] = useState<RepeatMode>('off');
+  const [expanded, setExpanded] = useState(false);
 
   const releaseAudio = useCallback(() => {
     const audio = audioRef.current;
@@ -179,15 +258,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       setErrorMessage(null);
       setStatus('loading');
       setElapsedSeconds(0);
-      setDurationSeconds(track.durationSeconds ?? 0);
+      setDurationSeconds(isLiveTrack(track) ? 0 : (track.durationSeconds ?? 0));
       audio.pause();
       audio.preload = 'none';
       try {
-        const path = playbackPath(track);
-        if (!path) throw new Error('Track is not an authorized album item');
-        const verdict = await apiFetch(path, { schema: AudiusPlaybackCheckSchema });
-        if (!verdict.allowed) throw new Error(verdict.reason);
         // Check Audius's stream authorization before requesting audio bytes.
+        await verifyPlayback(track);
         audio.src = track.streamPath;
         audio.load();
         await audio.play();
@@ -195,7 +271,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       } catch (error) {
         releaseAudio();
         setStatus('error');
-        setErrorMessage(failureMessage(error));
+        setErrorMessage(failureMessage(error, track));
       }
     },
     [releaseAudio],
@@ -228,6 +304,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       const actualIndex = selectedIndex < 0 ? 0 : selectedIndex;
       candidateQueue[actualIndex] = selectedTrack;
       releaseAudio();
+      recordedRef.current = null;
       setQueue(candidateQueue);
       setQueueIndex(actualIndex);
       setCurrentTrack(selectedTrack);
@@ -241,6 +318,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       const next = queue[index];
       if (!next) return;
       releaseAudio();
+      recordedRef.current = null;
       setQueueIndex(index);
       setCurrentTrack(next);
       await playCurrentTrack(next);
@@ -248,13 +326,33 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     [playCurrentTrack, queue, releaseAudio],
   );
 
+  const followingIndex = useCallback(
+    (wrap: boolean) => {
+      if (queue.length === 0 || queueIndex < 0) return null;
+      if (shuffle && queue.length > 1) {
+        const offset = 1 + Math.floor(Math.random() * (queue.length - 1));
+        return (queueIndex + offset) % queue.length;
+      }
+      if (queueIndex < queue.length - 1) return queueIndex + 1;
+      return wrap ? 0 : null;
+    },
+    [queue.length, queueIndex, shuffle],
+  );
+
   const previousTrack = useCallback(async () => {
+    const audio = audioRef.current;
+    if (audio && !isLiveTrack(currentTrack) && audio.currentTime > 5) {
+      audio.currentTime = 0;
+      setElapsedSeconds(0);
+      return;
+    }
     if (queueIndex > 0) await playQueueIndex(queueIndex - 1);
-  }, [playQueueIndex, queueIndex]);
+  }, [currentTrack, playQueueIndex, queueIndex]);
 
   const nextTrack = useCallback(async () => {
-    if (queueIndex >= 0 && queueIndex < queue.length - 1) await playQueueIndex(queueIndex + 1);
-  }, [playQueueIndex, queue.length, queueIndex]);
+    const index = followingIndex(repeat === 'all');
+    if (index !== null) await playQueueIndex(index);
+  }, [followingIndex, playQueueIndex, repeat]);
 
   const togglePlayback = useCallback(async () => {
     if (!currentTrack) return;
@@ -264,17 +362,19 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (status === 'paused') {
+      if (isLiveTrack(currentTrack)) {
+        // A paused live stream would resume from stale buffered audio: reconnect instead.
+        await playCurrentTrack(currentTrack);
+        return;
+      }
       try {
-        const path = playbackPath(currentTrack);
-        if (!path) throw new Error('Track is not an authorized album item');
-        const verdict = await apiFetch(path, { schema: AudiusPlaybackCheckSchema });
-        if (!verdict.allowed) throw new Error(verdict.reason);
+        await verifyPlayback(currentTrack);
         await audioRef.current?.play();
         setStatus('playing');
         setErrorMessage(null);
       } catch (error) {
         setStatus('error');
-        setErrorMessage(failureMessage(error));
+        setErrorMessage(failureMessage(error, currentTrack));
         releaseAudio();
       }
       return;
@@ -282,13 +382,22 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     await playCurrentTrack(currentTrack);
   }, [currentTrack, playCurrentTrack, releaseAudio, status]);
 
-  const seekTo = useCallback((seconds: number) => {
-    const audio = audioRef.current;
-    if (!audio || !Number.isFinite(seconds) || seconds < 0 || !Number.isFinite(audio.duration))
-      return;
-    audio.currentTime = Math.min(seconds, audio.duration);
-    setElapsedSeconds(audio.currentTime);
-  }, []);
+  const seekTo = useCallback(
+    (seconds: number) => {
+      const audio = audioRef.current;
+      if (
+        !audio ||
+        isLiveTrack(currentTrack) ||
+        !Number.isFinite(seconds) ||
+        seconds < 0 ||
+        !Number.isFinite(audio.duration)
+      )
+        return;
+      audio.currentTime = Math.min(seconds, audio.duration);
+      setElapsedSeconds(audio.currentTime);
+    },
+    [currentTrack],
+  );
 
   const stopPlayback = useCallback(() => {
     releaseAudio();
@@ -299,18 +408,41 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     setElapsedSeconds(0);
     setDurationSeconds(0);
     setErrorMessage(null);
+    setExpanded(false);
   }, [releaseAudio]);
+
+  const toggleShuffle = useCallback(() => setShuffle((value) => !value), []);
+  const cycleRepeat = useCallback(
+    () => setRepeat((value) => (value === 'off' ? 'all' : value === 'all' ? 'one' : 'off')),
+    [],
+  );
 
   const handleTimeUpdate = () => {
     const audio = audioRef.current;
     if (!audio) return;
     setElapsedSeconds(audio.currentTime);
-    if (Number.isFinite(audio.duration)) setDurationSeconds(audio.duration);
+    if (!isLiveTrack(currentTrack) && Number.isFinite(audio.duration))
+      setDurationSeconds(audio.duration);
+    if (
+      currentTrack &&
+      recordedRef.current !== currentTrack.qualifiedId &&
+      audio.currentTime >= HISTORY_THRESHOLD_SECONDS
+    ) {
+      recordedRef.current = currentTrack.qualifiedId;
+      recordPlay(currentTrack);
+    }
   };
 
   const handleEnded = () => {
-    if (queueIndex >= 0 && queueIndex < queue.length - 1) {
-      void nextTrack();
+    const audio = audioRef.current;
+    if (repeat === 'one' && audio && currentTrack) {
+      audio.currentTime = 0;
+      void audio.play();
+      return;
+    }
+    const index = followingIndex(repeat === 'all');
+    if (index !== null) {
+      void playQueueIndex(index);
       return;
     }
     releaseAudio();
@@ -320,17 +452,41 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const handleError = () => {
     if (!currentTrack) return;
     setStatus('error');
-    setErrorMessage('Lo stream Audius è terminato con un errore. L’audio è stato fermato.');
+    setErrorMessage(
+      isOpenStream(currentTrack)
+        ? failureMessage(null, currentTrack)
+        : 'Lo stream Audius è terminato con un errore. L’audio è stato fermato.',
+    );
     releaseAudio();
   };
 
   const hidePlayer = pathname === '/admin' || pathname.startsWith('/admin/');
+  const showFull = expanded && Boolean(currentTrack) && !hidePlayer;
 
   useEffect(() => {
     document.body.classList.toggle('has-music-player', Boolean(currentTrack) && !hidePlayer);
     if (hidePlayer && currentTrack) stopPlayback();
     return () => document.body.classList.remove('has-music-player');
   }, [currentTrack, hidePlayer, stopPlayback]);
+
+  useEffect(() => {
+    document.body.classList.toggle('music-player-expanded', showFull);
+    if (!showFull) return () => document.body.classList.remove('music-player-expanded');
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setExpanded(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.classList.remove('music-player-expanded');
+    };
+  }, [showFull]);
+
+  // Navigating to another page collapses the full-screen player.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reacts to route changes only.
+  useEffect(() => {
+    setExpanded(false);
+  }, [pathname]);
 
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
@@ -391,6 +547,24 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     };
   }, [currentTrack, elapsedSeconds, nextTrack, previousTrack, seekTo, status, togglePlayback]);
 
+  const live = isLiveTrack(currentTrack);
+  const hasNext =
+    queueIndex >= 0 &&
+    (queueIndex < queue.length - 1 || ((repeat === 'all' || shuffle) && queue.length > 1));
+  const progress =
+    !live && durationSeconds > 0 ? Math.min(100, (elapsedSeconds / durationSeconds) * 100) : 0;
+  const playLabel = currentTrack
+    ? status === 'playing'
+      ? `Metti in pausa ${currentTrack.title}`
+      : `Riproduci ${currentTrack.title}`
+    : '';
+  const repeatLabel =
+    repeat === 'off'
+      ? 'Ripeti: disattivato'
+      : repeat === 'all'
+        ? 'Ripeti: tutta la coda'
+        : 'Ripeti: solo questo brano';
+
   return (
     <MusicPlayerContext.Provider
       value={{
@@ -401,12 +575,18 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         queue,
         queueIndex,
         errorMessage,
+        shuffle,
+        repeat,
+        expanded,
         playTrack,
         togglePlayback,
         previousTrack,
         nextTrack,
         seekTo,
         stopPlayback,
+        toggleShuffle,
+        cycleRepeat,
+        setExpanded,
       }}
     >
       {children}
@@ -427,40 +607,199 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         <track kind="captions" src="/music-captions.vtt" srcLang="it" label="Musica" />
       </audio>
       {currentTrack && !hidePlayer ? (
-        <aside className={styles.dock} aria-label="Player musicale Solco">
-          <div className={styles.dockInner}>
-            <span className={styles.disc} aria-hidden="true">
-              {currentTrack.artworkUrl ? (
-                <Image src={currentTrack.artworkUrl} alt="" width={44} height={44} unoptimized />
-              ) : (
-                <Music2 />
-              )}
+        <>
+          <aside className={styles.mini} aria-label="Player musicale Solco">
+            <button
+              type="button"
+              className={styles.miniExpand}
+              onClick={() => setExpanded(true)}
+              aria-label={`Apri il player: ${currentTrack.title}`}
+              aria-expanded={showFull}
+            >
+              <span className={styles.miniArt} aria-hidden="true">
+                <Artwork track={currentTrack} size={44} />
+              </span>
+              <span className={styles.miniCopy}>
+                <strong>{currentTrack.title}</strong>
+                <span>
+                  {live ? <em className={styles.liveBadge}>LIVE</em> : null}
+                  {currentTrack.artistName} · {currentTrack.sourceLabel}
+                </span>
+              </span>
+            </button>
+            <div className={styles.miniButtons}>
+              <button
+                className={styles.miniControl}
+                type="button"
+                onClick={() => void togglePlayback()}
+                disabled={status === 'loading'}
+                aria-label={playLabel}
+              >
+                {status === 'playing' ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
+              </button>
+              <button
+                className={styles.miniSkip}
+                type="button"
+                onClick={() => void nextTrack()}
+                disabled={!hasNext}
+                aria-label="Brano successivo"
+              >
+                <SkipForward aria-hidden="true" />
+              </button>
+            </div>
+            {errorMessage && !showFull ? (
+              <output className={styles.miniError} aria-live="polite">
+                {errorMessage}
+              </output>
+            ) : null}
+            <span className={styles.miniProgress} aria-hidden="true">
+              <span style={{ width: `${progress}%` }} />
             </span>
-            <div className={styles.trackCopy}>
+          </aside>
+
+          <section
+            className={styles.full}
+            aria-label="Player a schermo intero"
+            hidden={!showFull}
+            inert={!showFull}
+          >
+            <header className={styles.fullHeader}>
+              <button
+                type="button"
+                className={styles.iconButton}
+                onClick={() => setExpanded(false)}
+                aria-label="Riduci il player"
+              >
+                <ChevronDown aria-hidden="true" />
+              </button>
               <span className={styles.playerLabel}>
                 ORA IN ASCOLTO · {currentTrack.sourceLabel}
               </span>
-              <strong title={currentTrack.title}>{currentTrack.title}</strong>
-              <span className={styles.trackMeta}>
-                {currentTrack.artistName} · {currentTrack.sourceLabel}
-              </span>
-              {currentTrack.sourceUrl ? (
-                <a href={currentTrack.sourceUrl} target="_blank" rel="noreferrer">
-                  {currentTrack.sourceUrlLabel ?? `Apri la fonte ${currentTrack.sourceLabel}`}{' '}
-                  <ExternalLink aria-hidden="true" />
-                </a>
-              ) : null}
-              {currentTrack.artistUrl ? (
-                <a href={currentTrack.artistUrl} target="_blank" rel="noreferrer">
-                  Profilo artista Audius <ExternalLink aria-hidden="true" />
-                </a>
-              ) : null}
-              {errorMessage ? (
-                <output className={styles.playerError} aria-live="polite">
-                  {errorMessage}
-                </output>
-              ) : null}
-              <details className={styles.queue}>
+              <button
+                className={styles.iconButton}
+                type="button"
+                onClick={stopPlayback}
+                aria-label="Chiudi player"
+              >
+                <Square aria-hidden="true" />
+              </button>
+            </header>
+
+            <div className={styles.fullBody}>
+              <div className={styles.fullArt}>
+                <Artwork track={currentTrack} size={480} />
+              </div>
+
+              <div className={styles.trackCopy}>
+                <strong title={currentTrack.title}>{currentTrack.title}</strong>
+                <span className={styles.trackMeta}>
+                  {live ? <em className={styles.liveBadge}>LIVE</em> : null}
+                  {currentTrack.artistName} · {currentTrack.sourceLabel}
+                </span>
+                <span className={styles.links}>
+                  {currentTrack.sourceUrl ? (
+                    <a href={currentTrack.sourceUrl} target="_blank" rel="noreferrer">
+                      {currentTrack.sourceUrlLabel ?? `Apri la fonte ${currentTrack.sourceLabel}`}{' '}
+                      <ExternalLink aria-hidden="true" />
+                    </a>
+                  ) : null}
+                  {currentTrack.artistUrl ? (
+                    <a href={currentTrack.artistUrl} target="_blank" rel="noreferrer">
+                      Profilo artista Audius <ExternalLink aria-hidden="true" />
+                    </a>
+                  ) : null}
+                </span>
+                {errorMessage ? (
+                  <output className={styles.playerError} aria-live="polite">
+                    {errorMessage}
+                  </output>
+                ) : null}
+              </div>
+
+              <div className={styles.playerControls}>
+                <input
+                  className={styles.seek}
+                  type="range"
+                  min={0}
+                  max={durationSeconds || 0}
+                  step={1}
+                  value={Math.min(elapsedSeconds, durationSeconds || 0)}
+                  onChange={(event) => seekTo(Number(event.target.value))}
+                  disabled={live || durationSeconds <= 0 || status === 'loading'}
+                  aria-label={
+                    live ? 'Diretta radio: avanzamento non disponibile' : 'Avanzamento brano Audius'
+                  }
+                />
+                <span className={styles.time}>
+                  <span>{formattedTime(elapsedSeconds)}</span>
+                  <span>
+                    {live
+                      ? 'In diretta'
+                      : durationSeconds
+                        ? formattedTime(durationSeconds)
+                        : '--:--'}
+                  </span>
+                </span>
+                <div className={styles.buttons}>
+                  <button
+                    className={styles.toggle}
+                    type="button"
+                    onClick={toggleShuffle}
+                    aria-pressed={shuffle}
+                    aria-label="Riproduzione casuale"
+                    disabled={queue.length < 2}
+                  >
+                    <Shuffle aria-hidden="true" />
+                  </button>
+                  <button
+                    className={styles.skip}
+                    type="button"
+                    onClick={() => void previousTrack()}
+                    disabled={queueIndex <= 0 && (live || elapsedSeconds <= 5)}
+                    aria-label="Brano precedente"
+                  >
+                    <SkipBack aria-hidden="true" />
+                  </button>
+                  <button
+                    className={styles.control}
+                    type="button"
+                    onClick={() => void togglePlayback()}
+                    disabled={status === 'loading'}
+                    aria-label={playLabel}
+                  >
+                    {status === 'playing' ? (
+                      <Pause aria-hidden="true" />
+                    ) : (
+                      <Play aria-hidden="true" />
+                    )}
+                  </button>
+                  <button
+                    className={styles.skip}
+                    type="button"
+                    onClick={() => void nextTrack()}
+                    disabled={!hasNext}
+                    aria-label="Brano successivo"
+                  >
+                    <SkipForward aria-hidden="true" />
+                  </button>
+                  <button
+                    className={styles.toggle}
+                    type="button"
+                    onClick={cycleRepeat}
+                    aria-pressed={repeat !== 'off'}
+                    aria-label={repeatLabel}
+                    disabled={live}
+                  >
+                    {repeat === 'one' ? (
+                      <Repeat1 aria-hidden="true" />
+                    ) : (
+                      <Repeat aria-hidden="true" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <details className={styles.queue} open>
                 <summary>
                   <ListMusic aria-hidden="true" /> Coda · {queue.length} brani
                 </summary>
@@ -500,70 +839,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                 </ol>
               </details>
             </div>
-            <div className={styles.playerControls}>
-              <span className={styles.time}>
-                {formattedTime(elapsedSeconds)} /{' '}
-                {durationSeconds ? formattedTime(durationSeconds) : '--:--'}
-              </span>
-              <input
-                className={styles.seek}
-                type="range"
-                min={0}
-                max={durationSeconds || 0}
-                step={1}
-                value={Math.min(elapsedSeconds, durationSeconds || 0)}
-                onChange={(event) => seekTo(Number(event.target.value))}
-                disabled={durationSeconds <= 0 || status === 'loading'}
-                aria-label="Avanzamento brano Audius"
-              />
-              <div className={styles.buttons}>
-                <button
-                  className={styles.skip}
-                  type="button"
-                  onClick={() => void previousTrack()}
-                  disabled={queueIndex <= 0}
-                  aria-label="Brano precedente"
-                >
-                  <SkipBack />
-                </button>
-                <button
-                  className={styles.control}
-                  type="button"
-                  onClick={() => void togglePlayback()}
-                  disabled={status === 'loading'}
-                  aria-label={
-                    status === 'playing'
-                      ? `Metti in pausa ${currentTrack.title}`
-                      : `Riproduci ${currentTrack.title}`
-                  }
-                >
-                  {status === 'playing' ? (
-                    <Pause aria-hidden="true" />
-                  ) : (
-                    <Play aria-hidden="true" />
-                  )}
-                </button>
-                <button
-                  className={styles.skip}
-                  type="button"
-                  onClick={() => void nextTrack()}
-                  disabled={queueIndex < 0 || queueIndex >= queue.length - 1}
-                  aria-label="Brano successivo"
-                >
-                  <SkipForward />
-                </button>
-                <button
-                  className={styles.stop}
-                  type="button"
-                  onClick={stopPlayback}
-                  aria-label="Chiudi player"
-                >
-                  <Square aria-hidden="true" />
-                </button>
-              </div>
-            </div>
-          </div>
-        </aside>
+          </section>
+        </>
       ) : null}
     </MusicPlayerContext.Provider>
   );

@@ -1,6 +1,7 @@
 // @polsia:user-owned — seeded by polsia/modules/better-auth; restyle freely.
 'use client';
 
+import { UserRound } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -18,22 +19,15 @@ export function AuthNav({ className }: { className?: string }) {
       <nav className={className ?? 'flex items-center gap-2'} aria-label="Account">
         {pathname !== '/login' && (
           <Button asChild variant="ghost" size="sm">
-            <Link className="authLogin" data-auth-variant="desktop" href="/login">
+            <Link className="authLogin" href="/login">
               Accedi
             </Link>
           </Button>
         )}
         {pathname !== '/signup' && (
-          <Button asChild size="sm">
-            <Link className="authSignup" data-auth-variant="desktop" href="/signup">
+          <Button asChild size="sm" className="hidden sm:inline-flex">
+            <Link className="authSignup" href="/signup">
               Registrati
-            </Link>
-          </Button>
-        )}
-        {pathname !== '/login' && (
-          <Button asChild size="sm">
-            <Link className="authMobileEntry" data-auth-variant="mobile" href="/login">
-              Accedi
             </Link>
           </Button>
         )}
@@ -43,14 +37,9 @@ export function AuthNav({ className }: { className?: string }) {
 
   return (
     <nav className={className ?? 'flex items-center gap-2'} aria-label="Account">
-      <Button asChild variant="ghost">
-        <Link className="authMessages" href="/messages">
-          Messaggi
-        </Link>
-      </Button>
-      <Button asChild variant="ghost">
-        <Link className="authWorkspace" href="/dashboard">
-          Le mie raccolte
+      <Button asChild variant="ghost" size="icon" aria-label="Profilo">
+        <Link className="authProfile" href="/profile">
+          <UserRound aria-hidden="true" />
         </Link>
       </Button>
       <Button

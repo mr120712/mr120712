@@ -4,7 +4,7 @@
 import { Search } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { type FormEvent, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { AlbumCard } from '@/components/custom/music/album-card';
 import { AudiusArtistCard, AudiusPlaylistCard } from '@/components/custom/music/catalog-cards';
@@ -162,7 +162,14 @@ function AudiusResult({
   );
 }
 
-export function MusicSearch({ initialQuery = '' }: { initialQuery?: string }) {
+export function MusicSearch({
+  initialQuery = '',
+  extras,
+}: {
+  initialQuery?: string;
+  /** Extra result sections (radio, podcast) for the last submitted query. */
+  extras?: (searchedQuery: string) => ReactNode;
+}) {
   const player = useMusicPlayer();
   const [source, setSource] = useState<Source>('audius');
   const [query, setQuery] = useState(initialQuery);
@@ -435,7 +442,7 @@ export function MusicSearch({ initialQuery = '' }: { initialQuery?: string }) {
     <main className={styles.page}>
       <div className={styles.topline}>
         <p className={styles.eyebrow}>SOLCO · RICERCA MUSICALE</p>
-        <Link href="/dashboard">Preferiti e playlist</Link>
+        <Link href="/library">Preferiti e playlist</Link>
       </div>
       <h1 className={styles.title}>Cerca musica su Solco.</h1>
       <p className={styles.lead}>
@@ -768,6 +775,8 @@ export function MusicSearch({ initialQuery = '' }: { initialQuery?: string }) {
         </span>
         {player.errorMessage ? <p>{player.errorMessage}</p> : null}
       </section>
+
+      {extras && searchedQuery ? extras(searchedQuery) : null}
     </main>
   );
 }

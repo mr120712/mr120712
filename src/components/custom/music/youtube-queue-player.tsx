@@ -107,7 +107,6 @@ export function YouTubeQueuePlayer({
   const currentVideoId = current?.videoId ?? null;
 
   // Crea il player una sola volta; i cambi di brano passano da loadVideoById.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: il player viene creato solo al mount.
   useEffect(() => {
     const host = hostRef.current;
     const initialVideoId = latest.current.items[latest.current.index]?.videoId;

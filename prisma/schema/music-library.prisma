@@ -1,0 +1,69 @@
+// @polsia:user-owned — Libreria in stile app: cartelle, radio salvate, podcast seguiti,
+// cronologia con conteggio ascolti ed elementi nascosti ("Non mi interessa").
+
+model UserMusicFolder {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, name])
+}
+
+model UserSavedStation {
+  id         String   @id @default(cuid())
+  userId     String
+  stationId  String
+  name       String
+  artworkUrl String?
+  country    String?
+  tags       String?
+  homepage   String?
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, stationId])
+  @@index([userId, createdAt])
+}
+
+model UserPodcastFollow {
+  id         String   @id @default(cuid())
+  userId     String
+  podcastId  String
+  title      String
+  author     String?
+  artworkUrl String?
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, podcastId])
+  @@index([userId, createdAt])
+}
+
+model UserPlaybackHistory {
+  id              String   @id @default(cuid())
+  userId          String
+  qualifiedId     String
+  playbackMode    String
+  title           String
+  artistName      String
+  artworkUrl      String?
+  sourceLabel     String
+  sourceUrl       String?
+  albumId         String?
+  durationSeconds Int?
+  playCount       Int      @default(1)
+  lastPlayedAt    DateTime @default(now())
+
+  @@unique([userId, qualifiedId])
+  @@index([userId, lastPlayedAt])
+}
+
+model UserHiddenItem {
+  id        String   @id @default(cuid())
+  userId    String
+  kind      String
+  itemId    String
+  label     String?
+  createdAt DateTime @default(now())
+
+  @@unique([userId, kind, itemId])
+}

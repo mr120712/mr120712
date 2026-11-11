@@ -6,6 +6,7 @@
 'use client';
 
 import { AmbientDepth } from '@/components/custom/ambient-depth';
+import { AppTabBar } from '@/components/custom/app-tab-bar';
 import { MotionKitProvider } from '@/components/custom/motion-kit/motion-kit-provider';
 import { SolcoSupportChat } from '@/components/custom/solco-support-chat';
 
@@ -14,6 +15,7 @@ export function GlobalMounts() {
     <MotionKitProvider>
       <AmbientDepth />
       <SolcoSupportChat />
+      <AppTabBar />
     </MotionKitProvider>
   );
 }

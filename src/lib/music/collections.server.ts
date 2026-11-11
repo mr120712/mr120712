@@ -65,6 +65,7 @@ export async function getUserMusicCollections(userId: string) {
     id: collection.id,
     name: collection.name,
     kind: collection.kind,
+    folderId: collection.folderId,
     createdAt: collection.createdAt.toISOString(),
     items: collection.items.map((item) => ({
       id: item.id,

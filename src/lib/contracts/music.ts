@@ -236,6 +236,7 @@ export const MusicCollectionSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   kind: MusicCollectionKindSchema,
+  folderId: z.string().min(1).nullable().optional(),
   createdAt: z.string().datetime(),
   items: z.array(MusicCollectionItemSchema),
 });

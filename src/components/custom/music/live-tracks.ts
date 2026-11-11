@@ -1,0 +1,77 @@
+// @polsia:user-owned — conversione di stazioni, episodi e cronologia in brani del player.
+import type { MusicPlayerTrack } from '@/components/custom/music/music-player';
+import type {
+  HistoryEntry,
+  Podcast,
+  PodcastEpisode,
+  RadioStation,
+  SavedStation,
+} from '@/lib/contracts/library';
+
+export function stationToTrack(station: RadioStation): MusicPlayerTrack {
+  return {
+    qualifiedId: `radio:${station.id}`,
+    title: station.name,
+    artistName: station.country ?? 'Radio dal vivo',
+    artworkUrl: station.artworkUrl,
+    sourceLabel: 'Radio dal vivo',
+    sourceUrl: station.homepage,
+    sourceUrlLabel: 'Sito della stazione',
+    durationSeconds: null,
+    playbackMode: 'radio',
+  };
+}
+
+export function savedStationToStation(station: SavedStation): RadioStation {
+  return {
+    id: station.stationId,
+    name: station.name,
+    artworkUrl: station.artworkUrl,
+    country: station.country,
+    countryCode: null,
+    tags: (station.tags ?? '').split(',').filter(Boolean),
+    codec: null,
+    bitrate: null,
+    homepage: station.homepage,
+    votes: 0,
+  };
+}
+
+export function stationToSaved(station: RadioStation): SavedStation {
+  return {
+    stationId: station.id,
+    name: station.name,
+    artworkUrl: station.artworkUrl,
+    country: station.country,
+    tags: station.tags.join(',').slice(0, 400) || null,
+    homepage: station.homepage,
+  };
+}
+
+export function episodeToTrack(podcast: Podcast, episode: PodcastEpisode): MusicPlayerTrack {
+  return {
+    qualifiedId: `podcast:${podcast.id}~${episode.key}`,
+    title: episode.title,
+    artistName: podcast.title,
+    artworkUrl: episode.artworkUrl ?? podcast.artworkUrl,
+    sourceLabel: 'Podcast',
+    sourceUrl: `https://podcasts.apple.com/podcast/id${podcast.id}`,
+    sourceUrlLabel: 'Scheda pubblica del podcast',
+    durationSeconds: episode.durationSeconds,
+    playbackMode: 'podcast',
+  };
+}
+
+export function historyToTrack(entry: HistoryEntry): MusicPlayerTrack {
+  return {
+    qualifiedId: entry.qualifiedId,
+    title: entry.title,
+    artistName: entry.artistName,
+    artworkUrl: entry.artworkUrl,
+    sourceLabel: entry.sourceLabel,
+    sourceUrl: entry.sourceUrl,
+    albumId: entry.albumId,
+    durationSeconds: entry.durationSeconds,
+    playbackMode: entry.playbackMode,
+  };
+}

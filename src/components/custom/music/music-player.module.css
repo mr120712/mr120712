@@ -1,390 +1,489 @@
-.dock {
+/* @polsia:user-owned — mini player sopra la barra delle schede + player a schermo intero. */
+
+.mini,
+.full {
   color-scheme: dark;
   --background: #0b0f0d;
   --foreground: #f1f4ef;
   --card: #151b17;
   --card-foreground: #f1f4ef;
-  --popover: #1b231d;
-  --popover-foreground: #f1f4ef;
   --primary: #b5ed5d;
   --primary-foreground: #11170d;
   --secondary: #222b24;
-  --secondary-foreground: #edf2e9;
   --muted: #202820;
   --muted-foreground: #b5c0b5;
-  --accent: #a9df57;
-  --accent-foreground: #10160c;
   --border: #303a32;
-  --input: #465247;
   --ring: #b5ed5d;
   --destructive: #ff9c9c;
   --radius: 0.75rem;
+  color: var(--foreground);
+}
+
+/* ---------- Mini player ---------- */
+.mini {
   position: fixed;
-  z-index: 35;
-  right: 16px;
-  bottom: calc(12px + env(safe-area-inset-bottom));
-  left: 16px;
-  width: min(900px, calc(100% - 32px));
-  margin-inline: auto;
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) + 6px);
-  background: var(--card);
-  box-shadow: 0 18px 56px rgb(0 0 0 / 58%);
-  color: var(--card-foreground);
-}
-
-.dockInner {
+  z-index: 39;
+  right: 8px;
+  bottom: calc(var(--tab-bar-offset, 0px) + 8px);
+  left: 8px;
   display: grid;
-  min-height: 96px;
-  grid-template-columns: 46px minmax(0, 1fr) 210px;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 14px;
-  padding: 12px 14px;
+  width: min(900px, calc(100% - 16px));
+  min-height: var(--mini-player-height, 64px);
+  margin-inline: auto;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--card);
+  box-shadow: 0 14px 40px rgb(0 0 0 / 45%);
 }
 
-.disc {
+@media (min-width: 768px) {
+  .mini {
+    bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+}
+
+.miniExpand {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.miniArt {
   display: grid;
   width: 44px;
   aspect-ratio: 1;
   place-items: center;
-  border: 1px solid color-mix(in srgb, var(--primary) 55%, var(--border));
-  border-radius: 50%;
-  background: repeating-radial-gradient(circle, #18323b 0 2px, #0b1b25 3px 5px);
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--secondary);
   color: var(--primary);
 }
 
-.disc svg {
-  width: 17px;
-  height: 17px;
-}
-
-.disc img {
+.miniArt img {
   width: 100%;
   height: 100%;
-  border-radius: 50%;
   object-fit: cover;
+}
+
+.miniArt svg {
+  width: 20px;
+  height: 20px;
+}
+
+.miniCopy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.miniCopy strong,
+.miniCopy > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.miniCopy strong {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.miniCopy > span {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.miniButtons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 8px;
+}
+
+.miniControl,
+.miniSkip,
+.iconButton,
+.control,
+.skip,
+.toggle {
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+}
+
+.miniControl,
+.miniSkip {
+  width: 40px;
+  height: 40px;
+}
+
+.miniControl svg,
+.miniSkip svg {
+  width: 22px;
+  height: 22px;
+}
+
+.miniError {
+  grid-column: 1 / -1;
+  padding: 0 12px 10px;
+  color: var(--destructive);
+  font-size: 12px;
+}
+
+.miniProgress {
+  position: absolute;
+  right: 10px;
+  bottom: 0;
+  left: 10px;
+  height: 2px;
+  background: color-mix(in srgb, var(--foreground) 15%, transparent);
+}
+
+.miniProgress > span {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+}
+
+.liveBadge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #e5484d;
+  color: #fff;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+}
+
+/* ---------- Full-screen player ---------- */
+.full {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background:
+    radial-gradient(
+      circle at 50% -10%,
+      color-mix(in srgb, var(--primary) 22%, transparent),
+      transparent 60%
+    ), var(--background);
+  padding: env(safe-area-inset-top) 0 calc(24px + env(safe-area-inset-bottom));
+}
+
+.full[hidden] {
+  display: none;
+}
+
+.fullHeader {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  align-items: center;
+  width: min(560px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 12px 0;
+}
+
+.iconButton {
+  width: 44px;
+  height: 44px;
+}
+
+.iconButton svg {
+  width: 24px;
+  height: 24px;
+}
+
+.iconButton:last-child svg {
+  width: 18px;
+  height: 18px;
+}
+
+.playerLabel {
+  overflow: hidden;
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.12em;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fullBody {
+  display: grid;
+  gap: 22px;
+  width: min(560px, calc(100% - 32px));
+  margin: 0 auto;
+}
+
+.fullArt {
+  display: grid;
+  width: min(100%, 420px);
+  aspect-ratio: 1;
+  margin: 8px auto 0;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--secondary);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 45%);
+  color: var(--primary);
+}
+
+.fullArt img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.fullArt svg {
+  width: 30%;
+  height: 30%;
 }
 
 .trackCopy {
   display: grid;
   min-width: 0;
-  gap: 3px;
-}
-
-.playerLabel {
-  color: var(--primary);
-  font-size: 9px;
-  font-weight: 750;
-  letter-spacing: 0.12em;
-  line-height: 1.4;
+  gap: 6px;
 }
 
 .trackCopy > strong {
-  overflow: hidden;
-  font-family: var(--font-display), Arial, sans-serif;
-  font-size: 16px;
+  font-family: var(--font-display), sans-serif;
+  font-size: 24px;
   font-weight: 650;
-  letter-spacing: -0.035em;
+  letter-spacing: -0.02em;
   line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .trackMeta {
-  overflow: hidden;
   color: var(--muted-foreground);
-  font-size: 11px;
-  line-height: 1.45;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 15px;
 }
 
-.trackCopy > a {
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+}
+
+.links a {
   display: inline-flex;
-  width: fit-content;
   align-items: center;
-  gap: 5px;
-  color: var(--foreground);
-  font-size: 10px;
-  line-height: 1.4;
+  gap: 4px;
+  color: var(--muted-foreground);
+  font-size: 12px;
   text-underline-offset: 3px;
 }
 
-.trackCopy > a svg {
-  width: 11px;
-  height: 11px;
+.links svg {
+  width: 12px;
+  height: 12px;
 }
 
-.queue {
+.playerError {
+  color: var(--destructive);
+  font-size: 13px;
+}
+
+.playerControls {
+  display: grid;
+  gap: 8px;
+}
+
+.seek {
+  width: 100%;
+  accent-color: var(--primary);
+}
+
+.seek:disabled {
+  opacity: 0.5;
+}
+
+.time {
+  display: flex;
+  justify-content: space-between;
   color: var(--muted-foreground);
-  font-size: 10px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.buttons {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px 0;
+}
+
+.skip {
+  width: 52px;
+  height: 52px;
+}
+
+.skip svg {
+  width: 30px;
+  height: 30px;
+}
+
+.control {
+  width: 68px;
+  height: 68px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.control svg {
+  width: 30px;
+  height: 30px;
+}
+
+.toggle {
+  width: 44px;
+  height: 44px;
+  color: var(--muted-foreground);
+}
+
+.toggle svg {
+  width: 20px;
+  height: 20px;
+}
+
+.toggle[aria-pressed="true"] {
+  color: var(--primary);
+}
+
+.miniControl:disabled,
+.miniSkip:disabled,
+.control:disabled,
+.skip:disabled,
+.toggle:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.miniExpand:focus-visible,
+.miniControl:focus-visible,
+.miniSkip:focus-visible,
+.iconButton:focus-visible,
+.control:focus-visible,
+.skip:focus-visible,
+.toggle:focus-visible,
+.queue button:focus-visible,
+.seek:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* ---------- Queue ---------- */
+.queue {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
 }
 
 .queue summary {
   display: flex;
-  width: fit-content;
   align-items: center;
-  gap: 5px;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 650;
   cursor: pointer;
-  color: var(--foreground);
 }
 
 .queue summary svg {
-  width: 13px;
-  height: 13px;
+  width: 16px;
+  height: 16px;
+  color: var(--primary);
 }
 
 .queue ol {
   display: grid;
-  max-height: 150px;
-  gap: 3px;
-  overflow: auto;
-  margin: 6px 0 0;
-  padding-left: 20px;
+  gap: 4px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
 }
 
 .queueItem {
   display: grid;
   grid-template-columns: 36px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .queueArtwork {
   display: grid;
   width: 36px;
-  height: 36px;
+  aspect-ratio: 1;
   place-items: center;
   overflow: hidden;
-  border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--secondary);
-  color: var(--muted-foreground);
+  color: var(--primary);
 }
 
-.queueArtwork svg,
+.queueArtwork svg {
+  width: 16px;
+  height: 16px;
+}
+
 .queueArtwork img {
   width: 100%;
   height: 100%;
-}
-
-.queueArtwork img {
   object-fit: cover;
 }
 
 .queue li button {
-  width: 100%;
+  display: grid;
   min-width: 0;
-  padding: 4px 0;
+  gap: 1px;
+  padding: 6px 0;
   border: 0;
   background: transparent;
-  color: var(--foreground);
-  font: inherit;
+  color: inherit;
   text-align: left;
   cursor: pointer;
 }
 
-.queueItem a {
-  flex: none;
-  color: var(--foreground);
-  text-underline-offset: 3px;
-}
-
-.queue li button[aria-current="true"] {
-  color: var(--primary);
-  font-weight: 700;
-}
-
+.queue li button strong,
 .queue li button span {
-  display: block;
-  color: var(--muted-foreground);
-}
-
-.queue li button strong {
-  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.playerControls {
-  display: grid;
-  min-width: 0;
-  justify-items: stretch;
-  gap: 7px;
+.queue li button strong {
+  font-size: 14px;
+  font-weight: 600;
 }
 
-.time {
+.queue li button span {
   color: var(--muted-foreground);
-  font-variant-numeric: tabular-nums;
-  font-size: 10px;
-  text-align: right;
+  font-size: 12px;
 }
 
-.seek {
-  width: 100%;
-  height: 16px;
-  margin: 0;
-  accent-color: var(--primary);
-  cursor: pointer;
+.queue li button[aria-current="true"] strong {
+  color: var(--primary);
 }
 
-.seek:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.buttons {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-.control,
-.skip,
-.stop {
-  display: grid;
-  width: 36px;
-  height: 36px;
-  flex: none;
-  place-items: center;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  background: var(--secondary);
-  color: var(--secondary-foreground);
-  cursor: pointer;
-}
-
-.control {
-  width: 40px;
-  height: 40px;
-  border-color: var(--primary);
-  background: var(--primary);
-  color: var(--primary-foreground);
-}
-
-.control:disabled,
-.skip:disabled {
-  cursor: not-allowed;
-  opacity: 0.48;
-}
-
-.control svg,
-.skip svg {
-  width: 16px;
-  height: 16px;
-}
-
-.stop svg {
-  width: 13px;
-  height: 13px;
-}
-
-.control:focus-visible,
-.skip:focus-visible,
-.stop:focus-visible,
-.queue button:focus-visible,
-.seek:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 3px;
-}
-
-.playerError {
-  color: var(--destructive);
+.queueItem a {
+  color: var(--muted-foreground);
   font-size: 11px;
-  line-height: 1.45;
-}
-
-@media (max-width: 620px) {
-  .dock {
-    right: 10px;
-    bottom: calc(10px + env(safe-area-inset-bottom));
-    left: 10px;
-    width: calc(100% - 20px);
-  }
-
-  .dockInner {
-    grid-template-columns: 38px minmax(0, 1fr);
-    gap: 8px 10px;
-    padding: 10px;
-  }
-
-  .disc {
-    width: 36px;
-  }
-
-  .trackCopy > strong {
-    font-size: 14px;
-  }
-
-  .trackMeta {
-    font-size: 10px;
-  }
-
-  .playerLabel {
-    font-size: 8px;
-  }
-
-  .playerControls {
-    grid-column: 2;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 4px 8px;
-  }
-
-  .time {
-    grid-column: 1 / -1;
-  }
-
-  .seek {
-    grid-column: 1;
-    grid-row: 2;
-  }
-
-  .buttons {
-    grid-column: 2;
-    grid-row: 2;
-    gap: 4px;
-  }
-
-  .control,
-  .skip,
-  .stop {
-    width: 32px;
-    height: 32px;
-  }
-
-  .control {
-    width: 36px;
-    height: 36px;
-  }
-}
-
-@media (max-width: 350px) {
-  .dockInner {
-    grid-template-columns: 30px minmax(0, 1fr);
-    gap: 7px;
-    padding: 8px;
-  }
-
-  .disc {
-    width: 28px;
-  }
-
-  .buttons {
-    gap: 2px;
-  }
-
-  .control,
-  .skip,
-  .stop {
-    width: 29px;
-    height: 29px;
-  }
-
-  .control {
-    width: 32px;
-    height: 32px;
-  }
 }

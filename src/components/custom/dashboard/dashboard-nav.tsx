@@ -13,8 +13,8 @@ const navItems = [
     icon: Search,
   },
   {
-    href: '/dashboard',
-    label: 'Preferiti e playlist',
+    href: '/library',
+    label: 'Libreria',
     icon: ListMusic,
   },
   {

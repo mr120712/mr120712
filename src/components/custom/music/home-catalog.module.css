@@ -401,3 +401,44 @@
     transition: none;
   }
 }
+
+/* Layout in stile app di streaming: sezioni compatte e caroselli orizzontali su mobile. */
+.catalog {
+  gap: clamp(28px, 4vw, 44px);
+}
+
+.section {
+  gap: 14px;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.sectionHeading h2,
+.resumeIntro h2 {
+  font-size: clamp(20px, 2.6vw, 28px);
+  letter-spacing: -0.03em;
+}
+
+.eyebrow {
+  margin-bottom: 4px;
+}
+
+@media (max-width: 620px) {
+  .releaseGrid,
+  .artistGrid {
+    display: grid;
+    grid-auto-columns: minmax(220px, 72%);
+    grid-auto-flow: column;
+    grid-template-columns: none;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+  }
+
+  .releaseGrid > *,
+  .artistGrid > * {
+    scroll-snap-align: start;
+  }
+}

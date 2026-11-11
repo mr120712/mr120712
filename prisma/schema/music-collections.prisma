@@ -4,12 +4,15 @@ model UserMusicCollection {
   userId    String
   name      String
   kind      String
+  /// Cartella della Libreria (UserMusicFolder.id) che contiene la playlist; null = radice.
+  folderId  String?
   createdAt DateTime                  @default(now())
   updatedAt DateTime                  @updatedAt
   items     UserMusicCollectionItem[]
 
   @@unique([userId, name])
   @@index([userId, kind])
+  @@index([folderId])
 }
 
 model UserMusicCollectionItem {
