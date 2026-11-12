@@ -271,6 +271,27 @@ describe('budget giornaliero delle ricerche YouTube', () => {
     expect(quota).toHaveBeenCalledTimes(2);
   });
 
+  it('un limite di frequenza di YouTube sulle ricerche blocca come la quota (una prova ogni 30 minuti)', async () => {
+    const throttled = vi.fn(async () => ({
+      outcome: 'unavailable' as const,
+      videos: [],
+      unavailableReason: 'rate_limited' as const,
+    }));
+    const wrapped = withYouTubeSearchBudget(throttled, { now: NOW, db: db as never });
+    await expect(wrapped('jazz', 25)).resolves.toMatchObject({ unavailableReason: 'rate_limited' });
+    await expect(wrapped('rock', 25)).resolves.toMatchObject({
+      unavailableReason: 'quota_exceeded',
+    });
+    expect(throttled).toHaveBeenCalledOnce();
+    // 31 minutes later one try goes through; if YouTube answers, the block is lifted.
+    const later = new Date(NOW.getTime() + 31 * 60_000);
+    const ok = vi.fn(async () => ({ outcome: 'results' as const, videos: [] }));
+    await withYouTubeSearchBudget(ok, { now: later, db: db as never })('pop', 25);
+    expect(ok).toHaveBeenCalledOnce();
+    await withYouTubeSearchBudget(ok, { now: later, db: db as never })('blues', 25);
+    expect(ok).toHaveBeenCalledTimes(2);
+  });
+
   it('un "quota esaurita" subito dopo l’azzeramento non blocca tutto il giorno', async () => {
     // 00:01 Pacific time on 11 Nov (08:01 UTC): Google's counters may not have rolled over yet.
     const at = (minutes: number) => new Date(Date.UTC(2026, 10, 11, 8, minutes));
@@ -321,19 +342,6 @@ describe('budget giornaliero delle ricerche YouTube', () => {
     expect(quota).toHaveBeenCalledTimes(2);
     await search(new Date(retry.getTime() + YOUTUBE_BLOCK_RETRY_MS));
     expect(quota).toHaveBeenCalledTimes(3);
-  });
-
-  it('un rallentamento temporaneo di YouTube non blocca la giornata', async () => {
-    const busy = vi.fn(async () => ({
-      outcome: 'unavailable' as const,
-      videos: [],
-      unavailableReason: 'rate_limited' as const,
-    }));
-    const wrapped = withYouTubeSearchBudget(busy, { now: NOW, db: db as never });
-    await wrapped('jazz', 25);
-    await wrapped('jazz', 25);
-    expect(busy).toHaveBeenCalledTimes(2);
-    expect((await readYouTubeQuotaUsage(NOW, db as never)).searchBlocked).toBe(false);
   });
 
   it('passa a YouTube la query e il numero di risultati ricevuti', async () => {

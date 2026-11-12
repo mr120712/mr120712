@@ -359,7 +359,13 @@ export function withYouTubeSearchBudget(
     if (!decision.ok) return denied(decision.reason);
     const result = await load(term, maxResults);
     const db = options.db ?? prisma;
-    if (result.outcome === 'unavailable' && result.unavailableReason === 'quota_exceeded') {
+    // A rate-limit answer to search.list is blocked the same way: live it has lasted for hours
+    // (videos.list still worked), and calling YouTube on every new query only adds failures. The
+    // single try every 30 minutes lifts the block as soon as YouTube answers again.
+    if (
+      result.outcome === 'unavailable' &&
+      (result.unavailableReason === 'quota_exceeded' || result.unavailableReason === 'rate_limited')
+    ) {
       await noteYouTubeQuotaExceeded('search', now, db);
     } else if (decision.probe && result.outcome !== 'unavailable') {
       await liftYouTubeSearchBlock(now, db);
