@@ -28,14 +28,19 @@ import {
   main,
   mapLimit,
   PUBLIC_PAGES,
+  type PublicStatusBody,
   parsePublicStatus,
+  refreshPending,
   responseTimeResult,
   runAllChecks,
   runCheck,
+  STATUS_REREAD_DELAY_MS,
   USER_AGENT,
 } from '../../scripts/monitor/check-site';
 
 const BASE = 'https://solco.test';
+/** Five minutes after the checkedAt of the healthy /api/status: no re-read by default. */
+const NOW = new Date('2026-11-11T10:05:00.000Z');
 const GOOGLE_AUTH = 'https://accounts.google.com/o/oauth2/v2/auth';
 
 type Call = {
@@ -154,6 +159,7 @@ function setup(
       tick += 25;
       return tick;
     },
+    now: () => NOW,
     ...extra,
   });
   return { deps, calls, sleeps };
@@ -679,7 +685,7 @@ describe('internal status (/api/status)', () => {
     expect(stripe).toMatchObject({ id: 'internal:stripe', status: 'fail', critical: false });
   });
 
-  it('waits up to 35 s for /api/status, which may start a fresh internal run', async () => {
+  it('waits up to 35 s for /api/status (cold start and database waking up)', async () => {
     const { deps, calls } = setup(
       healthySite({
         'GET /api/status': () => {
@@ -698,6 +704,117 @@ describe('internal status (/api/status)', () => {
     const [summary] = await checkInternalStatus(deps);
     expect(summary).toMatchObject({ status: 'warn' });
     expect(summary?.detail).toContain('più di 2 ore fa');
+  });
+
+  describe('second read after a refresh', () => {
+    const OLD = '2026-11-11T09:10:00.000Z'; // 55 minutes before NOW: /api/status refreshes
+    const FRESH = '2026-11-11T10:05:10.000Z';
+
+    /** Answers the given bodies in order (the last one repeats), counting the requests. */
+    function sequence(...bodies: Array<Handler>): Handler {
+      let index = 0;
+      return (call) => {
+        const handler = bodies[Math.min(index, bodies.length - 1)] as Handler;
+        index += 1;
+        return handler(call);
+      };
+    }
+
+    it('reads again once the new run had time to finish, past the shared cache', async () => {
+      const { deps, calls, sleeps } = setup(
+        healthySite({
+          'GET /api/status': sequence(
+            statusBody({ checkedAt: OLD }),
+            statusBody({ status: 'degraded', checkedAt: FRESH, failing: ['radio'] }),
+          ),
+        }),
+      );
+      const results = await checkInternalStatus(deps);
+      expect(sleeps).toEqual([STATUS_REREAD_DELAY_MS]);
+      expect(STATUS_REREAD_DELAY_MS).toBe(25_000);
+      expect(calls.map((call) => call.url.pathname)).toEqual(['/api/status', '/api/status']);
+      expect(calls[0]?.url.search).toBe('');
+      expect(calls[1]?.url.searchParams.get('fresh')).toBe(String(NOW.getTime()));
+      expect(calls[1]?.signal).toBeInstanceOf(AbortSignal);
+      expect(results.map((result) => [result.id, result.status, result.critical])).toEqual([
+        ['internal_status', 'ok', false],
+        ['internal:radio', 'fail', false],
+      ]);
+      expect(results[0]?.detail).toBe('Qualcosa non funziona: 1 da sistemare (11/11/2026, 11:05)');
+      expect(results[0]?.ms).toBe(25);
+    });
+
+    it('also reads again when no run exists yet (the first one is starting)', async () => {
+      const unknown = statusBody({ status: 'unknown', checkedAt: null });
+      const { deps, sleeps } = setup(
+        healthySite({
+          'GET /api/status': sequence(unknown, unknown, statusBody({ checkedAt: FRESH })),
+        }),
+      );
+      const [summary, ...rest] = await checkInternalStatus(deps);
+      // "unknown" fails internal_status: the usual retry first, then the read after the refresh.
+      expect(sleeps).toEqual([5_000, STATUS_REREAD_DELAY_MS]);
+      expect(summary).toMatchObject({ id: 'internal_status', status: 'ok', critical: false });
+      expect(rest).toEqual([]);
+    });
+
+    it('keeps the first answer when the second read fails or brings nothing newer', async () => {
+      const second: Handler[] = [
+        statusBody({ checkedAt: OLD, failing: ['email'] }),
+        () => Response.json({ status: 'unknown' }, { status: 503 }),
+        () => html('<html>Vercel</html>'),
+        () => {
+          throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+        },
+      ];
+      for (const handler of second) {
+        const { deps, calls, sleeps } = setup(
+          healthySite({
+            'GET /api/status': sequence(
+              statusBody({ checkedAt: OLD, failing: ['radio'] }),
+              handler,
+            ),
+          }),
+        );
+        const results = await checkInternalStatus(deps);
+        // One extra request, never a retry of it: the first answer stands.
+        expect(calls).toHaveLength(2);
+        expect(sleeps).toEqual([STATUS_REREAD_DELAY_MS]);
+        expect(results.map((result) => [result.id, result.status])).toEqual([
+          ['internal_status', 'ok'],
+          ['internal:radio', 'fail'],
+        ]);
+        expect(results[0]?.detail).toContain('(11/11/2026, 10:10)');
+      }
+    });
+
+    it('does not read again for a run younger than 50 minutes or a failed first read', async () => {
+      const young = setup(
+        healthySite({ 'GET /api/status': statusBody({ checkedAt: '2026-11-11T09:16:00.000Z' }) }),
+      );
+      await checkInternalStatus(young.deps);
+      expect(young.calls).toHaveLength(1);
+      expect(young.sleeps).toEqual([]);
+
+      const broken = setup(healthySite({ 'GET /api/status': () => html('Not found', 404) }));
+      await checkInternalStatus(broken.deps);
+      expect(broken.calls).toHaveLength(2);
+      expect(broken.sleeps).toEqual([5_000]);
+    });
+
+    it('refreshPending mirrors the 50-minute refresh of /api/status', () => {
+      const body = (checkedAt: string | null): PublicStatusBody => ({
+        status: 'ok',
+        checkedAt,
+        stale: false,
+        failing: [],
+        warnings: [],
+      });
+      expect(refreshPending(body(null), NOW)).toBe(true);
+      expect(refreshPending(body('2026-11-11T09:14:59.000Z'), NOW)).toBe(true);
+      expect(refreshPending(body('2026-11-11T09:15:00.000Z'), NOW)).toBe(false);
+      expect(refreshPending(body('2026-11-11T10:04:00.000Z'), NOW)).toBe(false);
+    });
   });
 
   it('parsePublicStatus accepts exactly the public contract shape', () => {
@@ -860,7 +977,7 @@ describe('main', () => {
         GITHUB_STEP_SUMMARY: join(dir, 'summary.md'),
         ...extraEnv,
       },
-      { fetch: fakeFetch(handlers, calls), sleep: async () => {} },
+      { fetch: fakeFetch(handlers, calls), sleep: async () => {}, now: () => NOW },
     );
     const state = JSON.parse(await readFile(join(dir, 'state.json'), 'utf8'));
     return { code, state };

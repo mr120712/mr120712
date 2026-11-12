@@ -17,11 +17,19 @@ export const DEFAULT_STATE_FILE = '.monitor-state.json';
 export const USER_AGENT = 'SolcoMonitor/1.0 (+https://github.com/mr120712/mr120712)';
 export const REQUEST_TIMEOUT_MS = 15_000;
 /**
- * /api/status may start a fresh internal run (maxDuration 30 s on Vercel): wait a little longer
- * than that, so a slow run is not abandoned and retried while it is still being stored.
+ * /api/status answers from the stored run (a new run starts after the response), but a cold start
+ * plus a database waking up can take a while (its database reads stop at 20 s, then 503): wait
+ * well beyond the default, so that the server's own answer is read instead of a timeout.
  */
 export const STATUS_TIMEOUT_MS = 35_000;
 export const RETRY_DELAY_MS = 5_000;
+/**
+ * Same value as PUBLIC_REFRESH_AFTER_MS (src/lib/monitoring/monitor.server.ts): an answer whose
+ * run is older than this (or missing) has just scheduled a new run, after the response.
+ */
+export const STATUS_REFRESH_AFTER_MS = 50 * 60 * 1000;
+/** Wait for that new run (checks of 8 s at most, plus saving it) before reading again. */
+export const STATUS_REREAD_DELAY_MS = 25_000;
 /** Oltre questa soglia la home è "lenta": solo un avviso, mai un'email. */
 export const SLOW_HOME_MS = 4_000;
 export const REALERT_MS = 24 * 60 * 60 * 1000;
@@ -58,6 +66,8 @@ export type MonitorDeps = {
   sleep: (ms: number) => Promise<void>;
   /** Millisecondi monotoni, per misurare le durate. */
   clock: () => number;
+  /** Ora corrente, per l'età dell'ultimo controllo interno. */
+  now: () => Date;
   timeoutMs: number;
   retryDelayMs: number;
 };
@@ -640,10 +650,47 @@ export function internalItemResults(value: PublicStatusBody): CheckResult[] {
   return rows;
 }
 
+/** True when this answer has just scheduled a new internal run (none yet, or older than 50 min). */
+export function refreshPending(value: PublicStatusBody, now: Date): boolean {
+  if (value.checkedAt === null) return true;
+  return now.getTime() - Date.parse(value.checkedAt) > STATUS_REFRESH_AFTER_MS;
+}
+
+function newerThan(fresh: PublicStatusBody, old: PublicStatusBody): boolean {
+  if (fresh.checkedAt === null) return false;
+  return old.checkedAt === null || Date.parse(fresh.checkedAt) > Date.parse(old.checkedAt);
+}
+
+/**
+ * One more read of /api/status after STATUS_REREAD_DELAY_MS, past the 60 s shared cache (unique
+ * query). Never throws: null when it does not answer 200 with a usable body.
+ */
+async function rereadInternalStatus(deps: MonitorDeps): Promise<PublicStatusBody | null> {
+  await deps.sleep(STATUS_REREAD_DELAY_MS);
+  try {
+    const response = await request(deps, `/api/status?fresh=${deps.now().getTime()}`, {
+      headers: { Accept: 'application/json' },
+    });
+    if (response.status !== 200) {
+      await discard(response);
+      return null;
+    }
+    return parsePublicStatus(await readJson(response));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * /api/status answers from the stored run and starts a new one after the response when that run
+ * is older than 50 minutes: in that case read again once the new run had time to finish, so that
+ * this round reports the site as it is now and not as it was an hour ago. If the second read
+ * fails or brings nothing newer, the first answer stands.
+ */
 export async function checkInternalStatus(deps: MonitorDeps): Promise<CheckResult[]> {
   const slow: MonitorDeps = { ...deps, timeoutMs: Math.max(deps.timeoutMs, STATUS_TIMEOUT_MS) };
   const parsed: { value: PublicStatusBody | null } = { value: null };
-  const result = await runCheck(slow, 'internal_status', false, async () => {
+  let result = await runCheck(slow, 'internal_status', false, async () => {
     parsed.value = null;
     const response = await request(slow, '/api/status', {
       headers: { Accept: 'application/json' },
@@ -660,7 +707,22 @@ export async function checkInternalStatus(deps: MonitorDeps): Promise<CheckResul
     parsed.value = value;
     return summarizeInternal(value);
   });
-  return parsed.value ? [result, ...internalItemResults(parsed.value)] : [result];
+  let value = parsed.value;
+  if (!value) return [result];
+  if (refreshPending(value, deps.now())) {
+    const fresh = await rereadInternalStatus(slow);
+    if (fresh && newerThan(fresh, value)) {
+      const outcome = summarizeInternal(fresh);
+      value = fresh;
+      result = {
+        ...result,
+        critical: outcome.critical ?? false,
+        status: outcome.status,
+        detail: clip(outcome.detail),
+      };
+    }
+  }
+  return [result, ...internalItemResults(value)];
 }
 
 /** Warn-only row derived from the measured home page load (only a verified home counts). */
@@ -1029,6 +1091,7 @@ export function createDeps(baseUrl: string, overrides: Partial<MonitorDeps> = {}
     fetch: (input, init) => fetch(input, init),
     sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
     clock: () => performance.now(),
+    now: () => new Date(),
     timeoutMs: REQUEST_TIMEOUT_MS,
     retryDelayMs: RETRY_DELAY_MS,
     ...overrides,

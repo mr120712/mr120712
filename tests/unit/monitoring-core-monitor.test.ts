@@ -5,9 +5,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   runChecks: vi.fn(),
   consumeRateLimit: vi.fn(),
+  after: vi.fn(),
 }));
 
 vi.mock('server-only', () => ({}));
+vi.mock('next/server', () => ({ after: mocks.after }));
 vi.mock('@/lib/db', () => ({ prisma: {} }));
 vi.mock('@/lib/monitoring/checks.server', () => ({ runChecks: mocks.runChecks }));
 vi.mock('@/lib/business/rate-limit.server', () => ({ consumeRateLimit: mocks.consumeRateLimit }));
@@ -21,6 +23,9 @@ import {
   latestRun,
   listHeartbeats,
   type MonitorDeps,
+  PUBLIC_READ_DEADLINE_MS,
+  PublicStatusDeadlineError,
+  type PublicStatusDeps,
   parseStoredRun,
   publicStatus,
   recentRuns,
@@ -55,7 +60,7 @@ function row(minutesAgo: number, results: unknown = healthy, extra: Record<strin
 }
 
 type ClaimCreate = { data: { at: Date }[] };
-type ClaimUpdate = { where: { at: { lt: Date } }; data: { at: Date } };
+type ClaimUpdate = { where: { at: { lt: Date } | Date }; data: { at: Date } };
 
 /** In-memory store; the 'status-run' claim row behaves like the conditional UPDATE in Postgres. */
 function makeStore(rows: unknown[] = [], claimAt: Date | null = null) {
@@ -75,7 +80,12 @@ function makeStore(rows: unknown[] = [], claimAt: Date | null = null) {
         return { count: 1 };
       }),
       updateMany: vi.fn(async ({ where, data }: ClaimUpdate) => {
-        if (!claim.at || claim.at.getTime() >= where.at.lt.getTime()) return { count: 0 };
+        // `at: { lt }` takes the claim, `at: <date>` gives back a claim that is still ours.
+        const matches =
+          where.at instanceof Date
+            ? claim.at?.getTime() === where.at.getTime()
+            : claim.at !== null && claim.at.getTime() < where.at.lt.getTime();
+        if (!matches) return { count: 0 };
         claim.at = data.at;
         return { count: 1 };
       }),
@@ -93,6 +103,44 @@ function deps(store: ReturnType<typeof makeStore>, extra: Partial<MonitorDeps> =
     ...extra,
   } satisfies Partial<MonitorDeps>;
 }
+
+type Task = () => Promise<void>;
+
+/** Collects the tasks scheduled after the response: the test decides when (and if) they run. */
+function statusDeps(
+  store: ReturnType<typeof makeStore>,
+  extra: Partial<PublicStatusDeps> = {},
+): { tasks: Task[]; options: Partial<PublicStatusDeps> } {
+  const tasks: Task[] = [];
+  return {
+    tasks,
+    options: {
+      ...deps(store),
+      schedule: (task) => {
+        tasks.push(task);
+      },
+      readDeadlineMs: 1_000,
+      ...extra,
+    },
+  };
+}
+
+/** A promise that never settles: a query on a database that does not answer. */
+function hanging<T>(): Promise<T> {
+  return new Promise<T>(() => {});
+}
+
+function flush() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+const refused = {
+  allowed: false,
+  status: 429,
+  retryAfterSeconds: 600,
+  error: 'rate_limited',
+  message: 'x',
+};
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -197,13 +245,22 @@ describe('listHeartbeats', () => {
 });
 
 describe('publicStatus', () => {
-  it('reuses a run younger than 50 minutes without spending the rate limit', async () => {
+  const oldRun = {
+    status: 'ok',
+    checkedAt: new Date(NOW.getTime() - 55 * MINUTE).toISOString(),
+    stale: false,
+    failing: [],
+    warnings: ['email', 'jamendo'],
+  };
+
+  it('reuses a run younger than 50 minutes without claiming or scheduling a refresh', async () => {
     const store = makeStore([
       row(10, [result('database'), result('radio', 'fail'), result('email', 'warn')], {
         status: 'degraded',
       }),
     ]);
-    const status = await publicStatus(NOW, deps(store));
+    const { tasks, options } = statusDeps(store);
+    const status = await publicStatus(NOW, options);
     expect(PublicMonitorStatusSchema.parse(status)).toEqual({
       status: 'degraded',
       checkedAt: new Date(NOW.getTime() - 10 * MINUTE).toISOString(),
@@ -211,30 +268,47 @@ describe('publicStatus', () => {
       failing: ['radio'],
       warnings: ['email'],
     });
+    expect(tasks).toHaveLength(0);
+    expect(store.monitorHeartbeat.updateMany).not.toHaveBeenCalled();
     expect(mocks.consumeRateLimit).not.toHaveBeenCalled();
     expect(mocks.runChecks).not.toHaveBeenCalled();
   });
 
-  it('starts a new run when the latest is older than 50 minutes and the limit allows it', async () => {
+  it('answers with the old run at once and schedules one refresh when it is older than 50 minutes', async () => {
     const store = makeStore([row(55)]);
-    const status = await publicStatus(NOW, deps(store));
+    const { tasks, options } = statusDeps(store);
+    expect(await publicStatus(NOW, options)).toEqual(oldRun);
+    expect(tasks).toHaveLength(1);
+    // Nothing of the refresh has run before the answer.
+    expect(mocks.consumeRateLimit).not.toHaveBeenCalled();
+    expect(mocks.runChecks).not.toHaveBeenCalled();
+
+    await tasks[0]?.();
     expect(mocks.consumeRateLimit).toHaveBeenCalledWith('monitor.run', 'global');
     expect(mocks.runChecks).toHaveBeenCalledTimes(1);
     expect(store.monitorRun.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ trigger: 'status' }) }),
     );
-    expect(status).toEqual({
-      status: 'degraded',
-      checkedAt: NOW.toISOString(),
-      stale: false,
-      failing: ['youtube_quota'],
-      warnings: ['email'],
-    });
   });
 
-  it('claims the refresh atomically before spending the rate limit', async () => {
+  it('never waits for the refresh, even when the scheduler starts it at once', async () => {
+    mocks.runChecks.mockReturnValue(hanging());
     const store = makeStore([row(55)]);
-    await publicStatus(NOW, deps(store));
+    const { options } = statusDeps(store, {
+      schedule: (task) => {
+        void task();
+      },
+    });
+    expect(await publicStatus(NOW, options)).toEqual(oldRun);
+    await flush();
+    expect(mocks.runChecks).toHaveBeenCalledTimes(1);
+    expect(store.monitorRun.create).not.toHaveBeenCalled();
+  });
+
+  it('claims the refresh atomically before scheduling it', async () => {
+    const store = makeStore([row(55)]);
+    const { tasks, options } = statusDeps(store);
+    await publicStatus(NOW, options);
     expect(store.monitorHeartbeat.createMany).toHaveBeenCalledWith({
       data: [{ name: STATUS_RUN_CLAIM, at: new Date(0), detail: null }],
       skipDuplicates: true,
@@ -244,85 +318,214 @@ describe('publicStatus', () => {
       data: { at: NOW },
     });
     expect(store.claim.at).toEqual(NOW);
+    expect(tasks).toHaveLength(1);
   });
 
-  it('starts exactly one run when concurrent requests see the same stale run', async () => {
+  it('schedules exactly one refresh when concurrent requests see the same stale run', async () => {
     const store = makeStore([row(55)]);
-    const statuses = await Promise.all(
-      Array.from({ length: 4 }, () => publicStatus(NOW, deps(store))),
-    );
+    const { tasks, options } = statusDeps(store);
+    const statuses = await Promise.all(Array.from({ length: 4 }, () => publicStatus(NOW, options)));
+    expect(statuses).toEqual([oldRun, oldRun, oldRun, oldRun]);
+    expect(tasks).toHaveLength(1);
+    await Promise.all(tasks.map((task) => task()));
     expect(mocks.consumeRateLimit).toHaveBeenCalledTimes(1);
     expect(mocks.runChecks).toHaveBeenCalledTimes(1);
     expect(store.monitorRun.create).toHaveBeenCalledTimes(1);
-    const checkedAt = statuses.map((status) => status.checkedAt);
-    expect(checkedAt.filter((value) => value === NOW.toISOString())).toHaveLength(1);
-    expect(
-      checkedAt.filter((value) => value === new Date(NOW.getTime() - 55 * MINUTE).toISOString()),
-    ).toHaveLength(3);
   });
 
-  it('serves the old run without spending the limit when another request claimed the refresh', async () => {
+  it('schedules nothing when another request already claimed the refresh', async () => {
     const store = makeStore([row(55)], new Date(NOW.getTime() - 10 * MINUTE));
-    const status = await publicStatus(NOW, deps(store));
-    expect(status).toMatchObject({ status: 'ok', stale: false });
+    const { tasks, options } = statusDeps(store);
+    expect(await publicStatus(NOW, options)).toMatchObject({ status: 'ok', stale: false });
+    expect(tasks).toHaveLength(0);
     expect(mocks.consumeRateLimit).not.toHaveBeenCalled();
-    expect(mocks.runChecks).not.toHaveBeenCalled();
+  });
+
+  it('claims again 50 minutes later when a refresh never finished', async () => {
+    const store = makeStore([row(55)]);
+    const { tasks, options } = statusDeps(store);
+    await publicStatus(NOW, options);
+    expect(tasks).toHaveLength(1);
+    // The instance was stopped: the refresh never ran and no new run was stored.
+    await publicStatus(new Date(NOW.getTime() + 10 * MINUTE), options);
+    expect(tasks).toHaveLength(1);
+    await publicStatus(new Date(NOW.getTime() + 51 * MINUTE), options);
+    expect(tasks).toHaveLength(2);
   });
 
   it('lets a claim error through so the route can answer 503', async () => {
     const store = makeStore([row(55)]);
     store.monitorHeartbeat.updateMany.mockRejectedValue(new Error('db read-only'));
-    await expect(publicStatus(NOW, deps(store))).rejects.toThrow('db read-only');
+    const { tasks, options } = statusDeps(store);
+    await expect(publicStatus(NOW, options)).rejects.toThrow('db read-only');
+    expect(tasks).toHaveLength(0);
+  });
+
+  it('starts no run when the limit refuses, and keeps the old run (stale past two hours)', async () => {
+    mocks.consumeRateLimit.mockResolvedValue(refused);
+    const stale = statusDeps(makeStore([row(180)]));
+    expect(await publicStatus(NOW, stale.options)).toMatchObject({
+      status: 'ok',
+      stale: true,
+      warnings: ['email', 'jamendo'],
+    });
+    const notYetStale = statusDeps(makeStore([row(60)]));
+    expect(await publicStatus(NOW, notYetStale.options)).toMatchObject({
+      status: 'ok',
+      stale: false,
+    });
+    await Promise.all([...stale.tasks, ...notYetStale.tasks].map((task) => task()));
+    expect(mocks.consumeRateLimit).toHaveBeenCalledTimes(2);
     expect(mocks.runChecks).not.toHaveBeenCalled();
   });
 
-  it('keeps the old run, flagged stale past two hours, when the limit refuses', async () => {
-    mocks.consumeRateLimit.mockResolvedValue({
-      allowed: false,
-      status: 429,
-      retryAfterSeconds: 600,
-      error: 'rate_limited',
-      message: 'x',
-    });
-    const stale = await publicStatus(NOW, deps(makeStore([row(180)])));
-    expect(stale).toMatchObject({ status: 'ok', stale: true, warnings: ['email', 'jamendo'] });
-    const notYetStale = await publicStatus(NOW, deps(makeStore([row(60)])));
-    expect(notYetStale).toMatchObject({ status: 'ok', stale: false });
-    expect(mocks.runChecks).not.toHaveBeenCalled();
-  });
-
-  it('reports unknown when no run exists and none may start', async () => {
-    mocks.consumeRateLimit.mockResolvedValue({
-      allowed: false,
-      status: 503,
-      retryAfterSeconds: 30,
-      error: 'rate_limit_unavailable',
-      message: 'x',
-    });
-    expect(await publicStatus(NOW, deps(makeStore([])))).toEqual({
+  it('reports unknown when no run exists and schedules the first one', async () => {
+    const { tasks, options } = statusDeps(makeStore([]));
+    expect(await publicStatus(NOW, options)).toEqual({
       status: 'unknown',
       checkedAt: null,
       stale: false,
       failing: [],
       warnings: [],
     });
+    expect(tasks).toHaveLength(1);
+    await tasks[0]?.();
+    expect(mocks.runChecks).toHaveBeenCalledTimes(1);
   });
 
-  it('runs the first check when no run exists and the limit allows it', async () => {
-    const status = await publicStatus(NOW, deps(makeStore([])));
-    expect(status.status).toBe('degraded');
-    expect(mocks.runChecks).toHaveBeenCalledTimes(1);
+  it('swallows every error of the background refresh', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const limitDown = statusDeps(makeStore([row(55)]));
+      await publicStatus(NOW, limitDown.options);
+      mocks.consumeRateLimit.mockRejectedValueOnce(new Error('db down'));
+      await expect(limitDown.tasks[0]?.()).resolves.toBeUndefined();
+
+      const checksDown = statusDeps(makeStore([row(55)]));
+      await publicStatus(NOW, checksDown.options);
+      mocks.runChecks.mockRejectedValueOnce(new Error('boom'));
+      await expect(checksDown.tasks[0]?.()).resolves.toBeUndefined();
+      expect(logged).toHaveBeenCalledTimes(2);
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
+  it('still answers when the refresh cannot be scheduled', async () => {
+    const store = makeStore([row(55)]);
+    const { options } = statusDeps(store, {
+      schedule: () => {
+        throw new Error('`after` was called outside a request scope');
+      },
+    });
+    expect(await publicStatus(NOW, options)).toEqual(oldRun);
+  });
+
+  it('gives up on a slow database read: deadline error, no claim, no refresh', async () => {
+    const store = makeStore();
+    store.monitorRun.findMany.mockReturnValue(hanging());
+    const { tasks, options } = statusDeps(store, { readDeadlineMs: 20 });
+    await expect(publicStatus(NOW, options)).rejects.toBeInstanceOf(PublicStatusDeadlineError);
+    expect(store.monitorHeartbeat.createMany).not.toHaveBeenCalled();
+    expect(tasks).toHaveLength(0);
+  });
+
+  it('never takes the claim when a slow read finishes after the deadline', async () => {
+    const store = makeStore();
+    let finishRead: (rows: unknown[]) => void = () => {};
+    store.monitorRun.findMany.mockReturnValue(
+      new Promise<unknown[]>((resolve) => {
+        finishRead = resolve;
+      }),
+    );
+    const { tasks, options } = statusDeps(store, { readDeadlineMs: 20 });
+    await expect(publicStatus(NOW, options)).rejects.toBeInstanceOf(PublicStatusDeadlineError);
+    finishRead([row(55)]);
+    await flush();
+    expect(store.monitorHeartbeat.createMany).not.toHaveBeenCalled();
+    expect(store.monitorHeartbeat.updateMany).not.toHaveBeenCalled();
+    expect(store.claim.at).toBeNull();
+    expect(tasks).toHaveLength(0);
+  });
+
+  it('counts the claim in the same deadline', async () => {
+    const store = makeStore([row(55)]);
+    store.monitorHeartbeat.updateMany.mockReturnValue(hanging());
+    const { tasks, options } = statusDeps(store, { readDeadlineMs: 20 });
+    await expect(publicStatus(NOW, options)).rejects.toBeInstanceOf(PublicStatusDeadlineError);
+    expect(tasks).toHaveLength(0);
+  });
+
+  it('never takes the claim when creating the claim row finishes after the deadline', async () => {
+    const store = makeStore([row(55)]);
+    let finishCreate: (value: { count: number }) => void = () => {};
+    store.monitorHeartbeat.createMany.mockReturnValue(
+      new Promise<{ count: number }>((resolve) => {
+        finishCreate = resolve;
+      }),
+    );
+    const { tasks, options } = statusDeps(store, { readDeadlineMs: 20 });
+    await expect(publicStatus(NOW, options)).rejects.toBeInstanceOf(PublicStatusDeadlineError);
+    finishCreate({ count: 1 });
+    await flush();
+    expect(store.monitorHeartbeat.updateMany).not.toHaveBeenCalled();
+    expect(store.claim.at).toBeNull();
+    expect(tasks).toHaveLength(0);
+  });
+
+  it('gives back a claim taken after the deadline, so the next request can refresh', async () => {
+    const store = makeStore([row(55)], new Date(0));
+    const takeClaim = store.monitorHeartbeat.updateMany.getMockImplementation();
+    let finishClaim: () => void = () => {};
+    store.monitorHeartbeat.updateMany.mockImplementationOnce(
+      (args) =>
+        new Promise((resolve) => {
+          finishClaim = () => resolve(takeClaim?.(args) ?? { count: 0 });
+        }),
+    );
+    const { tasks, options } = statusDeps(store, { readDeadlineMs: 20 });
+    await expect(publicStatus(NOW, options)).rejects.toBeInstanceOf(PublicStatusDeadlineError);
+    finishClaim();
+    await flush();
+    expect(store.monitorHeartbeat.updateMany).toHaveBeenLastCalledWith({
+      where: { name: STATUS_RUN_CLAIM, at: NOW },
+      data: { at: new Date(0) },
+    });
+    expect(store.claim.at).toEqual(new Date(0));
+    expect(tasks).toHaveLength(0);
+
+    await publicStatus(new Date(NOW.getTime() + MINUTE), options);
+    expect(tasks).toHaveLength(1);
+  });
+
+  it('clears the deadline timer once the database work is done', async () => {
+    vi.useFakeTimers();
+    try {
+      const { tasks, options } = statusDeps(makeStore([row(55)]), { readDeadlineMs: 20_000 });
+      expect(await publicStatus(NOW, options)).toEqual(oldRun);
+      expect(tasks).toHaveLength(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('lets a database read error through so the route can answer 503', async () => {
     const store = makeStore();
     store.monitorRun.findMany.mockRejectedValue(new Error('db down'));
-    await expect(publicStatus(NOW, deps(store))).rejects.toThrow('db down');
+    const { tasks, options } = statusDeps(store);
+    await expect(publicStatus(NOW, options)).rejects.toThrow('db down');
+    expect(tasks).toHaveLength(0);
   });
 
-  it('uses the app-wide monitor.run limit by default', async () => {
+  it('uses after(), a 20 s deadline, the monitor.run limit and every check by default', async () => {
+    // Two tries of the GitHub monitor (5 s apart) cover a 30 s database wake-up.
+    expect(PUBLIC_READ_DEADLINE_MS).toBe(20_000);
     const store = makeStore([]);
     await publicStatus(NOW, { db: store as unknown as MonitorDeps['db'], now: () => NOW });
+    expect(mocks.after).toHaveBeenCalledTimes(1);
+    expect(mocks.consumeRateLimit).not.toHaveBeenCalled();
+    await (mocks.after.mock.calls[0] as [Task])[0]();
     expect(mocks.consumeRateLimit).toHaveBeenCalledWith('monitor.run', 'global');
     expect(mocks.runChecks).toHaveBeenCalledWith();
   });

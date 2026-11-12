@@ -1,6 +1,6 @@
 // @polsia:user-owned
 // @vitest-environment node
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
@@ -66,6 +66,7 @@ import {
   type MonitorRun,
   PublicMonitorStatusSchema,
 } from '@/lib/contracts/monitoring';
+import { PublicStatusDeadlineError } from '@/lib/monitoring/monitor.server';
 
 const CRON_SECRET = 'fake-cron-secret-0123456789abcdef';
 const admin = { id: 'admin-1', role: 'admin', emailVerified: true };
@@ -116,6 +117,14 @@ afterEach(() => {
 });
 
 describe('GET /api/status', () => {
+  let warned: MockInstance<typeof console.warn>;
+  beforeEach(() => {
+    warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warned.mockRestore();
+  });
+
   it('returns the public status with a short shared cache', async () => {
     const status = {
       status: 'down',
@@ -131,8 +140,49 @@ describe('GET /api/status', () => {
       'public, s-maxage=60, stale-while-revalidate=60',
     );
     expect(PublicMonitorStatusSchema.parse(await response.json())).toEqual(status);
-    expect(statusRoute.maxDuration).toBe(30);
+    expect(mocks.publicStatus).toHaveBeenCalledTimes(1);
+    // The refresh runs after the response (after()) within the same function limit.
+    expect(statusRoute.maxDuration).toBe(60);
     expect(statusRoute.dynamic).toBe('force-dynamic');
+    expect(warned).not.toHaveBeenCalled();
+  });
+
+  it('keeps the shared cache for an old run that is being refreshed in the background', async () => {
+    mocks.publicStatus.mockResolvedValue({
+      status: 'ok',
+      checkedAt: run.startedAt,
+      stale: true,
+      failing: [],
+      warnings: [],
+    });
+    const response = await statusRoute.GET();
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe(
+      'public, s-maxage=60, stale-while-revalidate=60',
+    );
+    expect(await response.json()).toMatchObject({ stale: true });
+  });
+
+  it('does not cache "unknown" (no run yet): the first run is starting in the background', async () => {
+    const unknown = { status: 'unknown', checkedAt: null, stale: false, failing: [], warnings: [] };
+    mocks.publicStatus.mockResolvedValue(unknown);
+    const response = await statusRoute.GET();
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toEqual(unknown);
+  });
+
+  it('answers 503 unknown (not cached) when the database read passes its deadline', async () => {
+    mocks.publicStatus.mockRejectedValue(new PublicStatusDeadlineError(20_000));
+    const response = await statusRoute.GET();
+    expect(response.status).toBe(503);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toMatchObject({ status: 'unknown', checkedAt: null });
+    // Only the error name in the log: a deadline is told apart from a database error.
+    expect(warned).toHaveBeenCalledWith(
+      '[monitor] status unavailable',
+      'PublicStatusDeadlineError',
+    );
   });
 
   it('answers 503 unknown (not cached) when the status cannot be read', async () => {
@@ -147,6 +197,8 @@ describe('GET /api/status', () => {
       failing: [],
       warnings: [],
     });
+    expect(warned).toHaveBeenCalledWith('[monitor] status unavailable', 'Error');
+    expect(JSON.stringify(warned.mock.calls)).not.toContain('db down');
   });
 
   it('answers 503 when the result does not match the contract', async () => {
@@ -186,7 +238,7 @@ describe('GET /api/cron/health', () => {
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(await response.json()).toEqual({ status: 'down', failing: ['google_signin'] });
     expect(mocks.runMonitor).toHaveBeenCalledWith('cron');
-    expect(healthRoute.maxDuration).toBe(30);
+    expect(healthRoute.maxDuration).toBe(60);
   });
 });
 
@@ -420,5 +472,7 @@ describe('POST /api/admin/monitoring', () => {
     expect(response.headers.get('vary')).toBe('Cookie');
     expect(AdminMonitorRunResponseSchema.parse(await response.json())).toEqual({ run });
     expect(mocks.runMonitor).toHaveBeenCalledWith('admin');
+    // Synchronous run: the admin needs the fresh result.
+    expect(adminRoute.maxDuration).toBe(60);
   });
 });

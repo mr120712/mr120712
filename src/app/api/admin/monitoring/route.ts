@@ -16,7 +16,12 @@ import {
 import { sameOrigin } from '@/lib/same-origin';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
+/**
+ * "Controlla ora" needs the fresh result, so the run is synchronous: room for a database waking
+ * up before the checks (8 s each at most). Accepted on Vercel with Fluid compute (ai-search
+ * declares 120).
+ */
+export const maxDuration = 60;
 
 const privateHeaders = { 'Cache-Control': 'private, no-store', Vary: 'Cookie' };
 

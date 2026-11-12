@@ -4,6 +4,7 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@prisma/client';
+import { after } from 'next/server';
 import { consumeRateLimit, type RateLimitDecision } from '@/lib/business/rate-limit.server';
 import {
   type MonitorCheckId,
@@ -22,6 +23,14 @@ import { runChecks } from '@/lib/monitoring/checks.server';
 
 /** The public endpoint starts a new run when the latest one is older than this. */
 export const PUBLIC_REFRESH_AFTER_MS = 50 * 60 * 1000;
+/**
+ * Budget of the public status for its own database work (latest run + refresh claim): a database
+ * waking up must not hold /api/status until the function times out. Sized on the morning wake-up
+ * seen live (about 30 s before the first query answered): the monitor's first try ends at 20 s,
+ * its retry (5 s later) finds the database awake. Rule: 2 × deadline + 5 s ≥ the wake-up, and
+ * deadline + cold start well below STATUS_TIMEOUT_MS (35 s) in scripts/monitor/check-site.ts.
+ */
+export const PUBLIC_READ_DEADLINE_MS = 20_000;
 /** The latest run is reported as stale past this age. */
 export const STALE_AFTER_MS = 2 * 60 * 60 * 1000;
 export const HISTORY_LIMIT = 48;
@@ -197,13 +206,20 @@ function ageMs(run: MonitorRun, now: Date) {
 /**
  * Atomically claims the next public refresh: true for exactly one caller per 50-minute window,
  * across concurrent requests and instances (the conditional UPDATE re-checks the time under the
- * row lock). A database error propagates.
+ * row lock). A database error propagates. Once `signal` is aborted (the request has already
+ * answered 503) it never takes the claim, and gives back a claim taken too late, so that the next
+ * request can refresh instead of waiting 50 minutes.
  */
-async function claimPublicRefresh(deps: MonitorDeps, now: Date): Promise<boolean> {
+async function claimPublicRefresh(
+  deps: MonitorDeps,
+  now: Date,
+  signal?: AbortSignal,
+): Promise<boolean> {
   await deps.db.monitorHeartbeat.createMany({
     data: [{ name: STATUS_RUN_CLAIM, at: new Date(0), detail: null }],
     skipDuplicates: true,
   });
+  if (signal?.aborted) return false;
   const { count } = await deps.db.monitorHeartbeat.updateMany({
     where: {
       name: STATUS_RUN_CLAIM,
@@ -211,27 +227,107 @@ async function claimPublicRefresh(deps: MonitorDeps, now: Date): Promise<boolean
     },
     data: { at: now },
   });
-  return count === 1;
+  if (count !== 1) return false;
+  if (signal?.aborted) {
+    // Only if the claim is still ours; nobody waits for it (best effort).
+    deps.db.monitorHeartbeat
+      .updateMany({ where: { name: STATUS_RUN_CLAIM, at: now }, data: { at: new Date(0) } })
+      .catch(() => {});
+    return false;
+  }
+  return true;
+}
+
+/** Runs a task after the response has been sent (default: next/server after(), waitUntil on Vercel). */
+export type BackgroundScheduler = (task: () => Promise<void>) => void;
+
+export type PublicStatusDeps = MonitorDeps & {
+  schedule: BackgroundScheduler;
+  /** Deadline of the foreground database work, in milliseconds. */
+  readDeadlineMs: number;
+};
+
+/** The public status could not finish its database work within its deadline. */
+export class PublicStatusDeadlineError extends Error {
+  constructor(ms: number) {
+    super(`Public status database work took longer than ${ms} ms`);
+    this.name = 'PublicStatusDeadlineError';
+  }
 }
 
 /**
- * Public status: reuses the latest run while it is younger than 50 minutes; otherwise the one
- * request that claims the refresh starts a new run if the app-wide 'monitor.run' limit allows it,
- * and every other request reports the old run (stale past two hours). A database error while
- * reading or claiming propagates so that /api/status answers 503.
+ * Runs `work` with a hard deadline: past it the promise rejects with PublicStatusDeadlineError and
+ * `signal` is aborted, so that the work skips the steps it has not started yet (a query already
+ * sent cannot be cancelled: it finishes unobserved).
+ */
+async function withinDeadline<T>(
+  ms: number,
+  work: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new PublicStatusDeadlineError(ms));
+    }, ms);
+  });
+  try {
+    return await Promise.race([work(controller.signal), expired]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function needsRefresh(run: MonitorRun | null, now: Date) {
+  return !run || ageMs(run, now) > PUBLIC_REFRESH_AFTER_MS;
+}
+
+/**
+ * Background part of the public status, after the response: a new run if the app-wide
+ * 'monitor.run' limit allows it. Never throws (runMonitor already survives a storage failure); if
+ * it never finishes (instance stopped), the next claim after 50 minutes retries.
+ */
+async function refreshPublicRun(deps: MonitorDeps): Promise<void> {
+  try {
+    const decision = await deps.consumeRateLimit('monitor.run', 'global');
+    if (decision.allowed) await runMonitor('status', deps);
+  } catch (error) {
+    // biome-ignore lint/suspicious/noConsole: server log of the error name only (no details).
+    console.error('[monitor] background refresh failed', error instanceof Error ? error.name : '?');
+  }
+}
+
+/**
+ * Public status: always answers from the latest stored run, never waiting for a new one. When
+ * that run is older than 50 minutes (or missing), the one request that claims the refresh
+ * schedules a new run after the response (see refreshPublicRun); every other request just reports
+ * the stored run (stale past two hours). The database work (read + claim) has a deadline of
+ * PUBLIC_READ_DEADLINE_MS: a database error or the deadline propagates so that /api/status answers
+ * 503, and a request past its deadline never keeps the claim nor schedules a refresh.
  */
 export async function publicStatus(
   now: Date = new Date(),
-  options: Partial<MonitorDeps> = {},
+  options: Partial<PublicStatusDeps> = {},
 ): Promise<PublicMonitorStatus> {
-  const deps = monitorDeps(options);
-  let run = await latestRun(deps);
-  if (
-    (!run || ageMs(run, now) > PUBLIC_REFRESH_AFTER_MS) &&
-    (await claimPublicRefresh(deps, now))
-  ) {
-    const decision = await deps.consumeRateLimit('monitor.run', 'global');
-    if (decision.allowed) run = await runMonitor('status', deps);
+  const {
+    schedule = (task) => after(task),
+    readDeadlineMs = PUBLIC_READ_DEADLINE_MS,
+    ...overrides
+  } = options;
+  const deps = monitorDeps(overrides);
+  const { run, claimed } = await withinDeadline(readDeadlineMs, async (signal) => {
+    const latest = await latestRun(deps);
+    // Past the deadline the request has already answered 503: it must not take the claim.
+    if (signal.aborted || !needsRefresh(latest, now)) return { run: latest, claimed: false };
+    return { run: latest, claimed: await claimPublicRefresh(deps, now, signal) };
+  });
+  if (claimed) {
+    try {
+      schedule(() => refreshPublicRun(deps));
+    } catch {
+      // No request scope to run it in: the next claim after 50 minutes retries.
+    }
   }
   if (!run) {
     return { status: 'unknown', checkedAt: null, stale: false, failing: [], warnings: [] };

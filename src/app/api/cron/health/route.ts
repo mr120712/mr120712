@@ -7,7 +7,12 @@ import { cronAuthorized } from '@/lib/business/cron-auth.server';
 import { runMonitor } from '@/lib/monitoring/monitor.server';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 30;
+/**
+ * The cron needs the fresh result, so the run is synchronous: room for a database waking up
+ * before the checks (8 s each at most). Accepted on Vercel with Fluid compute (ai-search
+ * declares 120).
+ */
+export const maxDuration = 60;
 
 const noStore = { 'Cache-Control': 'no-store' };
 
