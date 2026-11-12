@@ -4,7 +4,7 @@
 'use client';
 
 import { Loader2, UploadCloud } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useLibrary } from '@/components/custom/music/library-context';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,26 @@ export function PublicUploadForm({ onUploaded }: { onUploaded: (upload: PublicUp
   const [saving, setSaving] = useState(false);
   const [percent, setPercent] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  // null = non ancora saputo; false = Vercel Blob non configurato sul server.
+  const [configured, setConfigured] = useState<boolean | null>(null);
+
+  // Sa in anticipo se la libreria pubblica è attiva, per mostrare un messaggio chiaro invece
+  // dell'errore criptico del client Blob quando lo storage non è configurato.
+  useEffect(() => {
+    if (!library.signedIn) return;
+    let alive = true;
+    fetch('/api/music/public-uploads/blob', { method: 'GET' })
+      .then((res) => (res.ok ? res.json() : { configured: false }))
+      .then((data: { configured?: boolean }) => {
+        if (alive) setConfigured(data.configured === true);
+      })
+      .catch(() => {
+        if (alive) setConfigured(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [library.signedIn]);
 
   const pick = (chosen: File | null) => {
     setError(null);
@@ -117,11 +137,18 @@ export function PublicUploadForm({ onUploaded }: { onUploaded: (upload: PublicUp
         </div>
       </div>
 
+      {configured === false ? (
+        <p className={styles.error}>
+          La libreria pubblica non è ancora attiva: lo storage (Vercel Blob) non è configurato sul
+          server. Riprova più tardi.
+        </p>
+      ) : null}
+
       <input
         ref={inputRef}
         type="file"
         accept={`audio/*,${AUDIO_UPLOAD_EXTENSIONS.map((ext) => `.${ext}`).join(',')}`}
-        disabled={saving}
+        disabled={saving || configured === false}
         onChange={(event) => pick(event.target.files?.[0] ?? null)}
       />
 
@@ -176,7 +203,7 @@ export function PublicUploadForm({ onUploaded }: { onUploaded: (upload: PublicUp
         <Button
           type="button"
           onClick={() => void save()}
-          disabled={saving || !file || !title.trim() || !confirmed}
+          disabled={saving || !file || !title.trim() || !confirmed || configured === false}
         >
           {saving ? (
             <Loader2 aria-hidden="true" className={styles.spin} />

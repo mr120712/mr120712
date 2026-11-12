@@ -23,9 +23,6 @@ const ALLOWED_CONTENT_TYPES = [
 ];
 
 export async function POST(request: Request): Promise<Response> {
-  if (!sameOrigin(request)) {
-    return NextResponse.json({ error: 'forbidden_origin' }, { status: 403 });
-  }
   if (!isPublicUploadConfigured()) {
     return NextResponse.json(
       {
@@ -36,22 +33,30 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  let userId: string;
-  try {
-    const user = await requireAuth(request);
-    userId = user.id;
-  } catch (response) {
-    return response as Response;
-  }
-
-  const limited = await enforceRateLimit('recordings.write', `user:${userId}`);
-  if (limited) return limited;
-
   let body: HandleUploadBody;
   try {
     body = (await request.json()) as HandleUploadBody;
   } catch {
     return NextResponse.json({ error: 'invalid_body' }, { status: 400 });
+  }
+
+  // La richiesta del token parte dal browser dell'utente: va protetta (stessa origine + login +
+  // rate-limit). La callback di completamento è server-to-server da Vercel Blob (nessun Origin né
+  // cookie) e viene verificata dalla firma dentro handleUpload: NON applicarle quei controlli,
+  // altrimenti il caricamento non si conclude.
+  let userId = '';
+  if ((body as { type?: string } | null)?.type === 'blob.generate-client-token') {
+    if (!sameOrigin(request)) {
+      return NextResponse.json({ error: 'forbidden_origin' }, { status: 403 });
+    }
+    try {
+      const user = await requireAuth(request);
+      userId = user.id;
+    } catch (response) {
+      return response as Response;
+    }
+    const limited = await enforceRateLimit('recordings.write', `user:${userId}`);
+    if (limited) return limited;
   }
 
   try {
@@ -80,4 +85,12 @@ export async function POST(request: Request): Promise<Response> {
       { status: 400 },
     );
   }
+}
+
+/** Dice al form se la libreria pubblica è attiva (Vercel Blob configurato), per un messaggio chiaro. */
+export function GET() {
+  return NextResponse.json(
+    { configured: isPublicUploadConfigured() },
+    { headers: { 'Cache-Control': 'no-store' } },
+  );
 }

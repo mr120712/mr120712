@@ -103,9 +103,15 @@ export async function uploadPublicSong(
         : undefined,
     });
   } catch (error) {
-    throw new PublicUploadError(
-      error instanceof Error ? error.message : 'Caricamento del file non riuscito.',
-    );
+    const message = error instanceof Error ? error.message : '';
+    // Il client Blob dà "Failed to retrieve the client token" quando il nostro endpoint del token
+    // risponde non-2xx: la causa tipica è lo storage non configurato sul server.
+    if (/client token/i.test(message) || /not.?configured/i.test(message)) {
+      throw new PublicUploadError(
+        'Il caricamento non è disponibile in questo momento: lo storage (Vercel Blob) non è configurato sul server.',
+      );
+    }
+    throw new PublicUploadError(message || 'Caricamento del file non riuscito.');
   }
 
   const seconds = Math.max(1, Math.ceil(await readDurationSeconds(file)));
