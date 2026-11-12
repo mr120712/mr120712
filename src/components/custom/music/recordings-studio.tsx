@@ -9,6 +9,7 @@ import { useLibrary } from '@/components/custom/music/library-context';
 import { recordingToTrack } from '@/components/custom/music/live-tracks';
 import { trackStreamPath, useMusicPlayer } from '@/components/custom/music/music-player';
 import { SongRecorder } from '@/components/custom/music/song-recorder';
+import { SongUpload } from '@/components/custom/music/song-upload';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
 import {
@@ -115,9 +116,14 @@ export function RecordingsStudio() {
       </header>
 
       {library.signedIn ? (
-        <SongRecorder
-          onSaved={(recording) => setRecordings((current) => [recording, ...current])}
-        />
+        <>
+          <SongRecorder
+            onSaved={(recording) => setRecordings((current) => [recording, ...current])}
+          />
+          <SongUpload
+            onSaved={(recording) => setRecordings((current) => [recording, ...current])}
+          />
+        </>
       ) : (
         <div className={styles.signin}>
           <p>Accedi per registrare un brano e conservarlo nel tuo account.</p>
