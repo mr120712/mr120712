@@ -257,6 +257,35 @@ describe('sw.js — install', () => {
     expect(sw.self.skipWaiting).not.toHaveBeenCalled();
   });
 
+  it('keeps the assets of Vercel builds too (/_next/static/immutable/…)', async () => {
+    const vercelHtml = `<!doctype html><html><head>
+    <link rel="stylesheet" href="/_next/static/immutable/chunks/2740jj47gkjss.css"/>
+    <script src="/_next/static/immutable/chunks/turbopack-18zgoy7aljef5.js" async=""></script></head>
+    <body><script>self.__next_f.push([1,"I[1,[\\"/_next/static/immutable/chunks/3lfi50byqhk3n.js\\"],\\"x\\"]"])</script>
+    </body></html>`;
+    const sw = loadServiceWorker(async (input) => {
+      const path = pathOf(input);
+      if (path === '/offline') return basic(vercelHtml);
+      if (path.startsWith('/_next/static/'))
+        return basic('/* asset */', { contentType: 'text/javascript' });
+      return basic(`body of ${path}`);
+    });
+    await sw.install();
+    const pinned = sw.caches.paths(SHELL).filter((path) => path.startsWith('/_next/static/'));
+    expect(pinned.sort()).toEqual(
+      [
+        '/_next/static/immutable/chunks/2740jj47gkjss.css',
+        '/_next/static/immutable/chunks/3lfi50byqhk3n.js',
+        '/_next/static/immutable/chunks/turbopack-18zgoy7aljef5.js',
+      ].sort(),
+    );
+    // Offline, the page chunk referenced only in the RSC payload is served from the shell cache.
+    sw.fetch.mockRejectedValue(new TypeError('Failed to fetch'));
+    const chunk = await sw.dispatchFetch(req('/_next/static/immutable/chunks/3lfi50byqhk3n.js'))
+      .responded;
+    expect(await chunk?.text()).toBe('/* asset */');
+  });
+
   it('bypasses the HTTP cache for the pre-cache requests', async () => {
     const sw = loadServiceWorker(async () => basic('ok'));
     await sw.install();

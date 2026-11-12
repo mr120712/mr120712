@@ -346,7 +346,9 @@ async function fetchForPrecache(path) {
 /** File statici (/_next/static/...) citati da un HTML: CSS e JS che servono per mostrarlo offline. */
 function staticAssetsIn(html) {
   const found = new Set();
-  const pattern = /["'](?:\/_next\/)?(static\/(?:chunks|css|media)\/[^"'\\\s<>]+)/g;
+  // Vercel serves Next's files under /_next/static/immutable/chunks/… (local builds use
+  // /_next/static/chunks/…): accept both, or no asset of a saved page would be kept.
+  const pattern = /["'](?:\/_next\/)?(static\/(?:immutable\/)?(?:chunks|css|media)\/[^"'\\\s<>]+)/g;
   let match = pattern.exec(html);
   while (match !== null) {
     found.add(`/_next/${match[1]}`);
