@@ -24,6 +24,7 @@ import { HomeMoodSwitch } from '@/components/custom/music/mood-feed';
 import { PodcastHomeRow } from '@/components/custom/music/podcast-home-row';
 import { RadioHomeRow } from '@/components/custom/music/radio-home-row';
 import { RecentlyPlayedRow } from '@/components/custom/music/recently-played-row';
+import { RecordingsChart } from '@/components/custom/music/recordings-chart';
 import { TikTokClips } from '@/components/custom/music/tiktok-clips';
 import { YouTubeCharts } from '@/components/custom/music/youtube-charts';
 import { AppTopBar } from '@/components/custom/site-nav';
@@ -58,6 +59,8 @@ export default function HomePage() {
       <InstallAppBanner />
 
       <RecentlyPlayedRow />
+
+      <RecordingsChart />
 
       <div className={styles.feed}>
         <YouTubeCharts />

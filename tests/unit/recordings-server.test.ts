@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   findMany: vi.fn(),
   findFirst: vi.fn(),
   deleteMany: vi.fn(),
+  historyFindMany: vi.fn(),
   inspect: vi.fn(),
 }));
 
@@ -21,6 +22,9 @@ vi.mock('@/lib/db', () => ({
       findMany: mocks.findMany,
       findFirst: mocks.findFirst,
       deleteMany: mocks.deleteMany,
+    },
+    userPlaybackHistory: {
+      findMany: mocks.historyFindMany,
     },
   },
 }));
@@ -42,6 +46,7 @@ import {
   getOwnedRecording,
   InvalidRecordingSource,
   listRecordings,
+  listRecordingsChart,
   MAX_RECORDINGS_PER_USER,
   RecordingLimitReached,
   registerRecording,
@@ -176,5 +181,35 @@ describe('letture e cancellazione', () => {
     expect(await deleteRecording('user-1', 'rec-1')).toBe(true);
     mocks.deleteMany.mockResolvedValueOnce({ count: 0 });
     expect(await deleteRecording('user-1', 'rec-2')).toBe(false);
+  });
+});
+
+describe('listRecordingsChart', () => {
+  it('unisce registrazioni e conteggi, ordina per ascolti, 0 per le mai ascoltate', async () => {
+    mocks.findMany.mockResolvedValue([
+      { id: 'a', title: 'A', durationSeconds: 30, createdAt: new Date('2026-01-01T00:00:00Z') },
+      { id: 'b', title: 'B', durationSeconds: 40, createdAt: new Date('2026-02-01T00:00:00Z') },
+      { id: 'c', title: 'C', durationSeconds: 50, createdAt: new Date('2026-03-01T00:00:00Z') },
+    ]);
+    mocks.historyFindMany.mockResolvedValue([
+      { qualifiedId: 'recording:a', playCount: 5 },
+      { qualifiedId: 'recording:c', playCount: 12 },
+    ]);
+
+    const chart = await listRecordingsChart('user-1');
+
+    expect(chart).toEqual([
+      { id: 'c', title: 'C', durationSeconds: 50, playCount: 12 },
+      { id: 'a', title: 'A', durationSeconds: 30, playCount: 5 },
+      { id: 'b', title: 'B', durationSeconds: 40, playCount: 0 },
+    ]);
+    expect(mocks.historyFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          userId: 'user-1',
+          qualifiedId: { startsWith: 'recording:' },
+        }),
+      }),
+    );
   });
 });

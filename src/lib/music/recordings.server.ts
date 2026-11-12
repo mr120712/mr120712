@@ -2,7 +2,7 @@
 // Il file è privato (uploadPrivateFile → R2 Polsia) e qui viene solo ispezionato e
 // registrato: la durata è ricavata dal server, mai dal client.
 import 'server-only';
-import type { Recording } from '@/lib/contracts/recordings';
+import type { Recording, RecordingChartItem } from '@/lib/contracts/recordings';
 import { prisma } from '@/lib/db';
 import {
   InvalidPrivateAudioSource,
@@ -52,6 +52,41 @@ export async function listRecordings(userId: string): Promise<Recording[]> {
     take: MAX_RECORDINGS_PER_USER,
   });
   return rows.map(toRecording);
+}
+
+/**
+ * Classifica degli ascolti locali: le registrazioni dell'utente ordinate per numero di ascolti.
+ * Il conteggio viene dalla cronologia (UserPlaybackHistory) per i qualifiedId `recording:<id>`;
+ * le registrazioni mai ascoltate compaiono comunque con 0.
+ */
+export async function listRecordingsChart(userId: string): Promise<RecordingChartItem[]> {
+  const [recordings, history] = await Promise.all([
+    prisma.userRecording.findMany({
+      where: { userId },
+      select: { id: true, title: true, durationSeconds: true, createdAt: true },
+      take: MAX_RECORDINGS_PER_USER,
+    }),
+    prisma.userPlaybackHistory.findMany({
+      where: { userId, qualifiedId: { startsWith: 'recording:' } },
+      select: { qualifiedId: true, playCount: true },
+    }),
+  ]);
+
+  const plays = new Map<string, number>();
+  for (const row of history) {
+    plays.set(row.qualifiedId.slice('recording:'.length), row.playCount);
+  }
+
+  return recordings
+    .map((row) => ({
+      id: row.id,
+      title: row.title,
+      durationSeconds: row.durationSeconds,
+      playCount: plays.get(row.id) ?? 0,
+      createdAt: row.createdAt.getTime(),
+    }))
+    .sort((a, b) => b.playCount - a.playCount || b.createdAt - a.createdAt)
+    .map(({ createdAt: _createdAt, ...item }) => item);
 }
 
 /**

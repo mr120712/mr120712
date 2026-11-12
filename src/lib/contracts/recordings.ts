@@ -50,3 +50,17 @@ export type RecordingCreateInput = z.infer<typeof RecordingCreateSchema>;
 export const RecordingCreateResponseSchema = z.object({
   recording: RecordingSchema,
 });
+
+/** Voce della classifica ascolti locali: una registrazione col suo numero di ascolti. */
+export const RecordingChartItemSchema = z.object({
+  id: z.string().min(1).max(64),
+  title: z.string().min(1).max(80),
+  durationSeconds: z.number().int().positive().max(86_400),
+  playCount: z.number().int().nonnegative(),
+});
+export type RecordingChartItem = z.infer<typeof RecordingChartItemSchema>;
+
+export const RecordingChartResponseSchema = z.object({
+  items: z.array(RecordingChartItemSchema),
+});
+export type RecordingChartResponse = z.infer<typeof RecordingChartResponseSchema>;

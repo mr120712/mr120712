@@ -15,6 +15,7 @@ vi.mock('@/components/custom/music/radio-home-row', () => ({ RadioHomeRow: () =>
 vi.mock('@/components/custom/music/recently-played-row', () => ({
   RecentlyPlayedRow: () => null,
 }));
+vi.mock('@/components/custom/music/recordings-chart', () => ({ RecordingsChart: () => null }));
 vi.mock('@/components/custom/music/tiktok-clips', () => ({ TikTokClips: () => null }));
 vi.mock('@/components/custom/music/youtube-charts', () => ({ YouTubeCharts: () => null }));
 

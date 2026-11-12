@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   del: vi.fn(),
   get: vi.fn(),
   open: vi.fn(),
+  chart: vi.fn(),
 }));
 
 vi.mock('@/lib/require-auth', () => ({ requireAuth: mocks.requireAuth }));
@@ -27,6 +28,7 @@ vi.mock('@/lib/music/recordings.server', () => {
     deleteRecording: mocks.del,
     getOwnedRecording: mocks.get,
     openRecordingStream: mocks.open,
+    listRecordingsChart: mocks.chart,
     RecordingLimitReached,
     InvalidRecordingSource,
   };
@@ -34,6 +36,7 @@ vi.mock('@/lib/music/recordings.server', () => {
 
 import { DELETE } from '@/app/api/music/recordings/[recordingId]/route';
 import { GET as STREAM } from '@/app/api/music/recordings/[recordingId]/stream/route';
+import { GET as CHART } from '@/app/api/music/recordings/chart/route';
 import { GET as LIST, POST } from '@/app/api/music/recordings/route';
 import { InvalidRecordingSource, RecordingLimitReached } from '@/lib/music/recordings.server';
 
@@ -126,6 +129,24 @@ describe('GET /api/music/recordings', () => {
     const res = await LIST(new Request('https://solco.example/api/music/recordings'));
     expect(res.status).toBe(200);
     expect(mocks.list).toHaveBeenCalledWith('user-1');
+  });
+});
+
+describe('GET /api/music/recordings/chart', () => {
+  it('restituisce la classifica ascolti locali', async () => {
+    mocks.chart.mockResolvedValue([{ id: recId, title: 'A', durationSeconds: 30, playCount: 7 }]);
+    const res = await CHART(new Request('https://solco.example/api/music/recordings/chart'));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      items: [{ id: recId, title: 'A', durationSeconds: 30, playCount: 7 }],
+    });
+    expect(mocks.chart).toHaveBeenCalledWith('user-1');
+  });
+
+  it('401 se non autenticato', async () => {
+    mocks.requireAuth.mockRejectedValue(new Response('no', { status: 401 }));
+    const res = await CHART(new Request('https://solco.example/api/music/recordings/chart'));
+    expect(res.status).toBe(401);
   });
 });
 
