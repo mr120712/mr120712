@@ -15,30 +15,37 @@ import { authorizeUpload } from '@/lib/file-upload/policy.server';
 
 const request = new Request('https://solco.test/api/upload');
 
-describe('accesso ai file amministrativi', () => {
+describe('autorizzazione upload/download dei file', () => {
   beforeEach(() => {
     vi.resetAllMocks();
   });
 
-  it('consente upload e download solo a una sessione admin verificata', async () => {
-    getSession.mockResolvedValue({
-      user: { id: 'verified-admin', role: 'admin', emailVerified: true },
-    });
-
-    await expect(authorizeUpload(request)).resolves.toBe('allow');
-    await expect(authorizeDownload(request, 'private/audio.wav')).resolves.toBe('allow');
-  });
-
-  it('nega account anonimi, non admin e admin non verificati', async () => {
-    const deniedSessions = [
-      null,
+  it('consente l’upload a qualsiasi utente loggato (serve registrazione/caricamento su /registra)', async () => {
+    const allowedSessions = [
       { user: { id: 'member', role: 'user', emailVerified: true } },
-      { user: { id: 'unverified-admin', role: 'admin', emailVerified: false } },
+      { user: { id: 'member-unverified', role: 'user', emailVerified: false } },
+      { user: { id: 'verified-admin', role: 'admin', emailVerified: true } },
     ];
 
-    for (const session of deniedSessions) {
+    for (const session of allowedSessions) {
       getSession.mockResolvedValueOnce(session);
-      await expect(authorizeUpload(request)).resolves.toBe('deny');
+      await expect(authorizeUpload(request)).resolves.toBe('allow');
+    }
+  });
+
+  it('nega l’upload agli account anonimi', async () => {
+    getSession.mockResolvedValue(null);
+    await expect(authorizeUpload(request)).resolves.toBe('deny');
+  });
+
+  it('nega SEMPRE il download generico /api/files (le registrazioni usano la route dedicata owner-gated)', async () => {
+    const sessions = [
+      null,
+      { user: { id: 'member', role: 'user', emailVerified: true } },
+      { user: { id: 'verified-admin', role: 'admin', emailVerified: true } },
+    ];
+
+    for (const session of sessions) {
       getSession.mockResolvedValueOnce(session);
       await expect(authorizeDownload(request, 'private/audio.wav')).resolves.toBe('deny');
     }

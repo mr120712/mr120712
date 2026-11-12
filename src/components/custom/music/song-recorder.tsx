@@ -16,6 +16,7 @@ import {
   MAX_RECORDING_SECONDS,
   pickRecorderMimeType,
   recordingFileName,
+  uploadErrorMessageIt,
 } from '@/lib/music/recorder';
 import { publishNewRecording } from '@/lib/music/recording-publish.client';
 import { FileUploadError, uploadPrivateFile } from '@/modules/file-upload/client';
@@ -213,7 +214,7 @@ export function SongRecorder({ onSaved }: { onSaved: (recording: Recording) => v
     } catch (err) {
       setPhase('recorded');
       if (err instanceof FileUploadError) {
-        setError(err.message);
+        setError(uploadErrorMessageIt(err.code));
       } else {
         const cause =
           err instanceof Error ? (err.cause as { errors?: Record<string, string> }) : null;

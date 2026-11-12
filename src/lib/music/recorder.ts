@@ -102,6 +102,28 @@ export function shouldReassignMime(declaredType: string): boolean {
   return !declaredType.trim().toLowerCase().startsWith('audio/');
 }
 
+/**
+ * Messaggi italiani per i codici di errore di `uploadPrivateFile` (il modulo file-upload li
+ * espone in inglese). `code` è `FileUploadError.code`; i codici sconosciuti usano il ripiego.
+ */
+const UPLOAD_ERROR_IT: Record<string, string> = {
+  file_too_large: 'Il file è troppo grande (massimo 40 MB).',
+  invalid_file_type: 'Questo tipo di file non è supportato.',
+  upload_rejected: 'Il caricamento è stato rifiutato.',
+  upload_changed: 'Il file è cambiato durante il caricamento. Riselezionalo e riprova.',
+  upload_not_found: 'Il caricamento è scaduto. Riseleziona il file.',
+  copy_unavailable: 'Archiviazione momentaneamente occupata. Riprova tra un minuto.',
+  unauthorized: 'Devi accedere per caricare un brano.',
+  private_storage_unavailable: 'Il caricamento non è disponibile al momento.',
+  network: 'Caricamento non riuscito. Controlla la connessione e riprova.',
+  unknown: 'Caricamento non riuscito. Riprova.',
+};
+
+/** Messaggio italiano per un codice di errore del caricamento file. */
+export function uploadErrorMessageIt(code: string): string {
+  return UPLOAD_ERROR_IT[code] ?? 'Caricamento non riuscito. Riprova.';
+}
+
 /** Nome file sicuro per il caricamento, derivato dal titolo. */
 export function recordingFileName(title: string, baseMime: string): string {
   const slug =
