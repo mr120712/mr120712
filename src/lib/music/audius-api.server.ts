@@ -39,7 +39,7 @@ async function isPublicHttpsTarget(raw: string): Promise<boolean> {
  * stream verso una rete interna (SSRF). Un reindirizzamento verso un host non pubblico diventa un
  * 502, che il chiamante tratta come "non disponibile" e passa all'host successivo.
  */
-async function followAudiusStreamRedirects(
+export async function followAudiusStreamRedirects(
   initial: Response,
   initialUrl: string,
   headers: Headers,
