@@ -1,0 +1,114 @@
+/* @polsia:user-owned — "Scarica per offline" su una playlist/raccolta: pulsante, avanzamento e note. */
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0.25rem 0 0.75rem;
+}
+
+.actionRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.button {
+  min-width: 0;
+}
+
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.progressText {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+
+.progressBar {
+  max-width: 22rem;
+}
+
+.note,
+.summaryOk,
+.summaryError,
+.onlineOnlyLead {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.note svg,
+.summaryOk svg,
+.summaryError svg,
+.onlineOnlyLead svg {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+  margin-top: 0.12rem;
+}
+
+.note a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.summaryOk {
+  color: var(--foreground);
+}
+
+.summaryError {
+  color: var(--destructive);
+}
+
+.failedList,
+.onlineOnlyList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+}
+
+.failedList li {
+  overflow-wrap: anywhere;
+}
+
+.onlineOnly {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in oklab, var(--muted) 40%, transparent);
+}
+
+.onlineOnlyList li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  overflow-wrap: anywhere;
+}
+
+.onlineOnlyList strong {
+  color: var(--foreground);
+  font-weight: 600;
+}

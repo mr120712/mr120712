@@ -43,10 +43,12 @@ import {
   type AddFilesOptions,
   type AddFilesResult,
   type AudioTags,
+  type DownloadedTrackSource,
   emptyTags,
   type LocalMusicUsage,
   type LocalSkipReason,
   type LocalTrack,
+  type LocalTrackAttribution,
   MAX_LOCAL_FILE_BYTES,
   type PersistenceResult,
 } from '@/lib/local-music/types';
@@ -70,12 +72,39 @@ export type LocalMusicStoreDeps = {
   randomId: () => string;
 };
 
+/**
+ * Un brano scaricato ("Scarica il permesso") già in memoria, da salvare nella libreria con la sua
+ * attribuzione. Passa dalla stessa validazione/quota/anti-duplicato dei file locali.
+ */
+export type DownloadedTrackInput = {
+  /** Audio scaricato, con il tipo dichiarato dalla fonte. */
+  blob: Blob;
+  /** Chiave stabile anti-duplicato della fonte (es. l'id Audius o 'podcastId~episodeKey'). */
+  downloadKey: string;
+  source: DownloadedTrackSource;
+  title: string;
+  artist: string | null;
+  album: string | null;
+  durationSeconds: number | null;
+  /** Tipo audio dichiarato dalla fonte; normalizzato e verificato come i file locali. */
+  mimeType: string;
+  attribution: LocalTrackAttribution;
+  /** Copertina già scaricata (facoltativa). */
+  artwork?: Blob | null;
+};
+
+export type AddDownloadedResult =
+  | { ok: true; track: LocalTrack }
+  | { ok: false; reason: LocalSkipReason };
+
 /** Le letture (getTrack, Blob, copertina, durata) vengono da reader.ts, che usa anche il player. */
 export type LocalMusicStore = LocalMusicReader & {
   addFiles(
     files: FileList | ArrayLike<LocalFileInput> | Iterable<LocalFileInput>,
     options?: AddFilesOptions,
   ): Promise<AddFilesResult>;
+  /** Salva un brano scaricato (Audius/podcast) nella libreria sul dispositivo. */
+  addDownloadedTrack(input: DownloadedTrackInput): Promise<AddDownloadedResult>;
   listTracks(): Promise<LocalTrack[]>;
   removeTrack(id: string): Promise<void>;
   clearAll(): Promise<void>;
@@ -95,6 +124,22 @@ function compareTracks(a: LocalTrack, b: LocalTrack): number {
 
 function sourceKeyFor(file: LocalFileInput): string {
   return JSON.stringify([String(file.name), file.size, file.lastModified ?? 0]);
+}
+
+/**
+ * Chiave anti-duplicato di un download: il primo elemento è la stringa 'download', il secondo la
+ * fonte, così non può mai coincidere con la chiave di un file locale ([nome, dimensione, data]).
+ */
+function downloadSourceKey(source: DownloadedTrackSource, downloadKey: string): string {
+  return JSON.stringify(['download', source, downloadKey]);
+}
+
+/** Scritture (audio + copertina + metadati) di un brano in un'unica transazione. */
+function trackWrites(record: StoredTrack, audio: Blob, artwork: Blob | null): LocalMusicWrite[] {
+  const writes: LocalMusicWrite[] = [{ op: 'put', store: 'files', key: record.id, value: audio }];
+  if (artwork) writes.push({ op: 'put', store: 'artwork', key: record.id, value: artwork });
+  writes.push({ op: 'put', store: 'tracks', key: record.id, value: record });
+  return writes;
 }
 
 export function isQuotaError(error: unknown): boolean {
@@ -208,30 +253,84 @@ export function createLocalMusicStore(
       sourceKey,
       fileName: sanitizeTagText(name) ?? '',
       artworkBytes: artwork ? artwork.size : 0,
+      source: 'local',
+      attribution: null,
     };
 
-    const writesFor = (value: Blob): LocalMusicWrite[] => {
-      const writes: LocalMusicWrite[] = [{ op: 'put', store: 'files', key: record.id, value }];
-      if (artwork) writes.push({ op: 'put', store: 'artwork', key: record.id, value: artwork });
-      writes.push({ op: 'put', store: 'tracks', key: record.id, value: record });
-      return writes;
-    };
-    try {
-      await deps.db.write(writesFor(audio));
-    } catch (error) {
-      if (isQuotaError(error) || file.size > MAX_IN_MEMORY_RETRY_BYTES) {
-        return { reason: isQuotaError(error) ? 'quota' : 'error' };
-      }
-      // WebKit: il Blob legato al file scelto può non essere serializzabile; una copia in memoria sì.
-      try {
-        const copy = new Blob([await audio.arrayBuffer()], { type: mimeType });
-        await deps.db.write(writesFor(copy));
-      } catch (retryError) {
-        return { reason: isQuotaError(retryError) ? 'quota' : 'error' };
-      }
-    }
+    const reason = await persistRecord(record, audio, artwork);
+    if (reason) return { reason };
     known.add(sourceKey);
     return { track: toPublic(record) };
+  }
+
+  /**
+   * Scrive il brano in un'unica transazione. Lo spazio esaurito (QuotaExceededError) torna 'quota',
+   * un guasto imprevisto 'error'; per i Blob legati a un file (WebKit) si riprova una volta con una
+   * copia in memoria, solo fino a 50 MiB. Null se la scrittura è andata a buon fine.
+   */
+  async function persistRecord(
+    record: StoredTrack,
+    audio: Blob,
+    artwork: Blob | null,
+  ): Promise<LocalSkipReason | null> {
+    try {
+      await deps.db.write(trackWrites(record, audio, artwork));
+      return null;
+    } catch (error) {
+      if (isQuotaError(error) || record.size > MAX_IN_MEMORY_RETRY_BYTES) {
+        return isQuotaError(error) ? 'quota' : 'error';
+      }
+      try {
+        const copy = new Blob([await audio.arrayBuffer()], { type: record.mimeType });
+        await deps.db.write(trackWrites(record, copy, artwork));
+      } catch (retryError) {
+        return isQuotaError(retryError) ? 'quota' : 'error';
+      }
+      return null;
+    }
+  }
+
+  /** Salva un brano scaricato: stessa validazione/quota/anti-duplicato dei file locali. */
+  async function runAddDownloaded(input: DownloadedTrackInput): Promise<AddDownloadedResult> {
+    const size = input.blob.size;
+    const mimeType = resolveAudioType(input.mimeType, input.title, deps.canPlayType);
+    if (!mimeType || !finiteNumber(size) || size <= 0) return { ok: false, reason: 'unsupported' };
+    if (size > MAX_LOCAL_FILE_BYTES) return { ok: false, reason: 'too_large' };
+
+    const sourceKey = downloadSourceKey(input.source, input.downloadKey);
+    const known = new Set((await loadRecords()).map((row) => row.sourceKey));
+    if (known.has(sourceKey)) return { ok: false, reason: 'duplicate' };
+
+    // Blob con il tipo normalizzato: Safari riproduce un object URL solo se il tipo è noto.
+    const audio = input.blob.type === mimeType ? input.blob : input.blob.slice(0, size, mimeType);
+    const artwork = input.artwork && input.artwork.size > 0 ? input.artwork : null;
+
+    let durationSeconds = finiteNumber(input.durationSeconds) ? input.durationSeconds : null;
+    if (durationSeconds === null) {
+      durationSeconds = (await safeProbe(audio)).seconds;
+    }
+
+    const title = sanitizeTagText(input.title) ?? 'Senza titolo';
+    const record: StoredTrack = {
+      id: deps.randomId(),
+      title,
+      artist: sanitizeTagText(input.artist),
+      album: sanitizeTagText(input.album),
+      durationSeconds,
+      mimeType,
+      size,
+      addedAt: deps.now(),
+      hasArtwork: artwork !== null,
+      sourceKey,
+      fileName: title,
+      artworkBytes: artwork ? artwork.size : 0,
+      source: input.source,
+      attribution: input.attribution,
+    };
+
+    const reason = await persistRecord(record, audio, artwork);
+    if (reason) return { ok: false, reason };
+    return { ok: true, track: toPublic(record) };
   }
 
   async function runAddFiles(
@@ -275,6 +374,13 @@ export function createLocalMusicStore(
         return Promise.reject(error);
       }
       const run = addQueue.then(() => runAddFiles(list, options));
+      addQueue = run.catch(() => undefined);
+      return run;
+    },
+
+    addDownloadedTrack(input) {
+      // In fila come addFiles: due download dello stesso brano non si duplicano a vicenda.
+      const run = addQueue.then(() => runAddDownloaded(input));
       addQueue = run.catch(() => undefined);
       return run;
     },
@@ -354,6 +460,10 @@ export function addFiles(
   options?: AddFilesOptions,
 ): Promise<AddFilesResult> {
   return getLocalMusicStore().addFiles(files, options);
+}
+
+export function addDownloadedTrack(input: DownloadedTrackInput): Promise<AddDownloadedResult> {
+  return getLocalMusicStore().addDownloadedTrack(input);
 }
 
 export function listTracks(): Promise<LocalTrack[]> {

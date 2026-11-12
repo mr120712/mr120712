@@ -9,7 +9,7 @@
 // album si rileggono da IndexedDB al ripristino, così "Rimuovi" nella libreria li cancella davvero
 // dal dispositivo; un brano che non c'è più si toglie dalla coda.
 import type { MusicPlayerTrack } from '@/components/custom/music/music-player';
-import type { LocalTrack } from '@/lib/local-music';
+import { type LocalTrack, localTrackAttribution, localTrackSource } from '@/lib/local-music';
 
 export const LOCAL_SOURCE_LABEL = 'La tua musica';
 
@@ -36,21 +36,48 @@ export function isLocalTrack(
   return track?.playbackMode === 'local' && localTrackId(track.qualifiedId) !== null;
 }
 
+/** Etichetta "Ascolta altrove" per un brano scaricato, in base alla fonte. */
+function downloadSourceLinkLabel(source: 'audius-download' | 'podcast-download'): string {
+  return source === 'audius-download' ? 'Brano su Audius' : 'Episodio originale';
+}
+
 /**
  * Brano del player per un file della libreria. La copertina la crea il player (object URL che
  * revoca lui): qui artworkUrl resta null. Uso: `player.playTrack(track, '', queue)`.
+ *
+ * I file locali mantengono la forma storica (fonte "La tua musica", nessun link). I brani SCARICATI
+ * ("Scarica il permesso") portano invece la loro attribuzione nel player: fonte leggibile, link al
+ * brano/episodio originale e, per Audius, la Open Music License fra i crediti. Resta playbackMode
+ * 'local': si riproducono dal dispositivo, offline, senza nessuna richiesta al server.
  */
 export function localTrackToPlayerTrack(track: LocalTrack): MusicPlayerTrack {
+  const source = localTrackSource(track);
+  if (source === 'local') {
+    return {
+      qualifiedId: `local:${track.id}`,
+      title: track.title,
+      artistName: track.artist ?? '',
+      album: track.album,
+      artworkUrl: null,
+      sourceLabel: LOCAL_SOURCE_LABEL,
+      sourceUrl: null,
+      durationSeconds: track.durationSeconds,
+      playbackMode: 'local',
+    };
+  }
+  const attribution = localTrackAttribution(track);
   return {
     qualifiedId: `local:${track.id}`,
     title: track.title,
     artistName: track.artist ?? '',
     album: track.album,
     artworkUrl: null,
-    sourceLabel: LOCAL_SOURCE_LABEL,
-    sourceUrl: null,
+    sourceLabel: attribution?.sourceName ?? (source === 'audius-download' ? 'Audius' : 'Podcast'),
+    sourceUrl: attribution?.sourceUrl ?? null,
+    sourceUrlLabel: attribution?.sourceUrl ? downloadSourceLinkLabel(source) : undefined,
     durationSeconds: track.durationSeconds,
     playbackMode: 'local',
+    credits: attribution?.licenseName ? [`Licenza: ${attribution.licenseName}`] : undefined,
   };
 }
 

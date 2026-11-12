@@ -383,6 +383,18 @@ export function normalizeAudiusTracks(
   });
 }
 
+/**
+ * Legge il campo `is_downloadable` dalla risposta Audius per il brano indicato: true solo quando
+ * l'artista ha reso il brano scaricabile. null se il brano non è nel payload. Usato dalla rotta di
+ * download per non scaricare mai un brano che l'artista non ha aperto al download.
+ */
+export function audiusTrackDownloadFlag(payload: unknown, trackId: string): boolean | null {
+  for (const record of resultRecordRows(payload)) {
+    if (safeId(record.id) === trackId) return record.is_downloadable === true;
+  }
+  return null;
+}
+
 export function getAudiusPlaybackReasonText(reason: AudiusPlaybackReason) {
   switch (reason) {
     case 'not_streamable':

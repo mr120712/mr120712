@@ -22,6 +22,8 @@ import {
   playCollectionItem,
 } from '@/components/custom/music/collection-tracks';
 import { useMusicPlayer } from '@/components/custom/music/music-player';
+import { collectionDownloadPlan } from '@/components/custom/music/offline-download';
+import { OfflineDownloadButton } from '@/components/custom/music/offline-download-button';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -652,6 +654,13 @@ export function MusicCollections({
                       Smetti di condividere
                     </Button>
                   </div>
+                ) : null}
+                {collection.items.length ? (
+                  <OfflineDownloadButton
+                    label={collection.name}
+                    plan={collectionDownloadPlan(collection.items)}
+                    signedIn={Boolean(session?.user)}
+                  />
                 ) : null}
                 {collection.items.length ? (
                   <div className={styles.collectionItems}>

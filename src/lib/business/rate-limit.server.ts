@@ -142,6 +142,14 @@ export const ACTION_RATE_LIMITS = {
     { requests: 3, windowMs: 600_000 },
     { requests: 20, windowMs: 86_400_000 },
   ],
+  // "Scarica il permesso": download offline di un brano consentito (Audius scaricabile, podcast).
+  // Ogni download trasferisce il file intero dal proxy: pochi al minuto e 20 al giorno per account.
+  'music.download': [
+    { requests: 5, windowMs: 60_000 },
+    { requests: 20, windowMs: 86_400_000 },
+  ],
+  // Tetto app-wide sui download offline di oggi, qualunque sia il numero di account.
+  'music.download.global': [{ requests: 500, windowMs: 86_400_000 }],
   'subscriptions.checkout': [
     { requests: 5, windowMs: 600_000 },
     { requests: 30, windowMs: 86_400_000 },
@@ -321,16 +329,15 @@ const actionLabels: Record<RateLimitAction, string> = {
   'products.update': 'le modifiche ai prodotti',
   'library.write': 'le modifiche alla Libreria',
   'library.import': 'l’importazione di playlist',
+  'music.download': 'i download offline',
+  'music.download.global': 'i download offline di oggi',
   'subscriptions.checkout': 'l’avvio dei pagamenti',
 };
 
-export async function enforceRateLimit(
-  action: RateLimitAction,
-  identity: string | null,
-): Promise<Response | null> {
-  const decision = await consumeRateLimit(action, identity);
-  if (decision.allowed) return null;
+type DeniedRateLimit = Exclude<RateLimitDecision, { allowed: true }>;
 
+/** Risposta HTTP standard di un limite superato (429/503), con Retry-After e messaggio in italiano. */
+export function rateLimitResponse(action: RateLimitAction, decision: DeniedRateLimit): Response {
   const message =
     decision.status === 429
       ? `Hai raggiunto il limite per ${actionLabels[action]}. Riprova tra ${decision.retryAfterSeconds} secondi.`
@@ -345,4 +352,46 @@ export async function enforceRateLimit(
       },
     },
   );
+}
+
+/**
+ * Valuta i limiti SENZA registrare nulla. Serve quando l'azione va contata solo a buon fine (es.
+ * un download: si verifica il limite all'inizio, ma lo si consuma — consumeRateLimit — solo dopo
+ * che i byte sono confermati). Due richieste ravvicinate possono entrambe superare il peek, come
+ * avviene per checkStreamPlay/recordStreamPlay: accettabile per un limite giornaliero prudenziale.
+ */
+export async function peekRateLimit(
+  action: RateLimitAction,
+  identity: string | null,
+  now = Date.now(),
+): Promise<RateLimitDecision> {
+  if (!identity) return missingIdentityDecision();
+
+  const identityHash = createHash('sha256').update(identity).digest('hex');
+  const limits = ACTION_RATE_LIMITS[action];
+  try {
+    const current = await prisma.actionRateLimit.findUnique({
+      where: { action_identityHash: { action, identityHash } },
+    });
+    const decision = evaluateRateLimit(storedTimestamps(current?.timestamps), limits, now);
+    if (decision.allowed) return { allowed: true };
+    return {
+      allowed: false,
+      retryAfterSeconds: decision.retryAfterSeconds,
+      status: 429,
+      error: 'rate_limited',
+      message: `Hai raggiunto il limite per questa azione. Riprova tra ${decision.retryAfterSeconds} secondi.`,
+    };
+  } catch {
+    return unavailableDecision();
+  }
+}
+
+export async function enforceRateLimit(
+  action: RateLimitAction,
+  identity: string | null,
+): Promise<Response | null> {
+  const decision = await consumeRateLimit(action, identity);
+  if (decision.allowed) return null;
+  return rateLimitResponse(action, decision);
 }

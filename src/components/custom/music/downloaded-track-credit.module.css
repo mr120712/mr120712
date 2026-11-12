@@ -1,0 +1,19 @@
+/* @polsia:user-owned — riga di attribuzione di un brano scaricato (Audius OML, podcast). */
+.credit {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+
+.credit a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.credit a:hover {
+  color: var(--foreground);
+}

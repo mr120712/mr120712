@@ -231,6 +231,20 @@
   color: var(--primary);
 }
 
+/* Pill for a downloaded track (Audius / Podcast), next to the title. */
+.sourceBadge {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--muted) 55%, transparent);
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
 .meta {
   display: flex;
   min-width: 0;

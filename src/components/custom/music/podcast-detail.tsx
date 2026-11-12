@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { useLibrary } from '@/components/custom/music/library-context';
 import { episodeToTrack } from '@/components/custom/music/live-tracks';
 import { trackStreamPath, useMusicPlayer } from '@/components/custom/music/music-player';
+import { SingleOfflineDownloadButton } from '@/components/custom/music/offline-download-button';
 import { PodcastArt } from '@/components/custom/music/podcast-tile';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
@@ -182,6 +183,19 @@ export function PodcastDetail({ podcastId }: { podcastId: string }) {
                     >
                       {playing ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
                     </button>
+                    {/* Le enclosure RSS sono fatte per essere scaricate: salva l'episodio per offline. */}
+                    <SingleOfflineDownloadButton
+                      target={{
+                        id: episode.key,
+                        title: episode.title,
+                        endpoint: {
+                          kind: 'podcast',
+                          podcastId: podcast.id,
+                          episodeKey: episode.key,
+                        },
+                      }}
+                      signedIn={library.signedIn}
+                    />
                   </div>
                 </li>
               );

@@ -4,6 +4,37 @@
 // server). Solco è solo un lettore locale: metadati, file e copertine vivono in IndexedDB nel
 // browser dell'ascoltatore, e i brani locali non contano mai per gli ascolti del piano Free.
 
+/**
+ * Da dove viene un brano della libreria:
+ *  - 'local': file scelto dall'ascoltatore (comportamento storico, nessuna attribuzione);
+ *  - 'audius-download': brano Audius scaricato con "Scarica il permesso" (licenza aperta);
+ *  - 'podcast-download': episodio podcast scaricato dalla sua enclosure RSS.
+ * I file scaricati stanno negli stessi store di IndexedDB dei file locali e si riproducono allo
+ * stesso modo (object URL, Media Session), senza contare per gli ascolti Free.
+ */
+export type LocalTrackSource = 'local' | 'audius-download' | 'podcast-download';
+
+/** Le sole fonti che producono un download (non un file già locale). */
+export const DOWNLOADED_TRACK_SOURCES = ['audius-download', 'podcast-download'] as const;
+export type DownloadedTrackSource = (typeof DOWNLOADED_TRACK_SOURCES)[number];
+
+/**
+ * Attribuzione di un brano scaricato, mostrata nella Libreria e dal player. Per i file locali è
+ * assente (null): un file dell'ascoltatore non porta crediti.
+ */
+export type LocalTrackAttribution = {
+  /** Fonte leggibile, es. "Audius" o il nome dello show podcast. */
+  sourceName: string | null;
+  /** Pagina ufficiale della fonte (brano Audius, episodio). */
+  sourceUrl: string | null;
+  /** Nome della licenza, es. "Audius Open Music License". */
+  licenseName: string | null;
+  /** URL della licenza. */
+  licenseUrl: string | null;
+  /** Nota di copyright o credito aggiuntivo. */
+  creditLine: string | null;
+};
+
 /** Un brano aggiunto dall'ascoltatore e salvato solo sul suo dispositivo. */
 export type LocalTrack = {
   /** Identificativo casuale (UUID), mai derivato dal file. */
@@ -19,7 +50,26 @@ export type LocalTrack = {
   /** Momento dell'aggiunta (epoch ms). */
   addedAt: number;
   hasArtwork: boolean;
+  /**
+   * Fonte del brano. Assente sui file locali (e sui record salvati prima di questa funzione):
+   * usa localTrackSource() per leggerla sempre con un valore sicuro.
+   */
+  source?: LocalTrackSource;
+  /** Attribuzione dei brani scaricati; assente/null per i file locali. */
+  attribution?: LocalTrackAttribution | null;
 };
+
+/** Fonte di un brano, con 'local' come valore sicuro quando il campo è assente. */
+export function localTrackSource(track: Pick<LocalTrack, 'source'>): LocalTrackSource {
+  return track.source ?? 'local';
+}
+
+/** Attribuzione di un brano, o null quando assente (ogni file locale). */
+export function localTrackAttribution(
+  track: Pick<LocalTrack, 'attribution'>,
+): LocalTrackAttribution | null {
+  return track.attribution ?? null;
+}
 
 /** Tipi audio accettati, se il browser li sa riprodurre (canPlayType). */
 export const SUPPORTED_AUDIO_TYPES = [

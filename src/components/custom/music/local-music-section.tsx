@@ -39,8 +39,10 @@ import {
   useSyncExternalStore,
 } from 'react';
 import { toast } from 'sonner';
+import { DownloadedTrackCredit } from '@/components/custom/music/downloaded-track-credit';
 import { localTrackToPlayerTrack } from '@/components/custom/music/local-tracks';
 import { useOptionalMusicPlayer } from '@/components/custom/music/music-player';
+import { subscribeLocalMusicChanged } from '@/components/custom/music/offline-download';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -71,6 +73,8 @@ import {
   type LocalSkipReason,
   type LocalTrack,
   listTracks,
+  localTrackAttribution,
+  localTrackSource,
   MAX_LOCAL_FILE_BYTES,
   type ObjectUrlHandle,
   type PersistenceResult,
@@ -393,6 +397,10 @@ const LocalTrackRow = memo(function LocalTrackRow({
   onPlay,
   onRemove,
 }: RowProps) {
+  const source = localTrackSource(track);
+  const attribution = localTrackAttribution(track);
+  const sourceBadge =
+    source === 'audius-download' ? 'Audius' : source === 'podcast-download' ? 'Podcast' : null;
   const meta = [track.artist, track.album].filter(Boolean).join(' · ') || 'Artista sconosciuto';
   const duration = formatTrackDuration(durationSeconds);
   const playLabel = current
@@ -423,6 +431,12 @@ const LocalTrackRow = memo(function LocalTrackRow({
           <strong className={styles.title} title={track.title}>
             {track.title}
           </strong>
+          {sourceBadge ? (
+            <span className={styles.sourceBadge}>
+              <span className="sr-only">Scaricato da </span>
+              {sourceBadge}
+            </span>
+          ) : null}
         </span>
         <span className={styles.meta}>
           <span className={styles.metaText}>{meta}</span>
@@ -430,6 +444,8 @@ const LocalTrackRow = memo(function LocalTrackRow({
           {spokenDuration ? <span className={styles.metaDuration}>{spokenDuration}</span> : null}
           {current ? <span className="sr-only"> · in riproduzione</span> : null}
         </span>
+        {/* Attribuzione dei brani scaricati (Audius: avviso OML + link; podcast: show). */}
+        <DownloadedTrackCredit source={source} attribution={attribution} title={track.title} />
       </div>
       <span className={styles.duration}>{spokenDuration}</span>
       <div className={styles.rowActions}>
@@ -778,6 +794,10 @@ export function LocalMusicSection() {
     void refresh();
     if (importState.lastAdded > 0) void askPersistence();
   }, [importState.finished, importState.lastAdded, refresh, askPersistence]);
+
+  // A download finished elsewhere on the page (from a playlist): reload the on-device list so the
+  // new track shows up and can be played or removed like any other.
+  useEffect(() => subscribeLocalMusicChanged(() => void refresh()), [refresh]);
 
   // A long import: the tracks already saved show up every few files.
   const refreshStep = progress ? Math.floor(progress.processed / REFRESH_EVERY_FILES) : 0;

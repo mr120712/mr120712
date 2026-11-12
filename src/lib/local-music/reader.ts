@@ -7,15 +7,43 @@
 
 import { createIndexedDbAdapter, type LocalMusicDb } from '@/lib/local-music/idb';
 import { plausibleDuration } from '@/lib/local-music/tag-utils';
-import type { LocalTrack } from '@/lib/local-music/types';
+import type { LocalTrack, LocalTrackAttribution, LocalTrackSource } from '@/lib/local-music/types';
 
 /** Record salvato in 'tracks': il LocalTrack pubblico più i campi interni. */
 export type StoredTrack = LocalTrack & {
-  /** Chiave anti-duplicato: nome + dimensione + data di modifica del file originale. */
+  /** Chiave anti-duplicato: nome + dimensione + data di modifica, o la fonte per i download. */
   sourceKey: string;
   fileName: string;
   artworkBytes: number;
+  /** Sempre valorizzata su disco; i record più vecchi, senza il campo, si leggono come 'local'. */
+  source: LocalTrackSource;
+  attribution: LocalTrackAttribution | null;
 };
+
+const TRACK_SOURCES: readonly LocalTrackSource[] = ['local', 'audius-download', 'podcast-download'];
+
+function isTrackSource(value: unknown): value is LocalTrackSource {
+  return typeof value === 'string' && (TRACK_SOURCES as readonly string[]).includes(value);
+}
+
+/** Legge l'attribuzione da un record (dati di versioni future o rovinati → null). */
+export function readAttribution(value: unknown): LocalTrackAttribution | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const r = value as Record<string, unknown>;
+  const field = (key: string): string | null => {
+    const raw = r[key];
+    return typeof raw === 'string' && raw.length > 0 ? raw : null;
+  };
+  const attribution: LocalTrackAttribution = {
+    sourceName: field('sourceName'),
+    sourceUrl: field('sourceUrl'),
+    licenseName: field('licenseName'),
+    licenseUrl: field('licenseUrl'),
+    creditLine: field('creditLine'),
+  };
+  // Un'attribuzione tutta vuota non vale la pena di esistere.
+  return Object.values(attribution).some((entry) => entry !== null) ? attribution : null;
+}
 
 export type LocalMusicReader = {
   getTrack(id: string): Promise<LocalTrack | null>;
@@ -72,11 +100,14 @@ export function readStoredTrack(value: unknown): StoredTrack | null {
     sourceKey: r.sourceKey,
     fileName: typeof r.fileName === 'string' ? r.fileName : '',
     artworkBytes: finiteNumber(r.artworkBytes) ? r.artworkBytes : 0,
+    // I record salvati prima di "Scarica il permesso" non hanno il campo: sono file locali.
+    source: isTrackSource(r.source) ? r.source : 'local',
+    attribution: readAttribution(r.attribution),
   };
 }
 
 export function toPublic(record: StoredTrack): LocalTrack {
-  return {
+  const track: LocalTrack = {
     id: record.id,
     title: record.title,
     artist: record.artist,
@@ -87,6 +118,13 @@ export function toPublic(record: StoredTrack): LocalTrack {
     addedAt: record.addedAt,
     hasArtwork: record.hasArtwork,
   };
+  // I file locali restano con la stessa forma di sempre: fonte e attribuzione compaiono solo sui
+  // brani scaricati, così chi li legge può distinguerli e mostrarne i crediti.
+  if (record.source !== 'local') {
+    track.source = record.source;
+    track.attribution = record.attribution;
+  }
+  return track;
 }
 
 /** Letture della libreria su un database dato (nei test, uno finto). */
