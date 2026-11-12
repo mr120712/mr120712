@@ -3105,6 +3105,13 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             hidden={!showFull}
             inert={!showFull}
           >
+            {!youtubeActive && currentArtwork ? (
+              <div className={styles.fullBackdrop} aria-hidden="true">
+                {/* Copertina sfocata come sfondo (solo fonti audio). La musica non si ferma. */}
+                {/* biome-ignore lint/performance/noImgElement: sfondo decorativo sfocato, next/image superfluo. */}
+                <img src={currentArtwork} alt="" loading="lazy" decoding="async" />
+              </div>
+            ) : null}
             <header className={styles.fullHeader}>
               <button
                 ref={fullCollapseRef}

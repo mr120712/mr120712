@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -27,6 +29,7 @@ class PlayerScreen extends ConsumerWidget {
         }
         return Scaffold(
           backgroundColor: kSolcoNavy,
+          extendBodyBehindAppBar: true,
           appBar: AppBar(
             backgroundColor: Colors.transparent,
             leading: IconButton(
@@ -37,7 +40,10 @@ class PlayerScreen extends ConsumerWidget {
             centerTitle: true,
             actions: [_DownloadAction(item: track)],
           ),
-          body: SafeArea(
+          body: Stack(
+            children: [
+              if (track.artworkUrl != null) _BlurredBackdrop(url: track.artworkUrl!),
+              SafeArea(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Column(
@@ -88,6 +94,8 @@ class PlayerScreen extends ConsumerWidget {
                 ],
               ),
             ),
+          ),
+            ],
           ),
         );
       },
@@ -364,4 +372,42 @@ class _BigArtFallback extends StatelessWidget {
         color: kSolcoNavyCard,
         child: Icon(Icons.music_note, color: kSolcoLime, size: 72),
       );
+}
+
+/// Copertina sfocata come sfondo del lettore (la musica continua, nulla si ferma).
+class _BlurredBackdrop extends StatelessWidget {
+  const _BlurredBackdrop({required this.url});
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    return Positioned.fill(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          ImageFiltered(
+            imageFilter: ImageFilter.blur(sigmaX: 45, sigmaY: 45),
+            child: CachedNetworkImage(
+              imageUrl: url,
+              fit: BoxFit.cover,
+              placeholder: (_, __) => const ColoredBox(color: kSolcoNavy),
+              errorWidget: (_, __, ___) => const ColoredBox(color: kSolcoNavy),
+            ),
+          ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  kSolcoNavy.withOpacity(0.55),
+                  kSolcoNavy.withOpacity(0.92),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

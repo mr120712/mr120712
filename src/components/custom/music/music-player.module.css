@@ -288,6 +288,41 @@
   height: 30%;
 }
 
+/* Sfondo copertina sfocato del player a schermo intero (solo fonti audio). La musica continua. */
+.fullBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.fullBackdrop img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.2);
+  filter: blur(44px) saturate(1.15) brightness(0.45);
+}
+
+.fullBackdrop::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--background) 55%, transparent),
+    var(--background) 92%
+  );
+}
+
+/* Il contenuto del player resta sopra lo sfondo sfocato. */
+.fullHeader,
+.fullBody {
+  position: relative;
+  z-index: 1;
+}
+
 .trackCopy {
   display: grid;
   min-width: 0;
