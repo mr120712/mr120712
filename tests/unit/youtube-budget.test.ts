@@ -20,6 +20,7 @@ import {
   YOUTUBE_UNITS_DAILY_CAP,
   YOUTUBE_UNITS_PURPOSE_CAPS,
   youtubeQuotaDay,
+  youtubeSearchPurposeCap,
 } from '@/lib/music/youtube-budget.server';
 import { createYouTubeDbFake, type YouTubeDbFake } from './support/youtube-db-fake';
 
@@ -175,18 +176,44 @@ describe('budget giornaliero delle ricerche YouTube', () => {
   });
 
   it('i generi e i brani importati hanno una quota propria dentro il pool', async () => {
-    for (let index = 0; index < YOUTUBE_SEARCH_PURPOSE_CAPS.genre; index += 1) {
+    const genreCap = youtubeSearchPurposeCap('genre', DAY);
+    for (let index = 0; index < genreCap; index += 1) {
       await expect(take({ purpose: 'genre' })).resolves.toEqual({ ok: true });
     }
     await expect(take({ purpose: 'genre' })).resolves.toEqual({
       ok: false,
       reason: 'budget_exhausted',
     });
-    expect(db.usage.get(`${DAY}|search`)).toBe(YOUTUBE_SEARCH_PURPOSE_CAPS.genre);
+    expect(db.usage.get(`${DAY}|search`)).toBe(genreCap);
     // Listeners still search.
     await expect(take()).resolves.toEqual({ ok: true });
     await expect(take({ purpose: 'song' })).resolves.toEqual({ ok: true });
     expect(db.usage.get(`${DAY}|search:song`)).toBe(1);
+  });
+
+  it('i generi hanno 40 ricerche al giorno fino al 18 novembre, poi tornano a 15', () => {
+    expect(youtubeSearchPurposeCap('genre', '2026-11-12')).toBe(40);
+    expect(youtubeSearchPurposeCap('genre', '2026-11-18')).toBe(40);
+    expect(youtubeSearchPurposeCap('genre', '2026-11-19')).toBe(YOUTUBE_SEARCH_PURPOSE_CAPS.genre);
+    expect(youtubeSearchPurposeCap('genre', '2026-12-01')).toBe(15);
+    // The imported songs' share does not change; listeners keep at least 85 - 40 - 20 = 25.
+    expect(youtubeSearchPurposeCap('song', '2026-11-12')).toBe(20);
+    expect(YOUTUBE_SEARCH_DAILY_CAP - 40 - 20).toBeGreaterThanOrEqual(25);
+  });
+
+  it('dopo il 18 novembre il sedicesimo genere del giorno viene rifiutato', async () => {
+    const later = new Date('2026-11-19T10:00:00Z');
+    for (let index = 0; index < 15; index += 1) {
+      await expect(
+        takeYouTubeSearch({ purpose: 'genre', now: later, db: db as never }),
+      ).resolves.toEqual({ ok: true });
+    }
+    await expect(
+      takeYouTubeSearch({ purpose: 'genre', now: later, db: db as never }),
+    ).resolves.toEqual({
+      ok: false,
+      reason: 'budget_exhausted',
+    });
   });
 
   it('restituisce la quota del genere se il pool comune si riempie nel frattempo', async () => {

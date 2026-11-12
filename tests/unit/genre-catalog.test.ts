@@ -19,7 +19,7 @@ vi.mock('@/lib/db', async () => ({
 
 import { GET } from '@/app/api/music/genres/[slug]/route';
 import { findGenre, genreCatalog, genreFamilies } from '@/lib/music/genre-catalog';
-import { YOUTUBE_SEARCH_PURPOSE_CAPS, youtubeQuotaDay } from '@/lib/music/youtube-budget.server';
+import { youtubeQuotaDay, youtubeSearchPurposeCap } from '@/lib/music/youtube-budget.server';
 import { youtubeStoreKey } from '@/lib/music/youtube-search-store.server';
 import { sharedYouTubeDbFake } from './support/youtube-db-fake';
 
@@ -56,7 +56,10 @@ describe('generi e playlist', () => {
   it('a ricerche dei generi finite mostra i brani salvati, con la data e poca cache CDN', async () => {
     db.reset();
     mocks.search.mockClear();
-    db.usage.set(`${youtubeQuotaDay()}|search:genre`, YOUTUBE_SEARCH_PURPOSE_CAPS.genre);
+    db.usage.set(
+      `${youtubeQuotaDay()}|search:genre`,
+      youtubeSearchPurposeCap('genre', youtubeQuotaDay()),
+    );
     const savedAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
     // The techno page searches "underground techno".
     db.searches.set(youtubeStoreKey('Underground Techno'), {

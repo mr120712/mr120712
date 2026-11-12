@@ -35,6 +35,24 @@ export { youtubeQuotaDay };
 export const YOUTUBE_SEARCH_DAILY_CAP = 85;
 /** Shares of that pool for fixed or automatic searches, so listeners keep most of it. */
 export const YOUTUBE_SEARCH_PURPOSE_CAPS = { genre: 15, song: 20 } as const;
+/**
+ * Start-up share for the genre pages: the deploy of 12 Nov 2026 emptied the edge copies and the
+ * database had no recent saved results for most of the ~70 genres. Until this quota day
+ * (included) the genres may use 40 searches a day, so they fill in two days instead of five; each
+ * genre then stays shown up to 28 days through the cheap daily re-check. Afterwards back to 15.
+ */
+export const YOUTUBE_GENRE_STARTUP_CAP = 40;
+export const YOUTUBE_GENRE_STARTUP_LAST_DAY = '2026-11-18';
+
+/** Today's share of the pool for one purpose (genre pages get the start-up share for a week). */
+export function youtubeSearchPurposeCap(
+  purpose: keyof typeof YOUTUBE_SEARCH_PURPOSE_CAPS,
+  day: string,
+): number {
+  if (purpose === 'genre' && day <= YOUTUBE_GENRE_STARTUP_LAST_DAY)
+    return YOUTUBE_GENRE_STARTUP_CAP;
+  return YOUTUBE_SEARCH_PURPOSE_CAPS[purpose];
+}
 /** 1-unit calls counted here (re-checks of saved results, charts, video details, library) per day. */
 export const YOUTUBE_UNITS_DAILY_CAP = 1_000;
 /**
@@ -264,7 +282,7 @@ export async function takeYouTubeSearch(
   const purpose = options.purpose ?? 'listener';
   const day = youtubeQuotaDay(now);
   const purposeBucket = purpose === 'listener' ? null : `search:${purpose}`;
-  const purposeCap = purpose === 'listener' ? null : YOUTUBE_SEARCH_PURPOSE_CAPS[purpose];
+  const purposeCap = purpose === 'listener' ? null : youtubeSearchPurposeCap(purpose, day);
 
   let usage: YouTubeQuotaUsage;
   try {
