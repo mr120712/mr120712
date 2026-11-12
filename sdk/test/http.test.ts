@@ -10,13 +10,22 @@ interface Captured {
   init: RequestInit;
 }
 
-function recorder(response: () => Response): { fetch: FetchLike; calls: Captured[] } {
+function recorder(response: () => Response): {
+  fetch: FetchLike;
+  calls: Captured[];
+  at: (index: number) => Captured;
+} {
   const calls: Captured[] = [];
   const fetchImpl: FetchLike = async (url, init) => {
     calls.push({ url, init: init ?? {} });
     return response();
   };
-  return { fetch: fetchImpl, calls };
+  const at = (index: number): Captured => {
+    const call = calls[index];
+    if (!call) throw new Error(`nessuna chiamata registrata all'indice ${index}`);
+    return call;
+  };
+  return { fetch: fetchImpl, calls, at };
 }
 
 function json(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
@@ -31,14 +40,14 @@ test('GET costruisce URL con query, saltando undefined/null', async () => {
   const http = new HttpClient({ baseUrl: 'https://example.test', fetch: rec.fetch });
   await http.requestJson('/api/music/radio', { query: { q: 'jazz', tag: undefined, limit: 10 } });
   assert.equal(rec.calls.length, 1);
-  assert.equal(rec.calls[0].url, 'https://example.test/api/music/radio?q=jazz&limit=10');
+  assert.equal(rec.at(0).url, 'https://example.test/api/music/radio?q=jazz&limit=10');
 });
 
 test('baseUrl con slash finale viene normalizzato', async () => {
   const rec = recorder(() => json({}));
   const http = new HttpClient({ baseUrl: 'https://example.test/', fetch: rec.fetch });
   await http.requestJson('/health');
-  assert.equal(rec.calls[0].url, 'https://example.test/health');
+  assert.equal(rec.at(0).url, 'https://example.test/health');
 });
 
 test('una mutazione lato server invia Origin = baseUrl e il cookie di sessione', async () => {
@@ -50,18 +59,18 @@ test('una mutazione lato server invia Origin = baseUrl e il cookie di sessione',
     cookieJar: jar,
   });
   await http.requestJson('/api/music/plays', { method: 'POST', body: { qualifiedId: 'audius:1' } });
-  const headers = rec.calls[0].init.headers as Headers;
+  const headers = rec.at(0).init.headers as Headers;
   assert.equal(headers.get('origin'), 'https://example.test');
   assert.equal(headers.get('cookie'), 'session=abc');
   assert.equal(headers.get('content-type'), 'application/json');
-  assert.equal(rec.calls[0].init.body, JSON.stringify({ qualifiedId: 'audius:1' }));
+  assert.equal(rec.at(0).init.body, JSON.stringify({ qualifiedId: 'audius:1' }));
 });
 
 test('una GET non invia Origin', async () => {
   const rec = recorder(() => json({}));
   const http = new HttpClient({ baseUrl: 'https://example.test', fetch: rec.fetch });
   await http.requestJson('/api/music/home');
-  const headers = rec.calls[0].init.headers as Headers;
+  const headers = rec.at(0).init.headers as Headers;
   assert.equal(headers.get('origin'), null);
 });
 
@@ -73,7 +82,7 @@ test('origin personalizzato ha la precedenza sul baseUrl', async () => {
     fetch: rec.fetch,
   });
   await http.requestJson('/api/music/plays', { method: 'POST', body: {} });
-  const headers = rec.calls[0].init.headers as Headers;
+  const headers = rec.at(0).init.headers as Headers;
   assert.equal(headers.get('origin'), 'https://app.solco.test');
 });
 
