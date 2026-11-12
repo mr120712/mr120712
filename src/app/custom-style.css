@@ -438,6 +438,45 @@ body.has-video-dock .solco-support-launcher {
   display: none;
 }
 
+/* ========== Monocromatico FUTURISTICO: nero + accento neon ciano ========== */
+/* Sfondo: un bagliore ciano in alto e una griglia tenue. Solo immagini sul body:
+   non coprono nulla e non catturano i clic. (Il colore di sfondo resta --background.) */
+body {
+  background-image:
+    radial-gradient(1100px 560px at 50% -8%, rgb(34 211 238 / 8%), transparent 70%),
+    linear-gradient(rgb(34 211 238 / 3%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(34 211 238 / 3%) 1px, transparent 1px);
+  background-size:
+    100% 100%,
+    46px 46px,
+    46px 46px;
+  background-position:
+    center top,
+    center,
+    center;
+  background-repeat: no-repeat, repeat, repeat;
+  background-attachment: fixed;
+}
+
+::selection {
+  background: rgb(34 211 238 / 30%);
+  color: #e9edf2;
+}
+
+/* Un filo di bagliore neon sui pulsanti d'azione primari (solo CSS, CSP-safe). */
+button.bg-primary,
+a.bg-primary {
+  box-shadow:
+    0 0 0 1px rgb(34 211 238 / 35%),
+    0 0 18px -6px rgb(34 211 238 / 55%);
+}
+
+/* Il dock del player: un alone ciano, come superficie "viva" dell'interfaccia. */
+section[data-solco-player] {
+  background:
+    radial-gradient(circle at 50% -40%, rgb(34 211 238 / 16%), transparent 60%), var(--background);
+}
+
 /* Tema natalizio: il player (che ha colori propri) segue rosso, verde e oro. */
 .theme-christmas [data-solco-player] {
   --background: #06110c;
@@ -464,38 +503,4 @@ body.has-video-dock .solco-support-launcher {
     radial-gradient(900px 420px at 100% 102%, rgb(242 193 78 / 7%), transparent 60%);
   background-attachment: fixed;
   background-repeat: no-repeat;
-}
-
-/* ========== Monocromatico FUTURISTICO: nero + accento neon ciano ========== */
-/* Sfondo: un bagliore ciano in alto e una griglia tenue. Solo immagini sul body:
-   non coprono nulla e non catturano i clic. (Il colore di sfondo resta --background.) */
-body {
-  background-image:
-    radial-gradient(1100px 560px at 50% -8%, rgb(34 211 238 / 8%), transparent 70%),
-    linear-gradient(rgb(34 211 238 / 3%) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(34 211 238 / 3%) 1px, transparent 1px);
-  background-size: 100% 100%, 46px 46px, 46px 46px;
-  background-position: center top, center, center;
-  background-repeat: no-repeat, repeat, repeat;
-  background-attachment: fixed;
-}
-
-::selection {
-  background: rgb(34 211 238 / 30%);
-  color: #e9edf2;
-}
-
-/* Un filo di bagliore neon sui pulsanti d'azione primari (solo CSS, CSP-safe). */
-button.bg-primary,
-a.bg-primary {
-  box-shadow:
-    0 0 0 1px rgb(34 211 238 / 35%),
-    0 0 18px -6px rgb(34 211 238 / 55%);
-}
-
-/* Il dock del player: un alone ciano, come superficie "viva" dell'interfaccia. */
-section[data-solco-player] {
-  background:
-    radial-gradient(circle at 50% -40%, rgb(34 211 238 / 16%), transparent 60%),
-    var(--background);
 }
