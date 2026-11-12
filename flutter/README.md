@@ -10,7 +10,7 @@ questa è una cartella separata, accanto a `android/` (la TWA attuale) e `ios/`
 > cura ma **va compilato e provato su una macchina con Flutter**. Aspettati
 > qualche piccolo aggiustamento di versione dei pacchetti al primo `flutter pub get`.
 
-## Cosa fa già (versione 0.6)
+## Cosa fa già (versione 0.7)
 
 - **Accesso** con email e password, contro le API di Solco (`better-auth`): login,
   registrazione, sessione che sopravvive al riavvio (cookie salvato sul dispositivo).
@@ -39,6 +39,9 @@ questa è una cartella separata, accanto a `android/` (la TWA attuale) e `ios/`
   precedente/play/successivo, **shuffle**, **ripetizione** (coda/uno), **coda** e
   avanzamento automatico. Unità unificata `PlayableItem` per tutte le fonti. Gli
   ascolti vengono registrati nella cronologia (`POST /api/music/library` → `record_play`).
+- **Timer di spegnimento** (15/30/45/60 min o "alla fine del brano": mette in pausa da solo) e
+  **velocità di riproduzione** (0,75×–2×, utile per i podcast; la velocità resta anche al
+  brano successivo). Entrambi dal lettore a schermo intero, tutto lato client.
 - **Mutazioni abilitate da nativo**: le rotte che modificano dati controllano
   `same-origin`; il client imposta l'header `Origin = baseUrl` sulle richieste non-GET,
   così le POST passano il controllo CSRF — come fa l'SDK. Perché funzioni,

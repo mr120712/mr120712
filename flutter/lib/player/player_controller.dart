@@ -30,6 +30,10 @@ class PlayerController extends ChangeNotifier {
   RepeatMode _repeat = RepeatMode.none;
   bool _shuffle = false;
   bool _advancing = false;
+  double _speed = 1.0;
+  Timer? _sleepTimer;
+  DateTime? _sleepEndsAt;
+  bool _sleepAtTrackEnd = false;
   late final StreamSubscription<PlayerState> _stateSub;
 
   AudioPlayer get player => _player;
@@ -42,6 +46,10 @@ class PlayerController extends ChangeNotifier {
   RepeatMode get repeatMode => _repeat;
   bool get shuffleEnabled => _shuffle;
   bool get playing => _player.playing;
+  double get speed => _speed;
+  bool get sleepTimerActive => _sleepTimer != null || _sleepAtTrackEnd;
+  DateTime? get sleepEndsAt => _sleepEndsAt;
+  bool get sleepAtTrackEnd => _sleepAtTrackEnd;
 
   Stream<Duration> get positionStream => _player.positionStream;
   Stream<Duration> get bufferedPositionStream => _player.bufferedPositionStream;
@@ -101,6 +109,8 @@ class PlayerController extends ChangeNotifier {
     );
     try {
       await _player.setAudioSource(source);
+      // Mantieni la velocità scelta anche al cambio brano.
+      if (_speed != 1.0) await _player.setSpeed(_speed);
       // La cronologia richiede rete: solo per la riproduzione in streaming.
       if (!offline) unawaited(_api.recordPlay(item));
     } catch (e) {
@@ -119,6 +129,42 @@ class PlayerController extends ChangeNotifier {
   }
 
   Future<void> seek(Duration position) => _player.seek(position);
+
+  /// Velocità di riproduzione (utile per i podcast). Resta valida anche al brano successivo.
+  Future<void> setSpeed(double value) async {
+    _speed = value;
+    await _player.setSpeed(value);
+    notifyListeners();
+  }
+
+  /// Timer di spegnimento: mette in pausa dopo [duration].
+  void startSleepTimer(Duration duration) {
+    cancelSleepTimer();
+    _sleepEndsAt = DateTime.now().add(duration);
+    _sleepTimer = Timer(duration, () {
+      _sleepTimer = null;
+      _sleepEndsAt = null;
+      _player.pause();
+      notifyListeners();
+    });
+    notifyListeners();
+  }
+
+  /// Spegni alla fine del brano in corso.
+  void sleepAtEndOfTrack() {
+    cancelSleepTimer();
+    _sleepAtTrackEnd = true;
+    notifyListeners();
+  }
+
+  /// Annulla il timer di spegnimento (sia a tempo sia a fine brano).
+  void cancelSleepTimer() {
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+    _sleepEndsAt = null;
+    _sleepAtTrackEnd = false;
+    notifyListeners();
+  }
 
   Future<void> next() async {
     if (_queue.isEmpty) return;
@@ -182,6 +228,14 @@ class PlayerController extends ChangeNotifier {
   Future<void> _onPlayerState(PlayerState state) async {
     notifyListeners();
     if (state.processingState != ProcessingState.completed) return;
+    // Timer di spegnimento "a fine brano": ferma qui invece di avanzare.
+    if (_sleepAtTrackEnd) {
+      _sleepAtTrackEnd = false;
+      await _player.pause();
+      await _player.seek(Duration.zero);
+      notifyListeners();
+      return;
+    }
     if (_repeat == RepeatMode.one || _advancing) return;
     _advancing = true;
     try {
@@ -203,6 +257,7 @@ class PlayerController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _sleepTimer?.cancel();
     _stateSub.cancel();
     _player.dispose();
     super.dispose();

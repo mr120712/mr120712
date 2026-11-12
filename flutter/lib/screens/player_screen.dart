@@ -82,6 +82,8 @@ class PlayerScreen extends ConsumerWidget {
                   track.isLive ? const _LiveBadge() : _SeekBar(player: player),
                   const SizedBox(height: 8),
                   _Controls(player: player),
+                  const SizedBox(height: 2),
+                  _SecondaryControls(player: player, isLive: track.isLive),
                   const Spacer(),
                   _Attribution(item: track),
                   if (player.queue.length > 1)
@@ -408,6 +410,117 @@ class _BlurredBackdrop extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Controlli secondari: timer di spegnimento e velocità (quest'ultima nascosta in diretta radio).
+class _SecondaryControls extends StatelessWidget {
+  const _SecondaryControls({required this.player, required this.isLive});
+  final PlayerController player;
+  final bool isLive;
+
+  static String _fmtSpeed(double value) =>
+      value == value.roundToDouble() ? value.toStringAsFixed(0) : value.toString();
+
+  @override
+  Widget build(BuildContext context) {
+    final sleepOn = player.sleepTimerActive;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        TextButton.icon(
+          icon: Icon(
+            sleepOn ? Icons.bedtime : Icons.bedtime_outlined,
+            size: 20,
+            color: sleepOn ? kSolcoLime : Colors.white70,
+          ),
+          label: Text(
+            sleepOn ? 'Timer attivo' : 'Spegni',
+            style: TextStyle(color: sleepOn ? kSolcoLime : Colors.white70),
+          ),
+          onPressed: () => _showSleepMenu(context),
+        ),
+        if (!isLive) ...[
+          const SizedBox(width: 10),
+          TextButton.icon(
+            icon: const Icon(Icons.speed, size: 20, color: Colors.white70),
+            label: Text(
+              '${_fmtSpeed(player.speed)}×',
+              style: const TextStyle(color: Colors.white70),
+            ),
+            onPressed: () => _showSpeedMenu(context),
+          ),
+        ],
+      ],
+    );
+  }
+
+  void _showSleepMenu(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: kSolcoNavyCard,
+      showDragHandle: true,
+      builder: (sheet) {
+        ListTile tile(String label, VoidCallback onTap, {bool danger = false}) => ListTile(
+              title: Text(label, style: danger ? const TextStyle(color: kSolcoChristmasRed) : null),
+              onTap: () {
+                onTap();
+                Navigator.of(sheet).pop();
+              },
+            );
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('Timer di spegnimento',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+              ),
+              for (final m in const [15, 30, 45, 60])
+                tile('$m minuti', () => player.startSleepTimer(Duration(minutes: m))),
+              tile('Alla fine del brano', player.sleepAtEndOfTrack),
+              if (player.sleepTimerActive)
+                tile('Annulla timer', player.cancelSleepTimer, danger: true),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _showSpeedMenu(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: kSolcoNavyCard,
+      showDragHandle: true,
+      builder: (sheet) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('Velocità di riproduzione',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+              ),
+              for (final v in const [0.75, 1.0, 1.25, 1.5, 2.0])
+                ListTile(
+                  title: Text('${_fmtSpeed(v)}×'),
+                  trailing:
+                      player.speed == v ? const Icon(Icons.check, color: kSolcoLime) : null,
+                  onTap: () {
+                    player.setSpeed(v);
+                    Navigator.of(sheet).pop();
+                  },
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
     );
   }
 }
