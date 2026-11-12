@@ -23,3 +23,15 @@ model UserRecording {
   @@index([userId, createdAt])
   @@index([published, publishedAt])
 }
+
+// Una segnalazione per utente e per brano: così il conteggio è di segnalatori DISTINTI
+// (nessuno può ritirare da solo un brano ripetendo la segnalazione).
+model RecordingReport {
+  id             String   @id @default(cuid())
+  recordingId    String
+  reporterUserId String
+  createdAt      DateTime @default(now())
+
+  @@unique([recordingId, reporterUserId])
+  @@index([recordingId])
+}

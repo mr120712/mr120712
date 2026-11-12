@@ -13,7 +13,9 @@ const mocks = vi.hoisted(() => ({
   deleteMany: vi.fn(),
   updateMany: vi.fn(),
   historyFindMany: vi.fn(),
-  groupBy: vi.fn(),
+  reportCreate: vi.fn(),
+  reportCount: vi.fn(),
+  reportDeleteMany: vi.fn(),
   inspect: vi.fn(),
 }));
 
@@ -30,7 +32,11 @@ vi.mock('@/lib/db', () => ({
     },
     userPlaybackHistory: {
       findMany: mocks.historyFindMany,
-      groupBy: mocks.groupBy,
+    },
+    recordingReport: {
+      create: mocks.reportCreate,
+      count: mocks.reportCount,
+      deleteMany: mocks.reportDeleteMany,
     },
   },
 }));
@@ -230,8 +236,9 @@ describe('listRecordingsChart', () => {
 });
 
 describe('pubblicazione e moderazione', () => {
-  it('setRecordingPublished pubblica e ritorna la registrazione aggiornata', async () => {
+  it('setRecordingPublished pubblica, azzera le segnalazioni e ritorna la registrazione', async () => {
     mocks.updateMany.mockResolvedValue({ count: 1 });
+    mocks.reportDeleteMany.mockResolvedValue({ count: 0 });
     mocks.findFirst.mockResolvedValue({
       id: 'r'.repeat(25),
       title: 'Brano',
@@ -247,6 +254,9 @@ describe('pubblicazione e moderazione', () => {
         data: expect.objectContaining({ published: true }),
       }),
     );
+    expect(mocks.reportDeleteMany).toHaveBeenCalledWith({
+      where: { recordingId: 'r'.repeat(25) },
+    });
   });
 
   it('setRecordingPublished ritorna null se non è dell’utente', async () => {
@@ -279,37 +289,74 @@ describe('pubblicazione e moderazione', () => {
     expect(await getStreamableRecording('altro', 'rec')).not.toBeNull();
   });
 
-  it('reportRecording incrementa e auto-ritira oltre la soglia', async () => {
-    mocks.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 1 });
-    expect(await reportRecording('rec')).toBe(true);
-    expect(mocks.updateMany).toHaveBeenCalledTimes(2);
-    // Il secondo updateMany ritira (published=false) oltre la soglia.
+  it('reportRecording conta segnalatori distinti e auto-ritira oltre la soglia', async () => {
+    mocks.findFirst.mockResolvedValue({ id: 'rec' });
+    mocks.reportCreate.mockResolvedValue({});
+    mocks.reportCount.mockResolvedValue(5); // = AUTO_UNPUBLISH_REPORTS
+    mocks.updateMany.mockResolvedValue({ count: 1 });
+
+    expect(await reportRecording('rec', 'bob')).toBe(true);
+    expect(mocks.reportCreate).toHaveBeenCalledWith({
+      data: { recordingId: 'rec', reporterUserId: 'bob' },
+    });
+    // Oltre la soglia: un updateMany ritira (published=false).
     expect(mocks.updateMany).toHaveBeenLastCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ published: false }) }),
     );
   });
 
-  it('reportRecording ritorna false se la registrazione pubblicata non esiste', async () => {
-    mocks.updateMany.mockResolvedValueOnce({ count: 0 });
-    expect(await reportRecording('rec')).toBe(false);
+  it('reportRecording non ritira sotto la soglia di segnalatori distinti', async () => {
+    mocks.findFirst.mockResolvedValue({ id: 'rec' });
+    mocks.reportCreate.mockResolvedValue({});
+    mocks.reportCount.mockResolvedValue(2);
+    mocks.updateMany.mockResolvedValue({ count: 1 });
+    expect(await reportRecording('rec', 'bob')).toBe(true);
+    // Un solo updateMany (aggiorna il contatore), nessun ritiro.
+    expect(mocks.updateMany).toHaveBeenCalledTimes(1);
   });
 
-  it('listPublicRecordingsChart somma gli ascolti di tutti e ordina', async () => {
+  it('reportRecording è idempotente per lo stesso utente (unique violation ignorata)', async () => {
+    mocks.findFirst.mockResolvedValue({ id: 'rec' });
+    mocks.reportCreate.mockRejectedValue({ code: 'P2002' });
+    mocks.reportCount.mockResolvedValue(1);
+    mocks.updateMany.mockResolvedValue({ count: 1 });
+    expect(await reportRecording('rec', 'bob')).toBe(true);
+  });
+
+  it('reportRecording ritorna false se la registrazione pubblicata non esiste', async () => {
+    mocks.findFirst.mockResolvedValue(null);
+    expect(await reportRecording('rec', 'bob')).toBe(false);
+    expect(mocks.reportCreate).not.toHaveBeenCalled();
+  });
+
+  it('listPublicRecordingsChart esclude gli ascolti del proprietario e ordina', async () => {
     mocks.findMany.mockResolvedValue([
-      { id: 'x', title: 'X', durationSeconds: 20 },
-      { id: 'y', title: 'Y', durationSeconds: 30 },
+      { id: 'x', title: 'X', durationSeconds: 20, userId: 'owner-x' },
+      { id: 'y', title: 'Y', durationSeconds: 30, userId: 'owner-y' },
     ]);
-    mocks.groupBy.mockResolvedValue([
-      { qualifiedId: 'recording:x', _sum: { playCount: 3 } },
-      { qualifiedId: 'recording:y', _sum: { playCount: 9 } },
+    mocks.historyFindMany.mockResolvedValue([
+      // Auto-ascolti del proprietario: esclusi.
+      { qualifiedId: 'recording:x', userId: 'owner-x', playCount: 100 },
+      // Ascolti di altri: contano (con tetto per ascoltatore).
+      { qualifiedId: 'recording:x', userId: 'u1', playCount: 3 },
+      { qualifiedId: 'recording:y', userId: 'u2', playCount: 9 },
     ]);
     const chart = await listPublicRecordingsChart();
     expect(chart).toEqual([
       { id: 'y', title: 'Y', durationSeconds: 30, playCount: 9 },
       { id: 'x', title: 'X', durationSeconds: 20, playCount: 3 },
     ]);
-    expect(mocks.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { published: true } }),
-    );
+  });
+
+  it('listPublicRecordingsChart limita il contributo di un singolo ascoltatore', async () => {
+    mocks.findMany.mockResolvedValue([
+      { id: 'z', title: 'Z', durationSeconds: 20, userId: 'owner-z' },
+    ]);
+    mocks.historyFindMany.mockResolvedValue([
+      { qualifiedId: 'recording:z', userId: 'spammer', playCount: 9999 },
+    ]);
+    const chart = await listPublicRecordingsChart();
+    // Il contributo del singolo ascoltatore è limitato (tetto 20).
+    expect(chart[0]?.playCount).toBe(20);
   });
 });

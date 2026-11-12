@@ -50,7 +50,7 @@ export async function POST(
   if (!payload.ok && payload.status === 413) return limitedJsonError(payload);
 
   try {
-    const ok = await reportRecording(recordingId);
+    const ok = await reportRecording(recordingId, auth.user.id);
     if (!ok) {
       return NextResponse.json({ error: 'not_found' }, { status: 404, headers: privateHeaders });
     }

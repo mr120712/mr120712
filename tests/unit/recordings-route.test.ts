@@ -289,7 +289,7 @@ describe('POST …/[id]/report', () => {
     mocks.report.mockResolvedValue(true);
     const res = await REPORT(repReq(), { params });
     expect(res.status).toBe(200);
-    expect(mocks.report).toHaveBeenCalledWith(recId);
+    expect(mocks.report).toHaveBeenCalledWith(recId, 'user-1');
   });
 
   it('404 se il brano pubblicato non esiste', async () => {

@@ -28,10 +28,12 @@ export class InvalidRecordingSource extends Error {
   }
 }
 
-/** Oltre questa soglia di segnalazioni un brano pubblicato si auto-ritira dalla classifica. */
-export const AUTO_UNPUBLISH_REPORTS = 3;
+/** Oltre questa soglia di segnalatori DISTINTI un brano pubblicato si auto-ritira. */
+export const AUTO_UNPUBLISH_REPORTS = 5;
 /** Quante voci al massimo nella classifica community. */
 const PUBLIC_CHART_MAX = 50;
+/** Tetto al contributo di un singolo ascoltatore alla classifica community (anti-inflazione). */
+const PER_LISTENER_PLAY_CAP = 20;
 
 type RecordingRow = {
   id: string;
@@ -82,6 +84,10 @@ export async function setRecordingPublished(
       : { published: false, publishedAt: null },
   });
   if (result.count === 0) return null;
+  // Pubblicando si riparte da zero segnalazioni: cancella quelle precedenti.
+  if (published) {
+    await prisma.recordingReport.deleteMany({ where: { recordingId } });
+  }
   const row = await prisma.userRecording.findFirst({
     where: { id: recordingId, userId },
     select: recordingSelect,
@@ -107,43 +113,68 @@ export async function getStreamableRecording(
 }
 
 /**
- * Segnala una registrazione pubblicata. Oltre la soglia si auto-ritira (published=false).
- * Ritorna true se la registrazione pubblicata esisteva.
+ * Segnala una registrazione pubblicata. Una segnalazione per utente (deduplica), e il conteggio
+ * è di segnalatori DISTINTI: oltre la soglia il brano si auto-ritira. Ritorna true se il brano
+ * pubblicato esisteva.
  */
-export async function reportRecording(recordingId: string): Promise<boolean> {
-  const updated = await prisma.userRecording.updateMany({
+export async function reportRecording(
+  recordingId: string,
+  reporterUserId: string,
+): Promise<boolean> {
+  const target = await prisma.userRecording.findFirst({
     where: { id: recordingId, published: true },
-    data: { reports: { increment: 1 } },
+    select: { id: true },
   });
-  if (updated.count === 0) return false;
+  if (!target) return false;
+
+  // Una sola segnalazione per utente: se l'ha già fatta, non conta due volte.
+  try {
+    await prisma.recordingReport.create({ data: { recordingId, reporterUserId } });
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+  }
+
+  const distinct = await prisma.recordingReport.count({ where: { recordingId } });
   await prisma.userRecording.updateMany({
-    where: { id: recordingId, published: true, reports: { gte: AUTO_UNPUBLISH_REPORTS } },
-    data: { published: false, publishedAt: null },
+    where: { id: recordingId, published: true },
+    data: { reports: distinct },
   });
+  if (distinct >= AUTO_UNPUBLISH_REPORTS) {
+    await prisma.userRecording.updateMany({
+      where: { id: recordingId, published: true },
+      data: { published: false, publishedAt: null },
+    });
+  }
   return true;
 }
 
 /**
- * Classifica community: i brani PUBBLICATI, ordinati per ascolti totali (somma dei conteggi di
- * tutti gli ascoltatori nella cronologia). Solo i pubblicati; mai i privati.
+ * Classifica community: i brani PUBBLICATI, ordinati per ascolti. Conta solo gli ascolti degli
+ * ALTRI utenti (gli auto-ascolti del proprietario sono esclusi) e limita il contributo di un
+ * singolo ascoltatore, così la classifica non è gonfiabile da soli. Solo i pubblicati.
  */
 export async function listPublicRecordingsChart(): Promise<RecordingChartItem[]> {
   const published = await prisma.userRecording.findMany({
     where: { published: true },
-    select: { id: true, title: true, durationSeconds: true },
+    select: { id: true, title: true, durationSeconds: true, userId: true },
     take: 500,
   });
   if (published.length === 0) return [];
 
-  const qualifiedIds = published.map((row) => `recording:${row.id}`);
-  const grouped = await prisma.userPlaybackHistory.groupBy({
-    by: ['qualifiedId'],
+  const ownerByQualifiedId = new Map(published.map((row) => [`recording:${row.id}`, row.userId]));
+  const qualifiedIds = [...ownerByQualifiedId.keys()];
+  const rows = await prisma.userPlaybackHistory.findMany({
     where: { qualifiedId: { in: qualifiedIds } },
-    _sum: { playCount: true },
+    select: { qualifiedId: true, userId: true, playCount: true },
   });
+
   const plays = new Map<string, number>();
-  for (const row of grouped) {
-    plays.set(row.qualifiedId.slice('recording:'.length), row._sum.playCount ?? 0);
+  for (const row of rows) {
+    // Escludi gli ascolti del proprietario (anti auto-inflazione).
+    if (row.userId === ownerByQualifiedId.get(row.qualifiedId)) continue;
+    const id = row.qualifiedId.slice('recording:'.length);
+    const capped = Math.min(row.playCount, PER_LISTENER_PLAY_CAP);
+    plays.set(id, (plays.get(id) ?? 0) + capped);
   }
 
   return published
