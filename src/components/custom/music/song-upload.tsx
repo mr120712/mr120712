@@ -14,10 +14,10 @@ import {
   audioUploadMimeType,
   baseMimeType,
   shouldReassignMime,
-  uploadErrorMessageIt,
 } from '@/lib/music/recorder';
 import { publishNewRecording } from '@/lib/music/recording-publish.client';
-import { FileUploadError, uploadPrivateFile } from '@/modules/file-upload/client';
+import { uploadFailureMessage } from '@/lib/music/upload-error';
+import { uploadPrivateFile } from '@/modules/file-upload/client';
 import styles from './song-recorder.module.css';
 
 const MAX_BYTES = 40 * 1024 * 1024;
@@ -112,13 +112,7 @@ export function SongUpload({ onSaved }: { onSaved: (recording: Recording) => voi
       setPublishNow(false);
       if (inputRef.current) inputRef.current.value = '';
     } catch (err) {
-      if (err instanceof FileUploadError) {
-        setError(uploadErrorMessageIt(err.code));
-      } else {
-        const cause =
-          err instanceof Error ? (err.cause as { errors?: Record<string, string> }) : null;
-        setError(cause?.errors?.fileKey ?? 'Caricamento non riuscito. Riprova.');
-      }
+      setError(uploadFailureMessage(err));
       toast.error('Non è stato possibile caricare il brano.');
     } finally {
       setSaving(false);

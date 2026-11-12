@@ -16,10 +16,10 @@ import {
   MAX_RECORDING_SECONDS,
   pickRecorderMimeType,
   recordingFileName,
-  uploadErrorMessageIt,
 } from '@/lib/music/recorder';
 import { publishNewRecording } from '@/lib/music/recording-publish.client';
-import { FileUploadError, uploadPrivateFile } from '@/modules/file-upload/client';
+import { uploadFailureMessage } from '@/lib/music/upload-error';
+import { uploadPrivateFile } from '@/modules/file-upload/client';
 import styles from './song-recorder.module.css';
 
 type Phase = 'idle' | 'requesting' | 'recording' | 'recorded' | 'saving';
@@ -213,13 +213,7 @@ export function SongRecorder({ onSaved }: { onSaved: (recording: Recording) => v
       discard();
     } catch (err) {
       setPhase('recorded');
-      if (err instanceof FileUploadError) {
-        setError(uploadErrorMessageIt(err.code));
-      } else {
-        const cause =
-          err instanceof Error ? (err.cause as { errors?: Record<string, string> }) : null;
-        setError(cause?.errors?.fileKey ?? 'Salvataggio non riuscito. Riprova.');
-      }
+      setError(uploadFailureMessage(err));
       toast.error('Non è stato possibile salvare la registrazione.');
     }
   }, [title, confirmed, publishNow, elapsed, onSaved, discard]);
