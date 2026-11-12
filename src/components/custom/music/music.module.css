@@ -430,10 +430,17 @@
   margin-bottom: 3px;
 }
 
+.resultsHeading > div:first-child {
+  min-width: 0;
+}
+
+/* A 50-character playlist name without spaces must wrap, not overflow at 390px. */
 .resultsHeading h2 {
+  min-width: 0;
   margin: 0;
   font-size: 18px;
   font-weight: 650;
+  overflow-wrap: anywhere;
 }
 
 .resultsSource {
@@ -952,4 +959,66 @@
   color: var(--foreground);
   font: inherit;
   font-size: 13px;
+}
+
+/* Public link of a shared playlist (Libreria). */
+.shareLink {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--border));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--primary) 6%, transparent);
+  font-size: 13px;
+}
+
+.shareLink p {
+  flex: 1 1 100%;
+  margin: 0;
+  color: var(--muted-foreground);
+  line-height: 1.5;
+}
+
+.shareLink a {
+  min-width: 0;
+  color: var(--primary);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+/* Unverified email: sharing is off until the address is confirmed (Libreria). */
+.shareVerify {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--border));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--primary) 6%, transparent);
+  font-size: 14px;
+}
+
+.shareVerify > p {
+  margin: 0;
+  color: var(--muted-foreground);
+  line-height: 1.5;
+}
+
+.shareVerify > p strong {
+  color: var(--foreground);
+  font-weight: 650;
+}
+
+/* Shown under the playlist whose "Condividi" was refused (403), and focused there. */
+.collectionSection .shareVerify {
+  margin-bottom: 0;
+}
+
+.shareVerify:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }

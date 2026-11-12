@@ -1,0 +1,465 @@
+/* @polsia:user-owned — pagina pubblica di una playlist condivisa (/playlist/<id>). */
+.page {
+  display: grid;
+  width: min(100% - 32px, 980px);
+  gap: clamp(1.5rem, 4vw, 2.25rem);
+  margin: 0 auto;
+  padding: clamp(1.25rem, 4vw, 2.5rem) 0 6rem;
+  color: var(--foreground);
+}
+
+.hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
+  align-items: end;
+  gap: clamp(1.25rem, 4vw, 2.5rem);
+  overflow: hidden;
+  padding: clamp(1.25rem, 4vw, 2rem);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 2);
+  background:
+    radial-gradient(
+      120% 140% at 0% 0%,
+      color-mix(in srgb, var(--primary) 22%, transparent) 0%,
+      transparent 60%
+    ),
+    linear-gradient(160deg, color-mix(in srgb, var(--primary) 8%, var(--card)) 0%, var(--card) 70%);
+}
+
+.mosaic {
+  display: grid;
+  aspect-ratio: 1;
+  width: 100%;
+  overflow: hidden;
+  border-radius: calc(var(--radius) * 1.5);
+  background: var(--muted);
+  box-shadow: 0 24px 60px color-mix(in srgb, var(--foreground) 16%, transparent);
+}
+
+.mosaic[data-count="4"] {
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+}
+
+.mosaic > span,
+.mosaic img {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  object-fit: cover;
+}
+
+.mosaicFallback {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(
+    145deg,
+    var(--primary) 0%,
+    color-mix(in srgb, var(--primary) 45%, var(--foreground)) 100%
+  );
+  color: var(--primary-foreground);
+  font-family: var(--font-display, inherit);
+  font-size: clamp(4rem, 12vw, 6.5rem);
+  font-weight: 700;
+  letter-spacing: -0.05em;
+}
+
+.heroCopy {
+  display: grid;
+  justify-items: start;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.heroCopy h1 {
+  max-width: 18ch;
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: clamp(2rem, 6vw, 3.9rem);
+  letter-spacing: -0.045em;
+  line-height: 1.02;
+  overflow-wrap: anywhere;
+}
+
+.byline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.95rem;
+}
+
+.byline strong {
+  color: var(--foreground);
+  font-weight: 650;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.authPrompt {
+  display: grid;
+  gap: 0.35rem;
+  max-width: 34rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--primary) 8%, var(--card));
+  font-size: 0.88rem;
+}
+
+.authPrompt:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.authPrompt p {
+  margin: 0;
+}
+
+.authPrompt p:not(:first-child) {
+  color: var(--muted-foreground);
+}
+
+.authPromptActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.savedLink {
+  align-self: center;
+  color: var(--primary);
+  font-size: 0.85rem;
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.listSection {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.listHeading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.6rem;
+}
+
+.listHeading h2 {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: 1.35rem;
+  letter-spacing: -0.03em;
+}
+
+.listHeading p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+}
+
+.tracks {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 2rem 52px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.6rem 0.65rem;
+  border-radius: var(--radius);
+  transition: background-color 160ms ease;
+}
+
+.row:hover,
+.row[data-current="true"] {
+  background: color-mix(in srgb, var(--primary) 7%, transparent);
+}
+
+.index {
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.row[data-current="true"] .index {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.cover {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  overflow: hidden;
+  place-items: center;
+  border-radius: calc(var(--radius) * 0.75);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-weight: 700;
+}
+
+.cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.copy {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.copy strong {
+  overflow: hidden;
+  font-size: 0.95rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artist {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.83rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artist a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 0.2em;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.6rem;
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+}
+
+.meta a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.badge {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.badge[data-source="youtube"] {
+  border-color: color-mix(in srgb, #e62117 45%, var(--border));
+  color: color-mix(in srgb, #e62117 70%, var(--foreground));
+}
+
+.badge[data-source="audius"] {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+  color: var(--primary);
+}
+
+.unavailable {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  font-style: italic;
+}
+
+.playButton {
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  cursor: pointer;
+  transition: transform 160ms ease;
+}
+
+.playButton:hover {
+  transform: scale(1.06);
+}
+
+.playButton:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.playButton[aria-disabled="true"] {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.playButton[aria-disabled="true"]:hover {
+  transform: none;
+}
+
+.playButton svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+.footnote {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+.state {
+  display: grid;
+  justify-items: center;
+  gap: 0.85rem;
+  padding: clamp(2rem, 8vw, 4rem) 1.25rem;
+  border: 1px dashed var(--border);
+  border-radius: calc(var(--radius) * 2);
+  text-align: center;
+}
+
+.state svg {
+  width: 2.25rem;
+  height: 2.25rem;
+  color: var(--primary);
+}
+
+.state h1 {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: clamp(1.5rem, 4vw, 2.1rem);
+  letter-spacing: -0.03em;
+}
+
+.state p {
+  max-width: 34rem;
+  margin: 0;
+  color: var(--muted-foreground);
+  line-height: 1.6;
+}
+
+/* Loading skeleton */
+.skeleton {
+  border-radius: var(--radius);
+  background: linear-gradient(
+    90deg,
+    var(--muted) 0%,
+    color-mix(in srgb, var(--muted) 55%, var(--background)) 50%,
+    var(--muted) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.skeletonCover {
+  aspect-ratio: 1;
+  width: 100%;
+  border-radius: calc(var(--radius) * 1.5);
+}
+
+.skeletonLine {
+  height: 1rem;
+}
+
+.skeletonTitle {
+  width: min(100%, 22rem);
+  height: 2.6rem;
+}
+
+.skeletonRow {
+  height: 3.6rem;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+
+  .row,
+  .playButton {
+    transition: none;
+  }
+
+  .playButton:hover {
+    transform: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .hero {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .mosaic {
+    width: min(100%, 220px);
+  }
+
+  .actions {
+    width: 100%;
+  }
+
+  .actions > * {
+    flex: 1 1 auto;
+  }
+
+  .row {
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+    gap: 0.7rem;
+    padding: 0.55rem 0.35rem;
+  }
+
+  .index {
+    display: none;
+  }
+
+  .cover {
+    width: 44px;
+    height: 44px;
+  }
+}

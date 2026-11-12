@@ -6,6 +6,13 @@ model UserMusicCollection {
   kind      String
   /// Cartella della Libreria (UserMusicFolder.id) che contiene la playlist; null = radice.
   folderId  String?
+  /// Link pubblico /playlist/<shareId> (16 byte casuali in base64url), creato solo quando la
+  /// playlist viene condivisa; null = privata. Smettere di condividere lo azzera.
+  /// Indice semplice, non @unique: con `prisma db push` senza --accept-data-loss (il comando di
+  /// build su Vercel) un nuovo vincolo unico blocca il deploy. L'unicità la garantisce il codice
+  /// (id casuali a 128 bit e controllo prima di assegnarli).
+  shareId   String?
+  sharedAt  DateTime?
   createdAt DateTime                  @default(now())
   updatedAt DateTime                  @updatedAt
   items     UserMusicCollectionItem[]
@@ -13,6 +20,7 @@ model UserMusicCollection {
   @@unique([userId, name])
   @@index([userId, kind])
   @@index([folderId])
+  @@index([shareId])
 }
 
 model UserMusicCollectionItem {

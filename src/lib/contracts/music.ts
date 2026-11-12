@@ -1,5 +1,6 @@
 // @polsia:user-owned
 import { z } from 'zod';
+import { SHARE_ID_PATTERN } from '@/lib/music/playlist-share';
 
 const audiusId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const videoId = z.string().regex(/^[A-Za-z0-9_-]{11}$/);
@@ -250,6 +251,9 @@ export const MusicCollectionSchema = z.object({
   name: z.string().min(1),
   kind: MusicCollectionKindSchema,
   folderId: z.string().min(1).nullable().optional(),
+  /** Link pubblico /playlist/<shareId> (solo playlist condivise; null = privata). */
+  shareId: z.string().regex(SHARE_ID_PATTERN).nullable().optional(),
+  sharedAt: z.string().datetime().nullable().optional(),
   createdAt: z.string().datetime(),
   items: z.array(MusicCollectionItemSchema),
 });
@@ -275,11 +279,20 @@ export const CollectionMutationSchema = z.discriminatedUnion('action', [
     itemId: z.string().min(1),
   }),
   z.object({ action: z.literal('delete_playlist'), collectionId: z.string().min(1) }),
+  // Link pubblico di una playlist (mai dei Preferiti): share è idempotente, unshare lo invalida.
+  z.object({ action: z.literal('share'), collectionId: z.string().min(1) }),
+  z.object({ action: z.literal('unshare'), collectionId: z.string().min(1) }),
 ]);
 
 export const CollectionMutationResponseSchema = z.object({
   collections: z.array(MusicCollectionSchema),
   message: z.string().optional(),
+});
+
+export const CollectionShareResponseSchema = z.object({
+  shareId: z.string().regex(SHARE_ID_PATTERN),
+  url: z.string().url(),
+  collections: z.array(MusicCollectionSchema),
 });
 
 export const ListeningEntrySchema = z.object({
@@ -347,6 +360,7 @@ export type MusicSearchResponse = z.infer<typeof MusicSearchResponseSchema>;
 export type MusicCollectionItem = z.infer<typeof MusicCollectionItemSchema>;
 export type MusicCollection = z.infer<typeof MusicCollectionSchema>;
 export type MusicCollections = z.infer<typeof MusicCollectionsSchema>;
+export type CollectionShareResponse = z.infer<typeof CollectionShareResponseSchema>;
 export type YouTubeVideoEligibility = z.infer<typeof YouTubeVideoEligibilitySchema>;
 export type ListeningEntry = z.infer<typeof ListeningEntrySchema>;
 export type ListeningUsage = z.infer<typeof ListeningUsageSchema>;

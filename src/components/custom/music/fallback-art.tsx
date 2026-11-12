@@ -3,6 +3,7 @@
 
 import Image from 'next/image';
 import { useState } from 'react';
+import { artInitial } from '@/lib/music/art-initial';
 
 export function FallbackArt({
   src,
@@ -15,7 +16,7 @@ export function FallbackArt({
 }) {
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   if (!src || failedSrc === src) {
-    return <span aria-hidden="true">{label.trim().slice(0, 1).toUpperCase() || '♪'}</span>;
+    return <span aria-hidden="true">{artInitial(label)}</span>;
   }
   return (
     <Image

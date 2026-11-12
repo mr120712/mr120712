@@ -34,6 +34,8 @@ vi.mock('@/lib/require-auth', () => ({
   requireAuth: vi.fn(async () => ({ id: 'account-a', email: 'a@example.test' })),
 }));
 vi.mock('@/lib/same-origin', () => ({ sameOrigin: () => true }));
+// The share action builds the public link from the site origin (src/lib/site.ts reads env).
+vi.mock('@/lib/site', () => ({ siteUrl: 'https://solco.test' }));
 vi.mock('@/lib/business/rate-limit.server', () => ({ enforceRateLimit: mocks.enforceRateLimit }));
 vi.mock('@/lib/music/collections.server', () => ({
   MAX_PLAYLISTS_PER_USER: 100,

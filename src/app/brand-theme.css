@@ -1,6 +1,8 @@
 /* @polsia:user-owned — identità visiva Solco: design monocromatico (bianco e nero). */
 
 @theme inline {
+  /* Text on bg-destructive (destructive Button/Badge): the framework fallback has no such role. */
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-status-positive: var(--status-positive);
   --color-status-warning: var(--status-warning);
   --color-rating: var(--rating);
@@ -23,6 +25,7 @@
   --accent: #e0e0e0;
   --accent-foreground: #0a0a0a;
   --destructive: #8f1d1d;
+  --destructive-foreground: #ffffff; /* ~8.9:1 on --destructive */
   --border: #d4d4d4;
   --input: #bdbdbd;
   --ring: #0a0a0a;
@@ -57,6 +60,7 @@
   --accent: #2a2a2a;
   --accent-foreground: #fafafa;
   --destructive: #ff8a8a;
+  --destructive-foreground: #000000; /* ~9.3:1 on --destructive */
   --border: #2e2e2e;
   --input: #3d3d3d;
   --ring: #ffffff;

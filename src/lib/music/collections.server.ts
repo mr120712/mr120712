@@ -38,6 +38,17 @@ export function youtubeMetadataExpiry(now = new Date()) {
   return new Date(now.getTime() + YOUTUBE_METADATA_RETENTION_DAYS * DAY_MS);
 }
 
+/** What remains of a YouTube item once its metadata expires: only source and video id. */
+export const EXPIRED_YOUTUBE_METADATA = {
+  title: null,
+  creatorName: null,
+  artworkUrl: null,
+  sourceUrl: null,
+  artistUrl: null,
+  durationSeconds: null,
+  expiresAt: null,
+} as const;
+
 export async function expireYouTubeCollectionMetadata(now = new Date(), userId?: string) {
   return prisma.userMusicCollectionItem.updateMany({
     where: {
@@ -45,16 +56,21 @@ export async function expireYouTubeCollectionMetadata(now = new Date(), userId?:
       expiresAt: { lte: now },
       ...(userId ? { collection: { userId } } : {}),
     },
-    data: {
-      title: null,
-      creatorName: null,
-      artworkUrl: null,
-      sourceUrl: null,
-      artistUrl: null,
-      durationSeconds: null,
-      expiresAt: null,
-    },
+    data: { ...EXPIRED_YOUTUBE_METADATA },
   });
+}
+
+/**
+ * The same result as expireYouTubeCollectionMetadata, applied to an item already read (for
+ * readers that must not write, like the public link of a shared playlist).
+ */
+export function withoutExpiredYouTubeMetadata<T extends { source: string; expiresAt: Date | null }>(
+  item: T,
+  now = new Date(),
+): T {
+  if (item.source !== 'youtube' || !item.expiresAt || item.expiresAt > now) return item;
+  // Every field nulled here is nullable in UserMusicCollectionItem.
+  return { ...item, ...EXPIRED_YOUTUBE_METADATA } as T;
 }
 
 export async function getUserMusicCollections(userId: string) {
@@ -74,6 +90,8 @@ export async function getUserMusicCollections(userId: string) {
     name: collection.name,
     kind: collection.kind,
     folderId: collection.folderId,
+    shareId: collection.shareId,
+    sharedAt: collection.sharedAt?.toISOString() ?? null,
     createdAt: collection.createdAt.toISOString(),
     items: collection.items.map((item) => ({
       id: item.id,
