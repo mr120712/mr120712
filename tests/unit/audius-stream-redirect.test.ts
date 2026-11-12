@@ -35,7 +35,9 @@ describe('followAudiusStreamRedirects', () => {
   });
 
   it('segue un redirect verso un host pubblico (IP) e torna la risposta finale', async () => {
-    const fetcher = vi.fn(async () => audio(200));
+    const fetcher = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async () =>
+      audio(200),
+    );
     const out = await followAudiusStreamRedirects(
       redirect('https://8.8.8.8/content/track.mp3'),
       'https://dn.audius.co/stream',
@@ -85,7 +87,9 @@ describe('followAudiusStreamRedirects', () => {
   });
 
   it('un http redirect viene promosso a https prima del controllo', async () => {
-    const fetcher = vi.fn(async () => audio(200));
+    const fetcher = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async () =>
+      audio(200),
+    );
     await followAudiusStreamRedirects(
       redirect('http://8.8.8.8/content/track.mp3'),
       'https://dn.audius.co/stream',
