@@ -1,0 +1,18 @@
+// @polsia:user-owned — brani registrati dall'utente sul sito. Il file audio è PRIVATO
+// (caricato con uploadPrivateFile, ospitato interamente su Solco) e viene servito solo
+// dalla route con controllo di proprietà: niente terze parti, nessun problema di diritti.
+
+model UserRecording {
+  id              String   @id @default(cuid())
+  userId          String
+  title           String
+  // Chiave del file privato in archivio (Polsia R2). Unica: due righe non possono
+  // rivendicare lo stesso oggetto.
+  fileKey         String   @unique
+  mimeType        String
+  byteLength      Int
+  durationSeconds Int
+  createdAt       DateTime @default(now())
+
+  @@index([userId, createdAt])
+}

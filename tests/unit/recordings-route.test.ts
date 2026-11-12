@@ -1,0 +1,183 @@
+// @polsia:user-owned
+// @vitest-environment node
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('server-only', () => ({}));
+
+const mocks = vi.hoisted(() => ({
+  requireAuth: vi.fn(),
+  sameOrigin: vi.fn(),
+  enforceRateLimit: vi.fn(),
+  list: vi.fn(),
+  register: vi.fn(),
+  del: vi.fn(),
+  get: vi.fn(),
+  open: vi.fn(),
+}));
+
+vi.mock('@/lib/require-auth', () => ({ requireAuth: mocks.requireAuth }));
+vi.mock('@/lib/same-origin', () => ({ sameOrigin: mocks.sameOrigin }));
+vi.mock('@/lib/business/rate-limit.server', () => ({ enforceRateLimit: mocks.enforceRateLimit }));
+vi.mock('@/lib/music/recordings.server', () => {
+  class RecordingLimitReached extends Error {}
+  class InvalidRecordingSource extends Error {}
+  return {
+    listRecordings: mocks.list,
+    registerRecording: mocks.register,
+    deleteRecording: mocks.del,
+    getOwnedRecording: mocks.get,
+    openRecordingStream: mocks.open,
+    RecordingLimitReached,
+    InvalidRecordingSource,
+  };
+});
+
+import { DELETE } from '@/app/api/music/recordings/[recordingId]/route';
+import { GET as STREAM } from '@/app/api/music/recordings/[recordingId]/stream/route';
+import { GET as LIST, POST } from '@/app/api/music/recordings/route';
+import { InvalidRecordingSource, RecordingLimitReached } from '@/lib/music/recordings.server';
+
+const recId = 'c'.repeat(25);
+
+function postReq(body: unknown) {
+  return new Request('https://solco.example/api/music/recordings', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+const validBody = {
+  title: 'La mia canzone',
+  fileKey: 'company_1/private/files/abc.webm',
+  mimeType: 'audio/webm',
+  byteLength: 1000,
+};
+
+beforeEach(() => {
+  vi.resetAllMocks();
+  mocks.sameOrigin.mockReturnValue(true);
+  mocks.requireAuth.mockResolvedValue({ id: 'user-1' });
+  mocks.enforceRateLimit.mockResolvedValue(null);
+});
+
+describe('POST /api/music/recordings', () => {
+  it('403 se l’origine non combacia', async () => {
+    mocks.sameOrigin.mockReturnValue(false);
+    const res = await POST(postReq(validBody));
+    expect(res.status).toBe(403);
+    expect(mocks.register).not.toHaveBeenCalled();
+  });
+
+  it('401 se non autenticato', async () => {
+    mocks.requireAuth.mockRejectedValue(new Response('no', { status: 401 }));
+    const res = await POST(postReq(validBody));
+    expect(res.status).toBe(401);
+  });
+
+  it('400 con errori di campo su corpo non valido', async () => {
+    const res = await POST(postReq({ fileKey: 'k', mimeType: 'audio/webm', byteLength: 1 }));
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { errors?: Record<string, string> };
+    expect(body.errors?.title).toBeTruthy();
+    expect(mocks.register).not.toHaveBeenCalled();
+  });
+
+  it('201 con la registrazione salvata', async () => {
+    mocks.register.mockResolvedValue({
+      id: recId,
+      title: 'La mia canzone',
+      durationSeconds: 12,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+    const res = await POST(postReq(validBody));
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({
+      recording: {
+        id: recId,
+        title: 'La mia canzone',
+        durationSeconds: 12,
+        createdAt: '2026-01-01T00:00:00.000Z',
+      },
+    });
+    expect(mocks.register).toHaveBeenCalledWith('user-1', expect.objectContaining(validBody));
+  });
+
+  it('409 al raggiungimento del tetto', async () => {
+    mocks.register.mockRejectedValue(new RecordingLimitReached());
+    const res = await POST(postReq(validBody));
+    expect(res.status).toBe(409);
+  });
+
+  it('400 su audio non valido', async () => {
+    mocks.register.mockRejectedValue(new InvalidRecordingSource());
+    const res = await POST(postReq(validBody));
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { errors?: Record<string, string> };
+    expect(body.errors?.fileKey).toBeTruthy();
+  });
+});
+
+describe('GET /api/music/recordings', () => {
+  it('elenca le registrazioni dell’utente', async () => {
+    mocks.list.mockResolvedValue([
+      { id: recId, title: 'Uno', durationSeconds: 30, createdAt: '2026-02-02T10:00:00.000Z' },
+    ]);
+    const res = await LIST(new Request('https://solco.example/api/music/recordings'));
+    expect(res.status).toBe(200);
+    expect(mocks.list).toHaveBeenCalledWith('user-1');
+  });
+});
+
+describe('GET …/[id]/stream', () => {
+  const params = Promise.resolve({ recordingId: recId });
+  function streamReq() {
+    return new Request(`https://solco.example/api/music/recordings/${recId}/stream`);
+  }
+
+  it('404 quando la registrazione non è dell’utente', async () => {
+    mocks.get.mockResolvedValue(null);
+    const res = await STREAM(streamReq(), { params });
+    expect(res.status).toBe(404);
+    expect(mocks.get).toHaveBeenCalledWith('user-1', recId);
+    expect(mocks.open).not.toHaveBeenCalled();
+  });
+
+  it('404 su id malformato', async () => {
+    const res = await STREAM(streamReq(), { params: Promise.resolve({ recordingId: 'BAD!' }) });
+    expect(res.status).toBe(404);
+    expect(mocks.get).not.toHaveBeenCalled();
+  });
+
+  it('401 se non autenticato', async () => {
+    mocks.requireAuth.mockRejectedValue(new Response('no', { status: 401 }));
+    const res = await STREAM(streamReq(), { params });
+    expect(res.status).toBe(401);
+  });
+});
+
+describe('DELETE …/[id]', () => {
+  const params = Promise.resolve({ recordingId: recId });
+  function delReq() {
+    return new Request(`https://solco.example/api/music/recordings/${recId}`, { method: 'DELETE' });
+  }
+
+  it('403 se l’origine non combacia', async () => {
+    mocks.sameOrigin.mockReturnValue(false);
+    const res = await DELETE(delReq(), { params });
+    expect(res.status).toBe(403);
+    expect(mocks.del).not.toHaveBeenCalled();
+  });
+
+  it('404 se niente è stato eliminato', async () => {
+    mocks.del.mockResolvedValue(false);
+    const res = await DELETE(delReq(), { params });
+    expect(res.status).toBe(404);
+  });
+
+  it('200 all’eliminazione', async () => {
+    mocks.del.mockResolvedValue(true);
+    const res = await DELETE(delReq(), { params });
+    expect(res.status).toBe(200);
+    expect(mocks.del).toHaveBeenCalledWith('user-1', recId);
+  });
+});

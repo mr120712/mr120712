@@ -126,7 +126,10 @@ export type MusicPlaybackMode =
   | 'song'
   // The listener's own file ("La tua musica", qualifiedId local:<id>): played from IndexedDB on
   // this device; nothing about it reaches the server (see local-tracks.ts).
-  | 'local';
+  | 'local'
+  // A song the listener recorded on the site (qualifiedId recording:<id>): their own file,
+  // hosted on Solco and streamed only to the owner (see recordings.server.ts).
+  | 'recording';
 
 export type MusicPlayerTrack = {
   qualifiedId: string;
@@ -209,7 +212,10 @@ export function isOpenStream(track: Pick<MusicPlayerTrack, 'playbackMode'>) {
     track.playbackMode === 'radio' ||
     track.playbackMode === 'podcast' ||
     track.playbackMode === 'jamendo' ||
-    track.playbackMode === 'youtube'
+    track.playbackMode === 'youtube' ||
+    // Le registrazioni dell'utente sono file suoi: nessuna verifica diritti, solo lo stream
+    // same-origin protetto dalla proprietà (vedi /api/music/recordings/[id]/stream).
+    track.playbackMode === 'recording'
   );
 }
 
@@ -361,6 +367,10 @@ export function trackStreamPath(track: MusicPlayerTrack) {
     // Never fetched: played from an object URL of the file stored on this device.
     const id = localTrackId(track.qualifiedId);
     return id ? `/local/${id}` : null;
+  }
+  if (track.playbackMode === 'recording') {
+    const id = /^recording:([a-z0-9]{20,36})$/.exec(track.qualifiedId)?.[1];
+    return id ? `/api/music/recordings/${id}/stream` : null;
   }
   const match = /^audius:([A-Za-z0-9_-]{1,128})$/.exec(track.qualifiedId);
   if (!match?.[1]) return null;

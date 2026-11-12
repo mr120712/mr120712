@@ -169,6 +169,12 @@ export const ACTION_RATE_LIMITS = {
     { requests: 6, windowMs: 60_000 },
     { requests: 60, windowMs: 86_400_000 },
   ],
+  // Registrazione di un brano caricato sul sito: ogni chiamata ispeziona un file privato.
+  // Poche al minuto per account, con un tetto giornaliero contro il riempimento dell'archivio.
+  'recordings.write': [
+    { requests: 8, windowMs: 60_000 },
+    { requests: 40, windowMs: 86_400_000 },
+  ],
 } as const satisfies Record<string, readonly WindowLimit[]>;
 
 export type RateLimitAction = keyof typeof ACTION_RATE_LIMITS;
@@ -393,6 +399,7 @@ const actionLabels: Record<RateLimitAction, string> = {
   'subscriptions.checkout': 'l’avvio dei pagamenti',
   'iap.verify': 'le verifiche degli acquisti in-app',
   'music.resolve_download': 'le ricerche di versioni scaricabili',
+  'recordings.write': 'le registrazioni dei brani',
 };
 
 type DeniedRateLimit = Exclude<RateLimitDecision, { allowed: true }>;

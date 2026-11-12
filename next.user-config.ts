@@ -22,7 +22,9 @@ export const userRemotePatterns: RemotePatterns = [];
  *   geolocation → navigator.geolocation ("near me", maps)
  */
 export const appCapabilities: AppCapabilities = {
-  microphone: false,
+  // Registrazione di un brano direttamente sul sito (MediaRecorder). Il browser chiede
+  // comunque il permesso: questo abilita solo la possibilità di chiederlo.
+  microphone: true,
   camera: false,
   geolocation: false,
 };
