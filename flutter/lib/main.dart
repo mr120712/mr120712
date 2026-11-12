@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 
 import 'screens/home_screen.dart';
+import 'screens/library_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/search_screen.dart';
@@ -56,11 +57,11 @@ class _MainShell extends StatefulWidget {
 
 class _MainShellState extends State<_MainShell> {
   int _index = 0;
-  static const _titles = ['Home', 'Cerca', 'Profilo'];
+  static const _titles = ['Home', 'Cerca', 'Libreria', 'Profilo'];
 
   @override
   Widget build(BuildContext context) {
-    final pages = const [HomeScreen(), SearchScreen(), ProfileScreen()];
+    final pages = const [HomeScreen(), SearchScreen(), LibraryScreen(), ProfileScreen()];
     return Scaffold(
       appBar: AppBar(title: Text(_titles[_index])),
       body: SafeArea(child: pages[_index]),
@@ -74,6 +75,7 @@ class _MainShellState extends State<_MainShell> {
             destinations: const [
               NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Home'),
               NavigationDestination(icon: Icon(Icons.search), label: 'Cerca'),
+              NavigationDestination(icon: Icon(Icons.library_music_outlined), selectedIcon: Icon(Icons.library_music), label: 'Libreria'),
               NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Profilo'),
             ],
           ),

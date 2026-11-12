@@ -10,30 +10,38 @@ questa è una cartella separata, accanto a `android/` (la TWA attuale) e `ios/`
 > cura ma **va compilato e provato su una macchina con Flutter**. Aspettati
 > qualche piccolo aggiustamento di versione dei pacchetti al primo `flutter pub get`.
 
-## Cosa fa già (versione 0.1)
+## Cosa fa già (versione 0.2)
 
 - **Accesso** con email e password, contro le API di Solco (`better-auth`): login,
   registrazione, sessione che sopravvive al riavvio (cookie salvato sul dispositivo).
 - **Home**: le tendenze su Audius (`GET /api/music/home`).
 - **Cerca**: ricerca brani su Audius (`GET /api/music/search-all`). Mentre si scrive
   si interroga solo Audius, come sul sito; YouTube resta al sito.
+- **Libreria** (`GET /api/music/library` + `GET /api/music/collections`): cronologia
+  (con riascolto e "svuota"), playlist (con dettaglio e "riproduci"), radio salvate e
+  podcast seguiti (con rimozione). I brani Audius si riproducono; le altre fonti si
+  mostrano soltanto.
 - **Lettore**: riproduce lo stream Audius servito da Solco
   (`/api/music/audius/tracks/<id>/stream`) con **just_audio**, in **background** e con
-  i comandi sulla **schermata di blocco** (just_audio_background). Mini-player con
-  play/pausa e avanti.
+  i comandi sulla **schermata di blocco** (just_audio_background). **Mini-player**
+  (toccalo per aprire il **lettore a schermo intero**) con copertina grande, barra di
+  avanzamento con seek, precedente/play/successivo, **shuffle**, **ripetizione**
+  (coda/uno), **coda** e avanzamento automatico a fine brano. Gli ascolti vengono
+  registrati nella cronologia (`POST /api/music/library` → `record_play`).
+- **Mutazioni abilitate da nativo**: le rotte che modificano dati controllano
+  `same-origin`; il client imposta l'header `Origin = baseUrl` sulle richieste non-GET,
+  così le POST (cronologia, salva/segui, ecc.) passano il controllo CSRF — come fa l'SDK.
+  Perché funzioni, `kSolcoBaseUrl` deve combaciare con `NEXT_PUBLIC_APP_URL` del deploy.
 - Tema scuro con i colori del marchio (navy + lime).
 
 ## Cosa manca (prossimi passi)
 
-- Libreria, playlist, preferiti, cronologia.
-- Ricerca YouTube (player ufficiale in un `WebView`), radio e podcast.
+- Ricerca YouTube (player ufficiale in un `WebView`), radio e podcast riproducibili.
+- Riproduzione dei brani di playlist importati da YouTube / liste testuali.
 - Offline ("La tua musica" e "scarica il permesso").
 - Accesso con Google (OAuth: va aperto in un browser di sistema con un deep link).
 - Premium / pagamenti (in-app: Apple/Google richiedono i loro acquisti in-app).
-- Conteggio degli ascolti (`POST /api/music/plays`): le rotte che **modificano** dati
-  su Solco controllano `same-origin`. Da un'app nativa quelle POST vanno abilitate lato
-  backend (un'eccezione per l'app, o un token). La **riproduzione** (GET dello stream)
-  funziona già perché non è una rotta di modifica.
+- Cartelle delle playlist, preferiti come sezione dedicata, "non mi interessa".
 
 ## Come avviarla
 
@@ -59,13 +67,17 @@ Per puntare a un backend locale durante lo sviluppo, cambia `kSolcoBaseUrl` in
 
 ```
 lib/
-  main.dart                 avvio, auth-gate, navigazione, mini-player
+  main.dart                 avvio, auth-gate, navigazione (Home/Cerca/Libreria/Profilo)
   theme.dart                colori del marchio
   api/
-    models.dart             AudiusTrack, SessionUser
-    solco_api.dart          client (dio + cookie di sessione) verso /api di Solco
-  state/app_state.dart      provider Riverpod (api, sessione, tendenze, ricerca, player)
-  player/player_controller.dart  lettore just_audio (background + lock screen)
-  screens/                  login, home, cerca, profilo
-  widgets/                  track_tile, mini_player
+    models.dart             AudiusTrack, SessionUser, HistoryEntry, SavedStation,
+                            FollowedPodcast, LibraryData, Playlist, PlaylistItem
+    solco_api.dart          client (dio + cookie + Origin sulle mutazioni) verso /api
+  state/app_state.dart      provider Riverpod (api, sessione, tendenze, ricerca,
+                            libreria, playlist, player)
+  player/player_controller.dart  lettore just_audio: coda, shuffle, ripetizione, seek,
+                            avanzamento automatico, registrazione ascolti
+  screens/                  login, home, cerca, libreria, dettaglio_playlist,
+                            lettore_a_schermo_intero (player_screen), profilo
+  widgets/                  track_tile, mini_player (apre il lettore a schermo intero)
 ```

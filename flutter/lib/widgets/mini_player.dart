@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../screens/player_screen.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 
@@ -27,28 +28,43 @@ class MiniPlayer extends ConsumerWidget {
               child: Row(
                 children: [
                   const SizedBox(width: 8),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(6),
-                    child: SizedBox(
-                      width: 44,
-                      height: 44,
-                      child: track.artworkUrl != null
-                          ? CachedNetworkImage(imageUrl: track.artworkUrl!, fit: BoxFit.cover)
-                          : const ColoredBox(color: kSolcoNavy),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
                   Expanded(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                        Text(track.artistName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(color: Colors.white54, fontSize: 12)),
-                      ],
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      // Tocca la barra per aprire il lettore a schermo intero.
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                        fullscreenDialog: true,
+                        builder: (_) => const PlayerScreen(),
+                      )),
+                      child: Row(
+                        children: [
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(6),
+                            child: SizedBox(
+                              width: 44,
+                              height: 44,
+                              child: track.artworkUrl != null
+                                  ? CachedNetworkImage(
+                                      imageUrl: track.artworkUrl!, fit: BoxFit.cover)
+                                  : const ColoredBox(color: kSolcoNavy),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                                Text(track.artistName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                   StreamBuilder<bool>(

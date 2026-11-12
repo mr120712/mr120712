@@ -39,6 +39,16 @@ class SolcoApi {
       validateStatus: (code) => code != null && code < 500,
     ));
     dio.interceptors.add(CookieManager(jar));
+    // Le rotte che MODIFICANO dati controllano same-origin (confronto dell'header
+    // Origin con NEXT_PUBLIC_APP_URL). Da un'app nativa impostiamo Origin = baseUrl
+    // sulle richieste non-GET, così le POST passano il controllo CSRF (come l'SDK).
+    dio.interceptors.add(InterceptorsWrapper(onRequest: (options, handler) {
+      final method = options.method.toUpperCase();
+      if (method != 'GET' && method != 'HEAD') {
+        options.headers['Origin'] = kSolcoBaseUrl;
+      }
+      handler.next(options);
+    }));
     return SolcoApi._(dio, jar);
   }
 
@@ -147,5 +157,77 @@ class SolcoApi {
           .toList();
     }
     throw SolcoApiException('Ricerca non riuscita.', statusCode: res.statusCode);
+  }
+
+  // --- Libreria (GET con sessione) ---
+
+  /// La libreria dell'utente: cronologia, radio salvate, podcast seguiti.
+  Future<LibraryData> getLibrary() async {
+    final res = await _dio.get<dynamic>('/api/music/library');
+    final data = res.data;
+    if (res.statusCode == 200 && data is Map<String, dynamic>) {
+      return LibraryData.fromJson(data);
+    }
+    if (res.statusCode == 401) {
+      throw SolcoApiException('Accedi per vedere la tua libreria.', statusCode: 401);
+    }
+    throw SolcoApiException('Impossibile caricare la libreria.', statusCode: res.statusCode);
+  }
+
+  /// Le playlist dell'utente: GET /api/music/collections.
+  Future<List<Playlist>> getCollections() async {
+    final res = await _dio.get<dynamic>('/api/music/collections');
+    final data = res.data;
+    if (res.statusCode == 200 && data is Map<String, dynamic>) {
+      final collections = (data['collections'] as List?) ?? const [];
+      return collections
+          .whereType<Map<String, dynamic>>()
+          .map(Playlist.fromJson)
+          .toList();
+    }
+    if (res.statusCode == 401) {
+      throw SolcoApiException('Accedi per vedere le tue playlist.', statusCode: 401);
+    }
+    throw SolcoApiException('Impossibile caricare le playlist.', statusCode: res.statusCode);
+  }
+
+  // --- Libreria (mutazioni: Origin impostato dall'interceptor) ---
+
+  /// Registra un ascolto nella cronologia. Best-effort: non deve mai rompere la riproduzione.
+  Future<void> recordPlay(AudiusTrack track) async {
+    final artist = track.artistName.trim().isEmpty ? 'Sconosciuto' : track.artistName.trim();
+    try {
+      await _dio.post<dynamic>('/api/music/library', data: {
+        'action': 'record_play',
+        'track': {
+          'qualifiedId': track.qualifiedId,
+          'title': track.title,
+          'artistName': artist,
+          'artworkUrl': track.artworkUrl,
+          'sourceLabel': 'Audius',
+          'sourceUrl': null,
+          'albumId': null,
+          'durationSeconds': track.durationSeconds,
+          'playbackMode': 'audius',
+        },
+      });
+    } on DioException {
+      // Ignorato apposta.
+    }
+  }
+
+  Future<void> clearHistory() => _libraryMutation({'action': 'clear_history'});
+
+  Future<void> unsaveStation(String stationId) =>
+      _libraryMutation({'action': 'unsave_station', 'stationId': stationId});
+
+  Future<void> unfollowPodcast(String podcastId) =>
+      _libraryMutation({'action': 'unfollow_podcast', 'podcastId': podcastId});
+
+  Future<void> _libraryMutation(Map<String, dynamic> body) async {
+    final res = await _dio.post<dynamic>('/api/music/library', data: body);
+    if (res.statusCode != 200) {
+      throw SolcoApiException('Operazione non riuscita.', statusCode: res.statusCode);
+    }
   }
 }

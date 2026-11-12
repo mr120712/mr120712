@@ -38,3 +38,16 @@ final searchResultsProvider = FutureProvider<List<AudiusTrack>>((ref) async {
   final api = await ref.watch(apiProvider.future);
   return api.search(query);
 });
+
+/// La libreria dell'utente: cronologia, radio salvate, podcast seguiti.
+/// Si ricarica con `ref.invalidate(libraryProvider)` dopo una modifica.
+final libraryProvider = FutureProvider<LibraryData>((ref) async {
+  final api = await ref.watch(apiProvider.future);
+  return api.getLibrary();
+});
+
+/// Le playlist dell'utente.
+final collectionsProvider = FutureProvider<List<Playlist>>((ref) async {
+  final api = await ref.watch(apiProvider.future);
+  return api.getCollections();
+});
