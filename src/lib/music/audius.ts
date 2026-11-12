@@ -367,6 +367,9 @@ export function normalizeAudiusTracks(
       releaseDate: stringValue(record.release_date),
       bpm: numberValue(record.bpm),
       musicalKey: stringValue(record.musical_key),
+      // L'artista ha reso il brano scaricabile (Open Music License). La rotta di download lo
+      // riverifica comunque prima di scaricare un solo byte.
+      downloadable: record.is_downloadable === true,
       isrc: stringValue(record.isrc),
       iswc: stringValue(record.iswc),
       license,

@@ -1089,10 +1089,12 @@ describe('main', () => {
     }
     expect(code).toBe(1);
     expect(log.launches).toEqual([{ headless: true, channel: 'chrome' }]);
-    // 18 visits, plus the retry of /privacy.
+    // All planned visits, plus the retry of /privacy.
     expect(log.gotos).toHaveLength(plannedVisits().length + 1);
     const markdown = await readFile(summaryFile, 'utf8');
-    expect(markdown).toContain('**❌ 1 pagina su 18 ha errori nel browser**');
+    expect(markdown).toContain(
+      `**❌ 1 pagina su ${plannedVisits().length} ha errori nel browser**`,
+    );
     expect(markdown).toContain('La pagina risponde HTTP 404');
     expect(printed).toContain('[ERRORE] Privacy (/privacy) · computer');
     expect(printed).toContain('::error title=Solco nel browser%3A Privacy (/privacy) · computer');
@@ -1125,7 +1127,9 @@ describe('main', () => {
     expect(log.gotos.length).toBeGreaterThanOrEqual(1);
     expect(log.gotos.length).toBeLessThan(plannedVisits().length);
     const markdown = await readFile(summaryFile, 'utf8');
-    expect(markdown).toContain(`**❌ ${plannedVisits().length} pagine su 18 hanno errori`);
+    expect(markdown).toContain(
+      `**❌ ${plannedVisits().length} pagine su ${plannedVisits().length} hanno errori`,
+    );
     expect(markdown).toContain('La visita non è finita');
     expect(markdown).toContain(BUDGET_EXHAUSTED_MESSAGE);
     expect(printed).toContain(BUDGET_EXHAUSTED_MESSAGE);

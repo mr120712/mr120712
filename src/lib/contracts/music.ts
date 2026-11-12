@@ -52,6 +52,12 @@ export const AudiusTrackFieldsSchema = z.object({
   mood: z.string().nullable(),
   tags: z.string().nullable(),
   releaseDate: z.string().nullable(),
+  // Metadati da DJ e scaricabilità, opzionali: il normalizzatore li fornisce sempre, i fixture
+  // esistenti che non li includono restano validi.
+  bpm: z.number().nullable().optional(),
+  musicalKey: z.string().min(1).nullable().optional(),
+  /** L'artista ha aperto il brano al download (Open Music License). */
+  downloadable: z.boolean().optional(),
   license: z.string().nullable(),
   licensorName: z.string().min(1).nullable(),
   copyrightNotice: z.string().min(1).nullable(),
