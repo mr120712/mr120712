@@ -20,7 +20,7 @@ import { InstallAppBanner } from '@/components/custom/install-app-banner';
 import { AiSearchShortcut } from '@/components/custom/music/ai-search-shortcut';
 import { AudiusSection } from '@/components/custom/music/audius-section';
 import { JamendoSection } from '@/components/custom/music/jamendo-section';
-import { LocalMusicSection } from '@/components/custom/music/local-music-section';
+import { LocalMusicHomeCard } from '@/components/custom/music/local-music-home-card';
 import { FeedSectionLink, MoodChipGroup, MoodChips } from '@/components/custom/music/mood-chips';
 import { HomeMoodSwitch } from '@/components/custom/music/mood-feed';
 import { PodcastHomeRow } from '@/components/custom/music/podcast-home-row';
@@ -62,8 +62,8 @@ export default function HomePage() {
 
       <RecentlyPlayedRow />
 
-      {/* "La tua musica" offline (file sul dispositivo): ascoltabile anche senza rete e da sloggati. */}
-      <LocalMusicSection />
+      {/* "La tua musica" offline, versione compatta: ascolto rapido; gestione completa in Libreria. */}
+      <LocalMusicHomeCard />
 
       <div className={styles.feed}>
         <YouTubeCharts />

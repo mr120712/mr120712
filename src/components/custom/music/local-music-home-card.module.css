@@ -1,0 +1,85 @@
+/* @polsia:user-owned — scheda compatta "La tua musica" per la Home. */
+
+.card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  margin: 0.5rem 0 1.25rem;
+  background: var(--card);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 0.25rem);
+}
+
+.icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.75rem;
+  background: var(--muted);
+  color: var(--primary);
+}
+
+.icon svg {
+  width: 1.4rem;
+  height: 1.4rem;
+}
+
+.copy {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--muted-foreground);
+}
+
+.title {
+  margin: 0.1rem 0 0.25rem;
+  font-size: 1.1rem;
+  line-height: 1.2;
+}
+
+.sub {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.35;
+  color: var(--muted-foreground);
+}
+
+.actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.action {
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .card {
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .copy {
+    flex: 1 1 60%;
+  }
+
+  .actions {
+    width: 100%;
+  }
+
+  .action {
+    flex: 1 1 auto;
+  }
+}
