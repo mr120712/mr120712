@@ -84,6 +84,43 @@ export async function getAudiusTrending() {
   return runAudiusTrending(true, client);
 }
 
+export type AudiusMoodFilters = {
+  moods: readonly string[];
+  genres: readonly string[];
+  limit: number;
+};
+
+export async function runAudiusMoodTracks(
+  active: boolean,
+  client: Pick<AudiusSearchClient, 'moodTracks'>,
+  filters: AudiusMoodFilters,
+) {
+  if (!active) return { tracks: [], outcome: 'inactive' as const };
+  try {
+    const tracks = await client.moodTracks(filters, true);
+    return {
+      tracks,
+      outcome: tracks.length > 0 ? ('results' as const) : ('no_results' as const),
+    };
+  } catch (error) {
+    return {
+      tracks: [],
+      outcome: 'unavailable' as const,
+      ...(error instanceof AudiusApiError && error.retryAfterSeconds
+        ? { retryAfterSeconds: error.retryAfterSeconds }
+        : {}),
+    };
+  }
+}
+
+/** Brani Audius popolari per un mood (filtri mood e genere, ricerca vuota). */
+export async function getAudiusMoodTracks(filters: AudiusMoodFilters) {
+  const activation = getAudiusActivation();
+  if (!activation.active) return { tracks: [], outcome: 'inactive' as const };
+  const client = createAudiusApiClient({ apiKey: activation.apiKey });
+  return runAudiusMoodTracks(true, client, filters);
+}
+
 export async function searchAudiusAlbums(term: string) {
   const activation = getAudiusActivation();
   if (!activation.active) return { albums: [], outcome: 'inactive' as const };

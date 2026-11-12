@@ -34,7 +34,7 @@ const httpsUrl = z
     }
   }, 'Il link deve usare HTTPS.');
 
-const AudiusTrackFieldsSchema = z.object({
+export const AudiusTrackFieldsSchema = z.object({
   provider: z.literal('audius'),
   id: audiusId,
   qualifiedId: z.string().regex(/^audius:[A-Za-z0-9_-]{1,128}$/),

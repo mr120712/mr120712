@@ -25,6 +25,8 @@
   display: grid;
   min-width: 0;
   gap: 12px;
+  /* Anchor targets (#tendenze) land below the sticky top bar (56px), not under it. */
+  scroll-margin-top: 72px;
 }
 
 .sectionHeader {

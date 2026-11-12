@@ -23,7 +23,24 @@ function duration(seconds: number | null) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
-export function audiusToTrack(track: AudiusTrackSearchResult): MusicPlayerTrack {
+/** The fields a playable Audius row needs (player track, attribution, OML licence notice). */
+export type AudiusRowTrack = Pick<
+  AudiusTrackSearchResult,
+  | 'id'
+  | 'qualifiedId'
+  | 'title'
+  | 'artistName'
+  | 'artistUrl'
+  | 'artworkUrl'
+  | 'trackUrl'
+  | 'durationSeconds'
+  | 'license'
+  | 'copyrightNotice'
+  | 'licensorName'
+  | 'attributionRemovalRequested'
+>;
+
+export function audiusToTrack(track: AudiusRowTrack): MusicPlayerTrack {
   return {
     qualifiedId: track.qualifiedId,
     title: track.title,
@@ -38,6 +55,67 @@ export function audiusToTrack(track: AudiusTrackSearchResult): MusicPlayerTrack 
   };
 }
 
+/**
+ * Playable Audius rows: play/pause on the shared player, the shown tracks as the queue (or
+ * `queue`, when only part of a longer list is shown), and the OML licence notice under each
+ * attribution. Pass only playback-eligible tracks.
+ */
+export function AudiusTrackList({
+  tracks,
+  queue: queueTracks = tracks,
+}: {
+  tracks: AudiusRowTrack[];
+  queue?: AudiusRowTrack[];
+}) {
+  const player = useMusicPlayer();
+  const queue = queueTracks.map(audiusToTrack);
+  const play = (track: AudiusRowTrack) => {
+    if (player.currentTrack?.qualifiedId === track.qualifiedId) {
+      void player.togglePlayback();
+      return;
+    }
+    const item = audiusToTrack(track);
+    void player.playTrack(
+      item,
+      `/api/music/audius/tracks/${encodeURIComponent(track.id)}/stream`,
+      queue,
+    );
+  };
+
+  return (
+    <ol className={styles.list}>
+      {tracks.map((track) => {
+        const playing =
+          player.currentTrack?.qualifiedId === track.qualifiedId && player.status === 'playing';
+        return (
+          <li key={track.qualifiedId} className={styles.row}>
+            <div className={styles.rowArt}>
+              <FallbackArt src={track.artworkUrl} label={track.title} size={104} />
+            </div>
+            <div className={styles.rowCopy}>
+              <strong title={track.title}>{track.title}</strong>
+              <span>
+                {[track.artistName, duration(track.durationSeconds)].filter(Boolean).join(' · ')}
+              </span>
+              <AudiusLicenseNotice track={track} showTrackLink />
+            </div>
+            <div className={styles.rowActions}>
+              <button
+                type="button"
+                className={`${styles.iconButton} ${styles.playButton}`}
+                onClick={() => play(track)}
+                aria-label={playing ? `Metti in pausa ${track.title}` : `Riproduci ${track.title}`}
+              >
+                {playing ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
+              </button>
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 export function AudiusSection({
   query,
   contained = false,
@@ -49,7 +127,6 @@ export function AudiusSection({
   /** false: no page anchor id (when the section is rendered more than once on a page). */
   anchor?: boolean;
 }) {
-  const player = useMusicPlayer();
   const headingId = useId();
   const [loaded, setLoaded] = useState<Loaded | null>(null);
 
@@ -80,19 +157,6 @@ export function AudiusSection({
 
   const tracks = loaded.tracks.slice(0, 12);
   if (tracks.length === 0) return null;
-  const queue = tracks.map(audiusToTrack);
-  const play = (track: AudiusTrackSearchResult) => {
-    if (player.currentTrack?.qualifiedId === track.qualifiedId) {
-      void player.togglePlayback();
-      return;
-    }
-    const item = audiusToTrack(track);
-    void player.playTrack(
-      item,
-      `/api/music/audius/tracks/${encodeURIComponent(track.id)}/stream`,
-      queue,
-    );
-  };
 
   return (
     <section
@@ -106,38 +170,7 @@ export function AudiusSection({
           <h2 id={headingId}>{query ? 'Dagli artisti su Audius' : 'Tendenze su Audius'}</h2>
         </div>
       </header>
-      <ol className={styles.list}>
-        {tracks.map((track) => {
-          const playing =
-            player.currentTrack?.qualifiedId === track.qualifiedId && player.status === 'playing';
-          return (
-            <li key={track.qualifiedId} className={styles.row}>
-              <div className={styles.rowArt}>
-                <FallbackArt src={track.artworkUrl} label={track.title} size={104} />
-              </div>
-              <div className={styles.rowCopy}>
-                <strong title={track.title}>{track.title}</strong>
-                <span>
-                  {[track.artistName, duration(track.durationSeconds)].filter(Boolean).join(' · ')}
-                </span>
-                <AudiusLicenseNotice track={track} showTrackLink />
-              </div>
-              <div className={styles.rowActions}>
-                <button
-                  type="button"
-                  className={`${styles.iconButton} ${styles.playButton}`}
-                  onClick={() => play(track)}
-                  aria-label={
-                    playing ? `Metti in pausa ${track.title}` : `Riproduci ${track.title}`
-                  }
-                >
-                  {playing ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
-                </button>
-              </div>
-            </li>
-          );
-        })}
-      </ol>
+      <AudiusTrackList tracks={tracks} />
       <p className={styles.state}>
         Brani pubblicati dagli artisti su Audius. Brani completi e anche a schermo bloccato: con
         Free contano nei 40 ascolti del mese, con Premium sono illimitati.

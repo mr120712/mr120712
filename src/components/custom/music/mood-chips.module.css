@@ -1,0 +1,198 @@
+/* @polsia:user-owned — chip dei mood della Home: angoli morbidi e riempimento tenue come le chip
+   delle app di streaming, nei colori di Solco (la chip scelta prende il colore primario). */
+.group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+/* Holds the scrolling row and, with a mouse, the arrows laid over its edges. */
+.rail {
+  position: relative;
+  min-width: 0;
+}
+
+.chips {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  gap: 8px;
+  /* Room for the focus ring inside the scroll box; the negative margin keeps the row aligned. */
+  margin: -4px;
+  padding: 4px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  /* Read by the component too (chipScrollTarget): how far from the edge a chip is "in view". */
+  scroll-padding-inline: 16px;
+  scrollbar-width: none;
+}
+
+.chips::-webkit-scrollbar {
+  display: none;
+}
+
+/* Edge fade where more chips are hidden: a hint that the row scrolls. */
+.chips[data-overflow-start] {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 20px);
+  mask-image: linear-gradient(to right, transparent, #000 20px);
+}
+
+.chips[data-overflow-end] {
+  -webkit-mask-image: linear-gradient(to left, transparent, #000 20px);
+  mask-image: linear-gradient(to left, transparent, #000 20px);
+}
+
+.chips[data-overflow-start][data-overflow-end] {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 20px,
+    #000 calc(100% - 20px),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 20px,
+    #000 calc(100% - 20px),
+    transparent
+  );
+}
+
+.chip {
+  flex: none;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--foreground) 12%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.chip:hover {
+  background: color-mix(in srgb, var(--foreground) 15%, transparent);
+}
+
+.chip[aria-pressed="true"] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+/* Christmas theme in dark mode (brand-theme.css): white on its bright red primary (#e5484d) is
+   only 3.9:1 at this size. This deeper red keeps the selected label at 5.1:1 and, since the label
+   colour barely changes, still stands out from the unselected chip fill (#19231e) at 3.1:1 and
+   from the page at 3.7:1 (non-text contrast). The light Christmas theme (#b3202b, 6.6:1) keeps
+   the primary. Attribute selectors match the global classes on <html> as they are (a class
+   selector here would be renamed by CSS modules). */
+:root[class~="dark"][class~="theme-christmas"] .chip[aria-pressed="true"] {
+  border-color: #cc3239;
+  background: #cc3239;
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Arrows to page through the row: only with a mouse or trackpad (CSS) and only towards the side
+   that has hidden chips (the component renders them then). */
+.scrollButton {
+  display: none;
+  position: absolute;
+  top: 2px;
+  z-index: 1;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: 0 1px 6px rgb(0 0 0 / 22%);
+  cursor: pointer;
+}
+
+.scrollButton:hover {
+  background: color-mix(in srgb, var(--foreground) 10%, var(--card));
+}
+
+.scrollButton svg {
+  width: 18px;
+  height: 18px;
+}
+
+.scrollPrev {
+  left: 0;
+}
+
+.scrollNext {
+  right: 0;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  /* A thin scrollbar too, so a mouse without horizontal scrolling can still drag the row. The
+     wider scroll padding keeps a chosen or focused chip clear of the 32px arrow and the 20px fade
+     (the row edge is 4px outside the rail, so a chip 44px in clears the arrow by 8px). */
+  .chips {
+    scroll-padding-inline: 44px;
+    padding-bottom: 8px;
+    scrollbar-color: color-mix(in srgb, var(--foreground) 28%, transparent) transparent;
+    scrollbar-width: thin;
+  }
+
+  .chips::-webkit-scrollbar {
+    display: block;
+    height: 6px;
+  }
+
+  .chips::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--foreground) 28%, transparent);
+  }
+
+  .scrollButton {
+    display: grid;
+  }
+}
+
+@media (forced-colors: active) {
+  /* The fade would hide chips without a visible reason; system colours mark the chosen chip. */
+  .chips[data-overflow-start],
+  .chips[data-overflow-end],
+  .chips[data-overflow-start][data-overflow-end] {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+
+  .chip[aria-pressed="true"],
+  :root[class~="dark"][class~="theme-christmas"] .chip[aria-pressed="true"] {
+    forced-color-adjust: none;
+    border-color: Highlight;
+    background: Highlight;
+    color: HighlightText;
+  }
+
+  /* forced-color-adjust: none keeps var(--ring) too (1.7:1 on a light high-contrast theme). */
+  .chip[aria-pressed="true"]:focus-visible {
+    outline-color: CanvasText;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chip {
+    transition: none;
+  }
+}

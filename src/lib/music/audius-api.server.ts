@@ -422,6 +422,24 @@ export function createAudiusApiClient(input: {
         return { tracks: [], outcome: 'unavailable' as const };
       }
     },
+    /**
+     * Popular tracks for a mood: empty query plus the `mood` and `genre` filters, which Audius
+     * takes as arrays (the parameter repeated once per value).
+     */
+    async moodTracks(
+      filters: { moods: readonly string[]; genres: readonly string[]; limit: number },
+      sourceActive: boolean,
+    ) {
+      const params = new URLSearchParams({
+        query: '',
+        sort_method: 'popular',
+        limit: String(filters.limit),
+      });
+      for (const mood of filters.moods) params.append('mood', mood);
+      for (const genre of filters.genres) params.append('genre', genre);
+      const payload = await get('tracks/search', params);
+      return normalizeAudiusTracks(payload, sourceActive);
+    },
     async searchAlbums(term: string) {
       return get(
         'playlists/search',

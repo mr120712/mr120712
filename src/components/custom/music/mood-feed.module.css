@@ -1,0 +1,264 @@
+/* @polsia:user-owned — feed per mood della Home: intestazione col colore primario di Solco,
+   sezioni come il resto della Home, scheletri di caricamento senza animazione se ridotta. */
+.feed {
+  display: grid;
+  min-width: 0;
+  gap: clamp(24px, 3.5vw, 36px);
+}
+
+.header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px 16px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, var(--primary) 22%, var(--card)),
+    var(--card) 72%
+  );
+}
+
+.icon {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  border-radius: 14px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.icon svg {
+  width: 26px;
+  height: 26px;
+}
+
+.headerCopy {
+  min-width: 0;
+}
+
+.headerCopy h2 {
+  margin: 0;
+  border-radius: 6px;
+  font-family: var(--font-display), sans-serif;
+  font-size: clamp(24px, 3.2vw, 34px);
+  font-weight: 650;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+}
+
+.description {
+  margin: 4px 0 0;
+  color: var(--muted-foreground);
+  font-size: 14px;
+}
+
+.pillButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.pillButton:hover {
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+}
+
+.pillButton svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* "Mostra altri brani" under the first rows of the Audius list. */
+.moreButton {
+  justify-self: start;
+}
+
+.pillButton:focus-visible,
+.genreLinks a:focus-visible,
+.blockHeader a:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.blockHeader {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.blockHeader h3 {
+  margin: 0;
+  font-family: var(--font-display), sans-serif;
+  font-size: clamp(18px, 2.2vw, 24px);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.blockHeader a {
+  flex: none;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.errorBox {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+}
+
+.genreLinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.genreLinks a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.genreLinks a:hover {
+  border-color: var(--primary);
+}
+
+/* Loading skeletons, shaped like the track rows and the square tiles they stand in for. */
+.skeletonList {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.skeletonRow {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 36px;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+}
+
+.skeletonRail {
+  display: grid;
+  grid-auto-columns: 150px;
+  grid-auto-flow: column;
+  gap: 14px;
+  overflow: hidden;
+}
+
+.skeletonTile {
+  display: grid;
+  gap: 8px;
+}
+
+.bone {
+  display: block;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--foreground) 9%, transparent);
+  animation: mood-skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+.boneArt {
+  width: 52px;
+  aspect-ratio: 1;
+}
+
+.boneLine {
+  width: 80%;
+  height: 12px;
+}
+
+.boneShort {
+  width: 45%;
+  margin-top: 8px;
+}
+
+.boneButton {
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+}
+
+.boneTile {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 12px;
+}
+
+@keyframes mood-skeleton-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bone {
+    animation: none;
+  }
+}
+
+@media (max-width: 620px) {
+  .header {
+    grid-template-columns: auto minmax(0, 1fr);
+    padding: 16px;
+  }
+
+  .header .pillButton {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .skeletonRail {
+    grid-auto-columns: 132px;
+  }
+}
+
+/* Focus moved here by "Riprova" (the button disappears while reloading). */
+.headerCopy h2:focus {
+  outline: none;
+}
+
+.headerCopy h2:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+}
+
+/* The Home's usual feed, kept mounted: its children stay items of the Home grid. */
+.defaultFeed {
+  display: contents;
+}
+
+.defaultFeed[hidden] {
+  display: none;
+}

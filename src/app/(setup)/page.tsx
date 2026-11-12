@@ -14,10 +14,13 @@ import {
 } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { Suspense } from 'react';
 import { InstallAppBanner } from '@/components/custom/install-app-banner';
 import { AiSearchShortcut } from '@/components/custom/music/ai-search-shortcut';
 import { AudiusSection } from '@/components/custom/music/audius-section';
 import { JamendoSection } from '@/components/custom/music/jamendo-section';
+import { FeedSectionLink, MoodChipGroup, MoodChips } from '@/components/custom/music/mood-chips';
+import { HomeMoodSwitch } from '@/components/custom/music/mood-feed';
 import { PodcastHomeRow } from '@/components/custom/music/podcast-home-row';
 import { RadioHomeRow } from '@/components/custom/music/radio-home-row';
 import { RecentlyPlayedRow } from '@/components/custom/music/recently-played-row';
@@ -48,6 +51,39 @@ const shortcuts = [
 ];
 
 export default function HomePage() {
+  // Everything under the intro as always ("Tutto"). A mood chip (?mood=…) shows that mood's feed
+  // in its place, right under the chips.
+  const defaultFeed = (
+    <>
+      <InstallAppBanner />
+
+      <RecentlyPlayedRow />
+
+      <div className={styles.feed}>
+        <YouTubeCharts />
+        <AudiusSection />
+        <TikTokClips />
+        <JamendoSection />
+        <RadioHomeRow />
+        <PodcastHomeRow />
+        <section className={styles.genres} aria-labelledby="genres-heading">
+          <h2 id="genres-heading">Generi e playlist</h2>
+          <nav aria-label="Generi">
+            {genreCatalog
+              .filter((entry) => entry.family === 'playlist')
+              .map((entry) => (
+                <Link key={entry.slug} href={`/generi/${entry.slug}`}>
+                  {entry.name}
+                </Link>
+              ))}
+            <Link href="/generi">Tutti i generi →</Link>
+          </nav>
+        </section>
+        <TelegramButton variant="card" />
+      </div>
+    </>
+  );
+
   return (
     <>
       <AppTopBar />
@@ -70,43 +106,36 @@ export default function HomePage() {
               />
             </label>
           </form>
+          {/* Until the URL is read the chips show "Tutto" and do nothing. */}
+          <Suspense fallback={<MoodChipGroup selectedId={null} />}>
+            <MoodChips />
+          </Suspense>
           <nav className={styles.shortcuts} aria-label="Scorciatoie">
             <AiSearchShortcut />
-            {shortcuts.map((item) => (
-              <Link key={item.href} href={item.href}>
-                <item.icon aria-hidden="true" />
-                {item.label}
-              </Link>
-            ))}
+            {shortcuts.map((item) => {
+              const content = (
+                <>
+                  <item.icon aria-hidden="true" />
+                  {item.label}
+                </>
+              );
+              // A section of the "Tutto" feed (#tendenze): with a mood on, it goes back first.
+              return item.href.startsWith('#') ? (
+                <Suspense key={item.href} fallback={<Link href={item.href}>{content}</Link>}>
+                  <FeedSectionLink targetId={item.href.slice(1)}>{content}</FeedSectionLink>
+                </Suspense>
+              ) : (
+                <Link key={item.href} href={item.href}>
+                  {content}
+                </Link>
+              );
+            })}
           </nav>
         </section>
 
-        <InstallAppBanner />
-
-        <RecentlyPlayedRow />
-
-        <div className={styles.feed}>
-          <YouTubeCharts />
-          <AudiusSection />
-          <TikTokClips />
-          <JamendoSection />
-          <RadioHomeRow />
-          <PodcastHomeRow />
-          <section className={styles.genres} aria-labelledby="genres-heading">
-            <h2 id="genres-heading">Generi e playlist</h2>
-            <nav aria-label="Generi">
-              {genreCatalog
-                .filter((entry) => entry.family === 'playlist')
-                .map((entry) => (
-                  <Link key={entry.slug} href={`/generi/${entry.slug}`}>
-                    {entry.name}
-                  </Link>
-                ))}
-              <Link href="/generi">Tutti i generi →</Link>
-            </nav>
-          </section>
-          <TelegramButton variant="card" />
-        </div>
+        <Suspense fallback={defaultFeed}>
+          <HomeMoodSwitch className={styles.feed}>{defaultFeed}</HomeMoodSwitch>
+        </Suspense>
 
         <footer className={styles.footer}>
           <p>Solco · Ogni ascolto lascia un solco.</p>
