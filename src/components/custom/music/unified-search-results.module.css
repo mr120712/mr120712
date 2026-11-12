@@ -1,0 +1,141 @@
+/* @polsia:user-owned — stile della ricerca unificata: una sola lista mista (Audius, YouTube, radio,
+   podcast) con un piccolo distintivo di fonte per riga, i chip-filtro e l'azione YouTube secondaria
+   dei brani deduplicati. Le righe riusano .list/.row/.rowArt/.iconButton/.playButton di discover. */
+
+/* Nota in cima: cosa si cerca mentre si digita e cosa si aggiunge all'invio. */
+.hint {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+
+.hint a {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* Testata dei risultati: titolo + conteggio della categoria attiva. */
+.resultsHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+
+.count {
+  color: var(--muted-foreground);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Colonna centrale della riga: distintivo + titolo, poi sottotitolo. */
+.copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.titleLine {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+}
+
+.title {
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 650;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+a.title:hover {
+  text-decoration: underline;
+}
+
+.sub {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Distintivo della fonte (Audius / YouTube / Radio / Podcast). */
+.badge {
+  flex: none;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--secondary);
+  color: var(--muted-foreground);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.badge[data-source="audius"] {
+  color: var(--primary);
+  border-color: color-mix(in srgb, var(--primary) 40%, var(--border));
+}
+
+.badge[data-source="youtube"] {
+  color: #c4302b;
+  border-color: color-mix(in srgb, #c4302b 35%, var(--border));
+}
+
+/* L'app è forzata in tema scuro (color-theme.ts): il rosso YouTube #c4302b sul --secondary scuro è
+   solo ~3,1:1 (WCAG AA ne chiede 4,5:1 per questo testo di 10px). Un rosso più chiaro supera 4,5:1
+   su tutti i --secondary scuri: #1c1c1c (6,2:1), blue-hour #223346 (4,7:1), amber #3a2b3a (4,8:1),
+   Natale #143021 (5,2:1). Selettore ad attributo per la classe globale .dark su <html> (un selettore
+   di classe qui verrebbe rinominato dai CSS module). */
+:root[class~="dark"] .badge[data-source="youtube"] {
+  color: #f87171;
+  border-color: color-mix(in srgb, #f87171 35%, var(--border));
+}
+
+/* Azione secondaria «Ascolta su YouTube» sotto un brano Audius deduplicato. */
+.secondary {
+  margin-top: 4px;
+}
+
+.secondaryBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.secondaryBtn:hover {
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+  color: var(--foreground);
+}
+
+.secondaryBtn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.secondaryBtn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* La riga porta l'azione secondaria sotto: lascia che il contenuto si disponga su due livelli. */
+.rowStacked {
+  align-items: start;
+}
