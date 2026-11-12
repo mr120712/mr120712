@@ -126,7 +126,10 @@ export type MusicPlaybackMode =
   | 'song'
   // The listener's own file ("La tua musica", qualifiedId local:<id>): played from IndexedDB on
   // this device; nothing about it reaches the server (see local-tracks.ts).
-  | 'local';
+  | 'local'
+  // A song uploaded to the public library (qualifiedId upload:<id>): a PUBLIC file on Vercel Blob,
+  // streamed directly from its CDN URL (track.streamUrl). See public-uploads.server.ts.
+  | 'upload';
 
 export type MusicPlayerTrack = {
   qualifiedId: string;
@@ -143,6 +146,8 @@ export type MusicPlayerTrack = {
   albumId?: string | null;
   /** For a YouTube video found from an imported song: the song's qualifiedId (song:…). */
   importedFrom?: string | null;
+  /** Direct public stream URL (playbackMode 'upload': the Vercel Blob CDN URL). */
+  streamUrl?: string | null;
   playbackMode?: MusicPlaybackMode;
   credits?: string[];
 };
@@ -209,7 +214,9 @@ export function isOpenStream(track: Pick<MusicPlayerTrack, 'playbackMode'>) {
     track.playbackMode === 'radio' ||
     track.playbackMode === 'podcast' ||
     track.playbackMode === 'jamendo' ||
-    track.playbackMode === 'youtube'
+    track.playbackMode === 'youtube' ||
+    // Brano pubblico caricato dagli utenti: file pubblico su Blob, stream diretto, niente diritti.
+    track.playbackMode === 'upload'
   );
 }
 
@@ -362,6 +369,10 @@ export function trackStreamPath(track: MusicPlayerTrack) {
     const id = localTrackId(track.qualifiedId);
     return id ? `/local/${id}` : null;
   }
+  if (track.playbackMode === 'upload') {
+    // Public user upload: streamed directly from its Vercel Blob CDN URL (media-src allows https:).
+    return track.streamUrl && /^https:\/\//.test(track.streamUrl) ? track.streamUrl : null;
+  }
   const match = /^audius:([A-Za-z0-9_-]{1,128})$/.exec(track.qualifiedId);
   if (!match?.[1]) return null;
   if (track.playbackMode === 'audius') {
@@ -505,7 +516,8 @@ function isDeviceOnly(track: Pick<MusicPlayerTrack, 'playbackMode' | 'qualifiedI
 
 export async function requestPlayPermit(qualifiedId: string): Promise<PlayPermit> {
   // A local file needs no permit and counts for nothing (its id never leaves the device).
-  if (qualifiedId.startsWith('local:')) return { allowed: true };
+  if (qualifiedId.startsWith('local:') || qualifiedId.startsWith('upload:'))
+    return { allowed: true };
   try {
     const response = await fetch('/api/music/plays', {
       method: 'POST',

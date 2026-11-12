@@ -5,6 +5,7 @@ import {
   Disc3,
   Download,
   Gift,
+  Globe2,
   GraduationCap,
   Library,
   Mic,
@@ -24,6 +25,7 @@ import { LocalMusicHomeCard } from '@/components/custom/music/local-music-home-c
 import { FeedSectionLink, MoodChipGroup, MoodChips } from '@/components/custom/music/mood-chips';
 import { HomeMoodSwitch } from '@/components/custom/music/mood-feed';
 import { PodcastHomeRow } from '@/components/custom/music/podcast-home-row';
+import { PublicUploadsHomeSection } from '@/components/custom/music/public-uploads-home-section';
 import { RadioHomeRow } from '@/components/custom/music/radio-home-row';
 import { RecentlyPlayedRow } from '@/components/custom/music/recently-played-row';
 import { TikTokClips } from '@/components/custom/music/tiktok-clips';
@@ -47,6 +49,7 @@ const shortcuts = [
   { href: '/podcasts', label: 'Podcast', icon: Mic },
   { href: '/library', label: 'Libreria', icon: Library },
   { href: '#la-tua-musica', label: 'Musica offline', icon: Download },
+  { href: '/pubblica', label: 'Pubblica', icon: Globe2 },
   { href: '/piani', label: 'Premium', icon: Crown },
   { href: '/premi#invita', label: 'Invita amici', icon: Gift },
   { href: '/flashcards', label: 'Flashcard', icon: GraduationCap },
@@ -64,6 +67,9 @@ export default function HomePage() {
 
       {/* "La tua musica" offline, versione compatta: ascolto rapido; gestione completa in Libreria. */}
       <LocalMusicHomeCard />
+
+      {/* Anteprima della libreria pubblica dei brani caricati dagli utenti. */}
+      <PublicUploadsHomeSection />
 
       <div className={styles.feed}>
         <YouTubeCharts />

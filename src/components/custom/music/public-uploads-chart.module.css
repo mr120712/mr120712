@@ -1,0 +1,105 @@
+/* @polsia:user-owned — classifica/libreria pubblica dei brani caricati. */
+
+.state {
+  color: var(--muted-foreground);
+  font-size: 0.9rem;
+  padding: 0.5rem 0;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.5rem;
+  border-radius: calc(var(--radius) * 0.75);
+}
+
+.row:hover {
+  background: var(--muted);
+}
+
+.rank {
+  flex: none;
+  width: 1.5rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+}
+
+.playButton {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: none;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  cursor: pointer;
+}
+
+.playButton svg {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.copy {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.95rem;
+}
+
+.meta {
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.actions {
+  flex: none;
+  display: flex;
+  gap: 0.25rem;
+}
+
+.iconButton {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border: none;
+  background: transparent;
+  color: var(--muted-foreground);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.iconButton:hover {
+  color: var(--foreground);
+  background: var(--muted);
+}
+
+.iconButton svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}

@@ -8,6 +8,27 @@ import type {
   RadioStation,
   SavedStation,
 } from '@/lib/contracts/library';
+/** Un brano della libreria pubblica → elemento del player (stream diretto dall'URL pubblico Blob). */
+export function publicUploadToTrack(upload: {
+  id: string;
+  title: string;
+  artist: string | null;
+  streamUrl: string;
+  durationSeconds: number;
+}): MusicPlayerTrack {
+  return {
+    qualifiedId: `upload:${upload.id}`,
+    title: upload.title,
+    artistName: upload.artist ?? 'Caricato dagli utenti',
+    artworkUrl: null,
+    sourceLabel: 'Caricato dagli utenti',
+    sourceUrl: null,
+    durationSeconds: upload.durationSeconds,
+    streamUrl: upload.streamUrl,
+    playbackMode: 'upload',
+  };
+}
+
 export function stationToTrack(station: RadioStation): MusicPlayerTrack {
   return {
     qualifiedId: `radio:${station.id}`,

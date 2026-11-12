@@ -126,13 +126,14 @@ export const PlaybackModeSchema = z.enum([
   'podcast',
   'jamendo',
   'youtube',
+  'upload',
 ]);
 
 export const HistoryTrackSchema = z.object({
   qualifiedId: z
     .string()
     .regex(
-      /^(audius:[A-Za-z0-9_-]{1,128}|radio:[A-Za-z0-9_-]{1,128}|podcast:[0-9]{1,20}~[A-Za-z0-9_-]{1,64}|jamendo:[0-9]{1,20}|youtube:[A-Za-z0-9_-]{11})$/,
+      /^(audius:[A-Za-z0-9_-]{1,128}|radio:[A-Za-z0-9_-]{1,128}|podcast:[0-9]{1,20}~[A-Za-z0-9_-]{1,64}|jamendo:[0-9]{1,20}|youtube:[A-Za-z0-9_-]{11}|upload:[a-z0-9]{20,40})$/,
     ),
   title: shortText(400),
   artistName: shortText(300),

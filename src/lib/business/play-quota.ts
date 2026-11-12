@@ -46,7 +46,9 @@ export function decidePlay(input: {
  * - Radio dal vivo: lo stream è della stazione, Solco non lo vende né lo limita.
  * Il limite vale per Audius e podcast (e per Jamendo, se mai attivato con una licenza commerciale).
  */
-export const FREE_QUOTA_EXEMPT_PREFIXES = ['youtube:', 'radio:'] as const;
+// I brani caricati nella libreria pubblica sono contenuti degli utenti (non catalogo in licenza):
+// non consumano il limite gratuito, come YouTube e le radio.
+export const FREE_QUOTA_EXEMPT_PREFIXES = ['youtube:', 'radio:', 'upload:'] as const;
 
 export function countsTowardFreeQuota(qualifiedId: string) {
   return !FREE_QUOTA_EXEMPT_PREFIXES.some((prefix) => qualifiedId.startsWith(prefix));

@@ -13,6 +13,9 @@ vi.mock('@/components/custom/music/jamendo-section', () => ({ JamendoSection: ()
 vi.mock('@/components/custom/music/local-music-home-card', () => ({
   LocalMusicHomeCard: () => null,
 }));
+vi.mock('@/components/custom/music/public-uploads-home-section', () => ({
+  PublicUploadsHomeSection: () => null,
+}));
 vi.mock('@/components/custom/music/podcast-home-row', () => ({ PodcastHomeRow: () => null }));
 vi.mock('@/components/custom/music/radio-home-row', () => ({ RadioHomeRow: () => null }));
 vi.mock('@/components/custom/music/recently-played-row', () => ({

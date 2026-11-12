@@ -1,0 +1,38 @@
+/* @polsia:user-owned — layout pagina libreria pubblica. */
+
+.page {
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.pageTitle {
+  margin: 0;
+  font-size: 1.6rem;
+}
+
+.lead {
+  margin: 0;
+  color: var(--muted-foreground);
+  line-height: 1.45;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 1.15rem;
+}

@@ -1,0 +1,42 @@
+// @polsia:user-owned — libreria PUBBLICA di brani caricati dagli utenti.
+// Il file audio è ospitato su Vercel Blob come oggetto PUBBLICO (servito dalla CDN via URL):
+// chiunque può ascoltarlo. Nasce visibile con l'attestazione dei diritti al caricamento; la
+// moderazione (segnalazioni di utenti distinti oltre una soglia) lo ritira automaticamente, e
+// l'autore può rimuoverlo in ogni momento (cancellando anche l'oggetto su Blob).
+
+model PublicUpload {
+  id              String   @id @default(cuid())
+  uploaderUserId  String
+  title           String
+  artist          String?
+  // URL pubblico dell'oggetto su Vercel Blob (CDN). Unico: due righe non rivendicano lo stesso file.
+  blobUrl         String   @unique
+  // Percorso dell'oggetto su Blob: serve per cancellarlo (del) alla rimozione. Unico.
+  blobPathname    String   @unique
+  mimeType        String
+  byteLength      Int
+  durationSeconds Int
+  // Pubblico per scelta: nasce visibile. La moderazione può ritirarlo.
+  published       Boolean  @default(true)
+  playCount       Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  reports PublicUploadReport[]
+
+  @@index([published, playCount])
+  @@index([uploaderUserId, createdAt])
+}
+
+// Una segnalazione per utente e per brano: il conteggio è di segnalatori DISTINTI, così nessuno
+// può ritirare da solo un brano ripetendo la segnalazione.
+model PublicUploadReport {
+  id             String   @id @default(cuid())
+  uploadId       String
+  reporterUserId String
+  createdAt      DateTime @default(now())
+
+  upload PublicUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  @@unique([uploadId, reporterUserId])
+  @@index([uploadId])
+}

@@ -47,6 +47,9 @@ export const env = createEnv({
     // @polsia:contrib file-upload start
     POLSIA_R2_BASE_URL: z.string().url().optional(),
     // @polsia:contrib file-upload end
+    // Vercel Blob: storage pubblico per i brani caricati dagli utenti (libreria pubblica).
+    // Opzionale: senza, la funzione di caricamento è disattivata (mostra "non configurato").
+    BLOB_READ_WRITE_TOKEN: z.string().min(1).optional(),
     // @polsia:slot env_vars_server end
   },
 
@@ -98,6 +101,7 @@ export const env = createEnv({
     // @polsia:contrib file-upload start
     POLSIA_R2_BASE_URL: process.env.POLSIA_R2_BASE_URL,
     // @polsia:contrib file-upload end
+    BLOB_READ_WRITE_TOKEN: process.env.BLOB_READ_WRITE_TOKEN,
     // @polsia:slot env_runtime end
   },
   emptyStringAsUndefined: true,

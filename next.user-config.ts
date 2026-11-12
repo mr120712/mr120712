@@ -50,7 +50,14 @@ export const cspExtraSources: CspExtraSources = {
     'https://www.tiktok.com',
   ],
   // Apple Music (MusicKit JS): catalogue API, playback licences and audio segments.
-  connectSrc: ['https://api.music.apple.com', 'https://*.apple.com', 'https://*.mzstatic.com'],
+  // Vercel Blob: upload diretto dal browser dei brani della libreria pubblica (PUT cross-origin).
+  connectSrc: [
+    'https://api.music.apple.com',
+    'https://*.apple.com',
+    'https://*.mzstatic.com',
+    'https://blob.vercel-storage.com',
+    'https://*.public.blob.vercel-storage.com',
+  ],
   mediaSrc: [],
   fontSrc: [],
   imgSrc: [],
