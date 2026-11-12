@@ -161,6 +161,12 @@ export const ACTION_RATE_LIMITS = {
     { requests: 15, windowMs: 60_000 },
     { requests: 150, windowMs: 86_400_000 },
   ],
+  // Ricerca su Audius di una versione scaricabile dei brani importati (batch, ogni chiamata è un
+  // lotto): poche al minuto per account, con un tetto giornaliero.
+  'music.resolve_download': [
+    { requests: 6, windowMs: 60_000 },
+    { requests: 60, windowMs: 86_400_000 },
+  ],
 } as const satisfies Record<string, readonly WindowLimit[]>;
 
 export type RateLimitAction = keyof typeof ACTION_RATE_LIMITS;
@@ -384,6 +390,7 @@ const actionLabels: Record<RateLimitAction, string> = {
   'music.download.global': 'i download offline di oggi',
   'subscriptions.checkout': 'l’avvio dei pagamenti',
   'iap.verify': 'le verifiche degli acquisti in-app',
+  'music.resolve_download': 'le ricerche di versioni scaricabili',
 };
 
 type DeniedRateLimit = Exclude<RateLimitDecision, { allowed: true }>;

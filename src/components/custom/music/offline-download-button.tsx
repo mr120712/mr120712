@@ -23,13 +23,14 @@ import {
   type OfflinePlan,
   offlineBatchSummary,
   offlineSavedCount,
+  resolveDownloadableSongs,
   runOfflineDownloadBatch,
 } from '@/components/custom/music/offline-download';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import styles from './offline-download-button.module.css';
 
-type Phase = 'idle' | 'running' | 'done';
+type Phase = 'idle' | 'resolving' | 'running' | 'done';
 
 export function OfflineDownloadButton({
   label,
@@ -45,7 +46,7 @@ export function OfflineDownloadButton({
   /** Chiamato dopo che almeno un brano è stato salvato, per aggiornare la Libreria. */
   onSaved?: () => void;
 }) {
-  const { downloadable, onlineOnly } = plan;
+  const { downloadable, onlineOnly, resolvable } = plan;
   const [phase, setPhase] = useState<Phase>('idle');
   const [progress, setProgress] = useState<OfflineBatchProgress | null>(null);
   const [result, setResult] = useState<OfflineBatchResult | null>(null);
@@ -55,12 +56,37 @@ export function OfflineDownloadButton({
   const onlineOnlyId = `${idPrefix}-online-only`;
 
   const run = useCallback(async () => {
-    if (runningRef.current || downloadable.length === 0) return;
+    if (runningRef.current || (downloadable.length === 0 && resolvable.length === 0)) return;
     runningRef.current = true;
-    setPhase('running');
     setResult(null);
-    setProgress({ processed: 0, total: downloadable.length, title: '' });
-    const outcome = await runOfflineDownloadBatch(downloadable, {
+
+    // Prima cerca una versione Audius scaricabile dei brani importati (Spotify/elenco).
+    let targets = downloadable;
+    if (resolvable.length > 0) {
+      setPhase('resolving');
+      const resolution = await resolveDownloadableSongs(resolvable);
+      targets = [...downloadable, ...resolution.targets];
+    }
+    if (targets.length === 0) {
+      runningRef.current = false;
+      setProgress(null);
+      setResult({
+        stopped: null,
+        stopMessage: null,
+        saved: [],
+        already: [],
+        onlineOnly: [],
+        failed: [],
+      });
+      setPhase('done');
+      toast.error('Nessuna versione scaricabile trovata per i brani importati.');
+      buttonRef.current?.focus();
+      return;
+    }
+
+    setPhase('running');
+    setProgress({ processed: 0, total: targets.length, title: '' });
+    const outcome = await runOfflineDownloadBatch(targets, {
       onProgress: (value) => setProgress(value),
     });
     runningRef.current = false;
@@ -77,10 +103,10 @@ export function OfflineDownloadButton({
     }
     // Il focus resta sul pulsante (non si smonta): l'ascoltatore può scaricare di nuovo.
     buttonRef.current?.focus();
-  }, [downloadable, onSaved]);
+  }, [downloadable, resolvable, onSaved]);
 
-  // Niente da scaricare in questa playlist: una nota chiara, più l'elenco di cosa resta online.
-  if (downloadable.length === 0) {
+  // Niente da scaricare né da cercare: una nota chiara, più l'elenco di cosa resta online.
+  if (downloadable.length === 0 && resolvable.length === 0) {
     if (onlineOnly.length === 0) return null;
     return (
       <div className={styles.wrap}>
@@ -94,7 +120,8 @@ export function OfflineDownloadButton({
   }
 
   const running = phase === 'running';
-  const busy = running || undefined;
+  const resolving = phase === 'resolving';
+  const busy = running || resolving || undefined;
   const count = downloadable.length;
 
   return (
@@ -112,15 +139,19 @@ export function OfflineDownloadButton({
             aria-describedby={onlineOnly.length > 0 ? onlineOnlyId : undefined}
             aria-label={`Scarica per l’ascolto offline i brani consentiti di ${label}`}
             onClick={() => {
-              if (!running) void run();
+              if (!busy) void run();
             }}
           >
             <Download aria-hidden="true" />
-            {running
-              ? 'Scarico…'
-              : phase === 'done'
-                ? 'Scarica di nuovo'
-                : `Scarica per offline (${count})`}
+            {resolving
+              ? 'Cerco versioni scaricabili…'
+              : running
+                ? 'Scarico…'
+                : phase === 'done'
+                  ? 'Scarica di nuovo'
+                  : resolvable.length > 0
+                    ? 'Scarica per offline'
+                    : `Scarica per offline (${count})`}
           </Button>
         ) : (
           <p className={styles.note}>
@@ -153,6 +184,17 @@ export function OfflineDownloadButton({
       </div>
 
       {phase === 'done' && result ? <BatchSummary result={result} /> : null}
+
+      {resolvable.length > 0 && phase === 'idle' ? (
+        <p className={styles.note}>
+          <Info aria-hidden="true" />
+          <span>
+            {resolvable.length === 1
+              ? '1 brano importato: al download cerco una versione scaricabile su Audius (non sempre disponibile; niente audio da Spotify).'
+              : `${resolvable.length} brani importati: al download cerco una versione scaricabile su Audius (non sempre disponibile; niente audio da Spotify).`}
+          </span>
+        </p>
+      ) : null}
 
       {onlineOnly.length > 0 ? <OnlineOnlyList id={onlineOnlyId} items={onlineOnly} /> : null}
     </div>

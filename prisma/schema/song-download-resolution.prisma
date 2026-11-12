@@ -1,0 +1,14 @@
+// @polsia:user-owned — cache: un brano importato (artista + titolo) -> una traccia Audius
+// SCARICABILE corrispondente, oppure "nessuna". Niente audio da Spotify/YouTube: si cerca solo una
+// versione che l'artista ha reso scaricabile su Audius (Open Music License). Condivisa tra gli utenti
+// (la chiave è la forma canonica del brano), con scadenza: la scaricabilità su Audius può cambiare.
+model SongDownloadResolution {
+  // Hash della forma canonica (artista + titolo): ricerche uguali condividono una riga.
+  key String @id
+  // Id della traccia Audius scaricabile trovata, oppure null = nessuna versione scaricabile.
+  audiusTrackId String?
+  createdAt     DateTime @default(now())
+  expiresAt     DateTime
+
+  @@index([expiresAt])
+}

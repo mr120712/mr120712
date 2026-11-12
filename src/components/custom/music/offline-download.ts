@@ -18,6 +18,10 @@ import {
   OfflineDownloadMetaSchema,
 } from '@/lib/contracts/offline';
 import {
+  DOWNLOADABLE_SOURCE_MAX,
+  DownloadableSourceResponseSchema,
+} from '@/lib/contracts/song-download';
+import {
   type AddDownloadedResult,
   type DownloadedTrackInput,
   addDownloadedTrack as defaultAddDownloaded,
@@ -77,10 +81,17 @@ export type OfflineDownloadTarget = {
 /** Un elemento che resta solo in streaming, con la sua nota in italiano. */
 export type OfflineOnlineOnlyItem = { id: string; title: string; reason: string };
 
-/** Lo scaricabile e l'online-only di una playlist/raccolta. */
+/**
+ * Un brano importato (da Spotify o da un elenco) per cui si può CERCARE una versione Audius
+ * scaricabile: non ha un file scaricabile di per sé, ma potrebbe esistere una registrazione lecita.
+ */
+export type ResolvableSong = { id: string; title: string; artist: string | null };
+
+/** Lo scaricabile, l'online-only e i brani importati da risolvere di una playlist/raccolta. */
 export type OfflinePlan = {
   downloadable: OfflineDownloadTarget[];
   onlineOnly: OfflineOnlineOnlyItem[];
+  resolvable: ResolvableSong[];
 };
 
 /** Percorso same-origin della rotta di download di un elemento. */
@@ -101,6 +112,7 @@ export function offlineDownloadPath(endpoint: OfflineDownloadEndpoint): string {
 export function collectionDownloadPlan(items: readonly MusicCollectionItem[]): OfflinePlan {
   const downloadable: OfflineDownloadTarget[] = [];
   const onlineOnly: OfflineOnlineOnlyItem[] = [];
+  const resolvable: ResolvableSong[] = [];
   for (const item of items) {
     const title = item.title ?? 'Brano senza titolo';
     if (item.source === 'audius') {
@@ -119,11 +131,84 @@ export function collectionDownloadPlan(items: readonly MusicCollectionItem[]): O
       }
     } else if (item.source === 'youtube') {
       onlineOnly.push({ id: item.id, title, reason: OFFLINE_INELIGIBLE_REASONS.youtube });
+    } else if (item.title && item.creatorName) {
+      // Brano importato (Spotify / elenco): si prova a trovare una versione Audius scaricabile.
+      resolvable.push({ id: item.id, title, artist: item.creatorName });
     } else {
       onlineOnly.push({ id: item.id, title, reason: OFFLINE_INELIGIBLE_REASONS.song });
     }
   }
-  return { downloadable, onlineOnly };
+  return { downloadable, onlineOnly, resolvable };
+}
+
+/** Esito della ricerca di versioni scaricabili per i brani importati. */
+export type SongResolutionResult = {
+  /** I brani per cui esiste una versione Audius scaricabile, pronti per il download. */
+  targets: OfflineDownloadTarget[];
+  /** I brani per cui non è stata trovata una versione scaricabile (restano online). */
+  unresolved: ResolvableSong[];
+};
+
+/**
+ * Per un gruppo di brani importati chiede al server (a lotti) se esiste una versione Audius
+ * scaricabile. Non scarica nulla: restituisce i bersagli da passare poi a runOfflineDownloadBatch.
+ * Non lancia mai: un errore lascia i brani tra gli "unresolved".
+ */
+export async function resolveDownloadableSongs(
+  songs: readonly ResolvableSong[],
+  deps: { fetcher?: typeof fetch } = {},
+): Promise<SongResolutionResult> {
+  const fetcher = deps.fetcher ?? fetch;
+  const targets: OfflineDownloadTarget[] = [];
+  const unresolved: ResolvableSong[] = [];
+  const byId = new Map(songs.map((song) => [song.id, song]));
+
+  for (let start = 0; start < songs.length; start += DOWNLOADABLE_SOURCE_MAX) {
+    const chunk = songs.slice(start, start + DOWNLOADABLE_SOURCE_MAX);
+    let response: Response;
+    try {
+      response = await fetcher('/api/music/import/downloadable-source', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({
+          songs: chunk.map((song) => ({ id: song.id, title: song.title, artist: song.artist })),
+        }),
+      });
+    } catch {
+      for (const song of chunk) unresolved.push(song);
+      continue;
+    }
+    if (!response.ok) {
+      for (const song of chunk) unresolved.push(song);
+      continue;
+    }
+    const parsed = DownloadableSourceResponseSchema.safeParse(
+      await response.json().catch(() => null),
+    );
+    if (!parsed.success) {
+      for (const song of chunk) unresolved.push(song);
+      continue;
+    }
+    const seen = new Set<string>();
+    for (const result of parsed.data.results) {
+      const song = byId.get(result.id);
+      if (!song) continue;
+      seen.add(song.id);
+      if (result.audiusTrackId) {
+        targets.push({
+          id: song.id,
+          title: song.title,
+          endpoint: { kind: 'audius', trackId: result.audiusTrackId },
+        });
+      } else {
+        unresolved.push(song);
+      }
+    }
+    // Brani del lotto non riportati dal server: restano tra gli unresolved.
+    for (const song of chunk) if (!seen.has(song.id)) unresolved.push(song);
+  }
+
+  return { targets, unresolved };
 }
 
 /** Esito dello scaricamento di un singolo elemento. */

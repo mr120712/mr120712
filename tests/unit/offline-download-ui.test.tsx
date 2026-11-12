@@ -97,10 +97,11 @@ describe('piano di download di una raccolta', () => {
     ]);
     expect(plan.downloadable.map((target) => target.id)).toEqual(['a']);
     expect(plan.downloadable[0]?.endpoint).toEqual({ kind: 'audius', trackId: 'track-71' });
+    // Un brano importato (source 'song') con titolo+artista si prova a risolvere su Audius.
+    expect(plan.resolvable).toEqual([{ id: 's', title: 'Brano', artist: 'Artista' }]);
     const onlineIds = plan.onlineOnly.map((item) => item.id);
-    expect(onlineIds).toEqual(['y', 's', 'inc']);
+    expect(onlineIds).toEqual(['y', 'inc']);
     expect(plan.onlineOnly[0]?.reason).toContain('YouTube');
-    expect(plan.onlineOnly[1]?.reason.toLowerCase()).toContain('streaming');
   });
 });
 
@@ -250,6 +251,7 @@ describe('OfflineDownloadButton', () => {
         reason: 'I brani di YouTube si possono solo ascoltare in streaming.',
       },
     ],
+    resolvable: [],
   };
 
   it('scarica gli elementi consentiti e mostra la nota online-only per gli altri', async () => {
@@ -295,7 +297,7 @@ describe('OfflineDownloadButton', () => {
     const container = await render(
       <OfflineDownloadButton
         label="Solo YouTube"
-        plan={{ downloadable: [], onlineOnly: plan.onlineOnly }}
+        plan={{ downloadable: [], onlineOnly: plan.onlineOnly, resolvable: [] }}
         signedIn
       />,
     );
@@ -323,7 +325,7 @@ describe('OfflineDownloadButton', () => {
     const container = await render(
       <OfflineDownloadButton
         label="Brani Audius"
-        plan={{ downloadable: [audiusTarget, notDownloadable], onlineOnly: [] }}
+        plan={{ downloadable: [audiusTarget, notDownloadable], onlineOnly: [], resolvable: [] }}
         signedIn
       />,
     );
@@ -353,7 +355,7 @@ describe('OfflineDownloadButton', () => {
     const container = await render(
       <OfflineDownloadButton
         label="Audius non scaricabili"
-        plan={{ downloadable: [notDownloadable], onlineOnly: [] }}
+        plan={{ downloadable: [notDownloadable], onlineOnly: [], resolvable: [] }}
         signedIn
       />,
     );
