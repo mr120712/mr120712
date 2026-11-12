@@ -97,14 +97,14 @@ export function Snowfall() {
       canvas.style.width = `${width}px`;
       canvas.style.height = `${height}px`;
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
-      // About one flake per 14 000 px², capped for phones and big screens.
-      const count = Math.max(30, Math.min(140, Math.round((width * height) / 14_000)));
+      // Un po' più di neve per un tema più natalizio: ~un fiocco per 11 000 px², con un tetto.
+      const count = Math.max(45, Math.min(170, Math.round((width * height) / 11_000)));
       flakes = Array.from({ length: count }, () => ({
         x: Math.random() * width,
         y: Math.random() * height,
-        r: 0.8 + Math.random() * 2.6,
-        speed: 18 + Math.random() * 42,
-        drift: 8 + Math.random() * 22,
+        r: 1 + Math.random() * 3.2,
+        speed: 16 + Math.random() * 44,
+        drift: 8 + Math.random() * 24,
         phase: Math.random() * Math.PI * 2,
       }));
     };
@@ -113,7 +113,10 @@ export function Snowfall() {
       const dt = Math.min(0.05, (time - last) / 1000);
       last = time;
       context.clearRect(0, 0, width, height);
-      context.fillStyle = 'rgba(255, 255, 255, 0.85)';
+      // Un alone morbido rende la neve più soffice e natalizia (una sola passata, resta leggera).
+      context.shadowColor = 'rgba(255, 255, 255, 0.55)';
+      context.shadowBlur = 4;
+      context.fillStyle = 'rgba(255, 255, 255, 0.9)';
       context.beginPath();
       for (const flake of flakes) {
         flake.phase += dt;

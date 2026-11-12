@@ -455,3 +455,13 @@ body.has-video-dock .solco-support-launcher {
     radial-gradient(circle at 50% -10%, rgb(229 72 77 / 28%), transparent 60%),
     radial-gradient(circle at 90% 110%, rgb(242 193 78 / 14%), transparent 50%), var(--background);
 }
+
+/* Tema natalizio: un bagliore festivo molto tenue sullo sfondo (rosso in alto, oro in basso).
+   È solo un'immagine di sfondo sul body: non copre nulla e non cattura i clic. */
+.theme-christmas body {
+  background-image:
+    radial-gradient(1200px 520px at 50% -8%, rgb(229 72 77 / 10%), transparent 70%),
+    radial-gradient(900px 420px at 100% 102%, rgb(242 193 78 / 7%), transparent 60%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+}
