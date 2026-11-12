@@ -207,21 +207,23 @@ export default function PrivacyPage() {
             <p>
               Spotify: dalla Libreria puoi collegare il tuo account Spotify per trasferire in Solco
               le tue playlist e i brani salvati. Solco chiede a Spotify solo i permessi di lettura
-              delle playlist e dei brani salvati (playlist-read-private e user-library-read): non
-              modifica nulla su Spotify e non riproduce audio da Spotify.{' '}
-              <strong>Cosa viene letto:</strong> l’elenco delle tue playlist (nome, proprietario,
-              copertina e numero di brani) e il numero dei brani salvati, mostrati solo mentre
-              scegli cosa importare e mai salvati; quando confermi l’importazione, i brani delle
-              playlist che hai scelto e, se lo selezioni, i tuoi brani salvati.{' '}
-              <strong>Cosa viene conservato:</strong> solo le playlist che importi, come tue
-              playlist Solco, con titolo, artista, durata e link a Spotify di ogni brano (al massimo
-              200 brani per playlist); restano finché non le elimini o non elimini l’account. Come
-              per gli elenchi importati da file, quando ascolti un brano Solco ne cerca titolo e
-              artista su YouTube. I token di accesso di Spotify sono conservati cifrati nel
-              database, non vengono mai inviati al browser e vengono cancellati quando scolleghi
-              Spotify o elimini l’account. <strong>Come scollegare:</strong> usa il pulsante
-              «Disconnetti Spotify» nella <Link href="/library">Libreria</Link> e, se vuoi, revoca
-              l’accesso di Solco anche dalla pagina{' '}
+              delle playlist, comprese quelle collaborative, e dei brani salvati
+              (playlist-read-private, playlist-read-collaborative e user-library-read): non modifica
+              nulla su Spotify e non riproduce audio da Spotify. <strong>Cosa viene letto:</strong>{' '}
+              l’elenco delle tue playlist, comprese quelle che segui (per ciascuna: nome, nome del
+              proprietario, copertina, numero di brani e se Spotify consente di leggerne i brani), e
+              il numero dei brani salvati, mostrati solo mentre scegli cosa importare e mai salvati;
+              quando confermi l’importazione, i brani delle playlist che hai scelto e, se lo
+              selezioni, i tuoi brani salvati. <strong>Cosa viene conservato:</strong> solo le
+              playlist che importi, come tue playlist Solco, con titolo, artista, durata e link a
+              Spotify di ogni brano (al massimo 200 brani per playlist); restano finché non le
+              elimini o non elimini l’account. Come per gli elenchi importati da file, quando
+              ascolti un brano Solco ne cerca titolo e artista su YouTube. I token di accesso di
+              Spotify sono conservati cifrati nel database, non vengono mai inviati al browser e
+              vengono cancellati quando scolleghi Spotify o elimini l’account.{' '}
+              <strong>Come scollegare:</strong> usa il pulsante «Disconnetti Spotify» nella{' '}
+              <Link href="/library">Libreria</Link> e, se vuoi, revoca l’accesso di Solco anche
+              dalla pagina{' '}
               <a href="https://www.spotify.com/account/apps/" target="_blank" rel="noreferrer">
                 App del tuo account Spotify
               </a>

@@ -8,10 +8,18 @@ export const SPOTIFY_AUTHORIZE_URL = 'https://accounts.spotify.com/authorize';
 export const SPOTIFY_TOKEN_URL = 'https://accounts.spotify.com/api/token';
 export const SPOTIFY_API_BASE = 'https://api.spotify.com/v1';
 /**
- * Minimum scopes: GET /me/playlists and GET /playlists/{id}/items need playlist-read-private,
- * GET /me/tracks needs user-library-read (verified against the OpenAPI `security` blocks).
+ * Minimum scopes, all read-only (docs: web-api/concepts/scopes and web-api/concepts/playlists):
+ * - GET /me/playlists returns private non-collaborative playlists only with playlist-read-private
+ *   and collaborative playlists (owned or followed) only with playlist-read-collaborative. The
+ *   endpoint's reference page and OpenAPI `security` block list only playlist-read-private.
+ * - GET /playlists/{id}/items needs playlist-read-private.
+ * - GET /me/tracks needs user-library-read.
  */
-export const SPOTIFY_SCOPES = ['playlist-read-private', 'user-library-read'] as const;
+export const SPOTIFY_SCOPES = [
+  'playlist-read-private',
+  'playlist-read-collaborative',
+  'user-library-read',
+] as const;
 /** Solco page that hosts "Importa da Spotify"; every redirect lands here. */
 export const SPOTIFY_IMPORT_PAGE = '/library';
 export const SPOTIFY_CALLBACK_PATH = '/api/spotify/callback';

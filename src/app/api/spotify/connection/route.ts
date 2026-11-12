@@ -6,7 +6,7 @@ import { ConnectionStatusSchema } from '@/lib/contracts/spotify';
 import { getSessionUser, requireAuth, type SessionUser } from '@/lib/require-auth';
 import { sameOrigin } from '@/lib/same-origin';
 import { spotifyConfig, spotifyJson } from '@/lib/spotify/config.server';
-import { deleteConnection, isConnected } from '@/lib/spotify/connection.server';
+import { connectionState, deleteConnection } from '@/lib/spotify/connection.server';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,8 +19,14 @@ export async function GET() {
     user = null;
   }
   // Guests see the feature and are sent to sign in by /api/spotify/login.
-  const connected = configured && user !== null ? await isConnected(user.id) : false;
-  return spotifyJson(ConnectionStatusSchema.parse({ configured, connected }));
+  const state = configured && user !== null ? await connectionState(user.id) : 'none';
+  return spotifyJson(
+    ConnectionStatusSchema.parse({
+      configured,
+      connected: state !== 'none',
+      needsReconnect: state === 'outdated',
+    }),
+  );
 }
 
 export async function DELETE(request: Request) {

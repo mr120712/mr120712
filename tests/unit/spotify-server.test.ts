@@ -26,7 +26,12 @@ import {
   sealOAuthCookie,
   statesMatch,
 } from '@/lib/spotify/connection.server';
-import { mapPlaylist, mapSpotifyTrack, pickImage } from '@/lib/spotify/import.server';
+import {
+  listSpotifyPlaylists,
+  mapPlaylist,
+  mapSpotifyTrack,
+  pickImage,
+} from '@/lib/spotify/import.server';
 import {
   base64UrlDecode,
   CODE_VERIFIER_ALPHABET,
@@ -354,9 +359,28 @@ describe('client Spotify', () => {
     expect(described.message).toContain('Settings → User Management');
 
     fetchMock.mockResolvedValueOnce(json({ error: { status: 403, message: 'Forbidden' } }, 403));
-    await expect(
-      spotifyFetch('/playlists/37i9dQZF1DXcBWIGoYBM5M/items', { accessToken: 'tok' }),
-    ).rejects.toMatchObject({ reason: 'forbidden', spotifyMessage: 'Forbidden' });
+    const forbidden = await spotifyFetch('/playlists/37i9dQZF1DXcBWIGoYBM5M/items', {
+      accessToken: 'tok',
+    }).catch((e) => e);
+    expect(forbidden).toMatchObject({ reason: 'forbidden', spotifyMessage: 'Forbidden' });
+    // A bare reason phrase is not appended to the Italian sentence.
+    expect(describeSpotifyError(forbidden).message).toBe(
+      'Spotify consente di leggere solo le playlist che hai creato o di cui sei collaboratore.',
+    );
+    expect(
+      describeSpotifyError(
+        new SpotifyError({ status: 403, reason: 'forbidden', spotifyMessage: 'Not allowed here' }),
+      ).message,
+    ).toContain('(Spotify: “Not allowed here”)');
+    expect(
+      describeSpotifyError(
+        new SpotifyError({
+          status: 503,
+          reason: 'unavailable',
+          spotifyMessage: 'Service Unavailable',
+        }),
+      ).message,
+    ).toBe('Spotify non risponde al momento. Riprova tra qualche minuto.');
     fetchMock.mockResolvedValueOnce(json({ error: { status: 403, message: 'Forbidden' } }, 403));
     await expect(spotifyFetch('/me/playlists', { accessToken: 'tok' })).rejects.toMatchObject({
       reason: 'not_allowlisted',
@@ -413,7 +437,7 @@ describe('mappatura degli oggetti Spotify', () => {
       mapPlaylist({
         id: '37i9dQZF1DXcBWIGoYBM5M',
         name: 'Today’s Top Hits',
-        owner: { display_name: 'Spotify' },
+        owner: { id: 'spotify', display_name: 'Spotify' },
         images: [
           { url: 'https://i.scdn.co/image/large', width: 640, height: 640 },
           { url: 'https://i.scdn.co/image/small', width: 60, height: 60 },
@@ -430,6 +454,8 @@ describe('mappatura degli oggetti Spotify', () => {
       imageUrl: 'https://i.scdn.co/image/medium',
       itemCount: 50,
       spotifyUrl: 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M',
+      // Spotify's own editorial playlists cannot be read by the app.
+      importable: false,
     });
     expect(pickImage([{ url: 'https://mosaic.scdn.co/640/x', width: null, height: null }])).toBe(
       'https://mosaic.scdn.co/640/x',
@@ -445,6 +471,68 @@ describe('mappatura degli oggetti Spotify', () => {
     ).toBe('https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M');
     expect(mapPlaylist({ id: 'bad', name: 'X' })).toBeNull();
     expect(mapPlaylist(null)).toBeNull();
+  });
+
+  it('segna come non importabili le playlist soltanto seguite (senza `items`)', () => {
+    const importable = (raw: Record<string, unknown>) =>
+      mapPlaylist({ id: '5ABHKGoOzxkaa28ttQV9sE', name: 'P', ...raw })?.importable;
+    const items = { total: 3 };
+    // Spotify returns `items` only for playlists the listener owns or collaborates on.
+    expect(importable({ owner: { id: 'ada' }, items })).toBe(true);
+    // Another user's playlist with `items`: the listener collaborates on it, whatever
+    // `collaborative` says (that attribute is not the same as having collaborators).
+    for (const collaborative of [true, false, null, undefined]) {
+      expect(importable({ owner: { id: 'bruno' }, collaborative, items })).toBe(true);
+    }
+    expect(importable({ owner: { id: 'bruno' }, items: {} })).toBe(true);
+    // Without `items`: merely followed, /items would answer 403.
+    for (const collaborative of [true, false, undefined]) {
+      expect(importable({ owner: { id: 'bruno' }, collaborative })).toBe(false);
+      expect(importable({ owner: { id: 'bruno' }, collaborative, items: null })).toBe(false);
+    }
+    expect(importable({ owner: { id: 'ada' } })).toBe(false);
+    // Spotify's own playlists are never readable, even with `items`.
+    expect(importable({ owner: { id: 'spotify' }, items })).toBe(false);
+    expect(importable({ owner: { id: 'spotify' } })).toBe(false);
+    // Unknown or missing owner: `items` alone decides.
+    expect(importable({ owner: { display_name: 'Bruno' }, items })).toBe(true);
+    expect(importable({ owner: null, items })).toBe(true);
+    expect(importable({ items })).toBe(true);
+    expect(importable({ owner: null })).toBe(false);
+  });
+
+  it('elenca le playlist con due sole richieste: /me/playlists e /me/tracks', async () => {
+    fetchMock.mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/v1/me/playlists') {
+        return json({
+          total: 2,
+          items: [
+            {
+              id: '5ABHKGoOzxkaa28ttQV9sE',
+              name: 'Mia',
+              owner: { id: 'ada' },
+              items: { total: 4 },
+            },
+            { id: '1A2b3C4d5E6f7G8h9I0jKl', name: 'Seguita', owner: { id: 'bruno' } },
+          ],
+        });
+      }
+      if (url.pathname === '/v1/me/tracks') return json({ total: 5, items: [] });
+      // The listener's profile (or anything else) is never needed for the list.
+      return json({ error: { status: 404, message: 'Not found' } }, 404);
+    });
+    const result = await listSpotifyPlaylists({ accessToken: 'tok' }, 0);
+    expect(result.savedTracks).toBe(5);
+    expect(result.nextOffset).toBeNull();
+    expect(result.playlists.map(({ name, importable }) => ({ name, importable }))).toEqual([
+      { name: 'Mia', importable: true },
+      { name: 'Seguita', importable: false },
+    ]);
+    expect(fetchMock.mock.calls.map(([input]) => new URL(String(input)).pathname).sort()).toEqual([
+      '/v1/me/playlists',
+      '/v1/me/tracks',
+    ]);
   });
 });
 

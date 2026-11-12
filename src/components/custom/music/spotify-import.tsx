@@ -42,7 +42,8 @@ const DEFAULT_RETRY_SECONDS = 5;
 /** Upper bound for the client-side wait (setTimeout overflows past ~24 days). */
 const MAX_RETRY_SECONDS = 86_400;
 
-type Status = 'loading' | 'hidden' | 'disconnected' | 'connected' | 'reauth';
+/** outdated: still connected, but with an older consent that lacks a scope Solco now needs. */
+type Status = 'loading' | 'hidden' | 'disconnected' | 'connected' | 'reauth' | 'outdated';
 type CreatedPlaylist = SpotifyImportResponse['created'][number];
 type FailedSource = SpotifyImportResponse['failed'][number];
 /** A page of playlists together with the offset it was loaded from. */
@@ -87,6 +88,10 @@ function needsReauth(error: unknown) {
   return errorBody(error)?.error === 'spotify_reauth';
 }
 
+function needsNewConsent(error: unknown) {
+  return errorBody(error)?.error === 'spotify_scope_outdated';
+}
+
 /** The server's own Italian message (it includes Spotify's when useful), else the fallback. */
 function errorMessage(error: unknown, fallback: string) {
   const body = errorBody(error);
@@ -106,6 +111,23 @@ function errorMessage(error: unknown, fallback: string) {
     return seconds === null && !message ? `${base} Riprova tra qualche secondo.` : base;
   }
   return message ?? fallback;
+}
+
+/** 429 codes that mean Spotify itself is limiting Solco: they pause every call to Spotify. */
+const SPOTIFY_LIMIT_ERRORS = new Set(['spotify_rate_limited', 'spotify_quota_exceeded']);
+
+/** Note beside "Importa in Solco" while Solco's own import limit is in force. */
+function importWaitNote(until: number) {
+  // The note is rendered once and not updated while it is on screen, so it never counts down:
+  // under a minute it says so, otherwise it names the first whole minute when importing works
+  // again (rounded up: 10:09:46 → "dalle 10:10", never a minute that is still blocked).
+  let when = 'tra meno di un minuto';
+  if (until - Date.now() >= 60_000) {
+    const end = new Date(Math.ceil(until / 60_000) * 60_000);
+    const time = end.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+    when = `${end.toDateString() === new Date().toDateString() ? '' : 'domani '}dalle ${time}`;
+  }
+  return `Hai raggiunto il limite di importazioni: potrai importare di nuovo ${when}. Intanto puoi continuare a sfogliare e scegliere le playlist.`;
 }
 
 /** Seconds to wait before calling Spotify again after a 429 (Retry-After), else null. */
@@ -207,6 +229,9 @@ export function SpotifyImport({ onImported }: { onImported: () => void }) {
   const [listError, setListError] = useState<string | null>(null);
   const [cooldown, setCooldown] = useState<Cooldown | null>(null);
   const cooldownRef = useRef<Cooldown | null>(null);
+  // Solco's own import limit (429 rate_limited): only "Importa in Solco" waits, the list does not.
+  const [importBlockedUntil, setImportBlockedUntil] = useState<number | null>(null);
+  const importBlockedRef = useRef<number | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [saved, setSaved] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -244,7 +269,8 @@ export function SpotifyImport({ onImported }: { onImported: () => void }) {
       .then((connection) => {
         if (!active) return;
         if (!connection.configured) setStatus('hidden');
-        else setStatus(connection.connected ? 'connected' : 'disconnected');
+        else if (!connection.connected) setStatus('disconnected');
+        else setStatus(connection.needsReconnect ? 'outdated' : 'connected');
       })
       .catch(() => {
         // Signed out, feature off or server trouble: the card simply does not appear.
@@ -258,6 +284,13 @@ export function SpotifyImport({ onImported }: { onImported: () => void }) {
   const askReauth = useCallback(() => {
     focusTitleRef.current = true;
     setStatus('reauth');
+  }, []);
+
+  /** Older consent without a scope Solco now needs: the server keeps it until the listener acts. */
+  const askNewConsent = useCallback((error: unknown) => {
+    focusTitleRef.current = true;
+    setStatus('outdated');
+    toast.error(errorMessage(error, 'Ricollega Spotify per continuare.'));
   }, []);
 
   /** Honour Retry-After: after a 429, no request reaches Spotify until the wait is over. */
@@ -286,6 +319,23 @@ export function SpotifyImport({ onImported }: { onImported: () => void }) {
     return () => window.clearTimeout(timer);
   }, [cooldown]);
 
+  const importBlocked = useCallback(() => {
+    const until = importBlockedRef.current;
+    return until !== null && until > Date.now();
+  }, []);
+
+  useEffect(() => {
+    if (importBlockedUntil === null) return;
+    const timer = window.setTimeout(
+      () => {
+        importBlockedRef.current = null;
+        setImportBlockedUntil(null);
+      },
+      Math.max(0, importBlockedUntil - Date.now()),
+    );
+    return () => window.clearTimeout(timer);
+  }, [importBlockedUntil]);
+
   const loadPage = useCallback(
     async (offset: number) => {
       const waiting = activeCooldown();
@@ -310,6 +360,10 @@ export function SpotifyImport({ onImported }: { onImported: () => void }) {
           askReauth();
           return;
         }
+        if (needsNewConsent(error)) {
+          askNewConsent(error);
+          return;
+        }
         const message = errorMessage(
           error,
           'Non è stato possibile leggere le tue playlist da Spotify. Riprova.',
@@ -320,7 +374,7 @@ export function SpotifyImport({ onImported }: { onImported: () => void }) {
         if (request === requestRef.current) setLoadingList(false);
       }
     },
-    [activeCooldown, askReauth, startCooldown],
+    [activeCooldown, askNewConsent, askReauth, startCooldown],
   );
 
   // The playlist list is read live from Spotify only while the chooser is open; closing it
@@ -345,7 +399,10 @@ export function SpotifyImport({ onImported }: { onImported: () => void }) {
 
   // When the controls the user was on disappear (disconnect, reconnect needed), land on the title.
   useEffect(() => {
-    if (focusTitleRef.current && (status === 'disconnected' || status === 'reauth')) {
+    if (
+      focusTitleRef.current &&
+      (status === 'disconnected' || status === 'reauth' || status === 'outdated')
+    ) {
       focusTitleRef.current = false;
       titleRef.current?.focus();
     }
@@ -362,19 +419,19 @@ export function SpotifyImport({ onImported }: { onImported: () => void }) {
   const chosen = selected.length + (saved ? 1 : 0);
   const limitReached = chosen >= SPOTIFY_IMPORT_MAX_SOURCES;
 
-  const toggle = (id: string, name: string, checked: boolean) => {
+  const toggle = (id: string, name: string, checked: boolean, importable: boolean) => {
     if (!checked) {
       setSelected((previous) => previous.filter((value) => value !== id));
       return;
     }
-    if (selected.includes(id) || limitReached) return;
+    if (!importable || selected.includes(id) || limitReached) return;
     setSelected([...selected, id]);
     setNames((previous) => ({ ...previous, [id]: name }));
   };
 
   const runImport = async (event: FormEvent) => {
     event.preventDefault();
-    if (importing || chosen === 0 || activeCooldown()) return;
+    if (importing || chosen === 0 || activeCooldown() || importBlocked()) return;
     setImporting(true);
     setCreated([]);
     setFailed([]);
@@ -403,8 +460,24 @@ export function SpotifyImport({ onImported }: { onImported: () => void }) {
         toast.error('La connessione con Spotify è scaduta: ricollega Spotify per importare.');
         return;
       }
+      if (needsNewConsent(error)) {
+        askNewConsent(error);
+        return;
+      }
       const message = errorMessage(error, 'Importazione da Spotify non riuscita. Riprova.');
-      startCooldown(error, message);
+      const code = errorBody(error)?.error;
+      if (typeof code === 'string' && SPOTIFY_LIMIT_ERRORS.has(code)) {
+        startCooldown(error, message);
+      } else {
+        // Solco's own import limit (shared with the other imports): the playlist list is a
+        // separate limit, so browsing and choosing stay possible during the wait.
+        const seconds = retryAfterSeconds(error);
+        if (seconds !== null) {
+          const until = Date.now() + seconds * 1000;
+          importBlockedRef.current = until;
+          setImportBlockedUntil(until);
+        }
+      }
       toast.error(message);
     } finally {
       setImporting(false);
@@ -503,12 +576,35 @@ export function SpotifyImport({ onImported }: { onImported: () => void }) {
         </>
       ) : null}
 
+      {status === 'outdated' ? (
+        <>
+          <p className={styles.text}>
+            Spotify è collegato con un consenso precedente, che non include le playlist di cui sei
+            collaboratore. Ricollega Spotify per vedere anche quelle: le playlist già importate
+            restano nella tua Libreria.
+          </p>
+          <div className={styles.actions}>
+            <Button asChild>
+              <a href={LOGIN_PATH}>Ricollega Spotify</a>
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={disconnecting}
+              onClick={() => void disconnect()}
+            >
+              {disconnecting ? 'Scollegamento…' : 'Disconnetti Spotify'}
+            </Button>
+          </div>
+        </>
+      ) : null}
+
       {status === 'connected' ? (
         <>
           <p className={styles.text}>
-            Spotify è collegato. Scegli fino a {SPOTIFY_IMPORT_MAX_SOURCES} elementi fra le tue
-            playlist e i brani salvati: Solco crea una playlist per ciascuno (al massimo 200 brani)
-            e cerca ogni brano su YouTube quando lo ascolti.
+            Spotify è collegato. Scegli fino a {SPOTIFY_IMPORT_MAX_SOURCES} elementi fra i brani
+            salvati e le playlist che hai creato o di cui sei collaboratore: Solco crea una playlist
+            per ciascuno (al massimo 200 brani) e cerca ogni brano su YouTube quando lo ascolti.
           </p>
           <div className={styles.actions}>
             <Button
@@ -604,15 +700,24 @@ export function SpotifyImport({ onImported }: { onImported: () => void }) {
                       const inputId = `${baseId}-playlist-${playlist.id}`;
                       const checked = selected.includes(playlist.id);
                       return (
-                        <li key={playlist.id} className={styles.item}>
+                        <li
+                          key={playlist.id}
+                          className={styles.item}
+                          data-importable={playlist.importable ? undefined : 'false'}
+                        >
                           <input
                             id={inputId}
                             type="checkbox"
                             className={styles.check}
                             checked={checked}
-                            disabled={!checked && limitReached}
+                            disabled={!checked && (limitReached || !playlist.importable)}
                             onChange={(event) =>
-                              toggle(playlist.id, playlist.name, event.target.checked)
+                              toggle(
+                                playlist.id,
+                                playlist.name,
+                                event.target.checked,
+                                playlist.importable,
+                              )
                             }
                           />
                           <label htmlFor={inputId} className={styles.label}>
@@ -644,6 +749,14 @@ export function SpotifyImport({ onImported }: { onImported: () => void }) {
                                     .join(' · ')}
                                 </span>
                               ) : null}
+                              {playlist.importable ? null : (
+                                // Inside the label: part of the checkbox's accessible name, so
+                                // every screen reader says why it cannot be chosen.
+                                <span className={styles.itemMeta}>
+                                  Non importabile: Spotify consente di importare solo le playlist
+                                  create da te o di cui sei collaboratore.
+                                </span>
+                              )}
                             </span>
                           </label>
                           <SpotifyLink href={playlistUrl(playlist.id, playlist.spotifyUrl)}>
@@ -693,7 +806,10 @@ export function SpotifyImport({ onImported }: { onImported: () => void }) {
 
             {page ? (
               <div className={styles.actions}>
-                <Button type="submit" disabled={importing || chosen === 0 || coolingDown}>
+                <Button
+                  type="submit"
+                  disabled={importing || chosen === 0 || coolingDown || importBlockedUntil !== null}
+                >
                   {importing ? 'Importazione…' : 'Importa in Solco'}
                 </Button>
                 <span className={styles.hint}>
@@ -711,6 +827,9 @@ export function SpotifyImport({ onImported }: { onImported: () => void }) {
             ) : null}
 
             {cooldown && !listError ? <p className={styles.note}>{cooldown.message}</p> : null}
+            {page && importBlockedUntil !== null && !cooldown ? (
+              <p className={styles.note}>{importWaitNote(importBlockedUntil)}</p>
+            ) : null}
 
             <output className={styles.hint} aria-live="polite">
               {progress}

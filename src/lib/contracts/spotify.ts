@@ -21,6 +21,11 @@ export const ConnectionStatusSchema = z.object({
   /** false: SPOTIFY_CLIENT_ID mancante o origine non HTTPS → la UI non mostra nulla. */
   configured: z.boolean(),
   connected: z.boolean(),
+  /**
+   * true: collegato con un consenso precedente a cui manca uno scope ora richiesto
+   * (playlist-read-collaborative): la UI chiede di ricollegare Spotify.
+   */
+  needsReconnect: z.boolean().default(false),
 });
 export type ConnectionStatus = z.infer<typeof ConnectionStatusSchema>;
 
@@ -36,6 +41,14 @@ export const SpotifyPlaylistSchema = z.object({
   itemCount: z.number().int().nonnegative().nullable(),
   /** Link alla playlist su open.spotify.com (attribuzione obbligatoria). */
   spotifyUrl: z.string().url(),
+  /**
+   * false: playlist soltanto seguita (di un altro utente o di Spotify), di cui Spotify non
+   * consente di leggere i brani: Spotify ne omette il campo `items`, presente solo per le playlist
+   * di cui l'utente è proprietario o collaboratore. La UI la mostra senza poterla scegliere. Se
+   * Spotify nega comunque la lettura di una playlist importabile, l'importazione lo segnala per
+   * quella sola sorgente (spotify_forbidden).
+   */
+  importable: z.boolean(),
 });
 export type SpotifyPlaylist = z.infer<typeof SpotifyPlaylistSchema>;
 
@@ -102,7 +115,8 @@ export type SpotifyImportResponse = z.infer<typeof SpotifyImportResponseSchema>;
 /**
  * Corpo di ogni errore delle route /api/spotify/*: `{ error, message }` (italiano) e, per i 429,
  * `retryAfterSeconds`. Codici: spotify_not_configured (404), spotify_reauth (401: collega o
- * ricollega Spotify), spotify_not_allowlisted (403: app in modalità sviluppo), spotify_forbidden
+ * ricollega Spotify), spotify_scope_outdated (401: consenso precedente senza uno scope ora
+ * richiesto, il collegamento resta finché non si ricollega), spotify_not_allowlisted (403: app in modalità sviluppo), spotify_forbidden
  * (403), spotify_not_found (404), spotify_rate_limited (429), spotify_quota_exceeded (429:
  * quota della modalità sviluppo esaurita; retryAfterSeconds solo se Spotify invia Retry-After),
  * spotify_unavailable (502/503),

@@ -14,6 +14,7 @@ import { SPOTIFY_API_BASE, spotifyJson } from '@/lib/spotify/config.server';
 export type SpotifyErrorReason =
   | 'bad_request'
   | 'reauth'
+  | 'scope_outdated'
   | 'not_allowlisted'
   | 'forbidden'
   | 'not_found'
@@ -285,8 +286,12 @@ export async function spotifyFetch(
   }
 }
 
+/** A bare HTTP reason phrase ("Forbidden") adds nothing to the Italian explanation. */
+const BARE_REASON_PHRASE =
+  /^(?:bad request|unauthorized|forbidden|not found|internal server error|bad gateway|service unavailable|gateway timeout)\.?$/i;
+
 function quoted(message: string | null) {
-  return message ? ` (Spotify: “${message}”)` : '';
+  return message && !BARE_REASON_PHRASE.test(message) ? ` (Spotify: “${message}”)` : '';
 }
 
 export type SpotifyErrorDescription = {
@@ -312,6 +317,13 @@ export function describeSpotifyError(error: unknown): SpotifyErrorDescription {
         error: 'spotify_reauth',
         message:
           'Il collegamento con Spotify è scaduto o è stato revocato. Ricollega Spotify per continuare.',
+      };
+    case 'scope_outdated':
+      return {
+        status: 401,
+        error: 'spotify_scope_outdated',
+        message:
+          'Ricollega Spotify per vedere anche le playlist di cui sei collaboratore: il consenso che hai dato a Solco in precedenza non le include.',
       };
     case 'not_allowlisted':
       return { status: 403, error: 'spotify_not_allowlisted', message: NOT_ALLOWLISTED_MESSAGE };

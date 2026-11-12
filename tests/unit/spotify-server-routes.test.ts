@@ -120,6 +120,9 @@ const CLIENT_ID = '0123456789abcdef0123456789abcdef';
 const ORIGIN = 'https://solco.test';
 const PLAYLIST_A = '37i9dQZF1DXcBWIGoYBM5M';
 const PLAYLIST_B = '5ABHKGoOzxkaa28ttQV9sE';
+const PLAYLIST_C = '1A2b3C4d5E6f7G8h9I0jKl';
+const PLAYLIST_D = '37i9dQZF1DX0XUsuxWHRQd';
+const SCOPES = 'playlist-read-private playlist-read-collaborative user-library-read';
 
 type Handler = (url: URL, init: RequestInit | undefined) => Response | Promise<Response>;
 let spotify: Handler;
@@ -153,12 +156,12 @@ function track(n: number, extra: Record<string, unknown> = {}) {
   };
 }
 
-async function connect(userId = 'u1', expiresInMs = 3_600_000) {
+async function connect(userId = 'u1', expiresInMs = 3_600_000, scope = SCOPES) {
   await saveConnection(userId, {
     accessToken: 'ACCESS-OLD',
     refreshToken: 'REFRESH-OLD',
     expiresAt: new Date(Date.now() + expiresInMs),
-    scope: 'playlist-read-private user-library-read',
+    scope,
   });
 }
 
@@ -204,7 +207,11 @@ describe('funzione spenta', () => {
       expect((await read(response)).error).toBe('spotify_not_configured');
     }
     const status = await connectionGET();
-    expect(await read(status)).toEqual({ configured: false, connected: false });
+    expect(await read(status)).toEqual({
+      configured: false,
+      connected: false,
+      needsReconnect: false,
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
@@ -241,7 +248,7 @@ describe('login e callback (PKCE)', () => {
     expect(params.get('client_id')).toBe(CLIENT_ID);
     expect(params.get('response_type')).toBe('code');
     expect(params.get('redirect_uri')).toBe(`${ORIGIN}/api/spotify/callback`);
-    expect(params.get('scope')).toBe('playlist-read-private user-library-read');
+    expect(params.get('scope')).toBe(SCOPES);
     expect(params.get('code_challenge_method')).toBe('S256');
     // Spotify always asks for consent, even after a disconnect.
     expect(params.get('show_dialog')).toBe('true');
@@ -297,7 +304,7 @@ describe('login e callback (PKCE)', () => {
           token_type: 'Bearer',
           expires_in: 3600,
           refresh_token: 'REFRESH-1',
-          scope: 'user-library-read playlist-read-private',
+          scope: 'user-library-read playlist-read-collaborative playlist-read-private',
         });
       }
       if (url.pathname === '/v1/me/tracks') return json({ total: 10, items: [] });
@@ -367,7 +374,7 @@ describe('login e callback (PKCE)', () => {
             token_type: 'Bearer',
             expires_in: 3600,
             refresh_token: 'REFRESH-1',
-            scope: 'playlist-read-private user-library-read',
+            scope: SCOPES,
           })
         : json(
             {
@@ -385,15 +392,37 @@ describe('login e callback (PKCE)', () => {
     );
     expect(mocks.rows.size).toBe(0);
   });
+
+  it('rifiuta un consenso senza playlist-read-collaborative (le playlist collaborative mancherebbero)', async () => {
+    const { location, cookie } = await login();
+    spotify = (url) =>
+      url.hostname === 'accounts.spotify.com'
+        ? json({
+            access_token: 'ACCESS-1',
+            token_type: 'Bearer',
+            expires_in: 3600,
+            refresh_token: 'REFRESH-1',
+            scope: 'playlist-read-private user-library-read',
+          })
+        : json({ total: 0, items: [] });
+    const response = await callback(`code=c&state=${location.searchParams.get('state')}`, cookie);
+    expect(response.headers.get('location')).toBe(`${ORIGIN}/library?spotify=error&reason=failed`);
+    expect(mocks.rows.size).toBe(0);
+  });
 });
 
 describe('collegamento', () => {
   it('dice se Spotify è collegato e lo scollega cancellando i token', async () => {
-    expect(await read(await connectionGET())).toEqual({ configured: true, connected: false });
+    const off = { configured: true, connected: false, needsReconnect: false };
+    expect(await read(await connectionGET())).toEqual(off);
     await connect();
     const status = await connectionGET();
     expect(status.headers.get('cache-control')).toContain('no-store');
-    expect(await read(status)).toEqual({ configured: true, connected: true });
+    expect(await read(status)).toEqual({
+      configured: true,
+      connected: true,
+      needsReconnect: false,
+    });
 
     mocks.sameOrigin = false;
     expect(
@@ -404,10 +433,53 @@ describe('collegamento', () => {
     const removed = await connectionDELETE(
       request('/api/spotify/connection', { method: 'DELETE' }),
     );
-    expect(await read(removed)).toEqual({ configured: true, connected: false });
+    expect(await read(removed)).toEqual(off);
     expect(mocks.rows.size).toBe(0);
     mocks.user = null;
-    expect(await read(await connectionGET())).toEqual({ configured: true, connected: false });
+    expect(await read(await connectionGET())).toEqual(off);
+  });
+
+  it('chiede di ricollegare un consenso precedente senza playlist-read-collaborative', async () => {
+    // A connection made before the scope was added: refreshes keep this grant forever.
+    await connect('u1', 3_600_000, 'playlist-read-private user-library-read');
+    expect(await read(await connectionGET())).toEqual({
+      configured: true,
+      connected: true,
+      needsReconnect: true,
+    });
+
+    const list = await playlistsGET(request('/api/spotify/playlists'));
+    expect(list.status).toBe(401);
+    const body = await read(list);
+    expect(body.error).toBe('spotify_scope_outdated');
+    expect(body.message).toContain('Ricollega Spotify');
+    expect(body.message).toContain('collaboratore');
+
+    const imported = await importPOST(
+      request('/api/spotify/import', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ playlistIds: [PLAYLIST_B] }),
+      }),
+    );
+    expect(imported.status).toBe(401);
+    expect((await read(imported)).error).toBe('spotify_scope_outdated');
+    expect(mocks.created).toEqual([]);
+    // Nothing is read from Spotify with the old grant, and the row stays for "Disconnetti".
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mocks.rows.size).toBe(1);
+
+    // An old row refreshed by Spotify with the old scope still asks for a reconnect.
+    await connect('u1', -1_000, 'playlist-read-private user-library-read');
+    expect((await playlistsGET(request('/api/spotify/playlists'))).status).toBe(401);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // Reconnecting stores the new grant: the list works again.
+    await connect();
+    spotify = (url) =>
+      json(url.pathname === '/v1/me/tracks' ? { total: 3 } : { total: 0, items: [] });
+    expect((await playlistsGET(request('/api/spotify/playlists'))).status).toBe(200);
+    expect((await read(await connectionGET())).needsReconnect).toBe(false);
   });
 });
 
@@ -415,6 +487,7 @@ describe('elenco delle playlist', () => {
   it('legge 20 playlist e il totale dei brani salvati, senza salvarli', async () => {
     await connect();
     const seen: string[] = [];
+    // Only /me/playlists and /me/tracks are answered: any other request would fail the list.
     spotify = (url, init) => {
       seen.push(`${url.pathname}${url.search}`);
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer ACCESS-OLD');
@@ -425,17 +498,39 @@ describe('elenco delle playlist', () => {
             {
               id: PLAYLIST_A,
               name: 'Estate',
-              owner: { display_name: 'Ada' },
+              collaborative: false,
+              owner: { id: 'ada', display_name: 'Ada' },
               images: [{ url: 'https://i.scdn.co/image/a', width: 300, height: 300 }],
               items: { total: 12 },
               external_urls: { spotify: `https://open.spotify.com/playlist/${PLAYLIST_A}` },
             },
             null,
+            {
+              // Followed only: Spotify leaves `items` out.
+              id: PLAYLIST_B,
+              name: 'Di Bruno',
+              collaborative: false,
+              owner: { id: 'bruno', display_name: 'Bruno' },
+            },
+            {
+              // Another user's playlist the listener collaborates on: `items` is there.
+              id: PLAYLIST_C,
+              name: 'Insieme',
+              collaborative: false,
+              owner: { id: 'carla', display_name: 'Carla' },
+              items: { total: 7 },
+            },
+            {
+              id: PLAYLIST_D,
+              name: 'Hot Hits Italia',
+              owner: { id: 'spotify', display_name: 'Spotify' },
+              items: { total: 50 },
+            },
           ],
         });
       }
       if (url.pathname === '/v1/me/tracks') return json({ total: 321, items: [] });
-      return json({}, 500);
+      return json({ error: { status: 404, message: 'Not found' } }, 404);
     };
     const response = await playlistsGET(request('/api/spotify/playlists?offset=20'));
     expect(response.status).toBe(200);
@@ -449,11 +544,41 @@ describe('elenco delle playlist', () => {
           imageUrl: 'https://i.scdn.co/image/a',
           itemCount: 12,
           spotifyUrl: `https://open.spotify.com/playlist/${PLAYLIST_A}`,
+          importable: true,
+        },
+        {
+          id: PLAYLIST_B,
+          name: 'Di Bruno',
+          owner: 'Bruno',
+          imageUrl: null,
+          itemCount: null,
+          spotifyUrl: `https://open.spotify.com/playlist/${PLAYLIST_B}`,
+          // Followed, not owned: Spotify answers 403 to /items, so it cannot be chosen.
+          importable: false,
+        },
+        {
+          id: PLAYLIST_C,
+          name: 'Insieme',
+          owner: 'Carla',
+          imageUrl: null,
+          itemCount: 7,
+          spotifyUrl: `https://open.spotify.com/playlist/${PLAYLIST_C}`,
+          importable: true,
+        },
+        {
+          id: PLAYLIST_D,
+          name: 'Hot Hits Italia',
+          owner: 'Spotify',
+          imageUrl: null,
+          itemCount: 50,
+          spotifyUrl: `https://open.spotify.com/playlist/${PLAYLIST_D}`,
+          importable: false,
         },
       ],
       savedTracks: 321,
       nextOffset: 40,
     });
+    // Two requests per page: no /me profile lookup.
     expect(seen.sort()).toEqual(['/v1/me/playlists?limit=20&offset=20', '/v1/me/tracks?limit=1']);
     expect(mocks.limited).toHaveBeenCalledWith('spotify.read', 'user:u1');
     expect(mocks.spotifyConnection.upsert).toHaveBeenCalledTimes(1); // only connect()
@@ -486,7 +611,7 @@ describe('elenco delle playlist', () => {
           token_type: 'Bearer',
           expires_in: 3600,
           refresh_token: 'REFRESH-NEW',
-          scope: 'playlist-read-private user-library-read',
+          scope: SCOPES,
         });
       }
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer ACCESS-NEW');
@@ -664,7 +789,9 @@ describe('importazione', () => {
     expect(body.failed).toEqual([
       expect.objectContaining({ source: PLAYLIST_A, error: 'spotify_forbidden' }),
     ]);
-    expect(body.failed[0].message).toContain('Spotify: “Forbidden”');
+    expect(body.failed[0].message).toBe(
+      'Spotify consente di leggere solo le playlist che hai creato o di cui sei collaboratore.',
+    );
   });
 
   it('rispetta il massimo di playlist, l’origine, il corpo e la sessione', async () => {

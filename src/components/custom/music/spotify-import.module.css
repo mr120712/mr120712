@@ -156,8 +156,12 @@
 }
 
 .item:has(.check:disabled) .label {
-  opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* Non-importable rows: dashed border (see also the disabled name below). */
+.item[data-importable="false"] {
+  border-style: dashed;
 }
 
 /* Artwork as Spotify provides it: never cropped, overlaid or blurred. */
@@ -202,6 +206,13 @@
   font-size: 0.8125rem;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+/* A row that cannot be chosen (limit reached, or not importable) is never faded as a whole:
+ * the artwork stays as Spotify provides it and the notes keep their full contrast. Only the
+ * name takes the muted colour. */
+.item:has(.check:disabled) .itemName {
+  color: var(--muted-foreground);
 }
 
 /* Link back to Spotify: icon (min 21 px) beside the words, never over the artwork. */

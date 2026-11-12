@@ -5,8 +5,10 @@
 //
 // Campi verificati sullo schema OpenAPI ufficiale (solo campi e endpoint non deprecati):
 // - GET /me/playlists (limit ≤ 50, offset) → PagingPlaylistObject { total, items: SimplifiedPlaylistObject
-//   { id, name, owner.display_name, images[{url,width,height}], items.total, external_urls.spotify } }
-//   (`tracks` è deprecato: si usa `items.total`).
+//   { id, name, owner{id,display_name}, images[{url,width,height}], items.total,
+//   external_urls.spotify } } (`tracks` è deprecato: si usa `items.total`). `items` manca nelle
+//   playlist di cui l'utente non è proprietario né collaboratore (guida alla migrazione di feb. 2026):
+//   per quelle /playlists/{id}/items risponde 403.
 // - GET /playlists/{playlist_id}?fields=name → PlaylistObject.name
 // - GET /playlists/{playlist_id}/items (limit ≤ 50, offset, fields) → PagingPlaylistTrackObject
 //   { total, items: PlaylistTrackObject { is_local, item: TrackObject | EpisodeObject } } (`track`
@@ -96,15 +98,18 @@ const ImageSchema = z.object({
 const SimplifiedPlaylistSchema = z.object({
   id: z.string().regex(SPOTIFY_ID),
   name: NullableString,
-  owner: z.object({ display_name: NullableString }).nullish(),
+  owner: z.object({ id: NullableString, display_name: NullableString }).nullish(),
   images: z.array(ImageSchema.nullable()).nullish(),
   items: z.object({ total: z.number().int().nonnegative().nullish() }).nullish(),
   external_urls: z.object({ spotify: NullableString }).nullish(),
 });
+type SimplifiedPlaylist = z.infer<typeof SimplifiedPlaylistSchema>;
 const PagingSchema = z.object({
   total: z.number().int().nonnegative(),
   items: z.array(z.unknown()).nullish(),
 });
+/** owner.id of Spotify's own editorial and algorithmic playlists. */
+const SPOTIFY_OWNER_ID = 'spotify';
 
 function httpsUrl(value: string | null | undefined): string | null {
   if (!value || value.length > 2_048) return null;
@@ -136,6 +141,22 @@ function openSpotifyUrl(value: string | null | undefined, kind: 'playlist' | 'tr
   return `https://open.spotify.com/${kind}/${id}`;
 }
 
+/**
+ * Whether Spotify lets this app read the playlist's items. GET /playlists/{id}/items answers 403
+ * unless the listener owns the playlist or is one of its collaborators, and Spotify returns the
+ * `items` field only for exactly those playlists: for one the listener merely follows, `items` is
+ * absent (docs: February 2026 migration guide, Get Playlist Items). So the presence of `items` is
+ * the signal, whoever the owner is. The `collaborative` attribute is not: it says anyone with the
+ * link may edit, which is different from having collaborators. Spotify's own editorial playlists
+ * (owner.id "spotify") are never readable. A playlist with `items` but no known owner stays
+ * importable; if Spotify still refuses it, the import reports spotify_forbidden for that source.
+ */
+function isImportable(playlist: SimplifiedPlaylist): boolean {
+  if (playlist.owner?.id === SPOTIFY_OWNER_ID) return false;
+  return playlist.items != null;
+}
+
+/** A SimplifiedPlaylistObject → SpotifyPlaylist. */
 export function mapPlaylist(raw: unknown): SpotifyPlaylist | null {
   const parsed = SimplifiedPlaylistSchema.safeParse(raw);
   if (!parsed.success) return null;
@@ -147,6 +168,7 @@ export function mapPlaylist(raw: unknown): SpotifyPlaylist | null {
     imageUrl: pickImage(playlist.images ?? []),
     itemCount: playlist.items?.total ?? null,
     spotifyUrl: openSpotifyUrl(playlist.external_urls?.spotify, 'playlist', playlist.id),
+    importable: isImportable(playlist),
   };
 }
 

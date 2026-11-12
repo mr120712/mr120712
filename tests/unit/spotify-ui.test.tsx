@@ -28,6 +28,7 @@ function playlist(n: number, overrides: Record<string, unknown> = {}) {
     imageUrl: `https://i.scdn.co/image/cover-${n}`,
     itemCount: 10 + n,
     spotifyUrl: `https://open.spotify.com/playlist/${spotifyId(n)}`,
+    importable: true,
     ...overrides,
   };
 }
@@ -256,6 +257,58 @@ describe('Importa da Spotify — scelta delle playlist', () => {
     expect(checkbox(container, 'Brani salvati').disabled).toBe(true);
   });
 
+  it('mostra le playlist soltanto seguite senza poterle scegliere', async () => {
+    handler = connected({
+      playlists: [
+        playlist(1),
+        playlist(2, { name: 'Today’s Top Hits', owner: 'Spotify', importable: false }),
+        playlist(3),
+        playlist(4),
+        playlist(5),
+      ],
+      savedTracks: 42,
+      nextOffset: null,
+    });
+    const { container } = await mount();
+    expect(container.textContent).toContain(
+      'le playlist che hai creato o di cui sei collaboratore',
+    );
+    await openChooser(container);
+
+    const followed = checkbox(container, 'Today’s Top Hits');
+    expect(followed.disabled).toBe(true);
+    const row = followed.closest('li');
+    // Marked for the CSS (dashed border); the artwork itself is never faded.
+    expect(row?.getAttribute('data-importable')).toBe('false');
+    expect(checkbox(container, 'Playlist 1').closest('li')?.hasAttribute('data-importable')).toBe(
+      false,
+    );
+    expect(row?.textContent).toContain(
+      'Non importabile: Spotify consente di importare solo le playlist create da te o di cui sei collaboratore.',
+    );
+    // The note is inside the label, so it is part of the checkbox's accessible name.
+    expect(byText<HTMLLabelElement>(container, 'label', 'Today’s Top Hits').textContent).toContain(
+      'Non importabile',
+    );
+    // The link back to Spotify stays.
+    expect(row?.querySelector('a')?.getAttribute('href')).toBe(
+      `https://open.spotify.com/playlist/${spotifyId(2)}`,
+    );
+    await click(followed);
+    expect(followed.checked).toBe(false);
+    // Importable rows are unaffected and carry no note.
+    expect(checkbox(container, 'Playlist 1').disabled).toBe(false);
+    expect(checkbox(container, 'Playlist 1').closest('li')?.textContent).not.toContain(
+      'Non importabile',
+    );
+
+    // Five real choices fill the import; the followed one never counted.
+    await click(checkbox(container, 'Brani salvati'));
+    for (const n of [1, 3, 4, 5]) await click(checkbox(container, `Playlist ${n}`));
+    expect(container.textContent).toContain('Scelti 5 di 5');
+    expect(followed.disabled).toBe(true);
+  });
+
   it('mostra il messaggio del server con i secondi quando Spotify risponde 429', async () => {
     handler = (path) => {
       if (path === '/api/spotify/connection') return { configured: true, connected: true };
@@ -369,6 +422,51 @@ describe('Importa da Spotify — importazione e disconnessione', () => {
     expect(container.textContent).not.toContain('Playlist 2');
     expect(mocks.error).toHaveBeenCalled();
     expect(onImported).not.toHaveBeenCalled();
+    expect(document.activeElement?.tagName).toBe('H2');
+  });
+
+  it('con un consenso precedente chiede di ricollegare Spotify e consente di scollegarlo', async () => {
+    let deleted = false;
+    handler = (path, init) => {
+      if (path === '/api/spotify/connection' && init?.method === 'DELETE') {
+        deleted = true;
+        return { configured: true, connected: false, needsReconnect: false };
+      }
+      if (path === '/api/spotify/connection') {
+        return { configured: true, connected: true, needsReconnect: true };
+      }
+      throw new Error(`Percorso inatteso: ${path}`);
+    };
+    const { container } = await mount();
+    expect(container.textContent).toContain(
+      'Spotify è collegato con un consenso precedente, che non include le playlist di cui sei collaboratore.',
+    );
+    expect(container.textContent).not.toContain('scaduta o è stata revocata');
+    expect(
+      byText<HTMLAnchorElement>(container, 'a', 'Ricollega Spotify').getAttribute('href'),
+    ).toBe('/api/spotify/login');
+    // No chooser and no read from Spotify with the old consent.
+    expect(container.textContent).not.toContain('Scegli le playlist');
+    expect(paths()).toEqual(['/api/spotify/connection']);
+
+    await click(byText(container, 'button', 'Disconnetti Spotify'));
+    expect(deleted).toBe(true);
+    expect(byText<HTMLAnchorElement>(container, 'a', 'Accedi con Spotify')).toBeTruthy();
+  });
+
+  it('passa a "Ricollega Spotify" se il server segnala un consenso precedente', async () => {
+    const message =
+      'Ricollega Spotify per vedere anche le playlist di cui sei collaboratore: il consenso che hai dato a Solco in precedenza non le include.';
+    handler = (path) => {
+      if (path === '/api/spotify/connection') return { configured: true, connected: true };
+      throw httpError(path, 401, { error: 'spotify_scope_outdated', message });
+    };
+    const { container } = await mount();
+    await openChooser(container);
+    expect(mocks.error).toHaveBeenCalledWith(message);
+    expect(byText<HTMLAnchorElement>(container, 'a', 'Ricollega Spotify')).toBeTruthy();
+    expect(byText<HTMLButtonElement>(container, 'button', 'Disconnetti Spotify')).toBeTruthy();
+    expect(container.querySelector('[role="alert"]')).toBeNull();
     expect(document.activeElement?.tagName).toBe('H2');
   });
 
@@ -622,5 +720,105 @@ describe('Importa da Spotify — pagine non caricate e Retry-After', () => {
     expect(more().disabled).toBe(false);
     expect(container.textContent).not.toContain('Riprova tra 20 secondi.');
     expect(imports).toBe(1);
+  });
+
+  it('il limite di importazioni di Solco ferma solo Importa: la lista resta sfogliabile', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 10, 12, 10, 0, 0));
+    let imports = 0;
+    const lists: string[] = [];
+    const message =
+      'Hai raggiunto il limite per l’importazione di playlist. Riprova tra 586 secondi.';
+    handler = (path, init) => {
+      if (path === '/api/spotify/import') {
+        imports += 1;
+        if (imports === 1) {
+          throw httpError(path, 429, { error: 'rate_limited', message, retryAfterSeconds: 586 });
+        }
+        return {
+          created: [
+            {
+              collectionId: 'col-1',
+              name: 'Playlist 1',
+              imported: 11,
+              skipped: 0,
+              truncated: 0,
+              source: spotifyId(1),
+            },
+          ],
+          failed: [],
+        };
+      }
+      if (path.startsWith('/api/spotify/playlists')) lists.push(path);
+      if (path === '/api/spotify/playlists?offset=20') return page(2, null, 21);
+      return connected(page(3, 20))(path, init);
+    };
+    const { container } = await mount();
+    await openChooser(container);
+    await click(checkbox(container, 'Playlist 1'));
+    await click(byText(container, 'button', 'Importa in Solco'));
+    expect(mocks.error).toHaveBeenCalledWith(message);
+
+    const importButton = () => byText<HTMLButtonElement>(container, 'button', 'Importa in Solco');
+    expect(importButton().disabled).toBe(true);
+    expect(container.textContent).toContain(
+      'Hai raggiunto il limite di importazioni: potrai importare di nuovo dalle 10:10.',
+    );
+    // The selection is kept and the list is still there, with a working pager.
+    expect(checkbox(container, 'Playlist 1').checked).toBe(true);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    const more = byText<HTMLButtonElement>(container, 'button', 'Altre playlist');
+    expect(more.disabled).toBe(false);
+    await click(more);
+    expect(lists).toContain('/api/spotify/playlists?offset=20');
+    expect(container.textContent).toContain('Playlist 22');
+    await click(byText(container, 'button', 'Playlist precedenti'));
+
+    // Closing and reopening the chooser loads the list again.
+    const before = lists.length;
+    await click(byText(container, 'button', 'Nascondi le playlist'));
+    await openChooser(container);
+    expect(lists.length).toBe(before + 1);
+    expect(container.textContent).toContain('Playlist 3');
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+
+    // "Importa in Solco" stays off until Retry-After, then works again.
+    expect(checkbox(container, 'Playlist 1').checked).toBe(true);
+    await click(importButton());
+    expect(imports).toBe(1);
+    await advance(585_000);
+    expect(importButton().disabled).toBe(true);
+    await advance(1_000);
+    expect(importButton().disabled).toBe(false);
+    expect(container.textContent).not.toContain('Hai raggiunto il limite di importazioni');
+    await click(importButton());
+    expect(imports).toBe(2);
+    expect(mocks.success).toHaveBeenCalledWith('“Playlist 1” importata in Solco: 11 brani.');
+  });
+
+  it('per un’attesa sotto il minuto non mostra secondi che non si aggiornano', async () => {
+    vi.useFakeTimers();
+    handler = (path, init) => {
+      if (path === '/api/spotify/import') {
+        throw httpError(path, 429, {
+          error: 'rate_limited',
+          message:
+            'Hai raggiunto il limite per l’importazione di playlist. Riprova tra 30 secondi.',
+          retryAfterSeconds: 30,
+        });
+      }
+      return connected()(path, init);
+    };
+    const { container } = await mount();
+    await openChooser(container);
+    await click(checkbox(container, 'Playlist 1'));
+    await click(byText(container, 'button', 'Importa in Solco'));
+    expect(container.textContent).toContain(
+      'Hai raggiunto il limite di importazioni: potrai importare di nuovo tra meno di un minuto.',
+    );
+    expect(container.textContent).not.toMatch(/importare di nuovo tra \d+ second/);
+    await advance(30_000);
+    expect(byText<HTMLButtonElement>(container, 'button', 'Importa in Solco').disabled).toBe(false);
+    expect(container.textContent).not.toContain('Hai raggiunto il limite di importazioni');
   });
 });

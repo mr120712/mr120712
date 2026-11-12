@@ -255,12 +255,20 @@ export async function saveConnection(userId: string, tokens: SpotifyTokens): Pro
   });
 }
 
-export async function isConnected(userId: string): Promise<boolean> {
+/**
+ * 'outdated': connected with a grant that lacks a scope Solco now asks for (connections made
+ * before playlist-read-collaborative was added). A refresh keeps the original grant and Spotify
+ * re-sends its old `scope`, so only a new consent adds the scope: the listener must reconnect.
+ */
+export type ConnectionState = 'none' | 'connected' | 'outdated';
+
+export async function connectionState(userId: string): Promise<ConnectionState> {
   const row = await prisma.spotifyConnection.findUnique({
     where: { userId },
-    select: { id: true },
+    select: { scope: true },
   });
-  return row !== null;
+  if (!row) return 'none';
+  return hasRequiredScopes(row.scope) ? 'connected' : 'outdated';
 }
 
 /** Deletes the person's Spotify tokens (disconnect, invalid refresh token, account deletion). */
@@ -272,7 +280,7 @@ const reauth = () => new SpotifyError({ status: 401, reason: 'reauth' });
 
 /**
  * Credentials for the person's Spotify calls, refreshed when they expire within 60 s; null when
- * Spotify is not connected. `refresh` is shared by concurrent calls (a single token request) and
+ * Spotify is not connected, SpotifyError 'scope_outdated' when the stored grant lacks a scope. `refresh` is shared by concurrent calls (a single token request) and
  * handles rotation; an invalid refresh token deletes the row and throws SpotifyError 'reauth'.
  */
 export async function spotifyAuthFor(
@@ -282,6 +290,11 @@ export async function spotifyAuthFor(
 ): Promise<SpotifyAuth | null> {
   const row = await prisma.spotifyConnection.findUnique({ where: { userId } });
   if (!row) return null;
+  // Older grant without a scope Solco now needs: keep the row (the listener may still just
+  // disconnect) and ask for a new consent, which replaces tokens and scope.
+  if (!hasRequiredScopes(row.scope)) {
+    throw new SpotifyError({ status: 401, reason: 'scope_outdated' });
+  }
   let storedRefresh = row.refreshToken;
   let refreshToken = await openValue(row.refreshToken, refreshContext(userId));
   if (!refreshToken) {
