@@ -14,9 +14,10 @@ import { getSessionUser } from '@/lib/require-auth';
 import { sameOrigin } from '@/lib/same-origin';
 
 export const dynamic = 'force-dynamic';
-// A 1M-token read can take minutes (prefill + streamed output). On Vercel Fluid compute this needs
-// a high ceiling; the streamed call carries its own ~13 min deadline well under it.
-export const maxDuration = 800;
+// 300 s è il massimo del piano Vercel Hobby (oltre, la pubblicazione viene rifiutata). La chiamata
+// in streaming ha un suo timeout appena sotto (vedi STREAM_TIMEOUT_MS): basta per i testi fino al
+// tetto predefinito (400k token); input vicini a 1M richiederebbero un piano con funzioni più lunghe.
+export const maxDuration = 300;
 
 // ~4 MB di corpo ≈ 1M token di testo. Il vero tetto di spesa è il conteggio dei token lato server.
 const MAX_BODY_BYTES = 4_000_000;

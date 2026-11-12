@@ -37,7 +37,7 @@ const USD_PER_MTOK = { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 } as 
 
 const DEFAULT_MAX_INPUT_TOKENS = 400_000;
 const MIN_INPUT_TOKENS_CAP = 1_000;
-// La chiamata è in streaming, quindi il timeout non è un problema: lasciamo spazio al pensiero
+// La chiamata è in streaming, con un timeout sotto il limite della funzione: lasciamo spazio al pensiero
 // (sempre attivo su Opus 5.5, conta nel max_tokens) e ai 200 brani dell'elenco. 16.000 token di
 // output ≈ 0,32$ nel caso peggiore. Un max_tokens troppo basso troncherebbe l'elenco (max_tokens).
 const DEFAULT_MAX_OUTPUT_TOKENS = 16_000;
@@ -46,7 +46,9 @@ const MAX_OUTPUT_TOKENS = 32_000;
 // Deadline generosa per una richiesta lunga (prefill di ~1M token + output in streaming). È
 // comunque limitata dal maxDuration della route. Documentato: con count+stream la rete non viene
 // mai pagata due volte (maxRetries: 0 sul client condiviso).
-const STREAM_TIMEOUT_MS = 780_000;
+// Sotto i 300 s di maxDuration della route (piano Hobby): così una chiamata troppo lunga
+// viene interrotta con un errore pulito ('busy') invece di far morire la funzione a 300 s.
+const STREAM_TIMEOUT_MS = 280_000;
 
 /** Tetto sui token in ingresso: default 400.000, alzabile via env verso 1M, mai oltre il contesto del modello. */
 export function maxInputTokens(env: Record<string, string | undefined> = process.env): number {
