@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
 import { type Recording, RecordingCreateResponseSchema } from '@/lib/contracts/recordings';
-import { baseMimeType } from '@/lib/music/recorder';
+import { AUDIO_UPLOAD_EXTENSIONS, audioUploadMimeType, baseMimeType } from '@/lib/music/recorder';
 import { publishNewRecording } from '@/lib/music/recording-publish.client';
 import { FileUploadError, uploadPrivateFile } from '@/modules/file-upload/client';
 import styles from './song-recorder.module.css';
@@ -48,8 +48,11 @@ export function SongUpload({ onSaved }: { onSaved: (recording: Recording) => voi
       setFile(null);
       return;
     }
-    if (!chosen.type.startsWith('audio/')) {
-      setError('Seleziona un file audio.');
+    // Molti MP3 arrivano con file.type vuoto o 'application/octet-stream': accetta anche in base
+    // all'estensione e sintetizza il MIME, altrimenti il file verrebbe rifiutato qui o dal caricamento.
+    const mime = audioUploadMimeType(chosen.type, chosen.name);
+    if (!mime) {
+      setError('Formato non supportato. Scegli un file audio (MP3, M4A, WAV, FLAC, OGG…).');
       setFile(null);
       return;
     }
@@ -58,8 +61,11 @@ export function SongUpload({ onSaved }: { onSaved: (recording: Recording) => voi
       setFile(null);
       return;
     }
-    setFile(chosen);
-    if (!title.trim()) setTitle(chosen.name.replace(/\.[^.]+$/, '').slice(0, 80));
+    const normalized = chosen.type.toLowerCase().startsWith('audio/')
+      ? chosen
+      : new File([chosen], chosen.name, { type: mime, lastModified: chosen.lastModified });
+    setFile(normalized);
+    if (!title.trim()) setTitle(normalized.name.replace(/\.[^.]+$/, '').slice(0, 80));
   };
 
   const save = async () => {
@@ -129,7 +135,9 @@ export function SongUpload({ onSaved }: { onSaved: (recording: Recording) => voi
       <input
         ref={inputRef}
         type="file"
-        accept="audio/*"
+        // `audio/*` più le estensioni esplicite: alcuni sistemi non associano gli MP3 a `audio/*`
+        // nel dialog e li nasconderebbero.
+        accept={`audio/*,${AUDIO_UPLOAD_EXTENSIONS.map((ext) => `.${ext}`).join(',')}`}
         disabled={saving}
         onChange={(event) => pick(event.target.files?.[0] ?? null)}
       />

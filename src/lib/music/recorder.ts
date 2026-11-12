@@ -45,6 +45,53 @@ export function extensionForMime(baseMime: string): string {
   return EXTENSION_BY_MIME[baseMime] ?? 'audio';
 }
 
+/**
+ * MIME audio canonico per estensione file. Serve quando il browser NON dichiara un tipo:
+ * moltissimi MP3 (e a volte M4A/WAV) arrivano da `<input type=file>` con `file.type` vuoto
+ * o `application/octet-stream`, a seconda del sistema operativo. In quei casi deduciamo il
+ * MIME dall'estensione così che il caricamento non venga rifiutato.
+ */
+// Solo estensioni audio-specifiche: .mp4/.webm sono contenitori anche video, quindi non li
+// deduciamo come audio dalla sola estensione (un file in quei contenitori che è davvero audio
+// passa comunque dal ramo `audio/*` dichiarato dal browser).
+const MIME_BY_EXTENSION: Record<string, string> = {
+  mp3: 'audio/mpeg',
+  m4a: 'audio/mp4',
+  m4b: 'audio/mp4',
+  aac: 'audio/aac',
+  oga: 'audio/ogg',
+  ogg: 'audio/ogg',
+  opus: 'audio/ogg',
+  wav: 'audio/wav',
+  flac: 'audio/flac',
+  weba: 'audio/webm',
+};
+
+/** Estensioni audio accettate dal caricamento (per l'attributo `accept` e il controllo). */
+export const AUDIO_UPLOAD_EXTENSIONS = Object.keys(MIME_BY_EXTENSION);
+
+/** Estensione (minuscola, senza punto) di un nome file; '' se assente. */
+function fileExtension(fileName: string): string {
+  const dot = fileName.lastIndexOf('.');
+  return dot >= 0 ? fileName.slice(dot + 1).toLowerCase() : '';
+}
+
+/**
+ * Tipo MIME audio da usare per caricare un file scelto dall'utente, oppure null se non è
+ * riconoscibile come audio. Regole:
+ *  - il browser dichiara già un tipo `audio/*` → lo usa così com'è (solo minuscolo);
+ *  - tipo mancante o non-audio (es. '' o 'application/octet-stream') ma estensione audio nota
+ *    (mp3, m4a, wav, flac, ogg…) → il MIME canonico dedotto dall'estensione;
+ *  - altrimenti null.
+ * Il MIME non vuoto è obbligatorio: `uploadPrivateFile` rifiuta i file con `type` vuoto, e il
+ * controllo lato server confronta il MIME dichiarato con quello memorizzato.
+ */
+export function audioUploadMimeType(declaredType: string, fileName: string): string | null {
+  const declared = declaredType.trim().toLowerCase();
+  if (declared.startsWith('audio/')) return declared;
+  return MIME_BY_EXTENSION[fileExtension(fileName)] ?? null;
+}
+
 /** Nome file sicuro per il caricamento, derivato dal titolo. */
 export function recordingFileName(title: string, baseMime: string): string {
   const slug =
