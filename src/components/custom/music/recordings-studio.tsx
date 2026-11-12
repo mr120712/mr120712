@@ -2,7 +2,7 @@
 // registrati dall'utente, riproducibili e cancellabili. Tutto ospitato su Solco.
 'use client';
 
-import { Pause, Play, Trash2 } from 'lucide-react';
+import { Globe2, Pause, Play, Share2, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useLibrary } from '@/components/custom/music/library-context';
@@ -11,7 +11,11 @@ import { trackStreamPath, useMusicPlayer } from '@/components/custom/music/music
 import { SongRecorder } from '@/components/custom/music/song-recorder';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
-import { type Recording, RecordingListResponseSchema } from '@/lib/contracts/recordings';
+import {
+  type Recording,
+  RecordingListResponseSchema,
+  RecordingPublishResponseSchema,
+} from '@/lib/contracts/recordings';
 import { formatClock } from '@/lib/music/recorder';
 import styles from './recordings-studio.module.css';
 
@@ -71,6 +75,32 @@ export function RecordingsStudio() {
       toast.success('Registrazione eliminata.');
     } catch {
       toast.error('Non è stato possibile eliminare la registrazione.');
+    }
+  };
+
+  const togglePublish = async (recording: Recording) => {
+    const next = !recording.published;
+    if (
+      next &&
+      !window.confirm(
+        'Confermi di avere i diritti per pubblicare questo brano? Sarà ascoltabile dagli altri utenti nella classifica community.',
+      )
+    ) {
+      return;
+    }
+    try {
+      const { recording: updated } = await apiFetch(
+        `/api/music/recordings/${recording.id}/publish`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ published: next }),
+          schema: RecordingPublishResponseSchema,
+        },
+      );
+      setRecordings((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      toast.success(next ? 'Pubblicato nella classifica community.' : 'Ritirato dalla classifica.');
+    } catch {
+      toast.error('Operazione non riuscita.');
     }
   };
 
@@ -135,6 +165,29 @@ export function RecordingsStudio() {
                       {formatClock(recording.durationSeconds)} · {formatDate(recording.createdAt)}
                     </span>
                   </div>
+                  <button
+                    type="button"
+                    className={styles.publishButton}
+                    data-published={recording.published || undefined}
+                    onClick={() => void togglePublish(recording)}
+                    aria-pressed={recording.published}
+                    aria-label={
+                      recording.published
+                        ? `Ritira ${recording.title} dalla classifica community`
+                        : `Pubblica ${recording.title} nella classifica community`
+                    }
+                    title={
+                      recording.published
+                        ? 'Pubblicato nella classifica: tocca per ritirare'
+                        : 'Pubblica nella classifica community'
+                    }
+                  >
+                    {recording.published ? (
+                      <Globe2 aria-hidden="true" />
+                    ) : (
+                      <Share2 aria-hidden="true" />
+                    )}
+                  </button>
                   <button
                     type="button"
                     className={styles.deleteButton}

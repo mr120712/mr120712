@@ -28,12 +28,26 @@ export class InvalidRecordingSource extends Error {
   }
 }
 
+/** Oltre questa soglia di segnalazioni un brano pubblicato si auto-ritira dalla classifica. */
+export const AUTO_UNPUBLISH_REPORTS = 3;
+/** Quante voci al massimo nella classifica community. */
+const PUBLIC_CHART_MAX = 50;
+
 type RecordingRow = {
   id: string;
   title: string;
   durationSeconds: number;
   createdAt: Date;
+  published: boolean;
 };
+
+const recordingSelect = {
+  id: true,
+  title: true,
+  durationSeconds: true,
+  createdAt: true,
+  published: true,
+} as const;
 
 function toRecording(row: RecordingRow): Recording {
   return {
@@ -41,6 +55,7 @@ function toRecording(row: RecordingRow): Recording {
     title: row.title,
     durationSeconds: row.durationSeconds,
     createdAt: row.createdAt.toISOString(),
+    published: row.published,
   };
 }
 
@@ -48,10 +63,98 @@ export async function listRecordings(userId: string): Promise<Recording[]> {
   const rows = await prisma.userRecording.findMany({
     where: { userId },
     orderBy: { createdAt: 'desc' },
-    select: { id: true, title: true, durationSeconds: true, createdAt: true },
+    select: recordingSelect,
     take: MAX_RECORDINGS_PER_USER,
   });
   return rows.map(toRecording);
+}
+
+/** Pubblica o ritira una registrazione (solo il proprietario). Null se non è sua. */
+export async function setRecordingPublished(
+  userId: string,
+  recordingId: string,
+  published: boolean,
+): Promise<Recording | null> {
+  const result = await prisma.userRecording.updateMany({
+    where: { id: recordingId, userId },
+    data: published
+      ? { published: true, publishedAt: new Date(), reports: 0 }
+      : { published: false, publishedAt: null },
+  });
+  if (result.count === 0) return null;
+  const row = await prisma.userRecording.findFirst({
+    where: { id: recordingId, userId },
+    select: recordingSelect,
+  });
+  return row ? toRecording(row) : null;
+}
+
+/**
+ * La registrazione è ascoltabile dal richiedente: se è sua OPPURE se è pubblicata.
+ * Così lo stream serve i brani pubblicati agli altri utenti, ma i privati solo al proprietario.
+ */
+export async function getStreamableRecording(
+  requesterId: string,
+  recordingId: string,
+): Promise<{ fileKey: string; mimeType: string; byteLength: number } | null> {
+  const row = await prisma.userRecording.findUnique({
+    where: { id: recordingId },
+    select: { userId: true, published: true, fileKey: true, mimeType: true, byteLength: true },
+  });
+  if (!row) return null;
+  if (row.userId !== requesterId && !row.published) return null;
+  return { fileKey: row.fileKey, mimeType: row.mimeType, byteLength: row.byteLength };
+}
+
+/**
+ * Segnala una registrazione pubblicata. Oltre la soglia si auto-ritira (published=false).
+ * Ritorna true se la registrazione pubblicata esisteva.
+ */
+export async function reportRecording(recordingId: string): Promise<boolean> {
+  const updated = await prisma.userRecording.updateMany({
+    where: { id: recordingId, published: true },
+    data: { reports: { increment: 1 } },
+  });
+  if (updated.count === 0) return false;
+  await prisma.userRecording.updateMany({
+    where: { id: recordingId, published: true, reports: { gte: AUTO_UNPUBLISH_REPORTS } },
+    data: { published: false, publishedAt: null },
+  });
+  return true;
+}
+
+/**
+ * Classifica community: i brani PUBBLICATI, ordinati per ascolti totali (somma dei conteggi di
+ * tutti gli ascoltatori nella cronologia). Solo i pubblicati; mai i privati.
+ */
+export async function listPublicRecordingsChart(): Promise<RecordingChartItem[]> {
+  const published = await prisma.userRecording.findMany({
+    where: { published: true },
+    select: { id: true, title: true, durationSeconds: true },
+    take: 500,
+  });
+  if (published.length === 0) return [];
+
+  const qualifiedIds = published.map((row) => `recording:${row.id}`);
+  const grouped = await prisma.userPlaybackHistory.groupBy({
+    by: ['qualifiedId'],
+    where: { qualifiedId: { in: qualifiedIds } },
+    _sum: { playCount: true },
+  });
+  const plays = new Map<string, number>();
+  for (const row of grouped) {
+    plays.set(row.qualifiedId.slice('recording:'.length), row._sum.playCount ?? 0);
+  }
+
+  return published
+    .map((row) => ({
+      id: row.id,
+      title: row.title,
+      durationSeconds: row.durationSeconds,
+      playCount: plays.get(row.id) ?? 0,
+    }))
+    .sort((a, b) => b.playCount - a.playCount)
+    .slice(0, PUBLIC_CHART_MAX);
 }
 
 /**
@@ -133,7 +236,7 @@ export async function registerRecording(
         byteLength: input.byteLength,
         durationSeconds,
       },
-      select: { id: true, title: true, durationSeconds: true, createdAt: true },
+      select: recordingSelect,
     });
     return toRecording(row);
   } catch (error) {

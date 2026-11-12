@@ -18,6 +18,7 @@ import { Suspense } from 'react';
 import { InstallAppBanner } from '@/components/custom/install-app-banner';
 import { AiSearchShortcut } from '@/components/custom/music/ai-search-shortcut';
 import { AudiusSection } from '@/components/custom/music/audius-section';
+import { CommunityRecordingsChart } from '@/components/custom/music/community-recordings-chart';
 import { JamendoSection } from '@/components/custom/music/jamendo-section';
 import { FeedSectionLink, MoodChipGroup, MoodChips } from '@/components/custom/music/mood-chips';
 import { HomeMoodSwitch } from '@/components/custom/music/mood-feed';
@@ -61,6 +62,8 @@ export default function HomePage() {
       <RecentlyPlayedRow />
 
       <RecordingsChart />
+
+      <CommunityRecordingsChart />
 
       <div className={styles.feed}>
         <YouTubeCharts />

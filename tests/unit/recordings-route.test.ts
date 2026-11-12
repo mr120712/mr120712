@@ -14,11 +14,18 @@ const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   open: vi.fn(),
   chart: vi.fn(),
+  publish: vi.fn(),
+  report: vi.fn(),
+  publicChart: vi.fn(),
+  identity: vi.fn(),
 }));
 
 vi.mock('@/lib/require-auth', () => ({ requireAuth: mocks.requireAuth }));
 vi.mock('@/lib/same-origin', () => ({ sameOrigin: mocks.sameOrigin }));
-vi.mock('@/lib/business/rate-limit.server', () => ({ enforceRateLimit: mocks.enforceRateLimit }));
+vi.mock('@/lib/business/rate-limit.server', () => ({
+  enforceRateLimit: mocks.enforceRateLimit,
+  getRateLimitIdentity: mocks.identity,
+}));
 vi.mock('@/lib/music/recordings.server', () => {
   class RecordingLimitReached extends Error {}
   class InvalidRecordingSource extends Error {}
@@ -27,15 +34,22 @@ vi.mock('@/lib/music/recordings.server', () => {
     registerRecording: mocks.register,
     deleteRecording: mocks.del,
     getOwnedRecording: mocks.get,
+    getStreamableRecording: mocks.get,
     openRecordingStream: mocks.open,
     listRecordingsChart: mocks.chart,
+    setRecordingPublished: mocks.publish,
+    reportRecording: mocks.report,
+    listPublicRecordingsChart: mocks.publicChart,
     RecordingLimitReached,
     InvalidRecordingSource,
   };
 });
 
+import { POST as PUBLISH } from '@/app/api/music/recordings/[recordingId]/publish/route';
+import { POST as REPORT } from '@/app/api/music/recordings/[recordingId]/report/route';
 import { DELETE } from '@/app/api/music/recordings/[recordingId]/route';
 import { GET as STREAM } from '@/app/api/music/recordings/[recordingId]/stream/route';
+import { GET as PUBLIC_CHART } from '@/app/api/music/recordings/chart/public/route';
 import { GET as CHART } from '@/app/api/music/recordings/chart/route';
 import { GET as LIST, POST } from '@/app/api/music/recordings/route';
 import { InvalidRecordingSource, RecordingLimitReached } from '@/lib/music/recordings.server';
@@ -60,6 +74,7 @@ const validBody = {
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.sameOrigin.mockReturnValue(true);
+  mocks.identity.mockReturnValue(null);
   mocks.requireAuth.mockResolvedValue({ id: 'user-1' });
   mocks.enforceRateLimit.mockResolvedValue(null);
 });
@@ -92,6 +107,7 @@ describe('POST /api/music/recordings', () => {
       title: 'La mia canzone',
       durationSeconds: 12,
       createdAt: '2026-01-01T00:00:00.000Z',
+      published: false,
     });
     const res = await POST(postReq(validBody));
     expect(res.status).toBe(201);
@@ -101,6 +117,7 @@ describe('POST /api/music/recordings', () => {
         title: 'La mia canzone',
         durationSeconds: 12,
         createdAt: '2026-01-01T00:00:00.000Z',
+        published: false,
       },
     });
     expect(mocks.register).toHaveBeenCalledWith('user-1', expect.objectContaining(validBody));
@@ -124,7 +141,13 @@ describe('POST /api/music/recordings', () => {
 describe('GET /api/music/recordings', () => {
   it('elenca le registrazioni dell’utente', async () => {
     mocks.list.mockResolvedValue([
-      { id: recId, title: 'Uno', durationSeconds: 30, createdAt: '2026-02-02T10:00:00.000Z' },
+      {
+        id: recId,
+        title: 'Uno',
+        durationSeconds: 30,
+        createdAt: '2026-02-02T10:00:00.000Z',
+        published: false,
+      },
     ]);
     const res = await LIST(new Request('https://solco.example/api/music/recordings'));
     expect(res.status).toBe(200);
@@ -201,5 +224,92 @@ describe('DELETE …/[id]', () => {
     const res = await DELETE(delReq(), { params });
     expect(res.status).toBe(200);
     expect(mocks.del).toHaveBeenCalledWith('user-1', recId);
+  });
+});
+
+describe('POST …/[id]/publish', () => {
+  const params = Promise.resolve({ recordingId: recId });
+  function pubReq(body: unknown) {
+    return new Request(`https://solco.example/api/music/recordings/${recId}/publish`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it('403 se l’origine non combacia', async () => {
+    mocks.sameOrigin.mockReturnValue(false);
+    const res = await PUBLISH(pubReq({ published: true }), { params });
+    expect(res.status).toBe(403);
+    expect(mocks.publish).not.toHaveBeenCalled();
+  });
+
+  it('pubblica e ritorna la registrazione', async () => {
+    mocks.publish.mockResolvedValue({
+      id: recId,
+      title: 'A',
+      durationSeconds: 10,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      published: true,
+    });
+    const res = await PUBLISH(pubReq({ published: true }), { params });
+    expect(res.status).toBe(200);
+    expect(mocks.publish).toHaveBeenCalledWith('user-1', recId, true);
+  });
+
+  it('404 se non è dell’utente', async () => {
+    mocks.publish.mockResolvedValue(null);
+    const res = await PUBLISH(pubReq({ published: true }), { params });
+    expect(res.status).toBe(404);
+  });
+
+  it('400 su body non valido', async () => {
+    const res = await PUBLISH(pubReq({ published: 'x' }), { params });
+    expect(res.status).toBe(400);
+    expect(mocks.publish).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST …/[id]/report', () => {
+  const params = Promise.resolve({ recordingId: recId });
+  function repReq() {
+    return new Request(`https://solco.example/api/music/recordings/${recId}/report`, {
+      method: 'POST',
+    });
+  }
+
+  it('403 se l’origine non combacia', async () => {
+    mocks.sameOrigin.mockReturnValue(false);
+    const res = await REPORT(repReq(), { params });
+    expect(res.status).toBe(403);
+    expect(mocks.report).not.toHaveBeenCalled();
+  });
+
+  it('200 sulla segnalazione', async () => {
+    mocks.report.mockResolvedValue(true);
+    const res = await REPORT(repReq(), { params });
+    expect(res.status).toBe(200);
+    expect(mocks.report).toHaveBeenCalledWith(recId);
+  });
+
+  it('404 se il brano pubblicato non esiste', async () => {
+    mocks.report.mockResolvedValue(false);
+    const res = await REPORT(repReq(), { params });
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('GET /api/music/recordings/chart/public', () => {
+  it('restituisce la classifica community (anonima)', async () => {
+    mocks.publicChart.mockResolvedValue([
+      { id: recId, title: 'A', durationSeconds: 10, playCount: 4 },
+    ]);
+    const res = await PUBLIC_CHART(
+      new Request('https://solco.example/api/music/recordings/chart/public'),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      items: [{ id: recId, title: 'A', durationSeconds: 10, playCount: 4 }],
+    });
   });
 });

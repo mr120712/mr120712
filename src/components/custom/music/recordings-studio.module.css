@@ -70,7 +70,8 @@
 }
 
 .playButton,
-.deleteButton {
+.deleteButton,
+.publishButton {
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -96,6 +97,25 @@
 .deleteButton {
   background: transparent;
   color: var(--muted-foreground);
+}
+
+.publishButton {
+  background: transparent;
+  color: var(--muted-foreground);
+}
+
+.publishButton svg {
+  width: 18px;
+  height: 18px;
+}
+
+.publishButton[data-published] {
+  color: var(--primary);
+}
+
+.publishButton:hover {
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
 }
 
 .deleteButton:hover {

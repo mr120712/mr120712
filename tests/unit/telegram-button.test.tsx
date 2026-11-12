@@ -16,6 +16,9 @@ vi.mock('@/components/custom/music/recently-played-row', () => ({
   RecentlyPlayedRow: () => null,
 }));
 vi.mock('@/components/custom/music/recordings-chart', () => ({ RecordingsChart: () => null }));
+vi.mock('@/components/custom/music/community-recordings-chart', () => ({
+  CommunityRecordingsChart: () => null,
+}));
 vi.mock('@/components/custom/music/tiktok-clips', () => ({ TikTokClips: () => null }));
 vi.mock('@/components/custom/music/youtube-charts', () => ({ YouTubeCharts: () => null }));
 

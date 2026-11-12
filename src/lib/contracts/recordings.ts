@@ -22,8 +22,15 @@ export const RecordingSchema = z.object({
   title: z.string().min(1).max(80),
   durationSeconds: z.number().int().positive().max(86_400),
   createdAt: z.string().datetime(),
+  /** Pubblicato nella classifica community (ascoltabile dagli altri). */
+  published: z.boolean(),
 });
 export type Recording = z.infer<typeof RecordingSchema>;
+
+/** Corpo per pubblicare/ritirare una registrazione. */
+export const RecordingPublishSchema = z.object({ published: z.boolean() });
+
+export const RecordingPublishResponseSchema = z.object({ recording: RecordingSchema });
 
 export const RecordingListResponseSchema = z.object({
   recordings: z.array(RecordingSchema),

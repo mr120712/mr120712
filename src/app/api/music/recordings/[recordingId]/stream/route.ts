@@ -2,7 +2,7 @@
 // solo al proprietario (controllo sulla riga del DB); /api/files resta negato per default.
 import 'server-only';
 import { NextResponse } from 'next/server';
-import { getOwnedRecording, openRecordingStream } from '@/lib/music/recordings.server';
+import { getStreamableRecording, openRecordingStream } from '@/lib/music/recordings.server';
 import { requireAuth, type SessionUser } from '@/lib/require-auth';
 
 export const dynamic = 'force-dynamic';
@@ -69,7 +69,8 @@ export async function GET(
   const { recordingId } = await params;
   if (!recordingIdPattern.test(recordingId)) return jsonError('not_found', 404);
 
-  const recording = await getOwnedRecording(auth.user.id, recordingId);
+  // Il proprietario ascolta i suoi brani; gli altri utenti solo quelli pubblicati.
+  const recording = await getStreamableRecording(auth.user.id, recordingId);
   if (!recording) return jsonError('not_found', 404);
   // Difesa in profondità: il MIME registrato deve restare audio.
   if (!audioMimePattern.test(recording.mimeType)) return jsonError('stream_unavailable', 502);
