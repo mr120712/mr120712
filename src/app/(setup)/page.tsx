@@ -3,6 +3,7 @@
 import {
   Crown,
   Disc3,
+  Download,
   Gift,
   GraduationCap,
   Library,
@@ -19,6 +20,7 @@ import { InstallAppBanner } from '@/components/custom/install-app-banner';
 import { AiSearchShortcut } from '@/components/custom/music/ai-search-shortcut';
 import { AudiusSection } from '@/components/custom/music/audius-section';
 import { JamendoSection } from '@/components/custom/music/jamendo-section';
+import { LocalMusicSection } from '@/components/custom/music/local-music-section';
 import { FeedSectionLink, MoodChipGroup, MoodChips } from '@/components/custom/music/mood-chips';
 import { HomeMoodSwitch } from '@/components/custom/music/mood-feed';
 import { PodcastHomeRow } from '@/components/custom/music/podcast-home-row';
@@ -44,6 +46,7 @@ const shortcuts = [
   { href: '/radio', label: 'Radio', icon: Radio },
   { href: '/podcasts', label: 'Podcast', icon: Mic },
   { href: '/library', label: 'Libreria', icon: Library },
+  { href: '#la-tua-musica', label: 'Musica offline', icon: Download },
   { href: '/piani', label: 'Premium', icon: Crown },
   { href: '/premi#invita', label: 'Invita amici', icon: Gift },
   { href: '/flashcards', label: 'Flashcard', icon: GraduationCap },
@@ -58,6 +61,9 @@ export default function HomePage() {
       <InstallAppBanner />
 
       <RecentlyPlayedRow />
+
+      {/* "La tua musica" offline (file sul dispositivo): ascoltabile anche senza rete e da sloggati. */}
+      <LocalMusicSection />
 
       <div className={styles.feed}>
         <YouTubeCharts />
