@@ -14,7 +14,7 @@ const TRACKS_PER_PLAYLIST = 18;
 const FETCH_LIMIT = 40;
 const CACHE_TTL_MS = 15 * 60 * 1000;
 
-export type ClassicsOutcome = 'results' | 'no_results' | 'unavailable' | 'inactive';
+export type ClassicsOutcome = 'results' | 'partial' | 'no_results' | 'unavailable' | 'inactive';
 export type ClassicsPlaylistResult = {
   id: string;
   title: string;
@@ -93,13 +93,14 @@ export async function getClassicsDecade(decadeSlug?: string | null): Promise<Cla
   const anyUnavailable = built.some((b) => b.unavailable);
 
   let outcome: ClassicsOutcome;
-  if (playlists.length > 0) outcome = 'results';
+  if (playlists.length > 0) outcome = anyUnavailable ? 'partial' : 'results';
   else if (anyUnavailable) outcome = 'unavailable';
   else outcome = 'no_results';
 
   const value: ClassicsDecadeResult = { outcome, ...base, playlists };
-  // Non mettere in cache un risultato temporaneamente non disponibile.
-  if (outcome !== 'unavailable') remember(decade.slug, value);
+  // Non mettere in cache un risultato degradato (una playlist temporaneamente mancante):
+  // altrimenti resterebbe parziale per tutti fino alla scadenza. 'partial' si ricalcola subito.
+  if (outcome === 'results' || outcome === 'no_results') remember(decade.slug, value);
   return value;
 }
 

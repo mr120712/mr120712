@@ -21,7 +21,9 @@ export async function GET(request: Request) {
   return NextResponse.json(ClassicsResponseSchema.parse(result), {
     headers: {
       'Cache-Control':
-        result.outcome === 'unavailable' || result.outcome === 'inactive'
+        result.outcome === 'unavailable' ||
+        result.outcome === 'inactive' ||
+        result.outcome === 'partial'
           ? 'no-store'
           : 'public, max-age=600, s-maxage=1800, stale-while-revalidate=86400',
     },

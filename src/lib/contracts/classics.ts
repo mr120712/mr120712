@@ -11,7 +11,7 @@ export const ClassicsPlaylistSchema = z.object({
 export type ClassicsPlaylist = z.infer<typeof ClassicsPlaylistSchema>;
 
 export const ClassicsResponseSchema = z.object({
-  outcome: z.enum(['results', 'no_results', 'unavailable', 'inactive']),
+  outcome: z.enum(['results', 'partial', 'no_results', 'unavailable', 'inactive']),
   /** Slug del decennio selezionato. */
   decade: z.string(),
   label: z.string(),

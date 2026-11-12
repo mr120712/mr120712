@@ -78,6 +78,20 @@ describe('getClassicsDecade', () => {
     expect(result.playlists).toEqual([]);
   });
 
+  it('partial quando una playlist fallisce ma le altre hanno brani (non in cache)', async () => {
+    mocks.moodTracks
+      .mockResolvedValueOnce({ outcome: 'unavailable', tracks: [] })
+      .mockResolvedValue({ outcome: 'results', tracks: [track()] });
+    const result = await getClassicsDecade('80s');
+    expect(result.outcome).toBe('partial');
+    expect(result.playlists.length).toBeGreaterThan(0);
+    // 'partial' non va in cache: una seconda chiamata ricalcola.
+    mocks.moodTracks.mockReset();
+    mocks.moodTracks.mockResolvedValue({ outcome: 'results', tracks: [track()] });
+    const second = await getClassicsDecade('80s');
+    expect(second.outcome).toBe('results');
+  });
+
   it('unavailable quando tutte le chiamate falliscono senza brani', async () => {
     mocks.moodTracks.mockResolvedValue({ outcome: 'unavailable', tracks: [] });
     const result = await getClassicsDecade('80s');
