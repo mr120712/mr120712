@@ -74,8 +74,23 @@ export const PodcastEpisodeSchema = z.object({
   durationSeconds: z.number().int().nonnegative().nullable(),
   description: z.string().max(600).nullable(),
   artworkUrl: httpsUrl.nullable(),
+  /** L'episodio ha un trascritto (tag podcast:transcript nel feed). */
+  hasTranscript: z.boolean(),
 });
 export type PodcastEpisode = z.infer<typeof PodcastEpisodeSchema>;
+
+export const TranscriptCueSchema = z.object({
+  /** Secondi di inizio del segmento (null se il formato non è temporizzato). */
+  startSeconds: z.number().nonnegative().nullable(),
+  text: z.string().min(1).max(2000),
+});
+export const PodcastTranscriptResponseSchema = z.object({
+  available: z.boolean(),
+  /** true se almeno un cue ha un tempo: si può sincronizzare e saltare a un punto. */
+  timed: z.boolean(),
+  cues: z.array(TranscriptCueSchema),
+});
+export type PodcastTranscriptResponse = z.infer<typeof PodcastTranscriptResponseSchema>;
 
 export const PodcastDetailResponseSchema = z.object({
   outcome: z.enum(['results', 'no_results', 'unavailable']),

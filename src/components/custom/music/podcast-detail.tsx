@@ -1,8 +1,9 @@
 // @polsia:user-owned — scheda di un podcast: segui lo show e ascolta gli episodi.
 'use client';
 
-import { Check, Pause, Play, Plus } from 'lucide-react';
+import { Check, FileText, Pause, Play, Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { EpisodeTranscript } from '@/components/custom/music/episode-transcript';
 import { useLibrary } from '@/components/custom/music/library-context';
 import { episodeToTrack } from '@/components/custom/music/live-tracks';
 import { trackStreamPath, useMusicPlayer } from '@/components/custom/music/music-player';
@@ -38,6 +39,7 @@ export function PodcastDetail({ podcastId }: { podcastId: string }) {
   const player = useMusicPlayer();
   const [response, setResponse] = useState<PodcastDetailResponse | null>(null);
   const [failed, setFailed] = useState(false);
+  const [openTranscript, setOpenTranscript] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -158,45 +160,69 @@ export function PodcastDetail({ podcastId }: { podcastId: string }) {
                 .filter(Boolean)
                 .join(' · ');
               return (
-                <li key={episode.key} className={styles.row}>
-                  <div className={styles.rowArt}>
-                    <PodcastArt
-                      podcast={{
-                        title: episode.title,
-                        artworkUrl: episode.artworkUrl ?? podcast.artworkUrl,
-                      }}
+                <li key={episode.key}>
+                  <div className={styles.row}>
+                    <div className={styles.rowArt}>
+                      <PodcastArt
+                        podcast={{
+                          title: episode.title,
+                          artworkUrl: episode.artworkUrl ?? podcast.artworkUrl,
+                        }}
+                      />
+                    </div>
+                    <div className={styles.rowCopy}>
+                      <strong title={episode.title}>{episode.title}</strong>
+                      {meta ? <span>{meta}</span> : null}
+                      {episode.description ? <p>{episode.description}</p> : null}
+                    </div>
+                    <div className={styles.rowActions}>
+                      <button
+                        type="button"
+                        className={`${styles.iconButton} ${styles.playButton}`}
+                        onClick={() => playEpisode(episode)}
+                        aria-label={
+                          playing ? `Metti in pausa ${episode.title}` : `Riproduci ${episode.title}`
+                        }
+                      >
+                        {playing ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
+                      </button>
+                      {episode.hasTranscript ? (
+                        <button
+                          type="button"
+                          className={styles.iconButton}
+                          aria-pressed={openTranscript === episode.key}
+                          aria-label={`Trascrizione di ${episode.title}`}
+                          onClick={() =>
+                            setOpenTranscript(openTranscript === episode.key ? null : episode.key)
+                          }
+                        >
+                          <FileText aria-hidden="true" />
+                        </button>
+                      ) : null}
+                      {/* Le enclosure RSS sono fatte per essere scaricate: salva l'episodio per offline. */}
+                      <SingleOfflineDownloadButton
+                        target={{
+                          id: episode.key,
+                          title: episode.title,
+                          endpoint: {
+                            kind: 'podcast',
+                            podcastId: podcast.id,
+                            episodeKey: episode.key,
+                          },
+                        }}
+                        signedIn={library.signedIn}
+                      />
+                    </div>
+                  </div>
+                  {openTranscript === episode.key ? (
+                    <EpisodeTranscript
+                      podcastId={podcast.id}
+                      episodeKey={episode.key}
+                      isCurrent={player.currentTrack?.qualifiedId === qualifiedId}
+                      elapsedSeconds={player.elapsedSeconds}
+                      onSeek={player.seekTo}
                     />
-                  </div>
-                  <div className={styles.rowCopy}>
-                    <strong title={episode.title}>{episode.title}</strong>
-                    {meta ? <span>{meta}</span> : null}
-                    {episode.description ? <p>{episode.description}</p> : null}
-                  </div>
-                  <div className={styles.rowActions}>
-                    <button
-                      type="button"
-                      className={`${styles.iconButton} ${styles.playButton}`}
-                      onClick={() => playEpisode(episode)}
-                      aria-label={
-                        playing ? `Metti in pausa ${episode.title}` : `Riproduci ${episode.title}`
-                      }
-                    >
-                      {playing ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
-                    </button>
-                    {/* Le enclosure RSS sono fatte per essere scaricate: salva l'episodio per offline. */}
-                    <SingleOfflineDownloadButton
-                      target={{
-                        id: episode.key,
-                        title: episode.title,
-                        endpoint: {
-                          kind: 'podcast',
-                          podcastId: podcast.id,
-                          episodeKey: episode.key,
-                        },
-                      }}
-                      signedIn={library.signedIn}
-                    />
-                  </div>
+                  ) : null}
                 </li>
               );
             })}

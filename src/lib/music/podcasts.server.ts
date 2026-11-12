@@ -340,7 +340,46 @@ export function episodeKeyFor(identity: string) {
   return createHash('sha256').update(identity).digest('base64url').slice(0, 22);
 }
 
-export type ParsedEpisode = PodcastEpisode & { audioUrl: string };
+export type ParsedEpisode = PodcastEpisode & {
+  audioUrl: string;
+  /** URL del trascritto (tag podcast:transcript), risolto dal feed. Mai da un URL dell'utente. */
+  transcriptUrl: string | null;
+  transcriptType: string | null;
+};
+
+/** Estrae un attributo da un singolo elemento XML (es. un <podcast:transcript …>). */
+function attrOf(element: string, attribute: string): string | null {
+  const value = new RegExp(`\\s${attribute}\\s*=\\s*("([^"]*)"|'([^']*)')`, 'i').exec(element);
+  const raw = value?.[2] ?? value?.[3];
+  return raw ? decodeXmlText(raw).trim() : null;
+}
+
+// Formati temporizzati (json/vtt/srt) preferiti al testo semplice per la sincronizzazione.
+const TRANSCRIPT_TYPE_PREFERENCE = [
+  'application/json',
+  'text/vtt',
+  'application/x-subrip',
+  'application/srt',
+  'text/srt',
+  'text/html',
+  'text/plain',
+];
+
+/** Sceglie il miglior <podcast:transcript> dell'episodio (più formati possibili). */
+function pickTranscript(item: string): { url: string; type: string } | null {
+  const elements = item.match(/<podcast:transcript\b[^>]*>/gi);
+  if (!elements) return null;
+  let best: { url: string; type: string; rank: number } | null = null;
+  for (const element of elements) {
+    const url = httpsOrNull(attrOf(element, 'url'));
+    if (!url) continue;
+    const type = (attrOf(element, 'type') ?? 'text/plain').toLowerCase();
+    const index = TRANSCRIPT_TYPE_PREFERENCE.indexOf(type);
+    const rank = index < 0 ? TRANSCRIPT_TYPE_PREFERENCE.length : index;
+    if (!best || rank < best.rank) best = { url, type, rank };
+  }
+  return best ? { url: best.url, type: best.type } : null;
+}
 
 function parseItem(item: string): ParsedEpisode | null {
   const audioUrl = httpsOrNull(tagAttribute(item, 'enclosure', 'url'));
@@ -351,6 +390,7 @@ function parseItem(item: string): ParsedEpisode | null {
   const published = plainText(tagContent(item, 'pubDate'), 100);
   const publishedDate = published ? new Date(published) : null;
   const duration = parseDuration(tagContent(item, 'itunes:duration'));
+  const transcript = pickTranscript(item);
   return {
     key: episodeKeyFor(guid ?? audioUrl),
     title,
@@ -363,7 +403,10 @@ function parseItem(item: string): ParsedEpisode | null {
       600,
     ),
     artworkUrl: httpsOrNull(tagAttribute(item, 'itunes:image', 'href')),
+    hasTranscript: transcript !== null,
     audioUrl,
+    transcriptUrl: transcript?.url ?? null,
+    transcriptType: transcript?.type ?? null,
   };
 }
 

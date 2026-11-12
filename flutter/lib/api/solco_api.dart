@@ -258,6 +258,19 @@ class SolcoApi {
     throw SolcoApiException('Impossibile caricare il podcast.', statusCode: res.statusCode);
   }
 
+  /// Trascrizione di un episodio (tag podcast:transcript del feed). Il server
+  /// scarica e analizza il file; qui non serve autenticazione.
+  Future<PodcastTranscript> podcastTranscript(String podcastId, String episodeKey) async {
+    final res = await _dio.get<dynamic>(
+      '/api/music/podcasts/$podcastId/episodes/$episodeKey/transcript',
+    );
+    final data = res.data;
+    if (res.statusCode == 200 && data is Map<String, dynamic>) {
+      return PodcastTranscript.fromJson(data);
+    }
+    throw SolcoApiException('Trascrizione non disponibile.', statusCode: res.statusCode);
+  }
+
   // --- Libreria (mutazioni: Origin impostato dall'interceptor) ---
 
   /// Registra un ascolto nella cronologia. Best-effort: non deve mai rompere la riproduzione.

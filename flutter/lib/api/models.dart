@@ -416,6 +416,7 @@ class PodcastEpisode {
     this.durationSeconds,
     this.description,
     this.artworkUrl,
+    this.hasTranscript = false,
   });
 
   final String key;
@@ -424,6 +425,9 @@ class PodcastEpisode {
   final int? durationSeconds;
   final String? description;
   final String? artworkUrl;
+
+  /// L'episodio ha un trascritto (tag podcast:transcript nel feed).
+  final bool hasTranscript;
 
   PlayableItem toPlayable({
     required String podcastId,
@@ -449,6 +453,45 @@ class PodcastEpisode {
       durationSeconds: (json['durationSeconds'] as num?)?.toInt(),
       description: json['description'] as String?,
       artworkUrl: json['artworkUrl'] as String?,
+      hasTranscript: json['hasTranscript'] == true,
+    );
+  }
+}
+
+/// Un segmento della trascrizione di un episodio.
+class TranscriptCue {
+  TranscriptCue({required this.startSeconds, required this.text});
+
+  /// Secondi di inizio del segmento (null se il formato non è temporizzato).
+  final double? startSeconds;
+  final String text;
+
+  factory TranscriptCue.fromJson(Map<String, dynamic> json) {
+    return TranscriptCue(
+      startSeconds: (json['startSeconds'] as num?)?.toDouble(),
+      text: (json['text'] as String?) ?? '',
+    );
+  }
+}
+
+/// Trascrizione di un episodio (tag podcast:transcript del feed).
+class PodcastTranscript {
+  PodcastTranscript({required this.available, required this.timed, required this.cues});
+
+  final bool available;
+
+  /// true se almeno un cue ha un tempo: si può sincronizzare e saltare a un punto.
+  final bool timed;
+  final List<TranscriptCue> cues;
+
+  factory PodcastTranscript.fromJson(Map<String, dynamic> json) {
+    return PodcastTranscript(
+      available: json['available'] == true,
+      timed: json['timed'] == true,
+      cues: ((json['cues'] as List?) ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .map(TranscriptCue.fromJson)
+          .toList(),
     );
   }
 }
