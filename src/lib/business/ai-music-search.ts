@@ -3,15 +3,20 @@ import type { AiSearchPlan } from '@/lib/contracts/ai-music-search';
 import { genreCatalog } from '@/lib/music/genre-catalog';
 
 export const AI_SEARCH_MODEL = 'claude-opus-5-5';
-export const AI_SEARCH_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+// "xhigh" and "max" are left out: Opus 5.5 thinks much longer at those levels, and thinking counts
+// toward max_tokens, so they need streaming and a far larger budget than this one-shot call.
+export const AI_SEARCH_EFFORTS = ['low', 'medium', 'high'] as const;
 export type AiSearchEffort = (typeof AI_SEARCH_EFFORTS)[number];
 
-/** Effort from SOLCO_AI_SEARCH_EFFORT; "high" by default (good plans in seconds, not minutes). */
+/**
+ * Effort from SOLCO_AI_SEARCH_EFFORT; "medium" by default, the documented starting point for
+ * Opus 5.5. "low" or "high" can be set once someone has compared them on real descriptions.
+ */
 export function aiSearchEffort(value: string | undefined): AiSearchEffort {
   const wanted = value?.trim().toLowerCase();
   return (AI_SEARCH_EFFORTS as readonly string[]).includes(wanted ?? '')
     ? (wanted as AiSearchEffort)
-    : 'high';
+    : 'medium';
 }
 
 const MAX_QUERY = 80;

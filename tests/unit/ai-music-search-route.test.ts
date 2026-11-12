@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   plan: vi.fn(),
   sameOrigin: vi.fn(() => true),
   premium: vi.fn(async () => true),
+  access: vi.fn(),
+  available: vi.fn(async () => true),
 }));
 vi.mock('server-only', () => ({}));
 vi.mock('@/lib/require-auth', () => ({ getSessionUser: mocks.user }));
@@ -18,10 +20,10 @@ vi.mock('@/lib/business/rate-limit.server', () => ({
 }));
 vi.mock('@/lib/business/premium-access.server', () => ({
   hasPremiumAccess: mocks.premium,
-  currentAccess: async () => ({ signedIn: true, premium: await mocks.premium() }),
+  currentAccess: mocks.access,
 }));
 vi.mock('@/lib/business/ai-music-search.server', () => ({
-  aiSearchConfigured: () => true,
+  aiSearchAvailable: mocks.available,
   planMusicSearch: mocks.plan,
 }));
 
@@ -51,6 +53,10 @@ beforeEach(() => {
   mocks.plan.mockReset().mockResolvedValue({ ok: true, plan, cached: false });
   mocks.sameOrigin.mockReset().mockReturnValue(true);
   mocks.premium.mockReset().mockResolvedValue(true);
+  mocks.access
+    .mockReset()
+    .mockImplementation(async () => ({ signedIn: true, premium: await mocks.premium() }));
+  mocks.available.mockReset().mockResolvedValue(true);
 });
 
 describe('route /api/music/ai-search', () => {
@@ -58,6 +64,12 @@ describe('route /api/music/ai-search', () => {
     expect(await (await GET()).json()).toEqual({ enabled: true, signedIn: true, premium: true });
     mocks.premium.mockResolvedValueOnce(false);
     expect(await (await GET()).json()).toMatchObject({ premium: false });
+  });
+
+  it('con una chiave mancante, sbagliata o rifiutata il pulsante non viene offerto', async () => {
+    mocks.available.mockResolvedValueOnce(false);
+    expect(await (await GET()).json()).toEqual({ enabled: false, signedIn: false, premium: false });
+    expect(mocks.access).not.toHaveBeenCalled();
   });
 
   it('è inclusa nei piani a pagamento: un utente Free riceve 402 e Claude non viene chiamato', async () => {
@@ -99,5 +111,13 @@ describe('route /api/music/ai-search', () => {
     const response = await post({ prompt: 'jazz per cena' });
     expect(response.status).toBe(503);
     expect((await response.json()).message).toContain('Riprova');
+
+    mocks.plan.mockResolvedValueOnce({ ok: false, error: 'not_configured' });
+    const off = await post({ prompt: 'jazz per cena' });
+    expect(off.status).toBe(503);
+    expect(await off.json()).toEqual({
+      error: 'not_configured',
+      message: 'La ricerca con l’AI non è ancora attiva.',
+    });
   });
 });

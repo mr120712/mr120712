@@ -1,7 +1,7 @@
 // @polsia:user-owned — "Cerca con l'AI": Claude Opus 5.5 trasforma una descrizione in ricerche.
 import 'server-only';
 import { NextResponse } from 'next/server';
-import { aiSearchConfigured, planMusicSearch } from '@/lib/business/ai-music-search.server';
+import { aiSearchAvailable, planMusicSearch } from '@/lib/business/ai-music-search.server';
 import { currentAccess, hasPremiumAccess } from '@/lib/business/premium-access.server';
 import { enforceRateLimit, getRateLimitIdentity } from '@/lib/business/rate-limit.server';
 import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
@@ -10,14 +10,17 @@ import { getSessionUser } from '@/lib/require-auth';
 import { sameOrigin } from '@/lib/same-origin';
 
 export const dynamic = 'force-dynamic';
-// Opus 5.5 at high effort usually answers in seconds; leave room for a slow turn.
+// The Anthropic call has a 100 s deadline under this 120 s limit, so a slow turn still ends in time.
 export const maxDuration = 120;
 
 const privateHeaders = { 'Cache-Control': 'private, no-store' };
 
-/** Whether the AI search is on, and whether this listener can use it (paid plans only). */
+/**
+ * Whether the AI search works (a key Anthropic accepts, not merely a key that is set), and
+ * whether this listener can use it (paid plans only).
+ */
 export async function GET() {
-  const enabled = aiSearchConfigured();
+  const enabled = await aiSearchAvailable();
   const access = enabled ? await currentAccess() : { signedIn: false, premium: false };
   return NextResponse.json({ enabled, ...access }, { headers: privateHeaders });
 }

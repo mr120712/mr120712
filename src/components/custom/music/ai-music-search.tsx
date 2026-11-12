@@ -1,6 +1,6 @@
 // @polsia:user-owned — "Cerca con l'AI": l'ascoltatore descrive cosa vuole sentire, Claude
 // Opus 5.5 prepara le ricerche e Solco le esegue sulle sue fonti (YouTube, Audius, Jamendo,
-// radio, podcast, generi). Visibile solo quando ANTHROPIC_API_KEY è configurata.
+// radio, podcast, generi). Visibile solo quando la chiave Anthropic funziona (non solo impostata).
 'use client';
 
 import { Loader2, Sparkles } from 'lucide-react';
@@ -42,14 +42,19 @@ import styles from './discover.module.css';
 
 const EXAMPLES = AI_SEARCH_EXAMPLES;
 
-function errorMessage(error: unknown) {
+const UNAVAILABLE_TEXT =
+  'La ricerca con l’AI non è disponibile in questo momento. Puoi usare la ricerca per titolo o artista.';
+
+/** The message to show, and whether the server said the AI search cannot work right now. */
+function readError(error: unknown) {
   const cause =
     error instanceof Error && typeof error.cause === 'object' && error.cause !== null
-      ? (error.cause as { message?: unknown; errors?: { prompt?: unknown } })
+      ? (error.cause as { error?: unknown; message?: unknown; errors?: { prompt?: unknown } })
       : null;
-  if (typeof cause?.errors?.prompt === 'string') return cause.errors.prompt;
-  if (typeof cause?.message === 'string') return cause.message;
-  return 'La ricerca con l’AI non è riuscita. Riprova.';
+  const unavailable = cause?.error === 'not_configured';
+  if (typeof cause?.errors?.prompt === 'string') return { text: cause.errors.prompt, unavailable };
+  if (typeof cause?.message === 'string') return { text: cause.message, unavailable };
+  return { text: 'La ricerca con l’AI non è riuscita. Riprova.', unavailable };
 }
 
 /**
@@ -312,6 +317,14 @@ export function AiMusicSearch({ initiallyOpen = false }: { initiallyOpen?: boole
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [plan, setPlan] = useState<AiSearchPlan | null>(null);
+  // Set when the server answers "not_configured": the form would only fail again.
+  const [unavailable, setUnavailable] = useState(false);
+  const noticeRef = useRef<HTMLParagraphElement>(null);
+
+  // The submit button that had the focus disappears with the form: move it to the notice.
+  useEffect(() => {
+    if (unavailable) noticeRef.current?.focus();
+  }, [unavailable]);
 
   useEffect(() => {
     let cancelled = false;
@@ -340,7 +353,14 @@ export function AiMusicSearch({ initiallyOpen = false }: { initiallyOpen?: boole
       });
       setPlan(response.plan);
     } catch (reason) {
-      setError(errorMessage(reason));
+      const failure = readError(reason);
+      if (failure.unavailable) {
+        setUnavailable(true);
+        setError(null);
+        setPlan(null);
+      } else {
+        setError(failure.text);
+      }
     } finally {
       setLoading(false);
     }
@@ -387,6 +407,10 @@ export function AiMusicSearch({ initiallyOpen = false }: { initiallyOpen?: boole
             </Button>
           </div>
         </div>
+      ) : unavailable ? (
+        <p ref={noticeRef} tabIndex={-1} role="alert" className={styles.state}>
+          {UNAVAILABLE_TEXT}
+        </p>
       ) : (
         <form onSubmit={submit} className={styles.aiForm}>
           <label htmlFor="ai-search-prompt" className={styles.state}>
