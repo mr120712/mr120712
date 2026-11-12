@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   uploadCreate: vi.fn(),
   uploadFindMany: vi.fn(),
   uploadFindFirst: vi.fn(),
+  uploadFindUnique: vi.fn(),
   uploadUpdate: vi.fn(),
   uploadDelete: vi.fn(),
   reportCreate: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock('@/lib/db', () => ({
       create: mocks.uploadCreate,
       findMany: mocks.uploadFindMany,
       findFirst: mocks.uploadFindFirst,
+      findUnique: mocks.uploadFindUnique,
       update: mocks.uploadUpdate,
       delete: mocks.uploadDelete,
     },
@@ -39,6 +41,7 @@ import {
   InvalidPublicUploadSource,
   MAX_UPLOADS_PER_USER,
   PublicUploadLimitReached,
+  recordPublicUploadPlay,
   registerPublicUpload,
   reportPublicUpload,
 } from '@/lib/music/public-uploads.server';
@@ -127,15 +130,18 @@ describe('reportPublicUpload', () => {
     expect(await reportPublicUpload('c'.repeat(25), 'user-2')).toBe(false);
   });
 
-  it('auto-ritira oltre la soglia di segnalatori distinti', async () => {
+  it('auto-ritira oltre la soglia E cancella l’oggetto Blob (takedown vero)', async () => {
     mocks.uploadFindFirst.mockResolvedValue({ id: 'c'.repeat(25) });
     mocks.reportCreate.mockResolvedValue({});
     mocks.reportCount.mockResolvedValue(AUTO_UNPUBLISH_REPORTS);
+    mocks.uploadUpdate.mockResolvedValue({ blobUrl: validInput.blobUrl });
+    mocks.del.mockResolvedValue(undefined);
     const ok = await reportPublicUpload('c'.repeat(25), 'user-2');
     expect(ok).toBe(true);
     expect(mocks.uploadUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ data: { published: false } }),
     );
+    expect(mocks.del).toHaveBeenCalledWith(validInput.blobUrl, expect.anything());
   });
 
   it('non ritira sotto la soglia', async () => {
@@ -161,5 +167,27 @@ describe('deletePublicUpload', () => {
     mocks.uploadFindFirst.mockResolvedValue(null);
     expect(await deletePublicUpload('user-1', 'c'.repeat(25))).toBe(false);
     expect(mocks.del).not.toHaveBeenCalled();
+  });
+});
+
+describe('recordPublicUploadPlay', () => {
+  it('conta l’ascolto di un ascoltatore diverso dal proprietario', async () => {
+    mocks.uploadFindUnique.mockResolvedValue({ uploaderUserId: 'owner' });
+    await recordPublicUploadPlay('c'.repeat(25), 'listener');
+    expect(mocks.uploadUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { playCount: { increment: 1 } } }),
+    );
+  });
+
+  it('NON conta l’ascolto del proprietario (niente auto-gonfiaggio)', async () => {
+    mocks.uploadFindUnique.mockResolvedValue({ uploaderUserId: 'owner' });
+    await recordPublicUploadPlay('c'.repeat(25), 'owner');
+    expect(mocks.uploadUpdate).not.toHaveBeenCalled();
+  });
+
+  it('conta gli ascolti anonimi', async () => {
+    mocks.uploadFindUnique.mockResolvedValue({ uploaderUserId: 'owner' });
+    await recordPublicUploadPlay('c'.repeat(25), null);
+    expect(mocks.uploadUpdate).toHaveBeenCalled();
   });
 });

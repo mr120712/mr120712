@@ -23,6 +23,11 @@ export function isPublicUploadConfigured(): boolean {
   return Boolean(env.BLOB_READ_WRITE_TOKEN);
 }
 
+/** Quanti brani pubblici ha già l'utente (per far rispettare il tetto già al rilascio del token). */
+export function countUserPublicUploads(userId: string): Promise<number> {
+  return prisma.publicUpload.count({ where: { uploaderUserId: userId } });
+}
+
 const selectUpload = {
   id: true,
   uploaderUserId: true,
@@ -138,9 +143,22 @@ export async function listMyPublicUploads(userId: string): Promise<PublicUpload[
   return rows.map((row) => toPublicUpload(row, userId));
 }
 
-/** Registra un ascolto (playCount) per la classifica. Non fa mai throw bloccante per il player. */
-export async function recordPublicUploadPlay(uploadId: string): Promise<void> {
+/**
+ * Registra un ascolto (playCount) per la classifica. Non conta gli ascolti dell'autore stesso
+ * (niente auto-gonfiaggio della propria posizione). Non fa mai throw bloccante per il player.
+ */
+export async function recordPublicUploadPlay(
+  uploadId: string,
+  viewerUserId: string | null,
+): Promise<void> {
   try {
+    const row = await prisma.publicUpload.findUnique({
+      where: { id: uploadId },
+      select: { uploaderUserId: true },
+    });
+    if (!row) return;
+    // Il proprietario non fa punti sulla propria classifica.
+    if (viewerUserId && row.uploaderUserId === viewerUserId) return;
     await prisma.publicUpload.update({
       where: { id: uploadId },
       data: { playCount: { increment: 1 } },
@@ -173,7 +191,21 @@ export async function reportPublicUpload(
 
   const reporters = await prisma.publicUploadReport.count({ where: { uploadId } });
   if (reporters >= AUTO_UNPUBLISH_REPORTS) {
-    await prisma.publicUpload.update({ where: { id: uploadId }, data: { published: false } });
+    const row = await prisma.publicUpload.update({
+      where: { id: uploadId },
+      data: { published: false },
+      select: { blobUrl: true },
+    });
+    // Takedown vero: rimuove l'oggetto dalla CDN pubblica, non solo dall'elenco, così l'audio
+    // segnalato smette davvero di essere servito (il suo URL pubblico non risponde più).
+    const token = env.BLOB_READ_WRITE_TOKEN;
+    if (token) {
+      try {
+        await del(row.blobUrl, { token });
+      } catch {
+        // Già rimosso o non raggiungibile: la riga resta comunque non pubblicata.
+      }
+    }
   }
   return true;
 }

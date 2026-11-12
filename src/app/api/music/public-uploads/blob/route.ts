@@ -5,7 +5,12 @@ import { type HandleUploadBody, handleUpload } from '@vercel/blob/client';
 import { NextResponse } from 'next/server';
 import { enforceRateLimit } from '@/lib/business/rate-limit.server';
 import { MAX_PUBLIC_UPLOAD_BYTES } from '@/lib/contracts/public-uploads';
-import { isPublicUploadConfigured, PUBLIC_UPLOAD_PREFIX } from '@/lib/music/public-uploads.server';
+import {
+  countUserPublicUploads,
+  isPublicUploadConfigured,
+  MAX_UPLOADS_PER_USER,
+  PUBLIC_UPLOAD_PREFIX,
+} from '@/lib/music/public-uploads.server';
 import { requireAuth } from '@/lib/require-auth';
 import { sameOrigin } from '@/lib/same-origin';
 
@@ -57,6 +62,14 @@ export async function POST(request: Request): Promise<Response> {
     }
     const limited = await enforceRateLimit('recordings.write', `user:${userId}`);
     if (limited) return limited;
+    // Tetto per utente già qui: un utente al limite non riceve nemmeno il token (evita di creare
+    // oggetti pubblici che poi non potrebbero essere registrati).
+    if ((await countUserPublicUploads(userId)) >= MAX_UPLOADS_PER_USER) {
+      return NextResponse.json(
+        { error: 'limit_reached', message: 'Hai raggiunto il numero massimo di brani pubblici.' },
+        { status: 409 },
+      );
+    }
   }
 
   try {

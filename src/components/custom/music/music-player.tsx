@@ -563,7 +563,10 @@ export async function requestPlayPermit(qualifiedId: string): Promise<PlayPermit
  * Mai per un file dell'ascoltatore: titolo e artista non lasciano il dispositivo.
  */
 export function recordPlay(track: MusicPlayerTrack) {
-  if (isDeviceOnly(track)) return;
+  // I file locali e i brani della libreria pubblica non vanno nella cronologia: la cronologia non
+  // porta lo streamUrl, quindi un upload ricostruito da lì non sarebbe riproducibile (voce morta).
+  // Gli upload restano ascoltabili dalla pagina /pubblica (che ha lo streamUrl).
+  if (isDeviceOnly(track) || track.playbackMode === 'upload') return;
   void apiFetch('/api/music/library', {
     method: 'POST',
     body: JSON.stringify({

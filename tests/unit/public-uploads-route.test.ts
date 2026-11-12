@@ -198,11 +198,11 @@ describe('POST /api/music/public-uploads/[id]/play', () => {
       method: 'POST',
     });
   }
-  it('conta l’ascolto (200)', async () => {
+  it('conta l’ascolto (200) passando il viewer (per escludere il proprietario)', async () => {
     mocks.play.mockResolvedValue(undefined);
     const res = await PLAY(req(), { params });
     expect(res.status).toBe(200);
-    expect(mocks.play).toHaveBeenCalledWith(id);
+    expect(mocks.play).toHaveBeenCalledWith(id, 'user-1');
   });
   it('403 se origine diversa', async () => {
     mocks.sameOrigin.mockReturnValue(false);

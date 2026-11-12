@@ -50,6 +50,31 @@ function extensionForMime(mime: string): string {
   return 'audio';
 }
 
+/** Alias di tipi audio che i browser dichiarano, mappati sul sottotipo canonico accettato dal token. */
+const MIME_ALIASES: Record<string, string> = {
+  'audio/mp3': 'audio/mpeg',
+  'audio/x-mpeg': 'audio/mpeg',
+  'audio/m4a': 'audio/mp4',
+  'audio/x-m4a': 'audio/mp4',
+  'audio/wave': 'audio/wav',
+  'audio/vnd.wave': 'audio/wav',
+  'audio/x-flac': 'audio/flac',
+  'audio/x-aac': 'audio/aac',
+  'audio/opus': 'audio/ogg',
+};
+
+/**
+ * MIME canonico (uno degli accettati dal token Blob) per un file: prima l'estensione nota, poi
+ * l'alias del tipo dichiarato, infine il tipo base dichiarato. Serve perché il browser a volte
+ * dichiara alias (audio/x-m4a, audio/mp3) che il token rifiuterebbe.
+ */
+function canonicalAudioMime(file: File): string {
+  const byExt = MIME_BY_EXTENSION[fileExtension(file.name)];
+  if (byExt) return byExt;
+  const declared = (file.type || '').split(';', 1)[0]?.trim().toLowerCase() ?? '';
+  return MIME_ALIASES[declared] ?? (declared.startsWith('audio/') ? declared : 'audio/mpeg');
+}
+
 /** Durata del file lato client (fallback se il contenitore non la riporta). */
 export function readDurationSeconds(file: File): Promise<number> {
   return new Promise((resolve) => {
@@ -89,7 +114,7 @@ export async function uploadPublicSong(
   file: File,
   options: { title: string; artist?: string; onProgress?: (percent: number) => void },
 ): Promise<PublicUpload> {
-  const mime = file.type || 'audio/mpeg';
+  const mime = canonicalAudioMime(file);
   const pathname = `public-uploads/${slugify(options.title || file.name)}.${extensionForMime(mime)}`;
 
   let result: Awaited<ReturnType<typeof upload>>;

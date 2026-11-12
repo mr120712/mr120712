@@ -2,7 +2,6 @@
 // (loggato) un brano già salvato su Vercel Blob.
 import 'server-only';
 import { NextResponse } from 'next/server';
-import { enforceRateLimit } from '@/lib/business/rate-limit.server';
 import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
 import {
   PublicUploadCreateResponseSchema,
@@ -56,9 +55,8 @@ export async function POST(request: Request) {
     return response as Response;
   }
 
-  const limited = await enforceRateLimit('recordings.write', `user:${userId}`);
-  if (limited) return limited;
-
+  // Niente rate-limit qui: il caricamento vero (e il suo tetto) è già limitato al rilascio del
+  // token in /blob. Caricare due volte lo stesso oggetto fallisce comunque (blobUrl unico).
   const payload = await readJsonLimited(request, 4096);
   if (!payload.ok) return limitedJsonError(payload);
 

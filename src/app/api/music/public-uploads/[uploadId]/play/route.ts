@@ -5,6 +5,7 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { enforceRateLimit, getRateLimitIdentity } from '@/lib/business/rate-limit.server';
 import { recordPublicUploadPlay } from '@/lib/music/public-uploads.server';
+import { getSessionUser } from '@/lib/require-auth';
 import { sameOrigin } from '@/lib/same-origin';
 
 export const dynamic = 'force-dynamic';
@@ -27,6 +28,7 @@ export async function POST(
   const limited = await enforceRateLimit('listening.write', `play:${identity}`);
   if (limited) return limited;
 
-  await recordPublicUploadPlay(uploadId);
+  const viewer = await getSessionUser();
+  await recordPublicUploadPlay(uploadId, viewer?.id ?? null);
   return NextResponse.json({ ok: true }, { headers: { 'Cache-Control': 'no-store' } });
 }
