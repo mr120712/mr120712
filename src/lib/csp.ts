@@ -58,10 +58,9 @@ const FORBIDDEN_SOURCE = new Set([
 // in connect-src grants nothing by itself.
 export const R2_UPLOAD_HOST = 'https://*.r2.cloudflarestorage.com';
 
-// Only the production dashboard may embed customer apps. Never allow all
-// Polsia subdomains: polsia.app and polsia.io serve untrusted customer code.
-// Keep this shared with next.config.ts for responses that skip proxy.ts.
-export const DASHBOARD_FRAME_ANCESTORS = 'https://polsia.com https://www.polsia.com';
+// Solco è un'app indipendente: solo l'app stessa può inquadrarsi (niente embedding
+// esterno). Condiviso con next.config.ts per le risposte che saltano proxy.ts.
+export const DASHBOARD_FRAME_ANCESTORS = "'self'";
 
 // Merge a directive's base tokens with any per-app extras: split on whitespace,
 // drop forbidden and duplicate tokens, preserve order (base first, 'self' leads).

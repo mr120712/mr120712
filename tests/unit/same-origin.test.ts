@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const PUBLIC_URL = 'https://acme.polsia.app';
+const PUBLIC_URL = 'https://solco.example';
 const INTERNAL_URL = 'http://10.0.0.12:3000/api/creations';
 const DATABASE_URL = 'REDACTED';
 
@@ -31,13 +31,8 @@ describe('sameOrigin', () => {
     expect(sameOrigin(post(PUBLIC_URL))).toBe(true);
   });
 
-  it('accepts the platform twin domain of the same app', async () => {
-    const sameOrigin = await load();
-    expect(sameOrigin(post('https://acme.polsia.io'))).toBe(true);
-  });
-
   it('accepts an exact brand domain from BETTER_AUTH_TRUSTED_ORIGINS', async () => {
-    const sameOrigin = await load(PUBLIC_URL, 'https://acme.com, https://*.polsia.app');
+    const sameOrigin = await load(PUBLIC_URL, 'https://acme.com, https://*.example.com');
     expect(sameOrigin(post('https://acme.com'))).toBe(true);
   });
 
@@ -46,10 +41,10 @@ describe('sameOrigin', () => {
     expect(sameOrigin(post(new URL(INTERNAL_URL).origin))).toBe(false);
   });
 
-  it('refuses a foreign origin, including another tenant', async () => {
-    const sameOrigin = await load(PUBLIC_URL, 'https://*.polsia.app');
+  it('refuses a foreign origin, and ignores wildcard trusted entries', async () => {
+    const sameOrigin = await load(PUBLIC_URL, 'https://*.example.com');
     expect(sameOrigin(post('https://evil.example'))).toBe(false);
-    expect(sameOrigin(post('https://other.polsia.app'))).toBe(false);
+    expect(sameOrigin(post('https://other.example.com'))).toBe(false);
   });
 
   it('refuses a request without an Origin header', async () => {

@@ -7,14 +7,11 @@ import { headers } from 'next/headers';
 import { GlobalMounts } from '@/components/custom/global-mounts';
 import { HeadContent } from '@/components/custom/head-content';
 import { SiteFooter, SiteNav } from '@/components/custom/site-nav';
-import { PolsiaAnalytics } from '@/components/polsia-analytics';
-import { PolsiaPosthog } from '@/components/polsia-posthog';
 import { AppProviders } from '@/components/providers';
 import { ThemeProvider } from '@/components/theme-provider';
 import { Toaster } from '@/components/ui/sonner';
 import { colorTheme } from '@/lib/color-theme';
 import { locale } from '@/lib/locale';
-import { posthogCaptureFromEnv } from '@/lib/polsia-analytics-env';
 import { bodyClassName, htmlClassName } from '@/lib/root-attributes';
 import { siteDescription, siteName, siteUrl } from '@/lib/site';
 import { cn } from '@/lib/utils';
@@ -67,11 +64,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const nonce = process.env.POLSIA_STATIC_CHECK
     ? undefined
     : ((await headers()).get('x-nonce') ?? undefined);
-  // Visitor beacon: deploy-injected app slug + per-env platform base.
-  const analyticsSlug = process.env.POLSIA_ANALYTICS_SLUG;
-  const analyticsBase = process.env.POLSIA_API_BASE_URL;
-  // Visitor page views in PostHog: deploy-injected only while the company's capture is on.
-  const posthogCapture = posthogCaptureFromEnv(process.env);
 
   return (
     // Root class names (next/font variables, density hooks) — edit src/lib/root-attributes.ts.
@@ -107,8 +99,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             {/* Root/global mounts (Cmd+K palette, global listeners, overlays) — edit global-mounts.tsx, not this file. */}
             <GlobalMounts />
           </AppProviders>
-          {analyticsSlug ? <PolsiaAnalytics slug={analyticsSlug} base={analyticsBase} /> : null}
-          {posthogCapture ? <PolsiaPosthog {...posthogCapture} /> : null}
         </ThemeProvider>
       </body>
     </html>

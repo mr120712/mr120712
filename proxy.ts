@@ -18,7 +18,6 @@
 
 import { type NextRequest, NextResponse } from 'next/server';
 import { buildCsp, DASHBOARD_FRAME_ANCESTORS } from '@/lib/csp';
-import { posthogCaptureFromEnv, withPosthogConnectSrc } from '@/lib/polsia-analytics-env';
 // Per-app extra CSP sources (frame/connect/media/font/img). User-owned, default empty.
 import { cspExtraSources } from './next.user-config';
 
@@ -36,12 +35,11 @@ export function proxy(request: NextRequest) {
   // CSP — script-src strict (nonce + 'strict-dynamic'); style-src relaxed for
   // headless UI. Built in src/lib/csp.ts (single source, unit-tested). The
   // per-request nonce is still exposed via x-nonce for script-src consumers.
-  // connect-src gains Polsia's PostHog ingestion origin only when the deploy injected it.
   const csp = buildCsp(
     nonce,
     isDev,
     process.env.NEXT_PUBLIC_API_URL ?? '',
-    withPosthogConnectSrc(cspExtraSources, posthogCaptureFromEnv(process.env)),
+    cspExtraSources,
     DASHBOARD_FRAME_ANCESTORS,
   );
 

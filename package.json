@@ -1,8 +1,8 @@
 {
-  "name": "polsia-app-template",
+  "name": "solco",
   "version": "0.3.16",
   "private": true,
-  "description": "Polsia Next.js template with the shadcn UI baseline built in",
+  "description": "Solco — app di musica (Next.js, React, Prisma)",
   "engines": {
     "node": ">=20.18.1"
   },

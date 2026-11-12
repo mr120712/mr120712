@@ -8,8 +8,6 @@ import { env } from '@/lib/env';
 
 const ALLOWED_PROTOCOLS = ['http:', 'https:'];
 const WILDCARD = '*';
-/** `<slug>.[staging.]polsia.(app|io)`: one app served on both platform domains. */
-const PLATFORM_HOST = /^([a-z0-9-]+)\.(staging\.)?polsia\.(app|io)$/;
 
 /** Exact HTTP(S) origin of `value`, or null for wildcards, credentials and garbage. */
 function exactOrigin(value: string): string | null {
@@ -29,25 +27,8 @@ function exactOrigin(value: string): string | null {
 }
 
 /**
- * The other platform domain of the same app: `acme.polsia.io` <-> `acme.polsia.app`
- * (staging too), same protocol and port. Null for any other host.
- */
-function platformTwin(origin: string): string | null {
-  const url = new URL(origin);
-  const match = PLATFORM_HOST.exec(url.hostname);
-  if (!match) {
-    return null;
-  }
-
-  const [, slug, staging = '', domain] = match;
-  url.hostname = `${slug}.${staging}polsia.${domain === 'app' ? 'io' : 'app'}`;
-  return url.origin;
-}
-
-/**
- * Origins this app is served on: the baked public URL, its platform twin, and
- * the exact brand domains Polsia injects at deploy. Wildcards are ignored: every
- * tenant shares `*.polsia.app`, so they would trust other companies' pages.
+ * Origins this app is served on: the baked public URL plus any exact brand
+ * domains in BETTER_AUTH_TRUSTED_ORIGINS. Wildcards are ignored.
  */
 function allowedOrigins(request: Request): Set<string> {
   const allowed = new Set<string>();
@@ -55,10 +36,6 @@ function allowedOrigins(request: Request): Set<string> {
   const baked = exactOrigin(env.NEXT_PUBLIC_APP_URL ?? request.url);
   if (baked) {
     allowed.add(baked);
-    const twin = platformTwin(baked);
-    if (twin) {
-      allowed.add(twin);
-    }
   }
 
   for (const entry of (process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? '').split(',')) {
