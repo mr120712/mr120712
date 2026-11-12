@@ -43,7 +43,8 @@ questa è una cartella separata, accanto a `android/` (la TWA attuale) e `ios/`
   `same-origin`; il client imposta l'header `Origin = baseUrl` sulle richieste non-GET,
   così le POST passano il controllo CSRF — come fa l'SDK. Perché funzioni,
   `kSolcoBaseUrl` deve combaciare con `NEXT_PUBLIC_APP_URL` del deploy.
-- Tema scuro con i colori del marchio (navy + lime).
+- Tema **monocromatico futuristico**: nero profondo + un unico accento NEON ciano
+  (allineato al sito). Per cambiare accento basta `kSolcoLime` in `lib/theme.dart`.
 
 ## Cosa manca (prossimi passi)
 

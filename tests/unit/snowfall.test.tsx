@@ -2,6 +2,11 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// La neve è un tema stagionale (src/lib/seasonal.ts): qui lo forziamo su "christmas"
+// per provare il comportamento della neve, indipendentemente dall'impostazione live.
+vi.mock('@/lib/seasonal', () => ({ seasonalTheme: 'christmas' }));
+
 import { Snowfall, SnowToggle } from '@/components/custom/snowfall';
 
 function stubMotion(reduce: boolean) {

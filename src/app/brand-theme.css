@@ -1,4 +1,5 @@
-/* @polsia:user-owned — identità visiva Solco: design monocromatico (bianco e nero). */
+/* @polsia:user-owned — identità visiva Solco: monocromatico FUTURISTICO — nero profondo,
+ * grigi, un unico accento NEON (ciano). Per cambiare accento, sostituisci #22d3ee ovunque. */
 
 @theme inline {
   /* Text on bg-destructive (destructive Button/Badge): the framework fallback has no such role. */
@@ -36,7 +37,7 @@
   --ambient-line: #a3a3a3;
   --font-display: "Space Grotesk", "Space Grotesk Fallback", Arial, sans-serif;
   --font-body: "Space Grotesk", "Space Grotesk Fallback", Arial, sans-serif;
-  --radius: 0.75rem;
+  --radius: 0.5rem;
   --elevation-1: rgb(20 54 66 / 8%);
   --elevation-2: rgb(15 45 58 / 12%);
   --elevation-3: rgb(10 33 46 / 17%);
@@ -45,34 +46,35 @@
 
 .dark {
   color-scheme: dark;
-  --background: #000000;
-  --foreground: #fafafa;
-  --card: #111111;
-  --card-foreground: #fafafa;
-  --popover: #171717;
-  --popover-foreground: #fafafa;
-  --primary: #ffffff;
-  --primary-foreground: #000000;
-  --secondary: #1c1c1c;
-  --secondary-foreground: #f5f5f5;
-  --muted: #161616;
-  --muted-foreground: #a3a3a3;
-  --accent: #2a2a2a;
-  --accent-foreground: #fafafa;
-  --destructive: #ff8a8a;
-  --destructive-foreground: #000000; /* ~9.3:1 on --destructive */
-  --border: #2e2e2e;
-  --input: #3d3d3d;
-  --ring: #ffffff;
-  --status-positive: #e5e5e5;
-  --status-warning: #d4d4d4;
-  --rating: #e5e5e5;
-  --rating-fill: #d4d4d4;
-  --ambient-line: #525252;
-  --elevation-1: rgb(0 0 0 / 22%);
-  --elevation-2: rgb(0 0 0 / 32%);
-  --elevation-3: rgb(0 0 0 / 42%);
-  --shadow-brand-color: rgb(255 255 255 / 10%);
+  /* Nero profondo + un unico accento neon ciano. Design monocromatico futuristico. */
+  --background: #05070a;
+  --foreground: #e9edf2;
+  --card: #0a0e14;
+  --card-foreground: #e9edf2;
+  --popover: #0c1118;
+  --popover-foreground: #e9edf2;
+  --primary: #22d3ee; /* NEON ciano */
+  --primary-foreground: #04161b; /* testo scuro sull'accento */
+  --secondary: #121820;
+  --secondary-foreground: #cdd6df;
+  --muted: #0e141c;
+  --muted-foreground: #7c8a99; /* grigio, ~6:1 su --background */
+  --accent: #0f2c33; /* superficie con un velo di ciano (hover) */
+  --accent-foreground: #8af0fb;
+  --destructive: #ff5d6c;
+  --destructive-foreground: #1a0407; /* testo scuro su --destructive */
+  --border: #1b2430;
+  --input: #27333f;
+  --ring: #22d3ee;
+  --status-positive: #22d3ee;
+  --status-warning: #e0b24e;
+  --rating: #22d3ee;
+  --rating-fill: #22d3ee;
+  --ambient-line: #22333d;
+  --elevation-1: rgb(0 0 0 / 40%);
+  --elevation-2: rgb(0 0 0 / 50%);
+  --elevation-3: rgb(0 0 0 / 60%);
+  --shadow-brand-color: rgb(34 211 238 / 22%); /* bagliore ciano */
 }
 
 :root[data-solco-pro-theme="blue-hour"] {
