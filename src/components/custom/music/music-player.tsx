@@ -330,6 +330,11 @@ function safeStreamPath(path: string, track: MusicPlayerTrack) {
   if (typeof window === 'undefined') return null;
   const expected = trackStreamPath(track);
   if (!expected) return null;
+  // Un brano della libreria pubblica suona da un URL pubblico su Vercel Blob (cross-origin, https,
+  // *.blob.vercel-storage.com), ricavato dal suo streamUrl già validato dal contratto API. Il valore
+  // autorevole è `expected` stesso: lo si accetta direttamente invece di pretendere un percorso
+  // same-origin.
+  if (track.playbackMode === 'upload') return expected;
   try {
     const url = new URL(path, window.location.origin);
     if (url.origin !== window.location.origin || url.pathname !== expected) return null;
