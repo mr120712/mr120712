@@ -5,11 +5,18 @@
 
 import { Loader2, Sparkles } from 'lucide-react';
 import Link from 'next/link';
-import { type FormEvent, useEffect, useState } from 'react';
+import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { AudiusSection } from '@/components/custom/music/audius-section';
 import { JamendoSection } from '@/components/custom/music/jamendo-section';
 import { useLibrary } from '@/components/custom/music/library-context';
 import { StationTile } from '@/components/custom/music/radio-station-tile';
+import {
+  describeYouTubeSearch,
+  YOUTUBE_RETRY_DELAY_MS,
+  YouTubeLinkRow,
+  YouTubeSearchNoticeBox,
+  youtubeStatusText,
+} from '@/components/custom/music/youtube-search-notice';
 import { YouTubeVideoList } from '@/components/custom/music/youtube-video-list';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
@@ -26,7 +33,10 @@ import {
   type RadioListResponse,
   RadioListResponseSchema,
 } from '@/lib/contracts/library';
-import { type MusicSearchResponse, MusicSearchResponseSchema } from '@/lib/contracts/music';
+import {
+  type YouTubeMusicSearchResponse,
+  YouTubeMusicSearchResponseSchema,
+} from '@/lib/contracts/youtube-search';
 import { genreCatalog } from '@/lib/music/genre-catalog';
 import styles from './discover.module.css';
 
@@ -42,26 +52,137 @@ function errorMessage(error: unknown) {
   return 'La ricerca con l’AI non è riuscita. Riprova.';
 }
 
-function YouTubeResults({ query }: { query: string }) {
-  const [response, setResponse] = useState<MusicSearchResponse | null>(null);
+/**
+ * Videos for one query of the plan. While loading, when YouTube cannot search or finds nothing,
+ * it says so (with the link to YouTube's own search and, when trying again makes sense,
+ * "Riprova") instead of disappearing. `onQuotaOut` tells the plan that the daily searches are
+ * used up, so it stops offering more video searches. `focusOnMount`: shown at the listener's
+ * request, so the focus moves from the button that disappeared to this section's heading.
+ */
+function YouTubeResults({
+  query,
+  onQuotaOut,
+  focusOnMount = false,
+}: {
+  query: string;
+  onQuotaOut?: () => void;
+  focusOnMount?: boolean;
+}) {
+  const [response, setResponse] = useState<YouTubeMusicSearchResponse | null>(null);
+  const [failed, setFailed] = useState(false);
+  // Bumped by "Riprova" to run the same search again.
+  const [attempt, setAttempt] = useState(0);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: attempt is an explicit retry trigger.
   useEffect(() => {
     let cancelled = false;
+    setResponse(null);
+    setFailed(false);
     const params = new URLSearchParams({ source: 'youtube', q: query, youtubeConsent: 'accepted' });
-    apiFetch(`/api/music/search?${params.toString()}`, { schema: MusicSearchResponseSchema })
+    apiFetch(`/api/music/search?${params.toString()}`, { schema: YouTubeMusicSearchResponseSchema })
       .then((value) => !cancelled && setResponse(value))
-      .catch(() => !cancelled && setResponse(null));
+      .catch(() => !cancelled && setFailed(true));
     return () => {
       cancelled = true;
     };
-  }, [query]);
-  if (!response || response.videos.length === 0) return null;
+  }, [query, attempt]);
+  useEffect(() => {
+    if (focusOnMount) headingRef.current?.focus();
+  }, [focusOnMount]);
+  const state = response ? describeYouTubeSearch(response) : null;
+  const quotaOut = state?.kind === 'blocked' && state.quotaOut;
+  useEffect(() => {
+    if (quotaOut) onQuotaOut?.();
+  }, [quotaOut, onQuotaOut]);
+
+  // The notice (and its button) is replaced while searching again: keep the focus in the section.
+  const retry = () => {
+    setAttempt((value) => value + 1);
+    headingRef.current?.focus();
+  };
+  const failedText = `I video per «${query}» non si caricano in questo momento.`;
+  const status = failed
+    ? failedText
+    : !response || !state
+      ? `Cerco i video per «${query}»…`
+      : state.kind === 'no_results'
+        ? `Nessun video per «${query}».`
+        : youtubeStatusText(state, response.videos.length);
+
   return (
     <section className={styles.section} aria-label={`Video: ${query}`}>
       <header className={styles.sectionHeader}>
-        <h3>Video · {query}</h3>
+        <h3 ref={headingRef} tabIndex={-1}>
+          Video · {query}
+        </h3>
       </header>
-      <YouTubeVideoList videos={response.videos} />
+      {/* Always mounted, so screen readers announce each change (searching, results, notice). */}
+      <output className="sr-only" aria-live="polite">
+        {status}
+      </output>
+      {failed ? (
+        <>
+          <p className={styles.state}>{failedText}</p>
+          <YouTubeLinkRow query={query} onRetry={retry} retryDelayMs={YOUTUBE_RETRY_DELAY_MS} />
+        </>
+      ) : !response || !state ? (
+        <p className={styles.state}>Cerco i video per «{query}»…</p>
+      ) : state.kind === 'blocked' ? (
+        <YouTubeSearchNoticeBox
+          query={query}
+          text={state.text}
+          quotaOut={state.quotaOut}
+          signIn={state.signIn}
+          onRetry={state.retry ? retry : undefined}
+          retryDelayMs={YOUTUBE_RETRY_DELAY_MS}
+        />
+      ) : state.kind === 'no_results' ? (
+        <>
+          <p className={styles.state}>Nessun video per «{query}».</p>
+          <YouTubeLinkRow query={query} />
+        </>
+      ) : (
+        <>
+          {state.kind === 'saved' ? <p className={styles.state}>{state.label}</p> : null}
+          <YouTubeVideoList videos={response.videos} />
+        </>
+      )}
     </section>
+  );
+}
+
+/**
+ * A YouTube search is the scarcest resource Solco has: only the plan's first query runs on its
+ * own, the others when the listener asks for them. Once the daily searches are used up, the
+ * others become plain links to YouTube's own search (no quota).
+ */
+function YouTubeOnRequest({
+  query,
+  quotaOut,
+  onQuotaOut,
+}: {
+  query: string;
+  quotaOut: boolean;
+  onQuotaOut: () => void;
+}) {
+  const [shown, setShown] = useState(false);
+  if (shown) return <YouTubeResults query={query} onQuotaOut={onQuotaOut} focusOnMount />;
+  if (quotaOut) return <YouTubeLinkRow query={query} />;
+  const label = `Mostra i video per «${query}»`;
+  return (
+    <div className={styles.youtubeRequest}>
+      {/* min-w-0 + truncate: a long AI query ends with "…" instead of widening the page. */}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="min-w-0 max-w-full"
+        title={label}
+        onClick={() => setShown(true)}
+      >
+        <span className="truncate">{label}</span>
+      </Button>
+    </div>
   );
 }
 
@@ -141,7 +262,10 @@ function PodcastResults({ query }: { query: string }) {
   );
 }
 
-function PlanResults({ plan }: { plan: AiSearchPlan }) {
+export function PlanResults({ plan }: { plan: AiSearchPlan }) {
+  // Set when a video search comes back with the daily searches used up.
+  const [youtubeQuotaOut, setYoutubeQuotaOut] = useState(false);
+  const markQuotaOut = useCallback(() => setYoutubeQuotaOut(true), []);
   const genres = plan.genres
     .map((slug) => genreCatalog.find((genre) => genre.slug === slug))
     .filter((genre) => genre !== undefined);
@@ -157,9 +281,18 @@ function PlanResults({ plan }: { plan: AiSearchPlan }) {
           ))}
         </nav>
       ) : null}
-      {plan.youtubeQueries.map((query) => (
-        <YouTubeResults key={`yt-${query}`} query={query} />
-      ))}
+      {plan.youtubeQueries.map((query, index) =>
+        index === 0 ? (
+          <YouTubeResults key={`yt-${query}`} query={query} onQuotaOut={markQuotaOut} />
+        ) : (
+          <YouTubeOnRequest
+            key={`yt-${query}`}
+            query={query}
+            quotaOut={youtubeQuotaOut}
+            onQuotaOut={markQuotaOut}
+          />
+        ),
+      )}
       {plan.audioQueries.map((query) => (
         <div key={`audio-${query}`}>
           <AudiusSection query={query} anchor={false} />

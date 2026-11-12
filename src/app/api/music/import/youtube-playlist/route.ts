@@ -14,6 +14,7 @@ import {
   youtubeMetadataExpiry,
 } from '@/lib/music/collections.server';
 import { readYouTubeApiKey } from '@/lib/music/music-api.server';
+import { noteYouTubeQuotaExceeded, takeYouTubeUnits } from '@/lib/music/youtube-budget.server';
 import {
   fetchYouTubePlaylist,
   parsePlaylistId,
@@ -87,7 +88,11 @@ export async function POST(request: Request) {
   }
 
   try {
-    const playlist = await fetchYouTubePlaylist(playlistId, readYouTubeApiKey());
+    // Each page costs 1 quota unit, from the library share of the daily 1-unit budget.
+    const playlist = await fetchYouTubePlaylist(playlistId, readYouTubeApiKey(), fetch, {
+      takeUnit: () => takeYouTubeUnits(1, { purpose: 'library' }),
+      quotaExceeded: () => noteYouTubeQuotaExceeded('units'),
+    });
     const name = await availableName(auth.user.id, body.data.name ?? playlist.title);
     const expiresAt = youtubeMetadataExpiry();
     const collection = await prisma.userMusicCollection.create({

@@ -77,4 +77,31 @@ describe('import playlist YouTube', () => {
       code: 'not_configured',
     });
   });
+
+  it('conta ogni pagina nel budget delle chiamate da 1 unità e segnala la quota finita', async () => {
+    const budget = { takeUnit: vi.fn(async () => true), quotaExceeded: vi.fn(async () => {}) };
+    const pages = vi
+      .fn()
+      .mockResolvedValueOnce(json({ items: [{ snippet: { title: 'Mix' } }] }))
+      .mockResolvedValueOnce(json({ items: [] }));
+    await fetchYouTubePlaylist(listId, 'key', pages as unknown as typeof fetch, budget);
+    expect(budget.takeUnit).toHaveBeenCalledTimes(2);
+
+    const quota = vi
+      .fn()
+      .mockResolvedValue(json({ error: { errors: [{ reason: 'quotaExceeded' }] } }, 403));
+    await expect(
+      fetchYouTubePlaylist(listId, 'key', quota as unknown as typeof fetch, budget),
+    ).rejects.toMatchObject({ code: 'quota_exceeded' });
+    expect(budget.quotaExceeded).toHaveBeenCalledOnce();
+
+    // Budget used up: YouTube is not called at all.
+    const untouched = vi.fn();
+    const empty = { takeUnit: async () => false, quotaExceeded: vi.fn(async () => {}) };
+    await expect(
+      fetchYouTubePlaylist(listId, 'key', untouched as unknown as typeof fetch, empty),
+    ).rejects.toMatchObject({ code: 'quota_exceeded' });
+    expect(untouched).not.toHaveBeenCalled();
+    expect(empty.quotaExceeded).not.toHaveBeenCalled();
+  });
 });

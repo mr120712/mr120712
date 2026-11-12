@@ -364,6 +364,20 @@ a.tileTitle:hover {
   margin-top: 12px;
 }
 
+/* "Mostra i video per «…»" (AI search): with a long query the button (nowrap) would widen the
+   page on a phone; min-width: 0 along the chain lets its text end with "…". */
+.youtubeRequest {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  margin-top: 12px;
+}
+
+.youtubeRequest > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .liveDot {
   display: inline-block;
   width: 7px;

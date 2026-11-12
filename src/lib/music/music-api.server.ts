@@ -9,15 +9,29 @@ import {
 } from '@/lib/music/audius-source.server';
 import { sourceStatus } from '@/lib/music/source-policy';
 import { withYouTubeSearchBudget } from '@/lib/music/youtube-budget.server';
-import { searchYouTubeMusic, type YouTubeSearchResult } from '@/lib/music/youtube-search.server';
+import {
+  contractUnavailableReason,
+  youtubeSearchNotice,
+  youtubeShareOwner,
+} from '@/lib/music/youtube-notice';
+import { searchYouTubeMusic } from '@/lib/music/youtube-search.server';
 import {
   createYouTubeSearchCache,
   YOUTUBE_SEARCH_CACHE_TTL_MS,
 } from '@/lib/music/youtube-search-cache.server';
-import { storedYouTubeSearch } from '@/lib/music/youtube-search-store.server';
+import {
+  type StoredYouTubeSearch,
+  storedYouTubeSearchWithTime,
+} from '@/lib/music/youtube-search-store.server';
 
-const youtubeSearchCache = createYouTubeSearchCache<YouTubeSearchResult>({
+/** Videos returned to a listener's search (YouTube is always asked for 25 and they are saved). */
+export const LISTENER_SEARCH_RESULTS = 10;
+
+// Only current results are kept in memory: a saved (older) result or a blocked search depends on
+// who is searching (their personal share), so it is worked out again for each request.
+const youtubeSearchCache = createYouTubeSearchCache<StoredYouTubeSearch>({
   ttlMs: YOUTUBE_SEARCH_CACHE_TTL_MS,
+  cacheable: (stored) => !stored.stale && stored.result.outcome !== 'unavailable',
 });
 
 export type MusicSource = 'audius' | 'youtube';
@@ -125,17 +139,19 @@ export async function searchMusic(
       sourceStatus: { ...status, unavailableReason: 'not_configured' as const },
     };
   }
-  const result = await youtubeSearchCache.get(query, () =>
-    storedYouTubeSearch(
+  const stored = await youtubeSearchCache.get(query, () =>
+    storedYouTubeSearchWithTime(
       query,
-      10,
-      withYouTubeSearchBudget(
-        () => searchYouTubeMusic(query, apiKey),
-        options.youtubeIdentity ?? null,
-      ),
+      LISTENER_SEARCH_RESULTS,
+      withYouTubeSearchBudget((term, size) => searchYouTubeMusic(term, apiKey, fetch, size), {
+        identity: options.youtubeIdentity ?? null,
+        purpose: 'listener',
+      }),
     ),
   );
+  const { result } = stored;
   const status = getMusicSourceStatuses({ youtube: result.outcome })[1];
+  const unavailableReason = contractUnavailableReason(result.unavailableReason);
   return {
     source,
     outcome: result.outcome,
@@ -144,10 +160,8 @@ export async function searchMusic(
     playlists: [],
     albums: [],
     videos: result.videos,
-    sourceStatus: {
-      ...status,
-      ...(result.unavailableReason ? { unavailableReason: result.unavailableReason } : {}),
-    },
+    sourceStatus: { ...status, ...(unavailableReason ? { unavailableReason } : {}) },
+    youtube: youtubeSearchNotice(stored, new Date(), youtubeShareOwner(options.youtubeIdentity)),
   };
 }
 

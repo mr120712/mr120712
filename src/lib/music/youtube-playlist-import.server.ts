@@ -1,5 +1,6 @@
 // @polsia:user-owned — importa una playlist pubblica YouTube come playlist Solco.
-// I metadati YouTube scadono come gli altri elementi YouTube (youtubeMetadataExpiry).
+// I metadati YouTube scadono come gli altri elementi YouTube (youtubeMetadataExpiry). Ogni pagina
+// costa 1 unità di quota: chi chiama passa il budget (quota della libreria nelle chiamate da 1 unità).
 import 'server-only';
 import type { YouTubeVideoSearchResult } from '@/lib/contracts/music';
 import { normalizeYouTubeVideo } from '@/lib/music/youtube-search.server';
@@ -39,12 +40,27 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** The daily budget of 1-unit calls (see takeYouTubeUnits / noteYouTubeQuotaExceeded). */
+export type YouTubeImportBudget = {
+  /** One unit before each call; false = do not call YouTube. */
+  takeUnit: () => Promise<boolean>;
+  /** YouTube answered that its daily quota is out. */
+  quotaExceeded: () => Promise<void>;
+};
+
 async function youtubeGet(
   path: string,
   params: Record<string, string>,
   apiKey: string,
   fetcher: typeof fetch,
+  budget?: YouTubeImportBudget,
 ) {
+  if (budget && !(await budget.takeUnit())) {
+    throw new YouTubeImportError(
+      'quota_exceeded',
+      'Le importazioni da YouTube sono finite per ora: riprova più tardi.',
+    );
+  }
   const url = new URL(`https://www.googleapis.com/youtube/v3/${path}`);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
   url.searchParams.set('key', apiKey);
@@ -65,6 +81,7 @@ async function youtubeGet(
         ? (payload.error.errors.find(isRecord)?.reason as string | undefined)
         : undefined;
     if (reason && /quota|RateLimit/i.test(reason)) {
+      if (/quota|dailyLimit/i.test(reason)) await budget?.quotaExceeded();
       throw new YouTubeImportError('quota_exceeded', 'Quota YouTube esaurita per oggi.');
     }
     if (response.status === 404) {
@@ -79,6 +96,7 @@ export async function fetchYouTubePlaylist(
   playlistId: string,
   apiKey: string,
   fetcher: typeof fetch = fetch,
+  budget?: YouTubeImportBudget,
 ): Promise<{ title: string; videos: YouTubeVideoSearchResult[]; skipped: number }> {
   if (!apiKey) {
     throw new YouTubeImportError(
@@ -86,7 +104,13 @@ export async function fetchYouTubePlaylist(
       'Manca il segreto server-side YOUTUBE_DATA_API_KEY.',
     );
   }
-  const meta = await youtubeGet('playlists', { part: 'snippet', id: playlistId }, apiKey, fetcher);
+  const meta = await youtubeGet(
+    'playlists',
+    { part: 'snippet', id: playlistId },
+    apiKey,
+    fetcher,
+    budget,
+  );
   const playlist = Array.isArray(meta.items) ? meta.items.find(isRecord) : undefined;
   const snippet = playlist && isRecord(playlist.snippet) ? playlist.snippet : null;
   if (!snippet)
@@ -113,6 +137,7 @@ export async function fetchYouTubePlaylist(
       },
       apiKey,
       fetcher,
+      budget,
     );
     for (const item of Array.isArray(page.items) ? page.items.filter(isRecord) : []) {
       const details = isRecord(item.contentDetails) ? item.contentDetails : {};

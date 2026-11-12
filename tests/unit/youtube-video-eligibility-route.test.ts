@@ -2,11 +2,20 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ readKey: vi.fn(), getDetails: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  readKey: vi.fn(),
+  getDetails: vi.fn(),
+  takeUnits: vi.fn(async () => true),
+  noteQuota: vi.fn(async () => undefined),
+}));
 
 vi.mock('server-only', () => ({}));
 vi.mock('@/lib/music/music-api.server', () => ({ readYouTubeApiKey: mocks.readKey }));
 vi.mock('@/lib/music/youtube-search.server', () => ({ getYouTubeVideoDetails: mocks.getDetails }));
+vi.mock('@/lib/music/youtube-budget.server', () => ({
+  takeYouTubeUnits: mocks.takeUnits,
+  noteYouTubeQuotaExceeded: mocks.noteQuota,
+}));
 
 import { GET } from '@/app/api/music/youtube/videos/[videoId]/route';
 
@@ -30,6 +39,7 @@ async function getEligibility() {
 beforeEach(() => {
   mocks.readKey.mockReset().mockReturnValue('server-only-key');
   mocks.getDetails.mockReset();
+  mocks.takeUnits.mockReset().mockResolvedValue(true);
 });
 
 describe('verifica prima dell’embed YouTube ufficiale', () => {
@@ -47,6 +57,9 @@ describe('verifica prima dell’embed YouTube ufficiale', () => {
     mocks.getDetails.mockResolvedValueOnce({ outcome: 'quota_exceeded' });
     const quota = await getEligibility();
     expect((await quota.json()).message).toContain('quota');
+    // YouTube's refusal stops the other 1-unit calls for a while.
+    expect(mocks.noteQuota).toHaveBeenCalledWith('units');
+    expect(mocks.takeUnits).toHaveBeenCalledWith(1, { purpose: 'details' });
 
     mocks.getDetails.mockResolvedValueOnce({
       outcome: 'found',
@@ -74,5 +87,13 @@ describe('verifica prima dell’embed YouTube ufficiale', () => {
     mocks.getDetails.mockResolvedValue({ outcome: 'found', details: { video, madeForKids: true } });
     const response = await getEligibility();
     expect((await response.json()).eligibility).toBe('made_for_kids');
+  });
+
+  it('conta ogni verifica nel budget delle chiamate da 1 unità e si ferma quando è finito', async () => {
+    mocks.takeUnits.mockResolvedValueOnce(false);
+    const response = await getEligibility();
+    expect(await response.json()).toMatchObject({ eligibility: 'unknown' });
+    expect(response.headers.get('cache-control')).toContain('no-store');
+    expect(mocks.getDetails).not.toHaveBeenCalled();
   });
 });

@@ -2,6 +2,11 @@
 import 'server-only';
 import type { HistoryEntry, LibraryMutation, LibraryResponse } from '@/lib/contracts/library';
 import { prisma } from '@/lib/db';
+import {
+  currentYouTubeHistoryIds,
+  isYouTubeHistoryId,
+  recordYouTubeHistoryFetch,
+} from '@/lib/music/youtube-history.server';
 
 const HISTORY_LIMIT = 50;
 /** Righe massime per utente: oltre il limite non se ne creano di nuove e le letture restano limitate. */
@@ -60,6 +65,15 @@ export async function getLibrary(userId: string): Promise<LibraryResponse> {
       take: LIBRARY_LIMITS.hidden,
     }),
   ]);
+  // YouTube entries are shown only while their YouTube data is less than 28 days old (counted
+  // from when YouTube sent it, not from the last play), even if the daily cleanup was missed.
+  const currentYouTube = await currentYouTubeHistoryIds(
+    userId,
+    history.map((entry) => entry.qualifiedId),
+  );
+  const visibleHistory = history.filter(
+    (entry) => !isYouTubeHistoryId(entry.qualifiedId) || currentYouTube.has(entry.qualifiedId),
+  );
 
   return {
     stations: stations.map((station) => ({
@@ -81,7 +95,7 @@ export async function getLibrary(userId: string): Promise<LibraryResponse> {
       name: folder.name,
       playlistIds: playlists.filter((item) => item.folderId === folder.id).map((item) => item.id),
     })),
-    history: history.map(
+    history: visibleHistory.map(
       (entry): HistoryEntry => ({
         qualifiedId: entry.qualifiedId,
         playbackMode: entry.playbackMode as HistoryEntry['playbackMode'],
@@ -160,6 +174,8 @@ export async function applyLibraryMutation(userId: string, action: LibraryMutati
         albumId: track.albumId,
         durationSeconds: track.durationSeconds,
       };
+      // YouTube data: dated (by the server) before the entry is written, never on replays.
+      await recordYouTubeHistoryFetch(userId, track.qualifiedId);
       await prisma.userPlaybackHistory.upsert({
         where: { userId_qualifiedId: { userId, qualifiedId: track.qualifiedId } },
         create: { userId, qualifiedId: track.qualifiedId, ...data },
@@ -170,6 +186,7 @@ export async function applyLibraryMutation(userId: string, action: LibraryMutati
     }
     case 'clear_history':
       await prisma.userPlaybackHistory.deleteMany({ where: { userId } });
+      await prisma.youTubeHistoryFetch.deleteMany({ where: { userId } });
       return;
     case 'save_station': {
       const { stationId, ...station } = action.station;

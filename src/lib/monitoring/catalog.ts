@@ -43,7 +43,7 @@ export const MONITOR_CHECKS: Record<MonitorCheckId, MonitorCheckInfo> = {
   youtube_search: {
     label: 'Ricerca YouTube',
     critical: false,
-    help: 'Una ricerca di prova restituisce video.',
+    help: 'Ricerche YouTube usate oggi e ultima ricerca riuscita, letti senza spendere quota.',
   },
   audius: {
     label: 'Audius',

@@ -3,7 +3,7 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { enforceRateLimit, getRateLimitIdentity } from '@/lib/business/rate-limit.server';
-import { MusicSearchResponseSchema } from '@/lib/contracts/music';
+import { YouTubeMusicSearchResponseSchema } from '@/lib/contracts/youtube-search';
 import { getMusicSourceStatuses, searchMusic } from '@/lib/music/music-api.server';
 
 export const dynamic = 'force-dynamic';
@@ -32,7 +32,7 @@ export async function GET(request: Request) {
   // Una fonte non configurata non consuma quota: restituisci subito lo stato
   // non disponibile anche in locale, senza intestazioni IP del proxy d'ingresso.
   if (!getMusicSourceStatuses().find((item) => item.id === source)?.active) {
-    const body = MusicSearchResponseSchema.parse(await searchMusic(source, query));
+    const body = YouTubeMusicSearchResponseSchema.parse(await searchMusic(source, query));
     return NextResponse.json(body, { headers: privateHeaders });
   }
 
@@ -46,14 +46,14 @@ export async function GET(request: Request) {
 
   try {
     const result = await searchMusic(source, query, { youtubeIdentity: identity });
-    const body = MusicSearchResponseSchema.parse(result);
+    const body = YouTubeMusicSearchResponseSchema.parse(result);
     return NextResponse.json(body, { headers: privateHeaders });
   } catch {
     const status = getMusicSourceStatuses({ [source]: 'unavailable' }).find(
       (item) => item.id === source,
     );
     return NextResponse.json(
-      MusicSearchResponseSchema.parse({
+      YouTubeMusicSearchResponseSchema.parse({
         source,
         outcome: 'unavailable',
         tracks: [],

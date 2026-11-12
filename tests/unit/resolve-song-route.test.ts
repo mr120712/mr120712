@@ -54,12 +54,30 @@ describe('route /api/music/resolve-song', () => {
     expect(mocks.search).not.toHaveBeenCalled();
   });
 
-  it('una ricerca nuova passa dai limiti per utente e globali', async () => {
+  it('una ricerca nuova passa dal limite per utente; il tetto globale è nel budget YouTube', async () => {
     await get();
     expect(mocks.limited).toHaveBeenCalledWith('music.resolve_song', 'user:u1');
-    expect(mocks.limited).toHaveBeenCalledWith('music.resolve_song.global', 'global');
+    // The app-wide share is spent inside searchSong, only when YouTube is really asked.
+    expect(mocks.limited).not.toHaveBeenCalledWith('music.resolve_song.global', 'global');
     mocks.limited.mockResolvedValueOnce(Response.json({}, { status: 429 }));
     expect((await get()).status).toBe(429);
+  });
+
+  it('spiega quando le ricerche YouTube di oggi sono finite', async () => {
+    mocks.search.mockResolvedValueOnce({
+      ok: false,
+      error: 'unavailable',
+      reason: 'budget_exhausted',
+    });
+    const response = await get();
+    expect(response.status).toBe(503);
+    expect((await response.json()).message).toMatch(
+      /^Le ricerche YouTube di oggi sono finite: .* verso le \d{1,2}:00\.$/,
+    );
+    mocks.search.mockResolvedValueOnce({ ok: false, error: 'unavailable', reason: 'rate_limited' });
+    expect((await (await get()).json()).message).toBe(
+      'YouTube è momentaneamente occupato, riprova tra poco.',
+    );
   });
 
   it('richiede l’accesso e invalida solo con dati validi', async () => {

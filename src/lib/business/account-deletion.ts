@@ -47,6 +47,8 @@ export type AccountDeletionTransaction = {
    * before the Spotify import keep compiling; the Prisma transaction client always provides it.
    */
   spotifyConnection?: UserOwnedRecords;
+  /** Dates of YouTube data in the listening history (no relation to User). Optional as above. */
+  youTubeHistoryFetch?: UserOwnedRecords;
   referral: {
     deleteMany(args: {
       where: { OR: Array<{ inviterId: string } | { inviteeId: string }> };
@@ -79,6 +81,7 @@ export async function deleteAccountData(
   await transaction.userSavedStation.deleteMany({ where: { userId } });
   await transaction.userPodcastFollow.deleteMany({ where: { userId } });
   await transaction.userPlaybackHistory.deleteMany({ where: { userId } });
+  await transaction.youTubeHistoryFetch?.deleteMany({ where: { userId } });
   await transaction.userHiddenItem.deleteMany({ where: { userId } });
   await transaction.premiumGrant.deleteMany({ where: { userId } });
   await transaction.referralCode.deleteMany({ where: { userId } });

@@ -8,14 +8,14 @@ const mocks = vi.hoisted(() => ({
   readYouTubeApiKey: vi.fn(() => ''),
   searchPodcasts: vi.fn(),
   listStations: vi.fn(),
-  searchYouTubeMusic: vi.fn(),
-  storedYouTubeSearch: vi.fn(),
   consumeRateLimit: vi.fn(),
 }));
 
 vi.mock('server-only', () => ({}));
-vi.mock('@/lib/db', () => ({ prisma: {} }));
-// The real YouTube budget wrapper runs; only its limiter is faked.
+// The real YouTube budget reader runs on an in-memory database.
+vi.mock('@/lib/db', async () => ({
+  prisma: (await import('./support/youtube-db-fake')).sharedYouTubeDbFake,
+}));
 vi.mock('@/lib/business/rate-limit.server', () => ({ consumeRateLimit: mocks.consumeRateLimit }));
 vi.mock('@/lib/business/ai-music-search.server', () => ({
   anthropicApiKey: (env: Record<string, string | undefined> = process.env) =>
@@ -26,12 +26,6 @@ vi.mock('@/lib/music/jamendo.server', () => ({ listJamendoTracks: mocks.listJame
 vi.mock('@/lib/music/music-api.server', () => ({ readYouTubeApiKey: mocks.readYouTubeApiKey }));
 vi.mock('@/lib/music/podcasts.server', () => ({ searchPodcasts: mocks.searchPodcasts }));
 vi.mock('@/lib/music/radio-browser.server', () => ({ listStations: mocks.listStations }));
-vi.mock('@/lib/music/youtube-search.server', () => ({
-  searchYouTubeMusic: mocks.searchYouTubeMusic,
-}));
-vi.mock('@/lib/music/youtube-search-store.server', () => ({
-  storedYouTubeSearch: mocks.storedYouTubeSearch,
-}));
 
 import { MONITOR_CHECK_IDS, MonitorCheckResultSchema } from '@/lib/contracts/monitoring';
 import {
@@ -42,7 +36,32 @@ import {
   runChecks,
   safeDetail,
 } from '@/lib/monitoring/checks.server';
-import { YOUTUBE_BUDGET_EXHAUSTED } from '@/lib/music/youtube-budget.server';
+import {
+  YOUTUBE_SEARCH_DAILY_CAP,
+  type YouTubeQuotaUsage,
+  youtubeQuotaDay,
+} from '@/lib/music/youtube-budget.server';
+import { sharedYouTubeDbFake } from './support/youtube-db-fake';
+
+const fakeDb = sharedYouTubeDbFake;
+
+function quotaUsage(overrides: Partial<YouTubeQuotaUsage> = {}): YouTubeQuotaUsage {
+  return {
+    day: '2026-11-11',
+    searches: 12,
+    searchCap: YOUTUBE_SEARCH_DAILY_CAP,
+    genreSearches: 0,
+    songSearches: 0,
+    units: 3,
+    unitsCap: 1000,
+    searchBlocked: false,
+    unitsBlocked: false,
+    searchBlockedAt: null,
+    unitsBlockedAt: null,
+    resetsAt: new Date('2026-11-12T08:00:00Z'),
+    ...overrides,
+  };
+}
 
 const NOW = new Date('2026-11-11T10:00:00.000Z');
 const HOUR = 60 * 60 * 1000;
@@ -125,9 +144,9 @@ function makeDeps(
     clock: () => 0,
     timeoutMs: 1_000,
     youtubeApiKey: () => SECRETS.YOUTUBE_DATA_API_KEY,
-    youtubeSearch: async () => ({
-      outcome: 'results',
-      videos: [{ id: 'v1' }] as never,
+    youtubeSearchHealth: async () => ({
+      usage: quotaUsage(),
+      lastSearchAt: new Date(NOW.getTime() - 2 * HOUR),
     }),
     audiusTrending: async () => ({ outcome: 'results', tracks: [{ id: 't1' }] }),
     radioStations: async () => ({ outcome: 'results', stations: [{ id: 's1' }, { id: 's2' }] }),
@@ -488,79 +507,68 @@ describe('youtube_quota', () => {
 });
 
 describe('youtube_search', () => {
-  it('uses the shared search cache with the same call shape as the search route', async () => {
+  it('reads today’s budget and the newest saved search without searching YouTube', async () => {
     mocks.readYouTubeApiKey.mockReturnValue(SECRETS.YOUTUBE_DATA_API_KEY);
-    mocks.searchYouTubeMusic.mockResolvedValue({ outcome: 'results', videos: [{ id: 'v' }] });
-    mocks.consumeRateLimit.mockResolvedValue({ allowed: true });
-    mocks.storedYouTubeSearch.mockImplementation(
-      async (_query: string, _max: number, load: () => Promise<unknown>) => load(),
-    );
-    const fetcher = makeFetch();
-    const result = await defaultCheckDeps().youtubeSearch(fetcher as never);
-    expect(result.outcome).toBe('results');
-    expect(mocks.storedYouTubeSearch).toHaveBeenCalledWith('vasco rossi', 10, expect.any(Function));
-    // A cache miss is counted against the app-wide search pool (no per-person share).
-    expect(mocks.consumeRateLimit).toHaveBeenCalledTimes(1);
-    expect(mocks.consumeRateLimit).toHaveBeenCalledWith(
-      'youtube.search.global',
-      expect.stringMatching(/^global\|\d{4}-\d{2}-\d{2}$/),
-    );
-    expect(mocks.searchYouTubeMusic).toHaveBeenCalledWith(
-      'vasco rossi',
-      SECRETS.YOUTUBE_DATA_API_KEY,
-      fetcher,
-      10,
-    );
-  });
-
-  it('does not call YouTube on a cache miss once the daily search budget is used up', async () => {
-    mocks.readYouTubeApiKey.mockReturnValue(SECRETS.YOUTUBE_DATA_API_KEY);
-    mocks.consumeRateLimit.mockResolvedValue({
-      allowed: false,
-      status: 429,
-      retryAfterSeconds: 3600,
-      error: 'rate_limited',
-      message: 'x',
+    fakeDb.reset();
+    fakeDb.usage.set(`${youtubeQuotaDay()}|search`, 12);
+    fakeDb.searches.set('q:vasco rossi', {
+      key: 'q:vasco rossi',
+      payload: { outcome: 'results', videos: [] },
+      createdAt: new Date(NOW.getTime() - HOUR),
+      expiresAt: NOW,
     });
-    mocks.storedYouTubeSearch.mockImplementation(
-      async (_query: string, _max: number, load: () => Promise<unknown>) => load(),
-    );
-    const deps = defaultCheckDeps();
+    const fetcher = makeFetch();
     const result = await runCheck(
       'youtube_search',
-      makeDeps({ youtubeSearch: deps.youtubeSearch }),
+      makeDeps({
+        fetch: fetcher as never,
+        youtubeSearchHealth: defaultCheckDeps().youtubeSearchHealth,
+      }),
     );
-    expect(mocks.consumeRateLimit).toHaveBeenCalledWith(
-      'youtube.search.global',
-      expect.stringMatching(/^global\|\d{4}-\d{2}-\d{2}$/),
-    );
-    expect(mocks.searchYouTubeMusic).not.toHaveBeenCalled();
-    expect(result).toMatchObject({ status: 'fail' });
-    expect(result.detail).toMatch(/Budget giornaliero delle ricerche YouTube esaurito/);
+    expect(result.status).toBe('ok');
+    expect(result.detail).toMatch(/^12 ricerche su 85 oggi; ultima ricerca nuova: /);
+    // A search.list call is the scarcest quota: the monitor never makes one.
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(mocks.consumeRateLimit).not.toHaveBeenCalled();
   });
 
-  it('maps every outcome', async () => {
-    const run = (value: unknown) =>
-      runCheck('youtube_search', makeDeps({ youtubeSearch: async () => value as never }));
-    expect((await run({ outcome: 'results', videos: [{ id: 'a' }, { id: 'b' }] })).detail).toBe(
-      'La ricerca di prova trova 2 video',
+  it('warns (search keeps working with saved results) when searches are used up', async () => {
+    const run = (health: unknown) =>
+      runCheck('youtube_search', makeDeps({ youtubeSearchHealth: async () => health as never }));
+    const recent = new Date(NOW.getTime() - HOUR);
+    const blocked = await run({ usage: quotaUsage({ searchBlocked: true }), lastSearchAt: recent });
+    expect(blocked.status).toBe('warn');
+    expect(blocked.detail).toBe(
+      'YouTube ha esaurito la quota delle ricerche (12 ricerche su 85 oggi): tornano alle 9:00 ora italiana, intanto si usano i risultati salvati',
     );
-    expect((await run({ outcome: 'no_results', videos: [] })).status).toBe('fail');
-    expect(
-      (await run({ outcome: 'unavailable', videos: [], unavailableReason: 'quota_exceeded' }))
-        .detail,
-    ).toMatch(/Quota esaurita/);
-    expect(
-      (await run({ outcome: 'unavailable', videos: [], unavailableReason: 'not_configured' }))
-        .detail,
-    ).toMatch(/non configurata/);
-    expect(
-      (await run({ outcome: 'unavailable', videos: [], unavailableReason: 'api_error' })).status,
-    ).toBe('fail');
-    // The app's own daily search budget, not YouTube's quota.
-    expect((await run(YOUTUBE_BUDGET_EXHAUSTED)).detail).toBe(
-      'Budget giornaliero delle ricerche YouTube esaurito e nessun risultato salvato',
+    const used = await run({ usage: quotaUsage({ searches: 85 }), lastSearchAt: recent });
+    expect(used.status).toBe('warn');
+    expect(used.detail).toMatch(/^Ricerche YouTube di oggi finite \(85 ricerche su 85 oggi\)/);
+    const silent = await run({
+      usage: quotaUsage(),
+      lastSearchAt: new Date(NOW.getTime() - 73 * HOUR),
+    });
+    expect(silent).toMatchObject({ status: 'warn' });
+    expect(silent.detail).toMatch(/ultime 72 ore/);
+    expect((await run({ usage: quotaUsage(), lastSearchAt: null })).status).toBe('warn');
+  });
+
+  it('fails when the key is missing or the budget cannot be read', async () => {
+    const missing = await runCheck('youtube_search', makeDeps({ youtubeApiKey: () => ' ' }));
+    expect(missing).toMatchObject({ status: 'fail' });
+    expect(missing.detail).toMatch(/non configurata/);
+    const unreadable = await runCheck(
+      'youtube_search',
+      makeDeps({
+        youtubeSearchHealth: async () => {
+          throw Object.assign(new Error('db'), { code: 'P1001' });
+        },
+      }),
     );
+    expect(unreadable).toMatchObject({
+      status: 'fail',
+      detail: 'Impossibile leggere il budget delle ricerche YouTube (codice P1001)',
+    });
   });
 });
 
@@ -748,7 +756,7 @@ describe('secrets never reach a detail', () => {
           'api.anthropic.com': echo(401),
           'api.stripe.com': echo(401),
         }) as never,
-        youtubeSearch: thrower,
+        youtubeSearchHealth: thrower,
         audiusTrending: thrower,
         radioStations: thrower,
         podcastSearch: thrower,

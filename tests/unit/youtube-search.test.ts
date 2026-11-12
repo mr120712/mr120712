@@ -4,7 +4,11 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
-import { getYouTubeVideoDetails, searchYouTubeMusic } from '@/lib/music/youtube-search.server';
+import {
+  checkYouTubeVideos,
+  getYouTubeVideoDetails,
+  searchYouTubeMusic,
+} from '@/lib/music/youtube-search.server';
 
 describe('ricerca YouTube su richiesta', () => {
   it('mappa titolo, credito del canale e metadati dalla risposta ufficiale', async () => {
@@ -132,5 +136,107 @@ describe('ricerca YouTube su richiesta', () => {
     expect(new URL(String(fetcher.mock.calls[0]?.[0])).searchParams.get('key')).toBe(
       'server-only-key',
     );
+  });
+});
+
+describe('quota e rallentamenti di YouTube', () => {
+  it('separa la quota giornaliera finita da un rallentamento temporaneo', async () => {
+    const reply = (reason: string) =>
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(Response.json({ error: { errors: [{ reason }] } }, { status: 403 }));
+    for (const reason of ['quotaExceeded', 'dailyLimitExceeded']) {
+      await expect(searchYouTubeMusic('jazz', 'k', reply(reason))).resolves.toMatchObject({
+        unavailableReason: 'quota_exceeded',
+      });
+    }
+    for (const reason of ['rateLimitExceeded', 'userRateLimitExceeded']) {
+      await expect(searchYouTubeMusic('jazz', 'k', reply(reason))).resolves.toMatchObject({
+        unavailableReason: 'rate_limited',
+      });
+    }
+  });
+});
+
+describe('ricontrollo dei video salvati (videos.list, 1 unità)', () => {
+  const item = (id: string, status: Record<string, unknown>, title = `Titolo ${id}`) => ({
+    id,
+    snippet: { title, channelTitle: 'Canale', thumbnails: {} },
+    status,
+  });
+
+  it('tiene solo i video ancora pubblici e incorporabili, con i dati aggiornati', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      Response.json({
+        items: [
+          item('aaaaaaaaaaa', { privacyStatus: 'public', embeddable: true }, 'Nuovo titolo'),
+          item('bbbbbbbbbbb', { privacyStatus: 'private', embeddable: true }),
+          item('ccccccccccc', { privacyStatus: 'public', embeddable: false }),
+          item('ddddddddddd', { privacyStatus: 'unlisted', embeddable: true }),
+        ],
+      }),
+    );
+    const result = await checkYouTubeVideos(
+      ['aaaaaaaaaaa', 'bbbbbbbbbbb', 'ccccccccccc', 'ddddddddddd', 'eeeeeeeeeee', 'aaaaaaaaaaa'],
+      'k',
+      fetcher,
+    );
+    expect(result.outcome).toBe('checked');
+    if (result.outcome !== 'checked') return;
+    expect([...result.videos.keys()]).toEqual(['aaaaaaaaaaa', 'ddddddddddd']);
+    expect(result.videos.get('aaaaaaaaaaa')?.title).toBe('Nuovo titolo');
+    const url = new URL(String(fetcher.mock.calls[0]?.[0]));
+    expect(url.pathname).toBe('/youtube/v3/videos');
+    expect(url.searchParams.get('id')).toBe(
+      'aaaaaaaaaaa,bbbbbbbbbbb,ccccccccccc,ddddddddddd,eeeeeeeeeee',
+    );
+    expect(fetcher).toHaveBeenCalledOnce();
+    // contentDetails for region limits (still 1 unit); maxResults is not allowed with id.
+    expect(url.searchParams.get('part')).toBe('snippet,status,contentDetails');
+    expect(url.searchParams.has('maxResults')).toBe(false);
+  });
+
+  it('toglie i video bloccati in Italia o permessi solo altrove', async () => {
+    const withRegion = (id: string, regionRestriction?: Record<string, unknown>) => ({
+      ...item(id, { privacyStatus: 'public', embeddable: true }),
+      contentDetails: regionRestriction ? { regionRestriction } : {},
+    });
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      Response.json({
+        items: [
+          withRegion('aaaaaaaaaaa'),
+          withRegion('bbbbbbbbbbb', { blocked: ['DE', 'IT'] }),
+          withRegion('ccccccccccc', { allowed: ['US', 'CA'] }),
+          withRegion('ddddddddddd', { allowed: ['IT', 'SM'] }),
+          withRegion('eeeeeeeeeee', { blocked: ['US'] }),
+        ],
+      }),
+    );
+    const result = await checkYouTubeVideos(
+      ['aaaaaaaaaaa', 'bbbbbbbbbbb', 'ccccccccccc', 'ddddddddddd', 'eeeeeeeeeee'],
+      'k',
+      fetcher,
+    );
+    expect(result.outcome === 'checked' && [...result.videos.keys()]).toEqual([
+      'aaaaaaaaaaa',
+      'ddddddddddd',
+      'eeeeeeeeeee',
+    ]);
+  });
+
+  it('segnala quota finita e chiave mancante senza inventare risultati', async () => {
+    const quota = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({ error: { errors: [{ reason: 'quotaExceeded' }] } }, { status: 403 }),
+      );
+    await expect(checkYouTubeVideos(['aaaaaaaaaaa'], 'k', quota)).resolves.toEqual({
+      outcome: 'quota_exceeded',
+    });
+    const none = vi.fn<typeof fetch>();
+    await expect(checkYouTubeVideos(['aaaaaaaaaaa'], '', none)).resolves.toEqual({
+      outcome: 'not_configured',
+    });
+    expect(none).not.toHaveBeenCalled();
   });
 });

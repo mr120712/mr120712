@@ -1,0 +1,42 @@
+/* @polsia:user-owned — avviso della ricerca YouTube (risultati salvati, ricerche finite).
+   min-width: 0 lungo tutta la catena: il link «Cerca «…» su YouTube» non va a capo (nowrap) e,
+   con una ricerca lunga, allargherebbe la pagina sul telefono invece di finire con «…». */
+.notice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+
+.notice p {
+  margin: 0;
+  color: var(--foreground);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.savedLabel {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.actions > * {
+  min-width: 0;
+  max-width: 100%;
+}

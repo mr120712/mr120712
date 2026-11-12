@@ -9,6 +9,7 @@ import {
 import { createAudiusApiClient } from '@/lib/music/audius-api.server';
 import { getAudiusActivation } from '@/lib/music/audius-source.server';
 import { readYouTubeApiKey } from '@/lib/music/music-api.server';
+import { noteYouTubeQuotaExceeded, takeYouTubeUnits } from '@/lib/music/youtube-budget.server';
 import { getYouTubeVideoDetails } from '@/lib/music/youtube-search.server';
 
 export const YOUTUBE_METADATA_RETENTION_DAYS = 29;
@@ -117,7 +118,15 @@ async function collectionMetadata(source: 'audius' | 'youtube', sourceId: string
         'source_inactive',
         'Manca il segreto server-side YOUTUBE_DATA_API_KEY.',
       );
+    // 1 quota unit, from the library share of the daily 1-unit budget (youtube-budget.server).
+    if (!(await takeYouTubeUnits(1, { purpose: 'library' }))) {
+      throw new MusicCollectionError(
+        'metadata_unavailable',
+        'Le verifiche YouTube sono finite per ora: riprova più tardi.',
+      );
+    }
     const result = await getYouTubeVideoDetails(sourceId, key);
+    if (result.outcome === 'quota_exceeded') await noteYouTubeQuotaExceeded('units');
     if (result.outcome !== 'found') {
       throw new MusicCollectionError(
         'metadata_unavailable',

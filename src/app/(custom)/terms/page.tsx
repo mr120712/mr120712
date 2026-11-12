@@ -62,8 +62,12 @@ export default function TermsPage() {
               Dopo aver accettato l’invio a YouTube, un invio dalla barra di ricerca trasmette la
               stessa query alla YouTube Data API v3 insieme alla ricerca Audius; i risultati restano
               consultabili nelle schede «Solco» e «YouTube». YouTube fornisce titolo, canale,
-              descrizione, data e attribuzione disponibili. Solco usa una cache volatile dei soli
-              risultati di ricerca per due minuti. Se selezioni un risultato, Solco carica
+              descrizione, data e attribuzione disponibili. Per risparmiare la quota, i risultati di
+              una ricerca (testo cercato e metadati dei video, senza dati dell’account) sono
+              condivisi tra gli utenti e salvati per 24 ore come risultati attuali; se YouTube non
+              si può interrogare, Solco può mostrarli come «Risultati salvati il …», con la loro
+              data, solo se ricevuti o ricontrollati con YouTube negli ultimi 7 giorni, e li
+              cancella 28 giorni dopo la ricerca (entro 29). Se selezioni un risultato, Solco carica
               esclusivamente il player ufficiale YouTube visibile; i controlli, il branding e gli
               annunci restano gestiti da YouTube.
             </p>

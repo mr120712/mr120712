@@ -12,6 +12,8 @@ import {
   peekSongResolution,
   searchSong,
 } from '@/lib/music/song-resolve.server';
+import { formatItalianTime, nextYouTubeQuotaReset } from '@/lib/music/youtube-query';
+import type { YouTubeUnavailableReason } from '@/lib/music/youtube-search.server';
 import { getSessionUser } from '@/lib/require-auth';
 import { sameOrigin } from '@/lib/same-origin';
 
@@ -23,6 +25,14 @@ const SongSchema = z.object({
   title: z.string().trim().min(1).max(200),
   artist: z.string().trim().max(200).optional(),
 });
+
+function unavailableMessage(reason: YouTubeUnavailableReason | undefined) {
+  if (reason === 'quota_exceeded' || reason === 'budget_exhausted') {
+    return `Le ricerche YouTube di oggi sono finite: i brani importati non ancora trovati tornano disponibili verso le ${formatItalianTime(nextYouTubeQuotaReset())}.`;
+  }
+  if (reason === 'rate_limited') return 'YouTube è momentaneamente occupato, riprova tra poco.';
+  return 'YouTube non è disponibile in questo momento. Riprova più tardi.';
+}
 
 function loginRequired() {
   return NextResponse.json(
@@ -53,21 +63,18 @@ export async function GET(request: Request) {
     });
   }
 
-  // A real YouTube search: per-listener and app-wide daily caps protect the shared quota.
-  const limited =
-    (await enforceRateLimit(
-      'music.resolve_song',
-      getRateLimitIdentity(user.id, request.headers),
-    )) ?? (await enforceRateLimit('music.resolve_song.global', 'global'));
+  // Per-listener cap here; the app-wide cap (the imported-songs share of the daily YouTube
+  // budget) is taken inside searchSong, only when no saved search answers for free.
+  const limited = await enforceRateLimit(
+    'music.resolve_song',
+    getRateLimitIdentity(user.id, request.headers),
+  );
   if (limited) return limited;
 
   const result = await searchSong(query.data.title, artist);
   if (!result.ok) {
     return NextResponse.json(
-      {
-        error: 'unavailable',
-        message: 'YouTube non è disponibile in questo momento. Riprova più tardi.',
-      },
+      { error: 'unavailable', message: unavailableMessage(result.reason) },
       { status: 503, headers: privateHeaders },
     );
   }

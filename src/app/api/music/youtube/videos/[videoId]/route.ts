@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { enforceRateLimit, getRateLimitIdentity } from '@/lib/business/rate-limit.server';
 import { YouTubeVideoEligibilitySchema } from '@/lib/contracts/music';
 import { readYouTubeApiKey } from '@/lib/music/music-api.server';
+import { noteYouTubeQuotaExceeded, takeYouTubeUnits } from '@/lib/music/youtube-budget.server';
 import { getYouTubeVideoDetails } from '@/lib/music/youtube-search.server';
 
 export const dynamic = 'force-dynamic';
@@ -31,7 +32,29 @@ export async function GET(request: Request, { params }: { params: Promise<{ vide
     return limited;
   }
 
-  const result = await getYouTubeVideoDetails(videoId, readYouTubeApiKey());
+  // One quota unit per call, from a small share of the daily 1-unit budget (so this anonymous
+  // route can never use up the units that keep saved searches re-checked), with a daily share
+  // per IP on top of the catalogue limit.
+  const apiKey = readYouTubeApiKey();
+  if (apiKey && identity) {
+    const share = await enforceRateLimit('music.youtube.details', identity);
+    if (share) {
+      for (const [name, value] of Object.entries(privateHeaders)) share.headers.set(name, value);
+      return share;
+    }
+  }
+  if (apiKey && !(await takeYouTubeUnits(1, { purpose: 'details' }))) {
+    return NextResponse.json(
+      YouTubeVideoEligibilitySchema.parse({
+        videoId,
+        eligibility: 'unknown',
+        message: 'Le verifiche YouTube di oggi sono finite; il player non è stato caricato.',
+      }),
+      { headers: privateHeaders },
+    );
+  }
+  const result = await getYouTubeVideoDetails(videoId, apiKey);
+  if (result.outcome === 'quota_exceeded') await noteYouTubeQuotaExceeded('units');
   if (result.outcome === 'not_configured') {
     return NextResponse.json(
       YouTubeVideoEligibilitySchema.parse({

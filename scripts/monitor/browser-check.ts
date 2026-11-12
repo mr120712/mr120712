@@ -153,6 +153,8 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
   { path: '/', label: 'Home', critical: true },
   { path: '/search', label: 'Cerca', critical: false },
   { path: '/generi', label: 'Generi', critical: false },
+  // The genre API recognises the monitor's User-Agent and serves saved results only: this visit
+  // never spends a YouTube search (src/app/api/music/genres/[slug]/route.ts).
   { path: '/generi/techno', label: 'Genere Techno', critical: false },
   { path: '/radio', label: 'Radio', critical: false },
   { path: '/podcasts', label: 'Podcast', critical: false },

@@ -4,28 +4,48 @@
 import { Search } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { type FormEvent, useEffect, useState } from 'react';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { AiMusicSearch } from '@/components/custom/music/ai-music-search';
 import { AudiusSection } from '@/components/custom/music/audius-section';
 import { ListenInSolco } from '@/components/custom/music/listen-in-solco';
 import { SearchExtras } from '@/components/custom/music/search-extras';
+import {
+  describeYouTubeSearch,
+  YOUTUBE_RETRY_DELAY_MS,
+  YouTubeLinkRow,
+  YouTubeSearchNoticeBox,
+  youtubeStatusText,
+} from '@/components/custom/music/youtube-search-notice';
 import { YouTubeVideoList } from '@/components/custom/music/youtube-video-list';
 import { apiFetch } from '@/lib/api-client';
-import { type MusicSearchResponse, MusicSearchResponseSchema } from '@/lib/contracts/music';
+import {
+  type YouTubeMusicSearchResponse,
+  YouTubeMusicSearchResponseSchema,
+} from '@/lib/contracts/youtube-search';
 import { genreCatalog } from '@/lib/music/genre-catalog';
 import styles from './discover.module.css';
 
-function errorText(error: unknown) {
+type SearchError = { text: string; retryAfterMs: number };
+
+function searchError(error: unknown): SearchError {
   const cause =
     error instanceof Error && typeof error.cause === 'object' && error.cause !== null
       ? (error.cause as { error?: unknown; message?: unknown; retryAfterSeconds?: unknown })
       : null;
   if (cause?.error === 'rate_limited') {
-    return typeof cause.message === 'string'
-      ? cause.message
-      : `Troppe ricerche ravvicinate. Riprova tra ${String(cause.retryAfterSeconds ?? 10)} secondi.`;
+    const seconds =
+      typeof cause.retryAfterSeconds === 'number' && cause.retryAfterSeconds > 0
+        ? Math.min(cause.retryAfterSeconds, 120)
+        : 10;
+    return {
+      text:
+        typeof cause.message === 'string'
+          ? cause.message
+          : `Troppe ricerche ravvicinate. Riprova tra ${seconds} secondi.`,
+      retryAfterMs: seconds * 1000,
+    };
   }
-  return 'La ricerca non è riuscita. Riprova tra poco.';
+  return { text: 'La ricerca non è riuscita. Riprova tra poco.', retryAfterMs: 0 };
 }
 
 export function YouTubeSearchPage({
@@ -39,14 +59,18 @@ export function YouTubeSearchPage({
   const pathname = usePathname();
   const [draft, setDraft] = useState(initialQuery);
   const [query, setQuery] = useState(initialQuery.trim());
-  const [response, setResponse] = useState<MusicSearchResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [response, setResponse] = useState<YouTubeMusicSearchResponse | null>(null);
+  const [error, setError] = useState<SearchError | null>(null);
+  // Bumped by "Riprova" to run the same search again.
+  const [attempt, setAttempt] = useState(0);
+  const headingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
     setDraft(initialQuery);
     setQuery(initialQuery.trim());
   }, [initialQuery]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: attempt is an explicit retry trigger.
   useEffect(() => {
     if (!query) {
       setResponse(null);
@@ -56,13 +80,13 @@ export function YouTubeSearchPage({
     setResponse(null);
     setError(null);
     const params = new URLSearchParams({ source: 'youtube', q: query, youtubeConsent: 'accepted' });
-    apiFetch(`/api/music/search?${params.toString()}`, { schema: MusicSearchResponseSchema })
+    apiFetch(`/api/music/search?${params.toString()}`, { schema: YouTubeMusicSearchResponseSchema })
       .then((value) => !cancelled && setResponse(value))
-      .catch((reason) => !cancelled && setError(errorText(reason)));
+      .catch((reason) => !cancelled && setError(searchError(reason)));
     return () => {
       cancelled = true;
     };
-  }, [query]);
+  }, [query, attempt]);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -73,6 +97,17 @@ export function YouTubeSearchPage({
   };
 
   const videos = response?.videos ?? [];
+  const youtube = response ? describeYouTubeSearch(response) : null;
+  // The notice (and its button) is replaced while searching again: keep the focus in the section.
+  const retry = () => {
+    setAttempt((value) => value + 1);
+    headingRef.current?.focus();
+  };
+  const status = error
+    ? error.text
+    : !youtube
+      ? `Cerco “${query}”…`
+      : youtubeStatusText(youtube, videos.length);
 
   return (
     <div className={styles.page}>
@@ -125,22 +160,49 @@ export function YouTubeSearchPage({
         <>
           <section className={styles.section} aria-labelledby="videos-heading">
             <header className={styles.sectionHeader}>
-              <h2 id="videos-heading">Brani</h2>
+              <h2 id="videos-heading" ref={headingRef} tabIndex={-1}>
+                Brani
+              </h2>
             </header>
+            {/* Always mounted, so screen readers announce each change (searching, results, notice). */}
+            <output className="sr-only" aria-live="polite">
+              {status}
+            </output>
             {error ? (
-              <p className={styles.state}>{error}</p>
-            ) : !response ? (
+              <>
+                <p className={styles.state}>{error.text}</p>
+                <YouTubeLinkRow query={query} onRetry={retry} retryDelayMs={error.retryAfterMs} />
+              </>
+            ) : !response || !youtube ? (
               <p className={styles.state}>Cerco “{query}”…</p>
-            ) : videos.length === 0 ? (
-              <p className={styles.state}>
-                {response.outcome !== 'unavailable'
-                  ? 'Nessun risultato.'
-                  : response.sourceStatus.unavailableReason === 'quota_exceeded'
-                    ? 'Le ricerche YouTube di oggi sono esaurite: tornano disponibili verso le 9:00. Intanto trovi radio, podcast, classifiche e generi qui sotto e nella Home.'
-                    : 'YouTube non è disponibile in questo momento. Riprova tra poco.'}
-              </p>
+            ) : youtube.kind === 'no_results' ? (
+              <>
+                <p className={styles.state}>Nessun risultato.</p>
+                <YouTubeLinkRow query={query} />
+              </>
+            ) : youtube.kind === 'blocked' ? (
+              <YouTubeSearchNoticeBox
+                query={query}
+                text={youtube.text}
+                quotaOut={youtube.quotaOut}
+                signIn={youtube.signIn}
+                onRetry={youtube.retry ? retry : undefined}
+                retryDelayMs={YOUTUBE_RETRY_DELAY_MS}
+              />
             ) : (
-              <YouTubeVideoList videos={videos} />
+              <>
+                {youtube.kind === 'saved' ? (
+                  <YouTubeSearchNoticeBox
+                    query={query}
+                    label={youtube.label}
+                    text={youtube.text}
+                    signIn={youtube.signIn}
+                    onRetry={youtube.retry ? retry : undefined}
+                    retryDelayMs={YOUTUBE_RETRY_DELAY_MS}
+                  />
+                ) : null}
+                <YouTubeVideoList videos={videos} />
+              </>
             )}
           </section>
           <AudiusSection key={`audius-${query}`} query={query} />

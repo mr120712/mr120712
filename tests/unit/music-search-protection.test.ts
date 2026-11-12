@@ -10,19 +10,58 @@ const mocks = vi.hoisted(() => ({
     const ip = headers.get('cf-connecting-ip') ?? headers.get('x-real-ip');
     return ip ? `ip:${ip}` : null;
   }),
+  consumeRateLimit: vi.fn(),
 }));
 
 vi.mock('server-only', () => ({}));
-vi.mock('@/lib/db', () => ({ prisma: { audiusRequestBudget: {} } }));
+// The real YouTube budget and search store run on an in-memory database.
+vi.mock('@/lib/db', async () => ({
+  prisma: {
+    audiusRequestBudget: {},
+    ...(await import('./support/youtube-db-fake')).sharedYouTubeDbFake,
+  },
+}));
 vi.mock('@/lib/auth', () => ({ auth: { api: { getSession: mocks.getSession } } }));
 vi.mock('@/lib/business/rate-limit.server', () => ({
   enforceRateLimit: mocks.enforceRateLimit,
   getRateLimitIdentity: mocks.getRateLimitIdentity,
-  consumeRateLimit: async () => ({ allowed: true }),
+  consumeRateLimit: mocks.consumeRateLimit,
 }));
 
 import { GET } from '@/app/api/music/search/route';
 import { clearYouTubeSearchCacheForTests } from '@/lib/music/music-api.server';
+import { YOUTUBE_SEARCH_DAILY_CAP, youtubeQuotaDay } from '@/lib/music/youtube-budget.server';
+import { youtubeStoreKey } from '@/lib/music/youtube-search-store.server';
+import { sharedYouTubeDbFake } from './support/youtube-db-fake';
+
+const db = sharedYouTubeDbFake;
+
+function savedSearch(query: string, ageMs: number) {
+  const createdAt = new Date(Date.now() - ageMs);
+  db.searches.set(youtubeStoreKey(query), {
+    key: youtubeStoreKey(query),
+    payload: {
+      outcome: 'results',
+      size: 25,
+      checkedAt: new Date().toISOString(),
+      videos: [
+        {
+          provider: 'youtube',
+          videoId: 'dQw4w9WgXcQ',
+          title: 'Brano salvato',
+          channelTitle: 'Canale',
+          channelId: null,
+          description: null,
+          publishedAt: null,
+          thumbnailUrl: null,
+        },
+      ],
+    },
+    createdAt,
+    expiresAt: new Date(createdAt.getTime() + 24 * 60 * 60 * 1000),
+  });
+  return createdAt;
+}
 
 function request(query: string, source: 'audius' | 'youtube', consent = false, ip = '192.0.2.81') {
   const url = new URL('https://solco.test/api/music/search');
@@ -34,6 +73,8 @@ function request(query: string, source: 'audius' | 'youtube', consent = false, i
 
 beforeEach(() => {
   clearYouTubeSearchCacheForTests();
+  db.reset();
+  mocks.consumeRateLimit.mockReset().mockResolvedValue({ allowed: true });
   mocks.getSession.mockReset().mockResolvedValue(null);
   mocks.enforceRateLimit.mockReset().mockResolvedValue(null);
   vi.stubEnv('YOUTUBE_DATA_API_KEY', '');
@@ -130,7 +171,15 @@ describe('route di ricerca musicale', () => {
     expect(await quotaResponse.json()).toMatchObject({
       outcome: 'unavailable',
       sourceStatus: { unavailableReason: 'quota_exceeded' },
+      youtube: { limit: 'everyone', freshness: 'live' },
     });
+    // After YouTube says the quota is out, no other search is sent until the reset.
+    const blocked = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', blocked);
+    const afterQuota = await GET(request('blues', 'youtube', true, '192.0.2.86'));
+    expect(await afterQuota.json()).toMatchObject({ youtube: { limit: 'everyone' } });
+    expect(blocked).not.toHaveBeenCalled();
+    db.reset();
 
     const apiError = vi
       .fn<typeof fetch>()
@@ -148,6 +197,69 @@ describe('route di ricerca musicale', () => {
     vi.stubGlobal('fetch', noResults);
     const emptyResponse = await GET(request('ambient', 'youtube', true, '192.0.2.88'));
     expect(await emptyResponse.json()).toMatchObject({ outcome: 'no_results', videos: [] });
+  });
+
+  it('a ricerche finite per tutti mostra i risultati salvati con la loro data', async () => {
+    vi.stubEnv('YOUTUBE_DATA_API_KEY', 'server-key');
+    const fetcher = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetcher);
+    db.usage.set(`${youtubeQuotaDay()}|search`, YOUTUBE_SEARCH_DAILY_CAP);
+    const savedAt = savedSearch('Lucio Dalla', 2 * 24 * 60 * 60 * 1000);
+
+    const response = await GET(request('lucio dalla!', 'youtube', true, '192.0.2.92'));
+    const body = await response.json();
+    expect(body).toMatchObject({
+      outcome: 'results',
+      videos: [{ videoId: 'dQw4w9WgXcQ', title: 'Brano salvato' }],
+      youtube: { freshness: 'saved', savedAt: savedAt.toISOString(), limit: 'everyone' },
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+    // The personal share is not spent when the shared pool is already empty.
+    expect(mocks.consumeRateLimit).not.toHaveBeenCalled();
+  });
+
+  it('distingue le ricerche finite della connessione (senza accesso) da quelle finite per tutti', async () => {
+    vi.stubEnv('YOUTUBE_DATA_API_KEY', 'server-key');
+    const fetcher = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetcher);
+    mocks.consumeRateLimit.mockResolvedValue({
+      allowed: false,
+      status: 429,
+      error: 'rate_limited',
+      retryAfterSeconds: 3600,
+      message: 'x',
+    });
+    const response = await GET(request('nuova ricerca', 'youtube', true, '192.0.2.93'));
+    expect(await response.json()).toMatchObject({
+      outcome: 'unavailable',
+      videos: [],
+      sourceStatus: { unavailableReason: 'quota_exceeded' },
+      // Not signed in: the share belongs to the IP address, possibly shared by many people.
+      youtube: { limit: 'connection', freshness: 'live', savedAt: null },
+    });
+    expect(mocks.consumeRateLimit).toHaveBeenCalledWith(
+      'music.search.youtube',
+      expect.stringMatching(/^ip:192\.0\.2\.93\|\d{4}-\d{2}-\d{2}$/),
+    );
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('un rallentamento temporaneo di YouTube non è presentato come quota finita', async () => {
+    vi.stubEnv('YOUTUBE_DATA_API_KEY', 'server-key');
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(
+          Response.json({ error: { errors: [{ reason: 'rateLimitExceeded' }] } }, { status: 403 }),
+        ),
+    );
+    const response = await GET(request('tango', 'youtube', true, '192.0.2.94'));
+    expect(await response.json()).toMatchObject({
+      outcome: 'unavailable',
+      sourceStatus: { unavailableReason: 'api_error' },
+      youtube: { limit: 'busy' },
+    });
   });
 
   it('mostra Audius non configurata e non invia richieste senza la chiave', async () => {

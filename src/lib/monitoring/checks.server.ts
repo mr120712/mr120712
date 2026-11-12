@@ -18,23 +18,16 @@ import { listJamendoTracks } from '@/lib/music/jamendo.server';
 import { readYouTubeApiKey } from '@/lib/music/music-api.server';
 import { searchPodcasts } from '@/lib/music/podcasts.server';
 import { listStations } from '@/lib/music/radio-browser.server';
-import {
-  withYouTubeSearchBudget,
-  YOUTUBE_BUDGET_EXHAUSTED,
-} from '@/lib/music/youtube-budget.server';
-import { searchYouTubeMusic, type YouTubeSearchResult } from '@/lib/music/youtube-search.server';
-import { storedYouTubeSearch } from '@/lib/music/youtube-search-store.server';
+import { readYouTubeQuotaUsage, type YouTubeQuotaUsage } from '@/lib/music/youtube-budget.server';
+import { formatItalianTime } from '@/lib/music/youtube-query';
 
 export const CHECK_TIMEOUT_MS = 8_000;
 export const SLOW_DATABASE_MS = 1_500;
 export const CLEANUP_MAX_AGE_MS = 50 * 60 * 60 * 1000;
 export const MONITOR_HEARTBEAT = 'monitor';
 export const CLEANUP_HEARTBEAT = 'cleanup';
-/**
- * Same query and size as a listener's search: usually served from the shared 24 h cache. A miss
- * goes through the app-wide YouTube search budget, exactly like the search route.
- */
-export const YOUTUBE_SEARCH_PROBE = { query: 'vasco rossi', maxResults: 10 } as const;
+/** No new YouTube search saved for this long (and searches left): something is wrong. */
+export const YOUTUBE_SEARCH_SILENCE_MS = 72 * 60 * 60 * 1000;
 
 const DETAIL_MAX = 300;
 const GOOGLE_AUTHORIZE_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -58,11 +51,21 @@ export type CheckDeps = {
   clock: () => number;
   timeoutMs: number;
   youtubeApiKey: () => string;
-  youtubeSearch: (fetcher: Fetcher) => Promise<YouTubeSearchResult>;
+  /**
+   * Read-only state of YouTube search: today's budget and the newest saved search. The check
+   * never searches YouTube itself (a search is the scarcest call of the API).
+   */
+  youtubeSearchHealth: () => Promise<YouTubeSearchHealth>;
   audiusTrending: () => Promise<CatalogOutcome & { tracks: readonly unknown[] }>;
   radioStations: (fetcher: Fetcher) => Promise<CatalogOutcome & { stations: readonly unknown[] }>;
   podcastSearch: (fetcher: Fetcher) => Promise<CatalogOutcome & { podcasts: readonly unknown[] }>;
   jamendoTracks: (fetcher: Fetcher) => Promise<CatalogOutcome & { tracks: readonly unknown[] }>;
+};
+
+export type YouTubeSearchHealth = {
+  usage: YouTubeQuotaUsage;
+  /** When YouTube sent the newest saved search (null: none saved). */
+  lastSearchAt: Date | null;
 };
 
 type Outcome = { status: MonitorCheckStatus; detail: string };
@@ -81,21 +84,17 @@ export function defaultCheckDeps(): CheckDeps {
     clock: () => performance.now(),
     timeoutMs: CHECK_TIMEOUT_MS,
     youtubeApiKey: readYouTubeApiKey,
-    youtubeSearch: (fetcher) =>
-      storedYouTubeSearch(
-        YOUTUBE_SEARCH_PROBE.query,
-        YOUTUBE_SEARCH_PROBE.maxResults,
-        withYouTubeSearchBudget(
-          () =>
-            searchYouTubeMusic(
-              YOUTUBE_SEARCH_PROBE.query,
-              readYouTubeApiKey(),
-              fetcher,
-              YOUTUBE_SEARCH_PROBE.maxResults,
-            ),
-          null,
-        ),
-      ),
+    youtubeSearchHealth: async () => {
+      const [usage, newest] = await Promise.all([
+        readYouTubeQuotaUsage(),
+        prisma.youTubeSearchCache.findFirst({
+          where: { NOT: { key: { startsWith: 'chart:' } } },
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true },
+        }),
+      ]);
+      return { usage, lastSearchAt: newest?.createdAt ?? null };
+    },
     audiusTrending: getAudiusTrending,
     radioStations: (fetcher) => listStations({ country: 'IT', limit: 5 }, fetcher),
     podcastSearch: (fetcher) => searchPodcasts('musica', fetcher),
@@ -364,23 +363,32 @@ const checkYouTubeQuota: Check = async (deps) => {
   return fail(`YouTube ha risposto con un errore (HTTP ${response.status})`);
 };
 
+/**
+ * Reads today's search budget and the newest saved search; spends no quota. Out of searches is a
+ * warning, not a failure: search keeps working with saved results, Audius and the YouTube link.
+ */
 const checkYouTubeSearch: Check = async (deps) => {
-  const result = await deps.youtubeSearch(deps.fetch);
-  if (result.outcome === 'results' && result.videos.length > 0) {
-    return ok(`La ricerca di prova trova ${result.videos.length} video`);
+  if (!deps.youtubeApiKey().trim()) {
+    return fail('Chiave YouTube non configurata (YOUTUBE_DATA_API_KEY)');
   }
-  if (result.outcome === 'no_results') return fail('La ricerca di prova non trova video');
-  if (result === YOUTUBE_BUDGET_EXHAUSTED) {
-    return fail('Budget giornaliero delle ricerche YouTube esaurito e nessun risultato salvato');
+  let health: YouTubeSearchHealth;
+  try {
+    health = await deps.youtubeSearchHealth();
+  } catch (error) {
+    return fail(`Impossibile leggere il budget delle ricerche YouTube${prismaCode(error)}`);
   }
-  switch (result.unavailableReason) {
-    case 'not_configured':
-      return fail('Chiave YouTube non configurata (YOUTUBE_DATA_API_KEY)');
-    case 'quota_exceeded':
-      return fail('Quota esaurita e nessun risultato salvato: si azzera alle 9:00 ora italiana');
-    default:
-      return fail('YouTube non risponde correttamente alla ricerca');
+  const { usage, lastSearchAt } = health;
+  const counts = `${usage.searches} ricerche su ${usage.searchCap} oggi`;
+  const reset = `tornano alle ${formatItalianTime(usage.resetsAt)} ora italiana, intanto si usano i risultati salvati`;
+  if (usage.searchBlocked)
+    return warn(`YouTube ha esaurito la quota delle ricerche (${counts}): ${reset}`);
+  if (usage.searches >= usage.searchCap) {
+    return warn(`Ricerche YouTube di oggi finite (${counts}): ${reset}`);
   }
+  if (!lastSearchAt || deps.now().getTime() - lastSearchAt.getTime() > YOUTUBE_SEARCH_SILENCE_MS) {
+    return warn(`Nessuna nuova ricerca YouTube riuscita nelle ultime 72 ore (${counts})`);
+  }
+  return ok(`${counts}; ultima ricerca nuova: ${formatRome(lastSearchAt)}`);
 };
 
 const checkAudius: Check = async (deps) => {

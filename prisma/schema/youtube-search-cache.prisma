@@ -1,5 +1,7 @@
 // @polsia:user-owned — risultati delle ricerche YouTube condivisi tra gli utenti (24 h), per
-// risparmiare la quota dell'API (100 unità per ricerca). Tenuti al massimo 7 giorni.
+// risparmiare la quota dell'API (una ricerca = 100 unità). Se YouTube non si può interrogare si
+// mostrano, con la loro data, fino a 28 giorni dal momento in cui YouTube li ha inviati; la
+// pulizia giornaliera li cancella entro i 30 giorni delle norme API.
 model YouTubeSearchCache {
   key       String   @id
   payload   Json
@@ -7,4 +9,40 @@ model YouTubeSearchCache {
   expiresAt DateTime
 
   @@index([expiresAt])
+  @@index([createdAt])
+}
+
+// Ritorno a una versione precedente: il build di Vercel esegue `prisma db push` senza
+// --accept-data-loss, quindi togliere YouTubeQuotaUsage o YouTubeHistoryFetch quando hanno righe
+// fa fallire il deploy. Usare Instant Rollback di Vercel (nessun nuovo build) oppure, in un
+// commit di revert, tenere questi due modelli in prisma/schema.
+//
+// Uso giornaliero della quota YouTube Data API, per giorno del Pacifico (quando Google azzera la
+// quota). Un contatore atomico per voce: 'search' (tutte le ricerche), 'search:genre',
+// 'search:song', 'units' (chiamate da 1 unità), le quote 'units:chart', 'units:details' e
+// 'units:library' e i blocchi 'blocked:search' / 'blocked:units' scritti quando YouTube
+// risponde che la quota è finita. Righe di pochi giorni, poi cancellate.
+model YouTubeQuotaUsage {
+  day       String
+  bucket    String
+  count     Int      @default(0)
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@id([day, bucket])
+  @@index([updatedAt])
+}
+
+// Quando YouTube ha inviato i dati (titolo, canale, miniatura) di un video entrato nella
+// cronologia di ascolto di un utente. Lo stabilisce il server alla prima riproduzione, dalla copia
+// più vecchia che conserva di quel video (ricerche e classifiche salvate, brani risolti, raccolte;
+// senza nessuna copia la data è già scaduta e la voce non si mostra), e non si sposta mai quando
+// il brano viene riascoltato. La pulizia giornaliera cancella le voci
+// YouTube della cronologia 28 giorni dopo questa data (norme API: meno di 30 giorni).
+model YouTubeHistoryFetch {
+  userId      String
+  qualifiedId String
+  fetchedAt   DateTime
+
+  @@id([userId, qualifiedId])
+  @@index([fetchedAt])
 }

@@ -16,6 +16,10 @@ const mocks = vi.hoisted(() => ({
   searchCacheDelete: vi.fn(),
   aiCacheDelete: vi.fn(),
   monitorRunDelete: vi.fn(),
+  historyDelete: vi.fn(),
+  historyFetchDelete: vi.fn(),
+  quotaUsageDelete: vi.fn(),
+  rateLimitDelete: vi.fn(),
 }));
 
 vi.mock('server-only', () => ({}));
@@ -26,6 +30,11 @@ vi.mock('@/lib/db', () => ({
   prisma: {
     songResolution: { deleteMany: mocks.songResolutionDelete },
     youTubeSearchCache: { deleteMany: mocks.searchCacheDelete },
+    // Expired YouTube history entries are removed with one plain SQL statement.
+    $executeRaw: mocks.historyDelete,
+    youTubeHistoryFetch: { deleteMany: mocks.historyFetchDelete },
+    youTubeQuotaUsage: { deleteMany: mocks.quotaUsageDelete },
+    actionRateLimit: { deleteMany: mocks.rateLimitDelete },
     aiMusicSearchCache: { deleteMany: mocks.aiCacheDelete },
     monitorRun: { deleteMany: mocks.monitorRunDelete },
   },
@@ -188,6 +197,10 @@ describe('GET /api/cron/cleanup', () => {
     mocks.searchCacheDelete.mockResolvedValue({ count: 3 });
     mocks.aiCacheDelete.mockResolvedValue({ count: 4 });
     mocks.monitorRunDelete.mockResolvedValue({ count: 5 });
+    mocks.historyDelete.mockResolvedValue(6);
+    mocks.historyFetchDelete.mockResolvedValue({ count: 8 });
+    mocks.quotaUsageDelete.mockResolvedValue({ count: 7 });
+    mocks.rateLimitDelete.mockResolvedValue({ count: 9 });
   });
 
   it('refuses requests without the cron secret', async () => {
@@ -207,6 +220,9 @@ describe('GET /api/cron/cleanup', () => {
       youtubeCollectionItems: 1,
       songResolutions: 2,
       youtubeSearches: 3,
+      youtubeHistory: 6,
+      youtubeQuotaDays: 7,
+      rateLimitRows: 9,
       aiPlans: 4,
       monitorRuns: 5,
     });
@@ -223,6 +239,69 @@ describe('GET /api/cron/cleanup', () => {
     expect((mocks.recordHeartbeat.mock.calls[0] as [string, string])[1].length).toBeLessThanOrEqual(
       300,
     );
+  });
+
+  it('deletes YouTube API data well before 30 days from when YouTube sent it', async () => {
+    const before = Date.now();
+    await cleanupRoute.GET(cronRequest('/api/cron/cleanup', `Bearer ${CRON_SECRET}`));
+    const day = 24 * 60 * 60 * 1000;
+    const [searches, charts] = (
+      mocks.searchCacheDelete.mock.calls[0] as [
+        {
+          where: {
+            OR: [
+              { createdAt: { lt: Date } },
+              { key: { startsWith: string }; createdAt: { lt: Date } },
+            ];
+          };
+        },
+      ]
+    )[0].where.OR;
+    const searchCutoff = searches.createdAt.lt.getTime();
+    expect(before - searchCutoff).toBeGreaterThanOrEqual(28 * day - 1000);
+    expect(Date.now() - searchCutoff).toBeLessThanOrEqual(28 * day + 1000);
+    // Country charts are never shown after 24 h: deleted at the next run.
+    expect(charts.key.startsWith).toBe('chart:');
+    expect(before - charts.createdAt.lt.getTime()).toBeGreaterThanOrEqual(day - 1000);
+    expect(Date.now() - charts.createdAt.lt.getTime()).toBeLessThanOrEqual(day + 1000);
+
+    // Per-account and per-IP rate-limit counters (hashed) are kept 2 days at most.
+    const rateLimitCutoff = (
+      mocks.rateLimitDelete.mock.calls[0] as [{ where: { updatedAt: { lt: Date } } }]
+    )[0].where.updatedAt.lt.getTime();
+    expect(before - rateLimitCutoff).toBeGreaterThanOrEqual(2 * day - 1000);
+    expect(Date.now() - rateLimitCutoff).toBeLessThanOrEqual(2 * day + 1000);
+
+    // Matched songs: by expiry, and in any case 28 days after YouTube sent the data.
+    const songs = (
+      mocks.songResolutionDelete.mock.calls[0] as [
+        { where: { OR: [{ expiresAt: { lte: Date } }, { createdAt: { lt: Date } }] } },
+      ]
+    )[0].where.OR;
+    expect(songs[0].expiresAt.lte.getTime()).toBeGreaterThanOrEqual(before);
+    expect(before - songs[1].createdAt.lt.getTime()).toBeGreaterThanOrEqual(28 * day - 1000);
+    expect(Date.now() - songs[1].createdAt.lt.getTime()).toBeLessThanOrEqual(28 * day + 1000);
+
+    // History: aged by the date YouTube sent the data, never by the last play; then every
+    // YouTube entry left without a date is removed.
+    const dates = (
+      mocks.historyFetchDelete.mock.calls[0] as [{ where: { fetchedAt: { lte: Date } } }]
+    )[0].where.fetchedAt.lte.getTime();
+    expect(before - dates).toBeGreaterThanOrEqual(28 * day - 1000);
+    expect(Date.now() - dates).toBeLessThanOrEqual(28 * day + 1000);
+    const sql = (mocks.historyDelete.mock.calls[0] as [TemplateStringsArray])[0].join('?');
+    expect(sql).toContain('DELETE FROM "UserPlaybackHistory"');
+    expect(sql).toContain(`LIKE 'youtube:%'`);
+    expect(sql).toContain('NOT EXISTS');
+    expect(sql).not.toContain('lastPlayedAt');
+
+    // Collection metadata expiring before the next daily run is removed now.
+    const collectionsUntil = (
+      mocks.expireYouTubeCollectionMetadata.mock.calls[0] as [Date]
+    )[0].getTime();
+    expect(collectionsUntil - before).toBeGreaterThanOrEqual(day - 1000);
+    expect(collectionsUntil - Date.now()).toBeLessThanOrEqual(day + 1000);
+    expect(mocks.quotaUsageDelete).toHaveBeenCalledOnce();
   });
 
   it('does not record the heartbeat when a cleanup step fails', async () => {

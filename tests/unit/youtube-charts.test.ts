@@ -51,4 +51,20 @@ describe('classifica YouTube', () => {
       videos: [],
     });
   });
+
+  it('distingue la quota giornaliera finita dagli altri errori', async () => {
+    const reply = (reason: string) =>
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(Response.json({ error: { errors: [{ reason }] } }, { status: 403 }));
+    await expect(getYouTubeMusicChart('IT', 'key', reply('quotaExceeded'))).resolves.toEqual({
+      outcome: 'unavailable',
+      videos: [],
+      quotaExceeded: true,
+    });
+    await expect(getYouTubeMusicChart('IT', 'key', reply('rateLimitExceeded'))).resolves.toEqual({
+      outcome: 'unavailable',
+      videos: [],
+    });
+  });
 });

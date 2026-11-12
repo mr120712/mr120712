@@ -82,14 +82,33 @@ export default function PrivacyPage() {
                 consultabili nelle schede «Solco» e «YouTube». YouTube restituisce titolo, canale,
                 descrizione, data e attribuzione disponibili. Per risparmiare la quota di YouTube i
                 risultati di una ricerca (testo cercato e metadati dei video, senza dati
-                dell’account) vengono salvati nel database per 24 ore e riusati per chiunque faccia
-                la stessa ricerca; se YouTube non è disponibile possono essere mostrati fino a 7
-                giorni, poi vengono cancellati. Le ricerche REST e le tendenze Audius vengono
-                richieste quando è configurata AUDIUS_API_KEY lato server; la chiave non viene
-                esposta al browser. Se la credenziale manca o la fonte non risponde, Solco mostra
-                uno stato non configurato o non disponibile senza risultati sostitutivi. Se Audius
-                conferma l’accesso allo stream, Solco inoltra l’audio al player senza archiviarlo e
-                senza richiedere Solco Pro.
+                dell’account) vengono salvati nel database e riusati per chiunque faccia la stessa
+                ricerca: per 24 ore come risultati attuali; dopo, solo se YouTube non si può
+                interrogare, come «Risultati salvati il …» con la loro data, purché siano stati
+                ricevuti o ricontrollati con YouTube negli ultimi 7 giorni (il ricontrollo toglie i
+                video eliminati, privati o non più disponibili in Italia e aggiorna titoli e
+                canali). Vengono cancellati 28 giorni dopo la ricerca, in ogni caso entro 29. Le
+                classifiche YouTube per paese vengono riusate per 2 ore e, se YouTube non risponde,
+                mostrate al massimo fino a 24 ore dopo che YouTube le ha inviate; la pulizia
+                giornaliera le cancella entro il giorno successivo. Per limitare le ricerche
+                giornaliere Solco conta le ricerche YouTube di ogni account o, senza accesso,
+                dell’indirizzo IP della connessione (salvati come hash); la pulizia giornaliera
+                cancella i contatori fermi da 2 giorni. Le ricerche REST e le tendenze Audius
+                vengono richieste quando è configurata AUDIUS_API_KEY lato server; la chiave non
+                viene esposta al browser. Se la credenziale manca o la fonte non risponde, Solco
+                mostra uno stato non configurato o non disponibile senza risultati sostitutivi. Se
+                Audius conferma l’accesso allo stream, Solco inoltra l’audio al player senza
+                archiviarlo e senza richiedere Solco Pro.
+              </li>
+              <li>
+                <strong>Cronologia di ascolto:</strong> con l’accesso, Solco registra i brani che
+                ascolti (identificativo, titolo, artista, copertina, fonte, numero e data
+                dell’ultimo ascolto) per mostrarli nella Libreria; puoi cancellarla da lì. Per i
+                video YouTube, titolo, canale e miniatura sono dati di YouTube: la voce non viene
+                più mostrata 28 giorni dopo che YouTube ha inviato quei dati e la pulizia
+                giornaliera la cancella entro il giorno successivo, anche se nel frattempo riascolti
+                il brano. Se Solco non può stabilire quando YouTube li ha inviati (per esempio un
+                brano rimasto a lungo nella coda del player), la voce non viene mostrata.
               </li>
               <li>
                 <strong>Assistenza automatizzata:</strong> la domanda inviata alla chat di supporto

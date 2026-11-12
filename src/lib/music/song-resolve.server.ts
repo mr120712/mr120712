@@ -7,15 +7,31 @@ import { createHash } from 'node:crypto';
 import { prisma } from '@/lib/db';
 import { pickVideoForSong, songCanonical } from '@/lib/music/background-match';
 import { readYouTubeApiKey } from '@/lib/music/music-api.server';
-import { withYouTubeSearchBudget } from '@/lib/music/youtube-budget.server';
-import { searchYouTubeMusic } from '@/lib/music/youtube-search.server';
+import {
+  withYouTubeSearchBudget,
+  type YouTubeSearchLoader,
+} from '@/lib/music/youtube-budget.server';
+import {
+  searchYouTubeMusic,
+  type YouTubeUnavailableReason,
+} from '@/lib/music/youtube-search.server';
 import { storedYouTubeSearchWithTime } from '@/lib/music/youtube-search-store.server';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-/** YouTube API data may be kept less than 30 days. */
-export const FOUND_TTL_MS = 29 * DAY_MS;
-/** A song YouTube does not have is retried after a day, not on every play. */
-export const NOT_FOUND_TTL_MS = DAY_MS;
+/**
+ * YouTube API data may be kept less than 30 days: 28 days from when YouTube sent it, so with the
+ * daily cleanup (which deletes expired rows) nothing is stored longer than about 29 days.
+ */
+export const FOUND_TTL_MS = 28 * DAY_MS;
+/**
+ * A song YouTube does not have is retried after a week, not on every play: a "not found" holds
+ * no YouTube data, and every retry is a full search.
+ */
+export const NOT_FOUND_TTL_MS = 7 * DAY_MS;
+/** "Not found" decided on an older saved search is checked again sooner. */
+export const NOT_FOUND_ON_SAVED_TTL_MS = DAY_MS;
+/** How many videos of a song search are compared (YouTube is always asked for 25). */
+const SONG_SEARCH_RESULTS = 10;
 
 export type ResolvedVideo = {
   videoId: string;
@@ -25,7 +41,7 @@ export type ResolvedVideo = {
 };
 export type SongResolution =
   | { ok: true; video: ResolvedVideo | null }
-  | { ok: false; error: 'unavailable' };
+  | { ok: false; error: 'unavailable'; reason?: YouTubeUnavailableReason };
 
 /** Cache key: hash of the canonical words, so equal searches share one entry. */
 export function songResolutionKey(title: string, artist: string | null) {
@@ -50,7 +66,15 @@ export async function peekSongResolution(
   const saved = await Promise.resolve()
     .then(() => prisma.songResolution.findUnique({ where: { key } }))
     .catch(() => null);
-  if (!saved || saved.expiresAt <= now) return null;
+  // Rows written before the 28-day limit could expire up to 29 days after the fetch: whatever
+  // their expiry says, YouTube data older than FOUND_TTL_MS is not served.
+  if (
+    !saved ||
+    saved.expiresAt <= now ||
+    now.getTime() - saved.createdAt.getTime() >= FOUND_TTL_MS
+  ) {
+    return null;
+  }
   return {
     ok: true,
     video:
@@ -65,7 +89,10 @@ export async function peekSongResolution(
   };
 }
 
-/** Searches YouTube (shared 24 h search cache first) and stores the choice. */
+/**
+ * Searches YouTube (shared 24 h search cache first) and stores the choice. A real search uses the
+ * imported-songs share of the daily budget (search:song), only when no saved search answers.
+ */
 export async function searchSong(
   title: string,
   artist: string | null,
@@ -73,15 +100,22 @@ export async function searchSong(
 ): Promise<SongResolution> {
   const canonical = songCanonical({ title, artist });
   if (!canonical.query) return { ok: true, video: null };
-  const { result, fetchedAt } = await storedYouTubeSearchWithTime(
+  const apiKey = readYouTubeApiKey();
+  // Without a key no search can run: do not take a slot of the budget for nothing.
+  const load: YouTubeSearchLoader = apiKey
+    ? withYouTubeSearchBudget((term, size) => searchYouTubeMusic(term, apiKey, fetch, size), {
+        purpose: 'song',
+      })
+    : async () => ({ outcome: 'unavailable', videos: [], unavailableReason: 'not_configured' });
+  const { result, fetchedAt, stale, blockedBy } = await storedYouTubeSearchWithTime(
     canonical.query,
-    10,
-    withYouTubeSearchBudget(() =>
-      searchYouTubeMusic(canonical.query, readYouTubeApiKey(), fetch, 10),
-    ),
+    SONG_SEARCH_RESULTS,
+    load,
   );
   // Quota finished or API error: do not remember "not found" for something we could not check.
-  if (result.outcome === 'unavailable') return { ok: false, error: 'unavailable' };
+  if (result.outcome === 'unavailable') {
+    return { ok: false, error: 'unavailable', reason: blockedBy ?? result.unavailableReason };
+  }
   const picked = pickVideoForSong({ title, artist }, result.videos);
   const video = picked
     ? {
@@ -91,9 +125,11 @@ export async function searchSong(
         thumbnailUrl: picked.thumbnailUrl ?? null,
       }
     : null;
-  // The 29 days count from when YouTube sent the data, even if it came from the search cache.
+  // The 28 days count from when YouTube sent the data, even if it came from the search cache.
   const expiresAt = new Date(
-    video ? fetchedAt.getTime() + FOUND_TTL_MS : now.getTime() + NOT_FOUND_TTL_MS,
+    video
+      ? fetchedAt.getTime() + FOUND_TTL_MS
+      : now.getTime() + (stale ? NOT_FOUND_ON_SAVED_TTL_MS : NOT_FOUND_TTL_MS),
   );
   if (expiresAt > now) {
     const key = songResolutionKey(title, artist);
