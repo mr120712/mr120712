@@ -7,11 +7,13 @@ import { prisma } from '@/lib/db';
 type WindowLimit = { requests: number; windowMs: number };
 
 export const ACTION_RATE_LIMITS = {
+  // Ricerca musicale: di fatto illimitata per gli utenti veri. Resta solo un tetto molto alto
+  // contro gli script (ogni ricerca interroga l'API Audius dal budget condiviso: senza alcun
+  // limite un bot potrebbe esaurirlo e degradare la ricerca per tutti). La quota YouTube ha i
+  // suoi limiti dedicati (youtube.search.global, music.search.youtube), qui non toccati.
   'music.search': [
-    { requests: 8, windowMs: 10_000 },
-    { requests: 30, windowMs: 60_000 },
-    // YouTube search costs 100 of 10,000 daily units: no single client may use them all.
-    { requests: 150, windowMs: 86_400_000 },
+    { requests: 60, windowMs: 10_000 },
+    { requests: 5000, windowMs: 86_400_000 },
   ],
   // Anonymous catalogue proxies (Audius, podcasts, radio, Jamendo, YouTube video details).
   'music.catalog': [

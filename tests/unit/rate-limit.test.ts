@@ -49,48 +49,25 @@ beforeEach(() => {
 });
 
 describe('limiti per azione e identità', () => {
-  it('mantiene 8 ricerche ogni 10 secondi e 30 al minuto, isolando gli account', async () => {
+  it('sulle ricerche tiene solo un tetto anti-raffica generoso, isolando gli account', async () => {
     const now = Date.now();
     const identity = 'user:artista-a';
 
-    for (let count = 0; count < 8; count += 1) {
+    // 60 ricerche in 10 secondi passano (di fatto illimitate per un utente vero).
+    for (let count = 0; count < 60; count += 1) {
       expect(await consumeRateLimit('music.search', identity, now)).toEqual({ allowed: true });
     }
     const burstBlocked = await consumeRateLimit('music.search', identity, now);
     expect(burstBlocked).toMatchObject({ allowed: false, status: 429, retryAfterSeconds: 10 });
 
+    // Un altro account non è toccato dal tetto del primo.
     expect(await consumeRateLimit('music.search', 'user:artista-b', now)).toEqual({
       allowed: true,
     });
     expect(await consumeRateLimit('messages.send', identity, now)).toEqual({ allowed: true });
+
+    // Passata la finestra di 10 secondi, di nuovo libero.
     expect(await consumeRateLimit('music.search', identity, now + 10_000)).toEqual({
-      allowed: true,
-    });
-
-    const sustainedStart = now + 20_000;
-    const sustainedIdentity = 'user:artista-c';
-    const schedule = [
-      { at: sustainedStart, count: 8 },
-      { at: sustainedStart + 10_001, count: 8 },
-      { at: sustainedStart + 20_002, count: 8 },
-      { at: sustainedStart + 30_003, count: 6 },
-    ];
-    for (const batch of schedule) {
-      for (let count = 0; count < batch.count; count += 1) {
-        const result = await consumeRateLimit('music.search', sustainedIdentity, batch.at);
-        expect(result.allowed).toBe(true);
-      }
-    }
-
-    const sustainedBlocked = await consumeRateLimit(
-      'music.search',
-      sustainedIdentity,
-      sustainedStart + 30_003,
-    );
-    expect(sustainedBlocked).toMatchObject({ allowed: false, status: 429, retryAfterSeconds: 30 });
-    expect(
-      await consumeRateLimit('music.search', sustainedIdentity, sustainedStart + 60_000),
-    ).toEqual({
       allowed: true,
     });
   });
