@@ -126,10 +126,7 @@ export type MusicPlaybackMode =
   | 'song'
   // The listener's own file ("La tua musica", qualifiedId local:<id>): played from IndexedDB on
   // this device; nothing about it reaches the server (see local-tracks.ts).
-  | 'local'
-  // A song the listener recorded on the site (qualifiedId recording:<id>): their own file,
-  // hosted on Solco and streamed only to the owner (see recordings.server.ts).
-  | 'recording';
+  | 'local';
 
 export type MusicPlayerTrack = {
   qualifiedId: string;
@@ -212,10 +209,7 @@ export function isOpenStream(track: Pick<MusicPlayerTrack, 'playbackMode'>) {
     track.playbackMode === 'radio' ||
     track.playbackMode === 'podcast' ||
     track.playbackMode === 'jamendo' ||
-    track.playbackMode === 'youtube' ||
-    // Le registrazioni dell'utente sono file suoi: nessuna verifica diritti, solo lo stream
-    // same-origin protetto dalla proprietà (vedi /api/music/recordings/[id]/stream).
-    track.playbackMode === 'recording'
+    track.playbackMode === 'youtube'
   );
 }
 
@@ -368,10 +362,6 @@ export function trackStreamPath(track: MusicPlayerTrack) {
     const id = localTrackId(track.qualifiedId);
     return id ? `/local/${id}` : null;
   }
-  if (track.playbackMode === 'recording') {
-    const id = /^recording:([a-z0-9]{20,36})$/.exec(track.qualifiedId)?.[1];
-    return id ? `/api/music/recordings/${id}/stream` : null;
-  }
   const match = /^audius:([A-Za-z0-9_-]{1,128})$/.exec(track.qualifiedId);
   if (!match?.[1]) return null;
   if (track.playbackMode === 'audius') {
@@ -514,10 +504,8 @@ function isDeviceOnly(track: Pick<MusicPlayerTrack, 'playbackMode' | 'qualifiedI
 }
 
 export async function requestPlayPermit(qualifiedId: string): Promise<PlayPermit> {
-  // A local file or the listener's own recording needs no permit and counts for nothing:
-  // its id is not sent either (recordings are served only to their owner).
-  if (qualifiedId.startsWith('local:') || qualifiedId.startsWith('recording:'))
-    return { allowed: true };
+  // A local file needs no permit and counts for nothing (its id never leaves the device).
+  if (qualifiedId.startsWith('local:')) return { allowed: true };
   try {
     const response = await fetch('/api/music/plays', {
       method: 'POST',
@@ -2108,8 +2096,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       !currentTrack ||
       isLiveTrack(currentTrack) ||
       currentTrack.playbackMode === 'podcast' ||
-      // Never for the listener's own recording: searching external services for it makes no sense.
-      currentTrack.playbackMode === 'recording' ||
       isLocalTrack(currentTrack)
     ) {
       return null;

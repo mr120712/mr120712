@@ -8,22 +8,6 @@ import type {
   RadioStation,
   SavedStation,
 } from '@/lib/contracts/library';
-import type { Recording } from '@/lib/contracts/recordings';
-
-/** Un brano registrato sul sito → elemento del player (stream same-origin protetto). */
-export function recordingToTrack(recording: Recording): MusicPlayerTrack {
-  return {
-    qualifiedId: `recording:${recording.id}`,
-    title: recording.title,
-    artistName: 'La tua registrazione',
-    artworkUrl: null,
-    sourceLabel: 'Registrazione',
-    sourceUrl: null,
-    durationSeconds: recording.durationSeconds,
-    playbackMode: 'recording',
-  };
-}
-
 export function stationToTrack(station: RadioStation): MusicPlayerTrack {
   return {
     qualifiedId: `radio:${station.id}`,

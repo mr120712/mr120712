@@ -9,18 +9,14 @@ import { UploadAuthorization } from '@/modules/file-upload/proxy';
  * by POST /api/upload (signed link and multipart fallback) and by
  * POST /api/upload/confirm; anything but `Allow` answers 401 `unauthorized`.
  *
- * Any signed-in user may upload. This matches `requireAuth` (the gate used by
- * every recording route: register/list/stream/publish/report), so a user who
- * can register a recording can also upload its bytes — needed so that recording
- * and file upload on /registra work for all signed-in users, not just admins.
- * Per-purpose authorization stays at each feature's own route: the admin
- * "music rights" uploads are gated separately by /api/admin/music-rights, and
- * the recording caps (MAX_RECORDINGS_PER_USER) + rights attestation + community
- * moderation live in the recordings layer. Generic file *downloads* stay closed
- * (see download-policy.server.ts); recordings are streamed only by their own
- * owner-gated route.
+ * Only verified admins may upload. The sole upload surface left is the admin
+ * "music rights" tool (gated again by /api/admin/music-rights); the user-facing
+ * recording/upload feature was removed. Generic file *downloads* stay closed too
+ * (see download-policy.server.ts).
  */
 export async function authorizeUpload(request: Request): Promise<UploadAuthorization> {
   const session = await auth.api.getSession({ headers: request.headers });
-  return session?.user ? UploadAuthorization.Allow : UploadAuthorization.Deny;
+  return session?.user.role === 'admin' && session.user.emailVerified === true
+    ? UploadAuthorization.Allow
+    : UploadAuthorization.Deny;
 }

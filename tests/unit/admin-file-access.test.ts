@@ -20,22 +20,24 @@ describe('autorizzazione upload/download dei file', () => {
     vi.resetAllMocks();
   });
 
-  it('consente l’upload a qualsiasi utente loggato (serve registrazione/caricamento su /registra)', async () => {
-    const allowedSessions = [
-      { user: { id: 'member', role: 'user', emailVerified: true } },
-      { user: { id: 'member-unverified', role: 'user', emailVerified: false } },
-      { user: { id: 'verified-admin', role: 'admin', emailVerified: true } },
-    ];
-
-    for (const session of allowedSessions) {
-      getSession.mockResolvedValueOnce(session);
-      await expect(authorizeUpload(request)).resolves.toBe('allow');
-    }
+  it('consente l’upload solo a un admin verificato', async () => {
+    getSession.mockResolvedValue({
+      user: { id: 'verified-admin', role: 'admin', emailVerified: true },
+    });
+    await expect(authorizeUpload(request)).resolves.toBe('allow');
   });
 
-  it('nega l’upload agli account anonimi', async () => {
-    getSession.mockResolvedValue(null);
-    await expect(authorizeUpload(request)).resolves.toBe('deny');
+  it('nega l’upload ad anonimi, utenti e admin non verificati', async () => {
+    const deniedSessions = [
+      null,
+      { user: { id: 'member', role: 'user', emailVerified: true } },
+      { user: { id: 'unverified-admin', role: 'admin', emailVerified: false } },
+    ];
+
+    for (const session of deniedSessions) {
+      getSession.mockResolvedValueOnce(session);
+      await expect(authorizeUpload(request)).resolves.toBe('deny');
+    }
   });
 
   it('nega SEMPRE il download generico /api/files (le registrazioni usano la route dedicata owner-gated)', async () => {

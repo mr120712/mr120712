@@ -18,14 +18,12 @@ import { Suspense } from 'react';
 import { InstallAppBanner } from '@/components/custom/install-app-banner';
 import { AiSearchShortcut } from '@/components/custom/music/ai-search-shortcut';
 import { AudiusSection } from '@/components/custom/music/audius-section';
-import { CommunityRecordingsChart } from '@/components/custom/music/community-recordings-chart';
 import { JamendoSection } from '@/components/custom/music/jamendo-section';
 import { FeedSectionLink, MoodChipGroup, MoodChips } from '@/components/custom/music/mood-chips';
 import { HomeMoodSwitch } from '@/components/custom/music/mood-feed';
 import { PodcastHomeRow } from '@/components/custom/music/podcast-home-row';
 import { RadioHomeRow } from '@/components/custom/music/radio-home-row';
 import { RecentlyPlayedRow } from '@/components/custom/music/recently-played-row';
-import { RecordingsChart } from '@/components/custom/music/recordings-chart';
 import { TikTokClips } from '@/components/custom/music/tiktok-clips';
 import { YouTubeCharts } from '@/components/custom/music/youtube-charts';
 import { AppTopBar } from '@/components/custom/site-nav';
@@ -60,10 +58,6 @@ export default function HomePage() {
       <InstallAppBanner />
 
       <RecentlyPlayedRow />
-
-      <RecordingsChart />
-
-      <CommunityRecordingsChart />
 
       <div className={styles.feed}>
         <YouTubeCharts />

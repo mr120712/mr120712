@@ -159,7 +159,6 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
   { path: '/radio', label: 'Radio', critical: false },
   { path: '/podcasts', label: 'Podcast', critical: false },
   { path: '/library', label: 'Libreria', critical: false },
-  { path: '/registra', label: 'Registra', critical: false },
   { path: '/pool', label: 'Record Pool', critical: false },
   { path: '/classici', label: 'Classici', critical: false },
   { path: '/community', label: 'Community', critical: false },
