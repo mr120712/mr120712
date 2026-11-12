@@ -29,7 +29,7 @@ vi.mock('@/lib/music/private-audio-source.server', () => {
   class InvalidPrivateAudioSource extends Error {}
   class PrivateAudioStorageUnavailable extends Error {}
   return {
-    inspectPrivateAudioSource: mocks.inspect,
+    inspectRecordingSource: mocks.inspect,
     openPrivateAudioSource: vi.fn(),
     InvalidPrivateAudioSource,
     PrivateAudioStorageUnavailable,
@@ -52,6 +52,7 @@ const input = {
   fileKey: 'company_1/private/files/abc.webm',
   mimeType: 'audio/webm',
   byteLength: 123_456,
+  elapsedSeconds: 20,
 };
 
 beforeEach(() => {
@@ -87,6 +88,29 @@ describe('registerRecording', () => {
       durationSeconds: 13,
       createdAt: '2026-01-01T00:00:00.000Z',
     });
+  });
+
+  it('usa la durata del client quando il contenitore non la riporta (WebM/Opus)', async () => {
+    mocks.count.mockResolvedValue(0);
+    mocks.inspect.mockResolvedValue({
+      mimeType: 'audio/webm',
+      byteLength: 123_456,
+      durationSeconds: null,
+    });
+    mocks.create.mockResolvedValue({
+      id: 'c'.repeat(25),
+      title: 'La mia canzone',
+      durationSeconds: 20,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
+
+    await registerRecording('user-1', input);
+
+    expect(mocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ durationSeconds: 20 }),
+      }),
+    );
   });
 
   it('rifiuta quando il tetto per utente è raggiunto', async () => {

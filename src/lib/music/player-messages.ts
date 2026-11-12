@@ -14,6 +14,8 @@ export function failureMessage(error: unknown, track: MessageTrack): string {
     return 'La stazione radio non risponde in questo momento. Prova un’altra stazione.';
   if (track?.playbackMode === 'podcast')
     return 'L’episodio non è disponibile dal feed del podcast. Riprova più tardi.';
+  if (track?.playbackMode === 'recording')
+    return 'La tua registrazione non è disponibile in questo momento. Riprova.';
   const cause =
     error instanceof Error && typeof error.cause === 'object' && error.cause !== null
       ? (error.cause as { error?: unknown; reason?: unknown; retryAfterSeconds?: unknown })

@@ -190,6 +190,7 @@ export function SongRecorder({ onSaved }: { onSaved: (recording: Recording) => v
           fileKey: uploaded.key,
           mimeType: baseMimeType(uploaded.mime_type),
           byteLength: uploaded.size,
+          elapsedSeconds: Math.max(1, elapsed),
         }),
         schema: RecordingCreateResponseSchema,
       });
@@ -207,7 +208,7 @@ export function SongRecorder({ onSaved }: { onSaved: (recording: Recording) => v
       }
       toast.error('Non è stato possibile salvare la registrazione.');
     }
-  }, [title, confirmed, onSaved, discard]);
+  }, [title, confirmed, elapsed, onSaved, discard]);
 
   if (!supported) {
     return (

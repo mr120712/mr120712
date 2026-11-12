@@ -40,6 +40,8 @@ export const RecordingCreateSchema = z.object({
     .int()
     .positive()
     .max(100 * 1024 * 1024),
+  /** Durata misurata dal client (secondi): fallback quando il contenitore non la riporta. */
+  elapsedSeconds: z.number().int().positive().max(86_400),
 });
 export type RecordingCreateInput = z.infer<typeof RecordingCreateSchema>;
 

@@ -514,8 +514,10 @@ function isDeviceOnly(track: Pick<MusicPlayerTrack, 'playbackMode' | 'qualifiedI
 }
 
 export async function requestPlayPermit(qualifiedId: string): Promise<PlayPermit> {
-  // A local file needs no permit and counts for nothing: its id is not sent either.
-  if (qualifiedId.startsWith('local:')) return { allowed: true };
+  // A local file or the listener's own recording needs no permit and counts for nothing:
+  // its id is not sent either (recordings are served only to their owner).
+  if (qualifiedId.startsWith('local:') || qualifiedId.startsWith('recording:'))
+    return { allowed: true };
   try {
     const response = await fetch('/api/music/plays', {
       method: 'POST',
@@ -2106,6 +2108,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       !currentTrack ||
       isLiveTrack(currentTrack) ||
       currentTrack.playbackMode === 'podcast' ||
+      // Never for the listener's own recording: searching external services for it makes no sense.
+      currentTrack.playbackMode === 'recording' ||
       isLocalTrack(currentTrack)
     ) {
       return null;

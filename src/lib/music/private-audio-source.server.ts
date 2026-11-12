@@ -186,6 +186,52 @@ export async function inspectPrivateAudioSource(
   return { mimeType, byteLength: expectedByteLength, durationSeconds };
 }
 
+/**
+ * Come inspectPrivateAudioSource, ma per le registrazioni dell'utente: valida che il file sia
+ * davvero audio (MIME + dimensione + parsing), però NON rifiuta se manca la durata nel contenitore.
+ * I blob WebM/Opus di MediaRecorder (Chrome/Firefox) spesso non scrivono l'elemento Duration, quindi
+ * `format.duration` è assente: in quel caso ritorna durationSeconds null e chi chiama usa la durata
+ * misurata dal client. Un file che non è audio fa comunque throw (InvalidPrivateAudioSource).
+ */
+export async function inspectRecordingSource(
+  fileKey: string,
+  expectedMimeType: string,
+  expectedByteLength: number,
+): Promise<{ mimeType: string; byteLength: number; durationSeconds: number | null }> {
+  const url = await signedPrivateAudioUrl(fileKey);
+  const response = await fetch(url, { cache: 'no-store', redirect: 'error' });
+  const mimeType = response.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase();
+  const contentLength = response.headers.get('content-length');
+
+  if (
+    !response.ok ||
+    !response.body ||
+    !mimeType ||
+    !audioMimePattern.test(mimeType) ||
+    mimeType !== expectedMimeType.toLowerCase() ||
+    contentLength !== String(expectedByteLength)
+  ) {
+    void response.body?.cancel().catch(() => undefined);
+    throw new PrivateAudioStorageUnavailable();
+  }
+
+  let metadata: Awaited<ReturnType<typeof parseWebStream>>;
+  try {
+    metadata = await parseWebStream(
+      response.body,
+      { mimeType, size: expectedByteLength },
+      { skipCovers: true },
+    );
+  } catch {
+    throw new InvalidPrivateAudioSource();
+  }
+  const duration = metadata.format.duration;
+  const durationSeconds =
+    Number.isFinite(duration) && typeof duration === 'number' && duration > 0 ? duration : null;
+
+  return { mimeType, byteLength: expectedByteLength, durationSeconds };
+}
+
 export async function inspectPrivateEvidenceFile(
   fileKey: string,
   expectedMimeType: string,

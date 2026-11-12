@@ -6,7 +6,7 @@ import type { Recording } from '@/lib/contracts/recordings';
 import { prisma } from '@/lib/db';
 import {
   InvalidPrivateAudioSource,
-  inspectPrivateAudioSource,
+  inspectRecordingSource,
   openPrivateAudioSource,
   PrivateAudioStorageUnavailable,
 } from '@/lib/music/private-audio-source.server';
@@ -60,22 +60,24 @@ export async function listRecordings(userId: string): Promise<Recording[]> {
  */
 export async function registerRecording(
   userId: string,
-  input: { title: string; fileKey: string; mimeType: string; byteLength: number },
+  input: {
+    title: string;
+    fileKey: string;
+    mimeType: string;
+    byteLength: number;
+    elapsedSeconds: number;
+  },
 ): Promise<Recording> {
   const existing = await prisma.userRecording.count({ where: { userId } });
   if (existing >= MAX_RECORDINGS_PER_USER) throw new RecordingLimitReached();
 
   let durationSeconds: number;
   try {
-    const inspected = await inspectPrivateAudioSource(
-      input.fileKey,
-      input.mimeType,
-      input.byteLength,
-    );
-    durationSeconds = Math.min(
-      MAX_DURATION_SECONDS,
-      Math.max(1, Math.ceil(inspected.durationSeconds)),
-    );
+    const inspected = await inspectRecordingSource(input.fileKey, input.mimeType, input.byteLength);
+    // La durata autorevole è quella del contenitore; se manca (tipico dei WebM/Opus di
+    // MediaRecorder) si usa quella misurata dal client.
+    const seconds = inspected.durationSeconds ?? input.elapsedSeconds;
+    durationSeconds = Math.min(MAX_DURATION_SECONDS, Math.max(1, Math.ceil(seconds)));
   } catch (error) {
     if (
       error instanceof InvalidPrivateAudioSource ||
@@ -123,6 +125,10 @@ export async function getOwnedRecording(
 }
 
 export async function deleteRecording(userId: string, recordingId: string): Promise<boolean> {
+  // Si rimuove la riga del DB. L'oggetto privato in archivio resta orfano: il modulo file-upload
+  // non espone una delete, e authorizeDownload nega /api/files, quindi senza una riga che lo mappi
+  // l'oggetto è irraggiungibile (nessuna esposizione). È solo costo di archivio, limitato dal tetto
+  // di MAX_RECORDINGS_PER_USER registrazioni per utente.
   const result = await prisma.userRecording.deleteMany({ where: { id: recordingId, userId } });
   return result.count > 0;
 }

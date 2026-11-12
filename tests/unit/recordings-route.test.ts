@@ -51,6 +51,7 @@ const validBody = {
   fileKey: 'company_1/private/files/abc.webm',
   mimeType: 'audio/webm',
   byteLength: 1000,
+  elapsedSeconds: 12,
 };
 
 beforeEach(() => {
