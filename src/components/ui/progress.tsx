@@ -12,6 +12,13 @@ const Progress = React.forwardRef<
   <ProgressPrimitive.Root
     ref={ref}
     className={cn('relative h-2 w-full overflow-hidden rounded-full bg-primary/20', className)}
+    // Forwarded so the bar exposes aria-valuenow (without it Radix reports "indeterminate"),
+    // kept inside 0…max (Radix rejects a value out of range).
+    value={
+      typeof value === 'number' && Number.isFinite(value)
+        ? Math.min(Math.max(value, 0), props.max ?? 100)
+        : null
+    }
     {...props}
   >
     <ProgressPrimitive.Indicator

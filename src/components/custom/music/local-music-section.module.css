@@ -1,0 +1,409 @@
+/* @polsia:user-owned — "La tua musica" in Libreria: i brani salvati su questo dispositivo.
+   Prima il telefono (390 px), colori dai token del tema (chiaro e scuro). */
+
+.section {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--primary) 10%, var(--card)),
+    var(--card) 55%
+  );
+  color: var(--card-foreground);
+  /* /library#la-tua-musica lands below the sticky top bar (56px), not under it. */
+  scroll-margin-top: 72px;
+}
+
+.header {
+  display: grid;
+  gap: 2px;
+}
+
+.header h2 {
+  margin: 0;
+  font-family: var(--font-display), sans-serif;
+  font-size: clamp(20px, 2.6vw, 28px);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.eyebrow {
+  margin: 0 0 2px;
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+}
+
+.lead {
+  margin: 4px 0 0;
+  max-width: 62ch;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.state {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 14px;
+}
+
+.actions {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.action {
+  flex: 1 1 auto;
+  min-height: 44px;
+  border-radius: 999px;
+}
+
+.action[aria-disabled="true"] {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+/* The real <input type=file> stays in the page (iOS opens its picker from a click()) but unseen. */
+.fileInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.progress {
+  display: grid;
+  gap: 6px;
+}
+
+.progressText {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.notice,
+.hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--foreground) 4%, transparent);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.hint {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  border-color: color-mix(in srgb, var(--primary) 40%, var(--border));
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+}
+
+.notice svg,
+.hint svg {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  color: var(--primary);
+}
+
+.empty {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  padding: 18px 16px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.empty svg {
+  width: 22px;
+  height: 22px;
+  color: var(--primary);
+}
+
+.empty strong {
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.list {
+  display: grid;
+  gap: 2px;
+  margin: 0 -6px;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: grid;
+  /* Phone: art, text, actions; the duration joins the artist line (.metaDuration). */
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px;
+  border-radius: 10px;
+  /* A long library: rows far from the screen are not laid out or painted. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 62px;
+}
+
+.row[aria-current="true"] {
+  background: color-mix(in srgb, var(--primary) 13%, transparent);
+}
+
+.art {
+  display: grid;
+  width: 48px;
+  aspect-ratio: 1;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 8px;
+  background: linear-gradient(140deg, var(--secondary), var(--muted));
+  color: var(--primary);
+  font-family: var(--font-display), sans-serif;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.titleLine {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.title,
+.metaText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.title {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.row[aria-current="true"] .title {
+  color: var(--primary);
+}
+
+.nowIcon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--primary);
+}
+
+.meta {
+  display: flex;
+  min-width: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.metaText {
+  min-width: 0;
+}
+
+/* The artist line truncates, the duration after it stays whole. */
+.metaDuration {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.metaDuration::before {
+  margin: 0 0.35em;
+  content: "·";
+}
+
+.duration {
+  display: none;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rowActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.iconButton {
+  display: inline-grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.iconButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.iconButton svg {
+  width: 18px;
+  height: 18px;
+}
+
+.playButton {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.iconButton:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.more {
+  justify-self: start;
+  min-height: 40px;
+  color: var(--primary);
+}
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.footer p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.clearAll {
+  min-height: 40px;
+  color: var(--muted-foreground);
+}
+
+.destructive {
+  background: var(--destructive);
+  color: var(--destructive-foreground, #ffffff);
+}
+
+.destructive[aria-disabled="true"] {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+/* Only with a real pointer: on a phone a tapped row would otherwise stay highlighted. */
+@media (hover: hover) {
+  .row:hover:not([aria-current="true"]) {
+    background: color-mix(in srgb, var(--foreground) 5%, transparent);
+  }
+
+  .iconButton:hover {
+    background: color-mix(in srgb, var(--foreground) 8%, transparent);
+    color: var(--foreground);
+  }
+
+  .playButton:hover {
+    background: var(--primary);
+    color: var(--primary-foreground);
+  }
+
+  .clearAll:hover {
+    color: var(--destructive);
+  }
+
+  .destructive:hover {
+    background: color-mix(in srgb, var(--destructive) 88%, #000000);
+  }
+}
+
+@media (min-width: 481px) {
+  .row {
+    grid-template-columns: 48px minmax(0, 1fr) auto auto;
+  }
+
+  .duration {
+    display: inline;
+  }
+
+  .metaDuration {
+    display: none;
+  }
+}
+
+@media (min-width: 621px) {
+  .section {
+    padding: 20px;
+  }
+
+  .action {
+    flex: none;
+  }
+
+  .row {
+    grid-template-columns: 52px minmax(0, 1fr) auto auto;
+    gap: 12px;
+  }
+
+  .art {
+    width: 52px;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .row,
+  .iconButton {
+    transition: background-color 120ms ease;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progressBar > * {
+    transition: none;
+  }
+}

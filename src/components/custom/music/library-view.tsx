@@ -1,14 +1,16 @@
-// @polsia:user-owned — scheda Libreria: playlist e cartelle, radio salvate, podcast seguiti, cronologia.
+// @polsia:user-owned — scheda Libreria: La tua musica (file sul dispositivo, anche offline), playlist e
+// cartelle, radio salvate, podcast seguiti, cronologia.
 'use client';
 
 import { FolderPlus, Pause, Pencil, Play, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useState, useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
 import { FallbackArt } from '@/components/custom/music/fallback-art';
 import { useLibrary } from '@/components/custom/music/library-context';
 import { savedStationToStation } from '@/components/custom/music/live-tracks';
+import { LocalMusicSection } from '@/components/custom/music/local-music-section';
 import { MusicCollections } from '@/components/custom/music/music-collections';
 import { PodcastTile } from '@/components/custom/music/podcast-tile';
 import { StationTile } from '@/components/custom/music/radio-station-tile';
@@ -31,6 +33,27 @@ type TabId = (typeof tabs)[number]['id'];
 
 function isTab(value: string | null): value is TabId {
   return tabs.some((tab) => tab.id === value);
+}
+
+export const LIBRARY_OFFLINE_MESSAGE =
+  'Playlist, radio e podcast tornano quando sei di nuovo online.';
+
+function subscribeConnectivity(onChange: () => void) {
+  window.addEventListener('online', onChange);
+  window.addEventListener('offline', onChange);
+  return () => {
+    window.removeEventListener('online', onChange);
+    window.removeEventListener('offline', onChange);
+  };
+}
+
+/** False only when the browser knows it is offline (navigator.onLine); the server assumes online. */
+function useOnline() {
+  return useSyncExternalStore(
+    subscribeConnectivity,
+    () => navigator.onLine !== false,
+    () => true,
+  );
 }
 
 function importError(error: unknown) {
@@ -346,15 +369,27 @@ export function LibraryView() {
   const searchParams = useSearchParams();
   const requested = searchParams.get('tab');
   const active: TabId = isTab(requested) ? requested : 'playlist';
+  const online = useOnline();
 
   return (
     <main className={styles.page}>
       <header>
         <h1 className={styles.pageTitle}>Libreria</h1>
-        <p className={styles.lead}>Playlist, preferiti, radio, podcast e ascolti recenti.</p>
+        <p className={styles.lead}>
+          La tua musica, playlist, preferiti, radio, podcast e ascolti recenti.
+        </p>
       </header>
 
-      {!library.signedIn ? (
+      {/* First and account-free: the listener's own files work signed out and offline. */}
+      <LocalMusicSection />
+
+      {!library.signedIn && !online ? (
+        // Offline the session cannot be checked, and /login and /signup are not cached: no links
+        // to a page that would fail. La tua musica above keeps working.
+        <div className={styles.section}>
+          <p className={styles.state}>{LIBRARY_OFFLINE_MESSAGE}</p>
+        </div>
+      ) : !library.signedIn ? (
         <div className={styles.section}>
           <p className={styles.state}>
             Accedi per creare playlist, salvare radio e seguire podcast.

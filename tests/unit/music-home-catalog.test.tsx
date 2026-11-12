@@ -13,11 +13,11 @@ const mocks = vi.hoisted(() => ({
       qualifiedId: string;
       title: string;
       artistName: string;
-      artistUrl: string;
-      artworkUrl: string;
+      artistUrl?: string;
+      artworkUrl: string | null;
       sourceLabel: string;
-      sourceUrl: string;
-      playbackMode: 'audius' | 'solco';
+      sourceUrl: string | null;
+      playbackMode: 'audius' | 'solco' | 'local';
     },
     status: 'idle' as 'idle' | 'paused' | 'playing',
     togglePlayback: vi.fn(),
@@ -272,5 +272,23 @@ describe('catalogo Audius nella Home', () => {
     const paused = await mount();
     expect(paused.querySelector('#resume-title')?.textContent).toBe('Riprendi');
     expect(paused.textContent).toContain('Ripresa reale dal player');
+    expect(paused.textContent).toContain('ASCOLTO CORRENTE · SOLCO · AUDIUS');
+  });
+
+  it('Riprendi dice la fonte vera: un file del dispositivo non è "Audius"', async () => {
+    mocks.player.currentTrack = {
+      qualifiedId: 'local:aaaa-1111',
+      title: 'Brano sul telefono',
+      artistName: 'Artista di casa',
+      artworkUrl: null,
+      sourceLabel: 'La tua musica',
+      sourceUrl: null,
+      playbackMode: 'local',
+    };
+    mocks.player.status = 'paused';
+    const paused = await mount();
+    const resume = paused.querySelector('section[aria-labelledby="resume-title"]');
+    expect(resume?.textContent).toContain('ASCOLTO CORRENTE · LA TUA MUSICA');
+    expect(resume?.textContent).not.toMatch(/audius/i);
   });
 });

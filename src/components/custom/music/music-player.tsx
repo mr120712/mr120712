@@ -31,6 +31,13 @@ import {
 import { apiFetch } from '@/lib/api-client';
 import { AudiusPlaybackCheckSchema } from '@/lib/contracts/music';
 import {
+  createObjectUrlForArtwork,
+  createObjectUrlForTrack,
+  getTrack,
+  type ObjectUrlHandle,
+  setTrackDuration,
+} from '@/lib/local-music/playback';
+import {
   AudioDecks,
   GAPLESS_DECKS_ENABLED,
   HAVE_METADATA,
@@ -95,6 +102,15 @@ import { BackgroundListenButton } from './background-listen-button';
 import { BackgroundSwitchNotice, useReturnNotice } from './background-switch-notice';
 import noticeStyles from './background-switch-notice.module.css';
 import { ListenElsewhereMenu } from './listen-elsewhere-menu';
+import {
+  isLocalTrack,
+  LOCAL_MISSING_MESSAGE,
+  LOCAL_UNAVAILABLE_MESSAGE,
+  LOCAL_UNPLAYABLE_MESSAGE,
+  localTrackId,
+  persistedQueueItem,
+  restoreLocalItems,
+} from './local-tracks';
 import styles from './music-player.module.css';
 import { loadYouTubeIframeApi } from './youtube-queue-player';
 
@@ -106,12 +122,17 @@ export type MusicPlaybackMode =
   | 'jamendo'
   | 'youtube'
   // Imported song (artist + title): found on YouTube when its turn comes, then played there.
-  | 'song';
+  | 'song'
+  // The listener's own file ("La tua musica", qualifiedId local:<id>): played from IndexedDB on
+  // this device; nothing about it reaches the server (see local-tracks.ts).
+  | 'local';
 
 export type MusicPlayerTrack = {
   qualifiedId: string;
   title: string;
   artistName: string;
+  /** Album name for the lock screen (local files: from their tags). */
+  album?: string | null;
   artistUrl?: string | null;
   artworkUrl?: string | null;
   sourceLabel: string;
@@ -159,6 +180,12 @@ type MusicPlayerValue = {
   nextTrack: () => Promise<void>;
   seekTo: (seconds: number) => void;
   stopPlayback: () => void;
+  /**
+   * Files removed from this device ("La tua musica"): out of the queue and out of memory (object
+   * URLs revoked, spare deck released), so they never play again; if the current item is one of
+   * them the player stops. Library ids, or 'all' for every local file.
+   */
+  forgetLocalTracks: (ids: readonly string[] | 'all') => void;
   toggleShuffle: () => void;
   cycleRepeat: () => void;
   setExpanded: (expanded: boolean) => void;
@@ -329,6 +356,11 @@ export function trackStreamPath(track: MusicPlayerTrack) {
     const id = /^song:([a-f0-9]{32})$/.exec(track.qualifiedId)?.[1];
     return id ? `/song/${id}` : null;
   }
+  if (track.playbackMode === 'local') {
+    // Never fetched: played from an object URL of the file stored on this device.
+    const id = localTrackId(track.qualifiedId);
+    return id ? `/local/${id}` : null;
+  }
   const match = /^audius:([A-Za-z0-9_-]{1,128})$/.exec(track.qualifiedId);
   if (!match?.[1]) return null;
   if (track.playbackMode === 'audius') {
@@ -354,7 +386,8 @@ function playbackPath(track: MusicPlayerTrack) {
 }
 
 async function verifyPlayback(track: MusicPlayerTrack) {
-  if (isOpenStream(track)) return;
+  // Open streams need no check; the listener's own files are never shown to the server.
+  if (isOpenStream(track) || isLocalTrack(track)) return;
   const path = playbackPath(track);
   if (!path) throw new Error('Track is not an authorized album item');
   const verdict = await apiFetch(path, { schema: AudiusPlaybackCheckSchema });
@@ -371,6 +404,25 @@ async function prefetchRights(track: MusicPlayerTrack): Promise<RightsVerdict> {
   } catch (error) {
     return rightsVerdictFromReason(denialReason(error));
   }
+}
+
+/** Why an item did not start: a local file has no server reason, only "not playable here". */
+function playbackFailure(error: unknown, track: MusicPlayerTrack) {
+  return isLocalTrack(track) ? LOCAL_UNPLAYABLE_MESSAGE : failureMessage(error, track);
+}
+
+/** Where the local object URLs come from: present, or why not (see loadLocalSource). */
+type LocalSource = { ok: true; url: string } | { ok: false; reason: 'missing' | 'unavailable' };
+
+/**
+ * What a deck plays for an item: its same-origin stream path, or for a local file its object URL
+ * (null until made). A local item's streamPath is a placeholder that is never fetched.
+ */
+function deckSource(
+  track: Pick<ActiveTrack, 'qualifiedId' | 'playbackMode' | 'streamPath'>,
+  localAudio: ReadonlyMap<string, ObjectUrlHandle>,
+) {
+  return isLocalTrack(track) ? (localAudio.get(track.qualifiedId)?.url ?? null) : track.streamPath;
 }
 
 function formattedTime(seconds: number) {
@@ -442,7 +494,17 @@ async function resolveSongTrack(
   }
 }
 
-async function requestPlayPermit(qualifiedId: string): Promise<PlayPermit> {
+/**
+ * True for an item that must never reach a Solco API: the listener's own file. Checked by mode and
+ * by id, so a malformed local item (invalid id) is held back too.
+ */
+function isDeviceOnly(track: Pick<MusicPlayerTrack, 'playbackMode' | 'qualifiedId'>) {
+  return track.playbackMode === 'local' || track.qualifiedId.startsWith('local:');
+}
+
+export async function requestPlayPermit(qualifiedId: string): Promise<PlayPermit> {
+  // A local file needs no permit and counts for nothing: its id is not sent either.
+  if (qualifiedId.startsWith('local:')) return { allowed: true };
   try {
     const response = await fetch('/api/music/plays', {
       method: 'POST',
@@ -478,8 +540,12 @@ async function requestPlayPermit(qualifiedId: string): Promise<PlayPermit> {
   }
 }
 
-/** Registra un ascolto nella cronologia della Libreria (solo utenti autenticati; errori ignorati). */
-function recordPlay(track: MusicPlayerTrack) {
+/**
+ * Registra un ascolto nella cronologia della Libreria (solo utenti autenticati; errori ignorati).
+ * Mai per un file dell'ascoltatore: titolo e artista non lasciano il dispositivo.
+ */
+export function recordPlay(track: MusicPlayerTrack) {
+  if (isDeviceOnly(track)) return;
   void apiFetch('/api/music/library', {
     method: 'POST',
     body: JSON.stringify({
@@ -510,9 +576,18 @@ export function useOptionalMusicPlayer() {
   return useContext(MusicPlayerContext);
 }
 
-function Artwork({ track, size }: { track: MusicPlayerTrack; size: number }) {
-  if (track.artworkUrl) {
-    return <Image src={track.artworkUrl} alt="" width={size} height={size} unoptimized />;
+function Artwork({
+  track,
+  size,
+  url = track.artworkUrl,
+}: {
+  track: MusicPlayerTrack;
+  size: number;
+  /** The cover to show (a local file's comes from the player's own object URL). */
+  url?: string | null;
+}) {
+  if (url) {
+    return <Image src={url} alt="" width={size} height={size} unoptimized />;
   }
   return track.playbackMode === 'radio' ? (
     <Radio aria-hidden="true" />
@@ -587,6 +662,23 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const listeningRef = useRef(createListeningClock());
   const nowPlayingRef = useRef<string | null>(null);
   const [buffering, setBuffering] = useState(false);
+  // The listener's own files ("La tua musica"): object URLs of the audio stored in IndexedDB, by
+  // qualifiedId (the current item and the prepared next one), and the cover of the current item.
+  // Revoked when the item changes, the player closes or unmounts, never right after play().
+  const localAudioRef = useRef(new Map<string, ObjectUrlHandle>());
+  const localLoadsRef = useRef(new Map<string, Promise<LocalSource>>());
+  const localArtworkRef = useRef<{ qualifiedId: string; url: string } | null>(null);
+  const [localArtwork, setLocalArtwork] = useState<{ qualifiedId: string; url: string } | null>(
+    null,
+  );
+  const localDurationsRef = useRef(new Set<string>());
+  const unmountedRef = useRef(false);
+  // A local item whose file is gone (or unplayable): skipped once the render has the queue.
+  const [localSkip, setLocalSkip] = useState<{
+    qualifiedId: string;
+    request: number;
+    message: string;
+  } | null>(null);
   const ytEvents = useRef({
     onReady: () => {},
     onPlaying: () => {},
@@ -615,6 +707,54 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     releaseSpare();
     releaseDeck(decks.current);
   }, [decks, releaseSpare]);
+
+  /**
+   * Object URL of a local item's audio, made once from IndexedDB (no network) and reused until the
+   * item is no longer current or prepared. 'missing': removed or evicted from this device.
+   */
+  const loadLocalSource = useCallback((track: MusicPlayerTrack): Promise<LocalSource> => {
+    const id = localTrackId(track.qualifiedId);
+    if (!id) return Promise.resolve({ ok: false, reason: 'missing' });
+    const key = track.qualifiedId;
+    const held = localAudioRef.current.get(key);
+    if (held) return Promise.resolve({ ok: true, url: held.url });
+    const pending = localLoadsRef.current.get(key);
+    if (pending) return pending;
+    // Still wanted when it lands: not dropped by forgetLocalTracks (file removed meanwhile).
+    const settle = () => {
+      const wanted = localLoadsRef.current.get(key) === load;
+      if (wanted) localLoadsRef.current.delete(key);
+      return wanted;
+    };
+    const load: Promise<LocalSource> = createObjectUrlForTrack(id).then(
+      (handle): LocalSource => {
+        const wanted = settle();
+        if (!handle) return { ok: false, reason: 'missing' };
+        if (unmountedRef.current || !wanted) {
+          handle.revoke();
+          return { ok: false, reason: wanted ? 'unavailable' : 'missing' };
+        }
+        localAudioRef.current.set(key, handle);
+        return { ok: true, url: handle.url };
+      },
+      (): LocalSource => {
+        // IndexedDB unavailable or failing (private mode, storage error).
+        settle();
+        return { ok: false, reason: 'unavailable' };
+      },
+    );
+    localLoadsRef.current.set(key, load);
+    return load;
+  }, []);
+
+  /** Revokes the local object URLs no longer needed: only `keep` (qualifiedIds) survive. */
+  const pruneLocalSources = useCallback((keep: ReadonlySet<string>) => {
+    for (const [key, handle] of localAudioRef.current) {
+      if (keep.has(key)) continue;
+      handle.revoke();
+      localAudioRef.current.delete(key);
+    }
+  }, []);
 
   const applyPermit = useCallback((permit: PlayPermit) => {
     if (permit.used !== undefined) setPlaysUsed(permit.used);
@@ -659,15 +799,24 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       session.metadata = null;
       return;
     }
-    const key = `${track.qualifiedId}|${track.title}|${track.artworkUrl ?? ''}`;
+    // A local file: its own album tag and the cover's object URL (null until it is read).
+    const local = isLocalTrack(track);
+    const held = localArtworkRef.current;
+    const artwork = local
+      ? held?.qualifiedId === track.qualifiedId
+        ? held.url
+        : null
+      : track.artworkUrl;
+    const album = local ? track.album || track.sourceLabel : track.sourceLabel;
+    const key = `${track.qualifiedId}|${track.title}|${artwork ?? ''}|${album}`;
     if (nowPlayingRef.current === key) return;
     nowPlayingRef.current = key;
     try {
       session.metadata = new MediaMetadata({
         title: track.title,
         artist: track.artistName,
-        album: track.sourceLabel,
-        artwork: mediaArtwork(track.artworkUrl),
+        album,
+        artwork: mediaArtwork(artwork),
       });
     } catch {
       session.metadata = null;
@@ -759,6 +908,45 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       restartListeningSample(listeningRef.current);
       audio.pause();
       audio.preload = 'none';
+      if (isLocalTrack(track)) {
+        // The listener's own file: no permit, rights check, Free counter or login, and nothing
+        // about it is sent anywhere. The element was unlocked inside the tap (releaseAudio's load()
+        // on iOS), so play() still works after this IndexedDB read.
+        const source = await loadLocalSource(track);
+        if (request !== playRequestRef.current) return;
+        if (!source.ok) {
+          // Removed or evicted from this device: say so, then the next item (see skipLocalRef).
+          const message =
+            source.reason === 'missing' ? LOCAL_MISSING_MESSAGE : LOCAL_UNAVAILABLE_MESSAGE;
+          releaseAudio();
+          setStatus('error');
+          setErrorMessage(message);
+          setLocalSkip({ qualifiedId: track.qualifiedId, request, message });
+          return;
+        }
+        declarePlaybackSession();
+        audio.src = source.url;
+        audio.load();
+        const playing = audio.play();
+        showNowPlaying(track);
+        try {
+          await playing;
+          if (request !== playRequestRef.current) return;
+          setStatus('playing');
+        } catch (error) {
+          if (request !== playRequestRef.current || isDomError(error, 'AbortError')) return;
+          if (isDomError(error, 'NotAllowedError')) {
+            // No tap to start from (e.g. a lock-screen press after a reload): wait for one.
+            setStatus('paused');
+            setSessionPlaybackState('paused');
+            return;
+          }
+          // A file the browser cannot decode arrives through the element's 'error' event too.
+          setStatus('error');
+          setErrorMessage(LOCAL_UNPLAYABLE_MESSAGE);
+        }
+        return;
+      }
       try {
         // Check Audius's stream authorization before requesting audio bytes.
         // Open streams start synchronously inside the tap: iOS Safari blocks play() after an await.
@@ -805,7 +993,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         setErrorMessage(failureMessage(error, track));
       }
     },
-    [applyPermit, decks, releaseAudio, showNowPlaying],
+    [applyPermit, decks, loadLocalSource, releaseAudio, showNowPlaying],
   );
 
   const playTrack = useCallback(
@@ -814,20 +1002,28 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       streamPath: string,
       nextQueue: MusicPlayerTrack[] = [track],
     ) => {
-      const safePath = safeStreamPath(streamPath, track);
+      // A local file has no stream path: the caller passes '' (see local-tracks.ts).
+      const safePath = isLocalTrack(track)
+        ? trackStreamPath(track)
+        : safeStreamPath(streamPath, track);
       if (!safePath || !trackStreamPath(track)) {
         releaseAudio();
         setStatus('error');
         setErrorMessage('Il brano non ha un percorso Audius verificabile.');
         return;
       }
+      // Local files: the player makes (and revokes) their covers itself, and they link nowhere.
+      const deviceOnly = (item: MusicPlayerTrack): MusicPlayerTrack =>
+        isLocalTrack(item)
+          ? { ...item, artworkUrl: null, artistUrl: null, sourceUrl: null, importedFrom: null }
+          : item;
       const candidateQueue = nextQueue
         .map((item) => {
           const itemPath = trackStreamPath(item);
-          return itemPath ? { ...item, streamPath: itemPath } : null;
+          return itemPath ? { ...deviceOnly(item), streamPath: itemPath } : null;
         })
         .filter((item): item is ActiveTrack => item !== null);
-      const selectedTrack = { ...track, streamPath: safePath };
+      const selectedTrack = { ...deviceOnly(track), streamPath: safePath };
       const selectedIndex = candidateQueue.findIndex(
         (item) => item.qualifiedId === track.qualifiedId,
       );
@@ -838,6 +1034,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       recordedRef.current = null;
       nextPlanRef.current = null;
       preparedRef.current = null;
+      // A new queue is a new lap: skipping missing items starts counting again.
+      missStreakRef.current = 0;
       // A new queue: the official player gets a fresh playlist (or video), as before runs existed.
       ytRunRef.current = null;
       ytAtRef.current = null;
@@ -967,6 +1165,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     clearTimer(reconnectTimerRef);
     missStreakRef.current = 0;
     releaseAudio();
+    // Nothing plays any more: no object URL of the listener's files is kept.
+    pruneLocalSources(new Set());
     setCurrentTrack(null);
     setQueue([]);
     setQueueIndex(-1);
@@ -990,7 +1190,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     } catch {
       // Storage unavailable (private mode): nothing to clear.
     }
-  }, [releaseAudio, showNowPlaying]);
+  }, [pruneLocalSources, releaseAudio, showNowPlaying]);
 
   // First statement of a tap that will start audio after a network wait (see MusicPlayerValue).
   // Only unlocks the element: the 'playback' session is declared right before play(), so a search
@@ -1045,10 +1245,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           return;
         }
         setStatus('error');
-        setErrorMessage(failureMessage(error, track));
+        setErrorMessage(playbackFailure(error, track));
         releaseAudio();
       },
     );
+    // A local file never asks the server anything (verifyPlayback returns at once for it).
     verifyPlayback(track).catch((error: unknown) => {
       if (request !== playRequestRef.current) return;
       // Only a denial about this item (rights, Pro expired) stops it. A network error (phone just
@@ -1129,6 +1330,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   /** Rewards: one minute per POST, measured on the media clock (see listening-time.ts). */
   const sendListening = (seconds: number) => {
     const clock = listeningRef.current;
+    // The listener's own files never earn rewards (the body names no item: only this check).
+    const playing = currentTrackRef.current;
+    if (playing && isDeviceOnly(playing)) return;
     try {
       fetch('/api/rewards', {
         method: 'POST',
@@ -1143,42 +1347,108 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const forgetLocalTracks = useCallback(
+    (ids: readonly string[] | 'all') => {
+      const forgets = (qualifiedId: string) => {
+        const id = localTrackId(qualifiedId);
+        return id !== null && (ids === 'all' || ids.includes(id));
+      };
+      const playing = currentTrackRef.current;
+      if (playing && isDeviceOnly(playing) && forgets(playing.qualifiedId)) {
+        stopPlayback();
+        return;
+      }
+      // Object URLs made for them (the prepared next item), and reads still running.
+      let held = false;
+      for (const [key, handle] of localAudioRef.current) {
+        if (!forgets(key)) continue;
+        handle.revoke();
+        localAudioRef.current.delete(key);
+        held = true;
+      }
+      for (const key of [...localLoadsRef.current.keys()]) {
+        if (forgets(key)) localLoadsRef.current.delete(key);
+      }
+      const items = queueRef.current;
+      const removed = items.flatMap((item, index) =>
+        isDeviceOnly(item) && forgets(item.qualifiedId) ? [index] : [],
+      );
+      if (removed.length === 0 && !held) return;
+      // The spare may hold one of them; its index changes anyway. prepareNext runs again.
+      releaseSpare();
+      nextPlanRef.current = null;
+      preparedRef.current = null;
+      if (removed.length === 0) return;
+      const gone = new Set(removed);
+      const shift = (index: number) => index - removed.filter((at) => at < index).length;
+      const kept = items.filter((_, index) => !gone.has(index));
+      const index = queueIndexRef.current < 0 ? -1 : shift(queueIndexRef.current);
+      // YouTube playlist runs hold no local item: only their place in the queue moves.
+      const run = ytRunRef.current;
+      if (run) ytRunRef.current = { ...run, start: shift(run.start) };
+      const at = ytAtRef.current;
+      if (at) ytAtRef.current = { ...at, index: shift(at.index) };
+      const pending = ytPendingRef.current;
+      if (pending) {
+        ytPendingRef.current = gone.has(pending.index)
+          ? null
+          : {
+              index: shift(pending.index),
+              from: pending.from === null || gone.has(pending.from) ? null : shift(pending.from),
+            };
+      }
+      queueRef.current = kept;
+      queueIndexRef.current = index;
+      setQueue(kept);
+      setQueueIndex(index);
+    },
+    [releaseSpare, stopPlayback],
+  );
+
   /**
    * First seconds of the next Audius/Solco track on the spare deck, once its rights are verified
    * and no Free-plan block is predicted. The stream answers a Range from byte 0 with the first
    * chunk only and records no play for it; the play counts when the track really continues.
    * preloadDeck uses preload='metadata' (never 'auto'), so a paused spare never asks for that
    * counted continuation by itself.
+   *
+   * A local file (`localUrl`: its object URL) is preloaded the same way: nothing is asked of the
+   * server and nothing can block it, so only the plan (next item, no repeat one) matters.
    */
-  const preloadOnSpare = (index: number, next: ActiveTrack, rights: RightsVerdict) => {
+  const preloadOnSpare = (
+    index: number,
+    next: ActiveTrack,
+    rights: RightsVerdict,
+    localUrl: string | null = null,
+  ) => {
     const spare = decks.spareDeck;
     if (!spare) return;
-    const decision = decideAdvance({
-      mode: next.playbackMode,
-      qualifiedId: next.qualifiedId,
-      rights,
-      access: accessRef.current,
-      replay: isReplay(startedAtRef.current, next.qualifiedId, Date.now()),
-    });
     const planned = repeat === 'one' ? null : followingIndex(repeat === 'all');
-    if (
-      planned !== index ||
-      queue[index]?.qualifiedId !== next.qualifiedId ||
-      !wantsSparePreload({
-        enabled: GAPLESS_DECKS_ENABLED,
-        mode: next.playbackMode,
-        repeatOne: repeat === 'one',
-        decision,
-      })
-    ) {
+    const wantsPreload =
+      localUrl !== null
+        ? GAPLESS_DECKS_ENABLED && repeat !== 'one'
+        : wantsSparePreload({
+            enabled: GAPLESS_DECKS_ENABLED,
+            mode: next.playbackMode,
+            repeatOne: repeat === 'one',
+            decision: decideAdvance({
+              mode: next.playbackMode,
+              qualifiedId: next.qualifiedId,
+              rights,
+              access: accessRef.current,
+              replay: isReplay(startedAtRef.current, next.qualifiedId, Date.now()),
+            }),
+          });
+    if (planned !== index || queue[index]?.qualifiedId !== next.qualifiedId || !wantsPreload) {
       releaseSpare();
       return;
     }
-    const wanted: SpareLoad = { index, qualifiedId: next.qualifiedId, src: next.streamPath };
+    const src = localUrl ?? next.streamPath;
+    const wanted: SpareLoad = { index, qualifiedId: next.qualifiedId, src };
     if (sameSpareLoad(decks.spare, wanted)) return;
     // A new src + load() also aborts whatever the spare was loading before.
     decks.spare = wanted;
-    preloadDeck(spare, next.streamPath);
+    preloadDeck(spare, src);
   };
   // Latest queue/repeat for the preload decided when the checks answer (set every render).
   const preloadOnSpareRef = useRef(preloadOnSpare);
@@ -1192,6 +1462,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     const index = followingIndex(repeat === 'all');
     const next = index === null ? undefined : queue[index];
     if (index === null || !next) return;
+    // "Ripeti brano" loops this item: no object URL for a next file that will not play.
+    if (repeat === 'one' && isLocalTrack(next)) return;
     const from = `${queueIndex}|${currentTrack.qualifiedId}`;
     const prepared = preparedRef.current;
     if (
@@ -1205,8 +1477,23 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     const entry: PreparedNext = { from, index, qualifiedId: next.qualifiedId, rights: 'pending' };
     preparedRef.current = entry;
     // The spare holds another track (shuffle or queue changed): no stray download.
-    const wanted: SpareLoad = { index, qualifiedId: next.qualifiedId, src: next.streamPath };
+    const wanted: SpareLoad = {
+      index,
+      qualifiedId: next.qualifiedId,
+      src: deckSource(next, localAudioRef.current) ?? '',
+    };
     if (decks.spare && !sameSpareLoad(decks.spare, wanted)) releaseSpare();
+    if (isLocalTrack(next)) {
+      // The listener's own file: its object URL is made now (IndexedDB, no network) and the spare
+      // deck loads it, so 'ended' switches with no wait. Nothing is asked of the server. A missing
+      // file stays 'pending': the normal path says so and skips it.
+      void loadLocalSource(next).then((source) => {
+        if (preparedRef.current !== entry || !source.ok) return;
+        entry.rights = 'allowed';
+        preloadOnSpareRef.current(index, next, 'allowed', source.url);
+      });
+      return;
+    }
     if (next.artworkUrl) {
       try {
         const image = new window.Image();
@@ -1227,6 +1514,18 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  /**
+   * A local file added without a duration (iOS often reads no metadata when it is added): saved in
+   * the library on this device once the element knows it. Once per file and session.
+   */
+  const rememberLocalDuration = (track: ActiveTrack, duration: number) => {
+    if (track.durationSeconds != null || !Number.isFinite(duration) || duration <= 0) return;
+    const id = localTrackId(track.qualifiedId);
+    if (!id || localDurationsRef.current.has(id)) return;
+    localDurationsRef.current.add(id);
+    void setTrackDuration(id, duration).catch(() => undefined);
+  };
+
   const handleTimeUpdate = () => {
     const audio = decks.current;
     if (!audio) return;
@@ -1237,8 +1536,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     setElapsedSeconds(audio.currentTime);
     if (!isLiveTrack(currentTrack) && Number.isFinite(audio.duration))
       setDurationSeconds(audio.duration);
+    // The listener's own files stay on the device: no history, recently played or rewards ticks.
+    const local = isLocalTrack(currentTrack);
+    if (local && currentTrack) rememberLocalDuration(currentTrack, audio.duration);
     if (
       currentTrack &&
+      !local &&
       recordedRef.current !== currentTrack.qualifiedId &&
       audio.currentTime >= HISTORY_THRESHOLD_SECONDS
     ) {
@@ -1247,7 +1550,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
     // Listening time for rewards (invites and "ascolta e guadagna"), from the seconds actually
     // played. YouTube videos never earn rewards: YouTube's policies forbid rewarding viewing.
-    if (signedIn && currentTrack && !isYouTubeTrack(currentTrack) && !audio.paused) {
+    if (signedIn && currentTrack && !local && !isYouTubeTrack(currentTrack) && !audio.paused) {
       const seconds = observeListening(listeningRef.current, {
         position: audio.currentTime,
         nowMs: Date.now(),
@@ -1267,7 +1570,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   };
 
   /** Same element, same event: new src + play() with no network wait before it. */
-  const startSynchronously = (index: number, next: ActiveTrack, audio: HTMLAudioElement) => {
+  const startSynchronously = (
+    index: number,
+    next: ActiveTrack,
+    audio: HTMLAudioElement,
+  ): boolean => {
+    // A local file plays from its object URL: without one (not made yet) the normal path reads it.
+    const src = deckSource(next, localAudioRef.current);
+    if (src === null) return false;
     const request = ++playRequestRef.current;
     try {
       ytPlayerRef.current?.pauseVideo();
@@ -1278,11 +1588,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     mediaRetryRef.current = 0;
     reconnectsRef.current = 0;
     pendingSeekRef.current = null;
-    // The stream request itself counts the play on the server: refresh the counter once it plays.
-    refreshOnPlayingRef.current = true;
+    // The stream request itself counts the play on the server: refresh the counter once it plays
+    // (never for a local file: nothing is counted and nothing is asked of the server).
+    refreshOnPlayingRef.current = !isLocalTrack(next);
     restartListeningSample(listeningRef.current);
     declarePlaybackSession();
-    audio.src = next.streamPath;
+    audio.src = src;
     audio.load();
     const playing = audio.play();
     showNowPlaying(next);
@@ -1310,6 +1621,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         // Other failures arrive through the element's 'error' event (handleError).
       },
     );
+    return true;
   };
 
   /**
@@ -1331,7 +1643,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     reconnectsRef.current = 0;
     pendingSeekRef.current = null;
     // The continuation of the stream counts the play on the server: refresh the counter once it plays.
-    refreshOnPlayingRef.current = true;
+    refreshOnPlayingRef.current = !isLocalTrack(next);
     restartListeningSample(listeningRef.current);
     declarePlaybackSession();
     // Only one deck is ever audible: a skip in the middle of a track silences it first.
@@ -1367,7 +1679,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         // Never a silent queue: back to the deck that was playing, with today's src switch.
         decks.swap();
         releaseDeck(spare);
-        startSynchronously(index, next, old);
+        if (!startSynchronously(index, next, old)) void playQueueIndex(index);
       },
     );
   };
@@ -1385,6 +1697,21 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     if (!next || !audio) return false;
     const prepared = preparedRef.current;
     preparedRef.current = null;
+    if (isLocalTrack(next)) {
+      // The listener's own file: no access, rights or Free check can block it. Synchronous only
+      // with its object URL already made (prepared ~20 s before the end); otherwise the normal
+      // path reads it from IndexedDB (and explains a file that is gone).
+      const src = deckSource(next, localAudioRef.current);
+      if (src === null) return false;
+      const spare = decks.spareDeck;
+      const wanted: SpareLoad = { index, qualifiedId: next.qualifiedId, src };
+      if (spare && spareReadyFor(spare, decks.spare, wanted)) {
+        startOnSpare(index, next, spare);
+        return true;
+      }
+      releaseSpare();
+      return startSynchronously(index, next, audio);
+    }
     const rights =
       prepared && prepared.index === index && prepared.qualifiedId === next.qualifiedId
         ? prepared.rights
@@ -1432,8 +1759,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
     // Not preloaded, another track or not ready: today's src switch on the playing element.
     releaseSpare();
-    startSynchronously(index, next, audio);
-    return true;
+    return startSynchronously(index, next, audio);
   };
   advanceRef.current = advanceTo;
 
@@ -1462,11 +1788,16 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   };
 
   /** Restart the same stream on the same element, inside the error event (no timer needed). */
-  const restartStream = (track: ActiveTrack, audio: HTMLAudioElement, position: number | null) => {
+  const restartStream = (
+    track: ActiveTrack,
+    audio: HTMLAudioElement,
+    position: number | null,
+    src: string = track.streamPath,
+  ) => {
     const request = ++playRequestRef.current;
     pendingSeekRef.current = position !== null && position > 1 ? position : null;
     declarePlaybackSession();
-    audio.src = track.streamPath;
+    audio.src = src;
     audio.load();
     audio.play().then(
       () => {
@@ -1499,6 +1830,37 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  /**
+   * A local file failed in the element: read it again from IndexedDB with a fresh object URL. Gone
+   * (removed or evicted): say so and skip it. Still there: once, resume where it stopped (as for a
+   * stream drop); otherwise the browser cannot decode it, so skip it. Nothing reaches the server.
+   */
+  const handleLocalError = (track: ActiveTrack, audio: HTMLAudioElement) => {
+    const failedAt = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+    const request = ++playRequestRef.current;
+    releaseAudio();
+    localAudioRef.current.get(track.qualifiedId)?.revoke();
+    localAudioRef.current.delete(track.qualifiedId);
+    setStatus('loading');
+    void loadLocalSource(track).then((source) => {
+      if (request !== playRequestRef.current) return;
+      if (source.ok && failedAt > 0 && mediaRetryRef.current < MAX_MEDIA_RETRIES) {
+        mediaRetryRef.current += 1;
+        retryPositionRef.current = failedAt;
+        restartStream(track, audio, failedAt, source.url);
+        return;
+      }
+      const message = source.ok
+        ? LOCAL_UNPLAYABLE_MESSAGE
+        : source.reason === 'missing'
+          ? LOCAL_MISSING_MESSAGE
+          : LOCAL_UNAVAILABLE_MESSAGE;
+      setStatus('error');
+      setErrorMessage(message);
+      setLocalSkip({ qualifiedId: track.qualifiedId, request, message });
+    });
+  };
+
   const handleError = () => {
     const audio = decks.current;
     if (!currentTrack || !audio) return;
@@ -1506,6 +1868,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     // An error of a released element (no source) belongs to a playback already stopped.
     if (!audio.getAttribute('src')) return;
     const track = currentTrack;
+    if (isLocalTrack(track)) {
+      handleLocalError(track, audio);
+      return;
+    }
     if (isLiveTrack(track) && reconnectsRef.current < MAX_RECONNECTS) {
       // Live radio drops on network changes (Wi-Fi ↔ mobile). The first reconnect runs right here,
       // on the same element: timers do not fire in a suspended (locked) iOS page.
@@ -1649,8 +2015,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     syncPositionState();
     // WebKit drops handlers registered before the page became "Now Playing": set them again.
     registerSystemControls();
-    // The stream delivered audio, so the server allowed (and counted) it: replay window starts.
-    if (currentTrack) rememberStart(startedAtRef.current, currentTrack.qualifiedId, Date.now());
+    // An item plays: the "missing in a row" count starts again (see skipLocal / skipMissing).
+    missStreakRef.current = 0;
+    if (currentTrack && !isLocalTrack(currentTrack)) {
+      // The stream delivered audio, so the server allowed (and counted) it: replay window starts.
+      rememberStart(startedAtRef.current, currentTrack.qualifiedId, Date.now());
+    }
     if (refreshOnPlayingRef.current) {
       refreshOnPlayingRef.current = false;
       void loadAccess();
@@ -1702,14 +2072,23 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   const hidePlayer = pathname === '/admin' || pathname.startsWith('/admin/');
   const showFull = expanded && Boolean(currentTrack) && !hidePlayer;
-  // Keep the YouTube dock (and its player) mounted while an imported song is being looked up,
-  // so the player is reused instead of being torn down and rebuilt for every song.
+  // Keep the YouTube dock (and its player) mounted while an imported song is being looked up, so
+  // the player is reused instead of being rebuilt for every song (a found song becomes a YouTube
+  // track). Once the search failed, or after a page load before play, there is no video: no dock.
   const youtubeActive =
-    (isYouTubeTrack(currentTrack) || currentTrack?.playbackMode === 'song') && !hidePlayer;
+    !hidePlayer &&
+    (isYouTubeTrack(currentTrack) ||
+      (currentTrack?.playbackMode === 'song' && status === 'loading'));
   // "Ascolta altrove": the same song on Spotify, YouTube Music, SoundCloud, Deezer and TIDAL as
-  // plain search links (no API of those services and no embedded player involved).
+  // plain search links (no API of those services and no embedded player involved). Never for the
+  // listener's own file: its tags (or file name) must not leave the device, not even in a link.
   const songSearch = (() => {
-    if (!currentTrack || isLiveTrack(currentTrack) || currentTrack.playbackMode === 'podcast') {
+    if (
+      !currentTrack ||
+      isLiveTrack(currentTrack) ||
+      currentTrack.playbackMode === 'podcast' ||
+      isLocalTrack(currentTrack)
+    ) {
       return null;
     }
     const song =
@@ -1737,6 +2116,24 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     if (missStreakRef.current >= Math.max(1, queue.length)) return;
     const index = followingIndex(repeat === 'all');
     if (index !== null && index !== queueIndex) void playQueueIndex(index);
+  };
+  // A local item whose file is gone or cannot be decoded (see localSkip): the next item starts and
+  // the message stays while it plays. Like imported songs, the skipping stops after a full lap.
+  const skipLocalRef = useRef<
+    (skip: { qualifiedId: string; request: number; message: string }) => void
+  >(() => undefined);
+  skipLocalRef.current = (skip) => {
+    // The listener chose something else (or closed the player) meanwhile.
+    if (skip.request !== playRequestRef.current || currentTrack?.qualifiedId !== skip.qualifiedId) {
+      return;
+    }
+    missStreakRef.current += 1;
+    if (missStreakRef.current >= Math.max(1, queue.length)) return;
+    const index = followingIndex(repeat === 'all');
+    if (index === null || index === queueIndex) return;
+    void playQueueIndex(index);
+    // The next item clears the message as it starts: keep it (a notice that item set wins).
+    setErrorMessage((current) => current ?? skip.message);
   };
   // Video found hidden: never audible in the background (YouTube API terms), whatever started it.
   const deferHiddenVideo = (qualifiedId: string) => {
@@ -1920,6 +2317,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       }
       // The video plays again (player controls or the notice): the notice has done its job.
       dismissReturnNotice();
+      // Something in the queue plays: the "missing in a row" count starts again.
+      missStreakRef.current = 0;
       setStatus('playing');
       setErrorMessage(null);
       setSessionPlaybackState('playing');
@@ -2034,9 +2433,17 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       else setStatus('error');
     },
     onProgress: (elapsed, duration) => {
+      // A poll tick that lands after the app moved to an audio or local item (the interval stops
+      // only once effects run): it is the old video's position, not this item's.
+      if (
+        !currentTrack ||
+        (!isYouTubeTrack(currentTrack) && currentTrack.playbackMode !== 'song')
+      ) {
+        return;
+      }
       setElapsedSeconds(elapsed);
       if (duration > 0) setDurationSeconds(duration);
-      if (currentTrack) recordProgress(currentTrack, elapsed);
+      recordProgress(currentTrack, elapsed);
     },
   };
 
@@ -2247,32 +2654,47 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (restoredRef.current || process.env.NODE_ENV === 'test') return;
     restoredRef.current = true;
+    let saved: { queue?: unknown; index?: unknown; position?: unknown } | null = null;
     try {
-      const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? 'null') as {
-        queue?: MusicPlayerTrack[];
-        index?: number;
-        position?: number;
-      } | null;
-      if (!saved?.queue?.length || typeof saved.index !== 'number') return;
-      const restored = saved.queue
+      saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? 'null');
+    } catch {
+      // Corrupt or unavailable storage: start empty.
+      return;
+    }
+    if (!saved || !Array.isArray(saved.queue) || saved.queue.length === 0) return;
+    if (typeof saved.index !== 'number') return;
+    const savedQueue = saved.queue as MusicPlayerTrack[];
+    const savedPosition = typeof saved.position === 'number' ? saved.position : null;
+    const apply = (items: MusicPlayerTrack[], index: number, position: number | null) => {
+      const restored = items
         .map((item) => {
-          const path = trackStreamPath(item);
+          const path = item ? trackStreamPath(item) : null;
           return path ? { ...item, streamPath: path } : null;
         })
         .filter((item): item is ActiveTrack => item !== null);
-      const track = restored[saved.index];
+      const track = restored[index];
       if (!track) return;
       setQueue(restored);
-      setQueueIndex(saved.index);
+      setQueueIndex(index);
       setCurrentTrack(track);
       setStatus('idle');
-      if (!isLiveTrack(track) && typeof saved.position === 'number' && saved.position > 5) {
-        pendingSeekRef.current = saved.position;
-        setElapsedSeconds(saved.position);
+      if (!isLiveTrack(track) && position !== null && position > 5) {
+        pendingSeekRef.current = position;
+        setElapsedSeconds(position);
       }
-    } catch {
-      // Corrupt or unavailable storage: start empty.
+    };
+    if (!savedQueue.some((item) => item?.playbackMode === 'local')) {
+      apply(savedQueue, saved.index, savedPosition);
+      return;
     }
+    // The saved queue holds only the ids of the listener's own files: titles, artists and albums
+    // are read again from IndexedDB on this device, and files no longer there leave the queue.
+    const request = playRequestRef.current;
+    void restoreLocalItems(savedQueue, saved.index, getTrack).then((restored) => {
+      // The listener started something meanwhile: that wins.
+      if (!restored || request !== playRequestRef.current || currentTrackRef.current) return;
+      apply(restored.items, restored.index, restored.sameTrack ? savedPosition : null);
+    });
   }, []);
 
   // Save queue and position (throttled to whole seconds).
@@ -2284,7 +2706,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       window.localStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({
-          queue: queue.slice(0, 100).map(({ streamPath: _path, ...item }) => item),
+          // A local file is saved as its id only (see persistedQueueItem): its tags stay in
+          // IndexedDB, and nothing of this queue is ever sent to the server.
+          queue: queue
+            .slice(0, 100)
+            .map(({ streamPath: _path, ...item }) => persistedQueueItem(item)),
           index: queueIndex,
           position: isLiveTrack(currentTrack) ? 0 : elapsedSeconds,
         }),
@@ -2307,7 +2733,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     if (
       currentTrack &&
       audio &&
-      audio.getAttribute('src') === currentTrack.streamPath &&
+      audio.getAttribute('src') === deckSource(currentTrack, localAudioRef.current) &&
       audio.readyState >= HAVE_METADATA
     ) {
       // Gapless swap: the former spare loaded this item's metadata while it was the spare (events
@@ -2319,6 +2745,69 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
     if (!currentTrack) setSessionPlaybackState('none');
   }, [currentTrack, decks, showNowPlaying]);
+
+  // Local object URLs follow the item: once another item is current, the files no longer current
+  // or prepared as the next one are revoked (never right after play(): some engines re-read the
+  // Blob while seeking). Closing the player keeps none.
+  const currentItemId = currentTrack?.qualifiedId ?? null;
+  const currentLocalId = currentTrack && isLocalTrack(currentTrack) ? currentItemId : null;
+  useEffect(() => {
+    const keep = new Set<string>();
+    if (currentItemId) keep.add(currentItemId);
+    if (decks.spare) keep.add(decks.spare.qualifiedId);
+    if (preparedRef.current) keep.add(preparedRef.current.qualifiedId);
+    pruneLocalSources(keep);
+  }, [currentItemId, decks, pruneLocalSources]);
+
+  // The cover of the current local item: its own object URL, revoked when the item changes.
+  useEffect(() => {
+    const id = currentLocalId ? localTrackId(currentLocalId) : null;
+    if (!currentLocalId || !id) return;
+    let cancelled = false;
+    let handle: ObjectUrlHandle | null = null;
+    void createObjectUrlForArtwork(id)
+      .catch(() => null)
+      .then((created) => {
+        if (cancelled) {
+          created?.revoke();
+          return;
+        }
+        if (!created) return;
+        handle = created;
+        const artwork = { qualifiedId: currentLocalId, url: created.url };
+        localArtworkRef.current = artwork;
+        setLocalArtwork(artwork);
+        // The lock screen and the Android notification get the cover too.
+        const track = currentTrackRef.current;
+        if (track?.qualifiedId === currentLocalId) showNowPlaying(track);
+      });
+    return () => {
+      cancelled = true;
+      const revoked = handle;
+      if (!revoked) return;
+      if (localArtworkRef.current?.url === revoked.url) localArtworkRef.current = null;
+      setLocalArtwork((current) => (current?.url === revoked.url ? null : current));
+      revoked.revoke();
+    };
+  }, [currentLocalId, showNowPlaying]);
+
+  // A local file that is gone or unplayable: skipped once this render has the queue (skipLocalRef).
+  useEffect(() => {
+    if (!localSkip) return;
+    setLocalSkip(null);
+    skipLocalRef.current(localSkip);
+  }, [localSkip]);
+
+  // Unmounted: every object URL of the listener's files is revoked.
+  useEffect(() => {
+    unmountedRef.current = false;
+    const localAudio = localAudioRef.current;
+    return () => {
+      unmountedRef.current = true;
+      for (const handle of localAudio.values()) handle.revoke();
+      localAudio.clear();
+    };
+  }, []);
 
   // System controls for this kind of item; set again on every 'playing' (see handlePlaying).
   // biome-ignore lint/correctness/useExhaustiveDependencies: the plan is read from sessionPlanRef; these values change it.
@@ -2434,6 +2923,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     </audio>
   );
 
+  // Covers: a local file's comes from the player's own object URL (current item only).
+  const artworkOf = (item: MusicPlayerTrack) =>
+    isLocalTrack(item)
+      ? localArtwork?.qualifiedId === item.qualifiedId
+        ? localArtwork.url
+        : null
+      : (item.artworkUrl ?? null);
+  const currentArtwork = currentTrack ? artworkOf(currentTrack) : null;
   const progress =
     !live && durationSeconds > 0 ? Math.min(100, (elapsedSeconds / durationSeconds) * 100) : 0;
   const playLabel = currentTrack
@@ -2472,6 +2969,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         nextTrack,
         seekTo,
         stopPlayback,
+        forgetLocalTracks,
         toggleShuffle,
         cycleRepeat,
         setExpanded,
@@ -2521,13 +3019,13 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
               aria-expanded={showFull}
             >
               <span className={styles.miniArt} aria-hidden="true">
-                <Artwork track={currentTrack} size={44} />
+                <Artwork track={currentTrack} size={44} url={currentArtwork} />
               </span>
               <span className={styles.miniCopy}>
                 <strong>{currentTrack.title}</strong>
                 <span>
                   {live ? <em className={styles.liveBadge}>LIVE</em> : null}
-                  {currentTrack.artistName} · {currentTrack.sourceLabel}
+                  {[currentTrack.artistName, currentTrack.sourceLabel].filter(Boolean).join(' · ')}
                 </span>
               </span>
             </button>
@@ -2633,7 +3131,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             <div className={styles.fullBody}>
               {youtubeActive ? null : (
                 <div className={styles.fullArt}>
-                  <Artwork track={currentTrack} size={480} />
+                  <Artwork track={currentTrack} size={480} url={currentArtwork} />
                 </div>
               )}
 
@@ -2642,7 +3140,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                 <strong title={currentTrack.title}>{currentTrack.title}</strong>
                 <span className={styles.trackMeta}>
                   {live ? <em className={styles.liveBadge}>LIVE</em> : null}
-                  {currentTrack.artistName} · {currentTrack.sourceLabel}
+                  {[currentTrack.artistName, currentTrack.sourceLabel].filter(Boolean).join(' · ')}
                 </span>
                 {showCounter && playsLimit !== null && playsUsed !== null ? (
                   <p className={styles.adNote}>
@@ -2709,7 +3207,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                   onChange={(event) => seekTo(Number(event.target.value))}
                   disabled={live || durationSeconds <= 0 || status === 'loading'}
                   aria-label={
-                    live ? 'Diretta radio: avanzamento non disponibile' : 'Avanzamento brano Audius'
+                    live
+                      ? 'Diretta radio: avanzamento non disponibile'
+                      : isLocalTrack(currentTrack)
+                        ? 'Avanzamento brano'
+                        : 'Avanzamento brano Audius'
                   }
                 />
                 <span className={styles.time}>
@@ -2787,38 +3289,35 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                   <ListMusic aria-hidden="true" /> Coda · {queue.length} brani
                 </summary>
                 <ol>
-                  {queue.map((item, index) => (
-                    <li key={`${index}-${item.qualifiedId}`}>
-                      <div className={styles.queueItem}>
-                        <span className={styles.queueArtwork}>
-                          {item.artworkUrl ? (
-                            <Image
-                              src={item.artworkUrl}
-                              alt=""
-                              width={36}
-                              height={36}
-                              unoptimized
-                            />
-                          ) : (
-                            <Music2 aria-hidden="true" />
-                          )}
-                        </span>
-                        <button
-                          type="button"
-                          aria-current={index === queueIndex ? 'true' : undefined}
-                          onClick={() => void playQueueIndex(index)}
-                        >
-                          <strong>{item.title}</strong>
-                          <span>{item.artistName}</span>
-                        </button>
-                        {item.artistUrl ? (
-                          <a href={item.artistUrl} target="_blank" rel="noreferrer">
-                            Profilo Audius
-                          </a>
-                        ) : null}
-                      </div>
-                    </li>
-                  ))}
+                  {queue.map((item, index) => {
+                    const art = artworkOf(item);
+                    return (
+                      <li key={`${index}-${item.qualifiedId}`}>
+                        <div className={styles.queueItem}>
+                          <span className={styles.queueArtwork}>
+                            {art ? (
+                              <Image src={art} alt="" width={36} height={36} unoptimized />
+                            ) : (
+                              <Music2 aria-hidden="true" />
+                            )}
+                          </span>
+                          <button
+                            type="button"
+                            aria-current={index === queueIndex ? 'true' : undefined}
+                            onClick={() => void playQueueIndex(index)}
+                          >
+                            <strong>{item.title}</strong>
+                            <span>{item.artistName}</span>
+                          </button>
+                          {item.artistUrl ? (
+                            <a href={item.artistUrl} target="_blank" rel="noreferrer">
+                              Profilo Audius
+                            </a>
+                          ) : null}
+                        </div>
+                      </li>
+                    );
+                  })}
                 </ol>
               </details>
             </div>

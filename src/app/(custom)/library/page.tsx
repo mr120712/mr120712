@@ -5,7 +5,8 @@ import { LibraryView } from '@/components/custom/music/library-view';
 
 export const metadata: Metadata = {
   title: 'Libreria',
-  description: 'Le tue playlist, i preferiti, le radio salvate, i podcast seguiti e la cronologia.',
+  description:
+    'La tua musica sul dispositivo, le playlist, i preferiti, le radio salvate, i podcast seguiti e la cronologia.',
   robots: { index: false },
 };
 

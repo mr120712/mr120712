@@ -136,7 +136,8 @@ export function ResumeSection({
   return (
     <section className={styles.resume} aria-labelledby="resume-title">
       <div className={styles.resumeIntro}>
-        <p className={styles.eyebrow}>ASCOLTO CORRENTE · AUDIUS</p>
+        {/* The real source: a file of the listener's own reads "LA TUA MUSICA", not Audius. */}
+        <p className={styles.eyebrow}>ASCOLTO CORRENTE · {track.sourceLabel.toUpperCase()}</p>
         <h2 id="resume-title">Riprendi</h2>
       </div>
       <article className={styles.resumeCard}>
