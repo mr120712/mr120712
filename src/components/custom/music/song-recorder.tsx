@@ -17,6 +17,7 @@ import {
   pickRecorderMimeType,
   recordingFileName,
 } from '@/lib/music/recorder';
+import { publishNewRecording } from '@/lib/music/recording-publish.client';
 import { FileUploadError, uploadPrivateFile } from '@/modules/file-upload/client';
 import styles from './song-recorder.module.css';
 
@@ -28,6 +29,7 @@ export function SongRecorder({ onSaved }: { onSaved: (recording: Recording) => v
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [confirmed, setConfirmed] = useState(false);
+  const [publishNow, setPublishNow] = useState(false);
   const [uploadPercent, setUploadPercent] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
@@ -162,6 +164,7 @@ export function SongRecorder({ onSaved }: { onSaved: (recording: Recording) => v
     setPreviewUrl(null);
     setTitle('');
     setConfirmed(false);
+    setPublishNow(false);
     setElapsed(0);
     setUploadPercent(0);
     setPhase('idle');
@@ -194,8 +197,18 @@ export function SongRecorder({ onSaved }: { onSaved: (recording: Recording) => v
         }),
         schema: RecordingCreateResponseSchema,
       });
-      toast.success('Brano registrato e salvato su Solco.');
-      onSaved(recording);
+      if (publishNow) {
+        const result = await publishNewRecording(recording);
+        onSaved(result.recording);
+        toast.success(
+          result.published
+            ? 'Registrazione salvata e pubblicata nella classifica community.'
+            : 'Registrazione salvata (pubblicazione non riuscita: puoi pubblicarla dalla lista).',
+        );
+      } else {
+        onSaved(recording);
+        toast.success('Brano registrato e salvato su Solco.');
+      }
       discard();
     } catch (err) {
       setPhase('recorded');
@@ -208,7 +221,7 @@ export function SongRecorder({ onSaved }: { onSaved: (recording: Recording) => v
       }
       toast.error('Non è stato possibile salvare la registrazione.');
     }
-  }, [title, confirmed, elapsed, onSaved, discard]);
+  }, [title, confirmed, publishNow, elapsed, onSaved, discard]);
 
   if (!supported) {
     return (
@@ -267,6 +280,18 @@ export function SongRecorder({ onSaved }: { onSaved: (recording: Recording) => v
             <span>
               Confermo che è una mia registrazione originale e di avere i diritti per pubblicarla su
               Solco.
+            </span>
+          </label>
+          <label className={styles.consent}>
+            <input
+              type="checkbox"
+              checked={publishNow}
+              disabled={!confirmed}
+              onChange={(event) => setPublishNow(event.target.checked)}
+            />
+            <span>
+              Pubblica subito nella classifica community (sarà ascoltabile da tutti). Potrai
+              ritirarla quando vuoi.
             </span>
           </label>
         </div>

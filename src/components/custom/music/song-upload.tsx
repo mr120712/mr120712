@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
 import { type Recording, RecordingCreateResponseSchema } from '@/lib/contracts/recordings';
 import { baseMimeType } from '@/lib/music/recorder';
+import { publishNewRecording } from '@/lib/music/recording-publish.client';
 import { FileUploadError, uploadPrivateFile } from '@/modules/file-upload/client';
 import styles from './song-recorder.module.css';
 
@@ -36,6 +37,7 @@ export function SongUpload({ onSaved }: { onSaved: (recording: Recording) => voi
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState('');
   const [confirmed, setConfirmed] = useState(false);
+  const [publishNow, setPublishNow] = useState(false);
   const [saving, setSaving] = useState(false);
   const [percent, setPercent] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -80,11 +82,22 @@ export function SongUpload({ onSaved }: { onSaved: (recording: Recording) => voi
         }),
         schema: RecordingCreateResponseSchema,
       });
-      toast.success('Brano caricato su Solco.');
-      onSaved(recording);
+      if (publishNow) {
+        const result = await publishNewRecording(recording);
+        onSaved(result.recording);
+        toast.success(
+          result.published
+            ? 'Brano caricato e pubblicato nella classifica community.'
+            : 'Brano caricato (pubblicazione non riuscita: puoi pubblicarlo dalla lista).',
+        );
+      } else {
+        onSaved(recording);
+        toast.success('Brano caricato su Solco.');
+      }
       setFile(null);
       setTitle('');
       setConfirmed(false);
+      setPublishNow(false);
       if (inputRef.current) inputRef.current.value = '';
     } catch (err) {
       if (err instanceof FileUploadError) {
@@ -144,6 +157,18 @@ export function SongUpload({ onSaved }: { onSaved: (recording: Recording) => voi
               Confermo di avere i diritti per caricare questo brano: è mio originale oppure
               materiale libero (pubblico dominio o Creative Commons che consente la
               ridistribuzione). Non è scaricato da servizi terzi in violazione dei loro termini.
+            </span>
+          </label>
+          <label className={styles.consent}>
+            <input
+              type="checkbox"
+              checked={publishNow}
+              disabled={!confirmed}
+              onChange={(event) => setPublishNow(event.target.checked)}
+            />
+            <span>
+              Pubblica subito nella classifica community (sarà ascoltabile da tutti). Confermo di
+              avere i diritti per diffonderlo pubblicamente. Potrai ritirarlo quando vuoi.
             </span>
           </label>
         </>
