@@ -9,7 +9,12 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
 import { type Recording, RecordingCreateResponseSchema } from '@/lib/contracts/recordings';
-import { AUDIO_UPLOAD_EXTENSIONS, audioUploadMimeType, baseMimeType } from '@/lib/music/recorder';
+import {
+  AUDIO_UPLOAD_EXTENSIONS,
+  audioUploadMimeType,
+  baseMimeType,
+  shouldReassignMime,
+} from '@/lib/music/recorder';
 import { publishNewRecording } from '@/lib/music/recording-publish.client';
 import { FileUploadError, uploadPrivateFile } from '@/modules/file-upload/client';
 import styles from './song-recorder.module.css';
@@ -61,9 +66,9 @@ export function SongUpload({ onSaved }: { onSaved: (recording: Recording) => voi
       setFile(null);
       return;
     }
-    const normalized = chosen.type.toLowerCase().startsWith('audio/')
-      ? chosen
-      : new File([chosen], chosen.name, { type: mime, lastModified: chosen.lastModified });
+    const normalized = shouldReassignMime(chosen.type)
+      ? new File([chosen], chosen.name, { type: mime, lastModified: chosen.lastModified })
+      : chosen;
     setFile(normalized);
     if (!title.trim()) setTitle(normalized.name.replace(/\.[^.]+$/, '').slice(0, 80));
   };

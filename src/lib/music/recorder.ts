@@ -92,6 +92,16 @@ export function audioUploadMimeType(declaredType: string, fileName: string): str
   return MIME_BY_EXTENSION[fileExtension(fileName)] ?? null;
 }
 
+/**
+ * True se il File scelto va ricostruito con un MIME sintetico prima del caricamento: succede
+ * quando il browser NON ha dichiarato un tipo audio (type vuoto o 'application/octet-stream'),
+ * perché `uploadPrivateFile` rifiuta i file con `type` vuoto. Se il tipo è già audio/* il File
+ * si usa così com'è.
+ */
+export function shouldReassignMime(declaredType: string): boolean {
+  return !declaredType.trim().toLowerCase().startsWith('audio/');
+}
+
 /** Nome file sicuro per il caricamento, derivato dal titolo. */
 export function recordingFileName(title: string, baseMime: string): string {
   const slug =

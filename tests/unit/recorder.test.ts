@@ -8,6 +8,7 @@ import {
   formatClock,
   pickRecorderMimeType,
   recordingFileName,
+  shouldReassignMime,
 } from '@/lib/music/recorder';
 
 describe('recorder helpers', () => {
@@ -94,10 +95,56 @@ describe('audioUploadMimeType', () => {
     expect(audioUploadMimeType('audio/webm', 'voce.webm')).toBe('audio/webm');
   });
 
-  it('elenca le estensioni audio accettate (incluso mp3)', () => {
-    expect(AUDIO_UPLOAD_EXTENSIONS).toContain('mp3');
-    expect(AUDIO_UPLOAD_EXTENSIONS).toContain('m4a');
-    expect(AUDIO_UPLOAD_EXTENSIONS).toContain('wav');
-    expect(AUDIO_UPLOAD_EXTENSIONS).toContain('flac');
+  it('guarda solo l’ultima estensione nei nomi a doppia estensione', () => {
+    // fileExtension usa l'ultimo punto: conta solo l'estensione finale.
+    expect(audioUploadMimeType('', 'song.txt.mp3')).toBe('audio/mpeg');
+    expect(audioUploadMimeType('', 'canzone.backup.flac')).toBe('audio/flac');
+    expect(audioUploadMimeType('', 'song.mp3.txt')).toBeNull();
+    expect(audioUploadMimeType('', 'traccia.mp3.pdf')).toBeNull();
+  });
+
+  it('copre tutte le estensioni dichiarate accettate', () => {
+    const expected: Record<string, string> = {
+      mp3: 'audio/mpeg',
+      m4a: 'audio/mp4',
+      m4b: 'audio/mp4',
+      aac: 'audio/aac',
+      oga: 'audio/ogg',
+      ogg: 'audio/ogg',
+      opus: 'audio/ogg',
+      wav: 'audio/wav',
+      flac: 'audio/flac',
+      weba: 'audio/webm',
+    };
+    for (const ext of AUDIO_UPLOAD_EXTENSIONS) {
+      expect(audioUploadMimeType('', `file.${ext}`)).toBe(expected[ext]);
+    }
+    // l'elenco accept è esattamente quello atteso (niente .mp4/.webm)
+    expect([...AUDIO_UPLOAD_EXTENSIONS].sort()).toEqual([...Object.keys(expected)].sort());
+  });
+});
+
+describe('shouldReassignMime (ricostruzione del File prima del caricamento)', () => {
+  it('NON ricostruisce quando il browser dichiara già un tipo audio', () => {
+    expect(shouldReassignMime('audio/mpeg')).toBe(false);
+    expect(shouldReassignMime('AUDIO/WAV')).toBe(false);
+    expect(shouldReassignMime('audio/webm;codecs=opus')).toBe(false);
+  });
+
+  it('ricostruisce quando il tipo è vuoto o non audio (caso MP3 che rompeva la scelta)', () => {
+    expect(shouldReassignMime('')).toBe(true);
+    expect(shouldReassignMime('application/octet-stream')).toBe(true);
+    expect(shouldReassignMime('video/mp4')).toBe(true);
+  });
+
+  it('decisione + MIME insieme producono un File audio con tipo non vuoto', () => {
+    // È esattamente ciò che fa pick(): se va ricostruito, usa il MIME dedotto dall'estensione.
+    const declaredType = '';
+    const name = 'La mia canzone.mp3';
+    const mime = audioUploadMimeType(declaredType, name);
+    expect(mime).toBe('audio/mpeg');
+    expect(shouldReassignMime(declaredType)).toBe(true);
+    const rebuilt = new File([new Blob(['xx'])], name, { type: mime ?? '' });
+    expect(rebuilt.type).toBe('audio/mpeg'); // non vuoto → uploadPrivateFile non lo rifiuta
   });
 });
