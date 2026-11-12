@@ -10,13 +10,10 @@ import '../api/solco_api.dart';
 
 enum RepeatMode { none, all, one }
 
-/// Lettore audio dell'app. Usa just_audio con just_audio_background, così la
-/// riproduzione continua in background e compaiono i comandi sulla schermata di
-/// blocco (play/pausa/avanti/indietro), come sul sito.
-///
-/// Gestisce una coda di brani Audius con avanti/indietro, shuffle, ripetizione e
-/// avanzamento automatico a fine brano. Ogni brano viene caricato dal suo stream
-/// servito dal backend di Solco, con il cookie di sessione nelle intestazioni.
+/// Lettore audio dell'app. Usa just_audio con just_audio_background (background +
+/// comandi dalla schermata di blocco). Riproduce una coda di [PlayableItem]
+/// (Audius, radio live, episodi podcast) con avanti/indietro, shuffle,
+/// ripetizione e avanzamento automatico a fine brano.
 class PlayerController extends ChangeNotifier {
   PlayerController(this._api) {
     _stateSub = _player.playerStateStream.listen(_onPlayerState);
@@ -26,11 +23,8 @@ class PlayerController extends ChangeNotifier {
   final AudioPlayer _player = AudioPlayer();
   final Random _random = Random();
 
-  /// Ordine originale (come passato a playQueue), per ripristinare lo shuffle.
-  List<AudiusTrack> _original = const [];
-
-  /// Ordine di riproduzione corrente (uguale a _original, oppure mescolato).
-  List<AudiusTrack> _queue = const [];
+  List<PlayableItem> _original = const [];
+  List<PlayableItem> _queue = const [];
   int _index = -1;
 
   RepeatMode _repeat = RepeatMode.none;
@@ -39,9 +33,9 @@ class PlayerController extends ChangeNotifier {
   late final StreamSubscription<PlayerState> _stateSub;
 
   AudioPlayer get player => _player;
-  AudiusTrack? get current =>
+  PlayableItem? get current =>
       (_index >= 0 && _index < _queue.length) ? _queue[_index] : null;
-  List<AudiusTrack> get queue => List.unmodifiable(_queue);
+  List<PlayableItem> get queue => List.unmodifiable(_queue);
   int get index => _index;
   bool get hasNext => _index + 1 < _queue.length || _repeat == RepeatMode.all;
   bool get hasPrevious => _index > 0 || _repeat == RepeatMode.all;
@@ -54,23 +48,28 @@ class PlayerController extends ChangeNotifier {
   Stream<Duration?> get durationStream => _player.durationStream;
   Stream<PlayerState> get playerStateStream => _player.playerStateStream;
 
-  Future<void> playQueue(List<AudiusTrack> tracks, int startIndex) async {
-    if (tracks.isEmpty) return;
-    _original = List.unmodifiable(tracks);
-    if (_shuffle) {
-      final start = tracks[startIndex.clamp(0, tracks.length - 1)];
+  /// Riproduce una coda di brani Audius (scorciatoia usata dalle schermate del catalogo).
+  Future<void> playQueue(List<AudiusTrack> tracks, int startIndex) =>
+      playItems(tracks.map((t) => t.toPlayable()).toList(), startIndex);
+
+  /// Riproduce una coda di unità generiche (Audius, radio, podcast).
+  Future<void> playItems(List<PlayableItem> items, int startIndex) async {
+    if (items.isEmpty) return;
+    _original = List.unmodifiable(items);
+    if (_shuffle && items.length > 1) {
+      final start = items[startIndex.clamp(0, items.length - 1)];
       _queue = _shuffledFrom(start);
       _index = 0;
     } else {
       _queue = _original;
-      _index = startIndex.clamp(0, tracks.length - 1);
+      _index = startIndex.clamp(0, items.length - 1);
     }
     await _loadCurrent();
     await _player.play();
     notifyListeners();
   }
 
-  List<AudiusTrack> _shuffledFrom(AudiusTrack first) {
+  List<PlayableItem> _shuffledFrom(PlayableItem first) {
     final rest = _original.where((t) => t.qualifiedId != first.qualifiedId).toList();
     for (var i = rest.length - 1; i > 0; i--) {
       final j = _random.nextInt(i + 1);
@@ -82,26 +81,25 @@ class PlayerController extends ChangeNotifier {
   }
 
   Future<void> _loadCurrent() async {
-    final track = current;
-    if (track == null) return;
+    final item = current;
+    if (item == null) return;
     final headers = await _api.streamHeaders();
     final source = AudioSource.uri(
-      Uri.parse(_api.streamUrl(track.streamPath)),
+      Uri.parse(_api.streamUrl(item.streamPath)),
       headers: headers,
       tag: MediaItem(
-        id: track.qualifiedId,
-        title: track.title,
-        artist: track.artistName,
-        artUri: track.artworkUrl != null ? Uri.tryParse(track.artworkUrl!) : null,
-        duration: track.durationSeconds != null
-            ? Duration(seconds: track.durationSeconds!)
+        id: item.qualifiedId,
+        title: item.title,
+        artist: item.subtitle,
+        artUri: item.artworkUrl != null ? Uri.tryParse(item.artworkUrl!) : null,
+        duration: item.durationSeconds != null && !item.isLive
+            ? Duration(seconds: item.durationSeconds!)
             : null,
       ),
     );
     try {
       await _player.setAudioSource(source);
-      // Registra l'ascolto nella cronologia (best-effort, non attende).
-      unawaited(_api.recordPlay(track));
+      unawaited(_api.recordPlay(item)); // cronologia, best-effort
     } catch (e) {
       debugPrint('Solco: impossibile caricare lo stream: $e');
       rethrow;
@@ -135,8 +133,7 @@ class PlayerController extends ChangeNotifier {
 
   Future<void> previous() async {
     if (_queue.isEmpty) return;
-    // Come i lettori comuni: se sono passati >3s, torna all'inizio del brano.
-    if (_player.position > const Duration(seconds: 3)) {
+    if (!(current?.isLive ?? false) && _player.position > const Duration(seconds: 3)) {
       await _player.seek(Duration.zero);
       return;
     }
@@ -165,14 +162,14 @@ class PlayerController extends ChangeNotifier {
 
   void toggleShuffle() {
     _shuffle = !_shuffle;
-    final track = current;
-    if (track != null) {
+    final item = current;
+    if (item != null) {
       if (_shuffle) {
-        _queue = _shuffledFrom(track);
+        _queue = _shuffledFrom(item);
         _index = 0;
       } else {
         _queue = _original;
-        _index = _queue.indexWhere((t) => t.qualifiedId == track.qualifiedId);
+        _index = _queue.indexWhere((t) => t.qualifiedId == item.qualifiedId);
         if (_index < 0) _index = 0;
       }
     }
@@ -182,7 +179,6 @@ class PlayerController extends ChangeNotifier {
   Future<void> _onPlayerState(PlayerState state) async {
     notifyListeners();
     if (state.processingState != ProcessingState.completed) return;
-    // LoopMode.one ripete da solo; qui gestiamo solo "nessuna" e "tutta la coda".
     if (_repeat == RepeatMode.one || _advancing) return;
     _advancing = true;
     try {

@@ -56,7 +56,7 @@ class MiniPlayer extends ConsumerWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                                Text(track.artistName,
+                                Text(track.isLive ? 'In diretta · ${track.subtitle}' : track.subtitle,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: const TextStyle(color: Colors.white54, fontSize: 12)),

@@ -51,3 +51,25 @@ final collectionsProvider = FutureProvider<List<Playlist>>((ref) async {
   final api = await ref.watch(apiProvider.future);
   return api.getCollections();
 });
+
+/// Scoperta radio: testo corrente + stazioni (vuoto = più votate).
+final radioQueryProvider = StateProvider<String>((ref) => '');
+final radioStationsProvider = FutureProvider<List<RadioStation>>((ref) async {
+  final q = ref.watch(radioQueryProvider).trim();
+  final api = await ref.watch(apiProvider.future);
+  return api.radioStations(query: q.isEmpty ? null : q);
+});
+
+/// Scoperta podcast: testo corrente + podcast (vuoto = classifica).
+final podcastQueryProvider = StateProvider<String>((ref) => '');
+final podcastsProvider = FutureProvider<List<Podcast>>((ref) async {
+  final q = ref.watch(podcastQueryProvider).trim();
+  final api = await ref.watch(apiProvider.future);
+  return api.podcasts(query: q.isEmpty ? null : q);
+});
+
+/// Dettaglio di un podcast (episodi), per id.
+final podcastDetailProvider = FutureProvider.family<PodcastDetail, String>((ref, id) async {
+  final api = await ref.watch(apiProvider.future);
+  return api.podcastDetail(id);
+});

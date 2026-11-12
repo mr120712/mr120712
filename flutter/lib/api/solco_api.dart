@@ -191,24 +191,63 @@ class SolcoApi {
     throw SolcoApiException('Impossibile caricare le playlist.', statusCode: res.statusCode);
   }
 
+  // --- Radio e podcast (scoperta) ---
+
+  Future<List<RadioStation>> radioStations({String? query, String? country, int limit = 30}) async {
+    final res = await _dio.get<dynamic>('/api/music/radio', queryParameters: {
+      if (query != null && query.trim().isNotEmpty) 'q': query.trim(),
+      if (country != null && country.isNotEmpty) 'country': country,
+      'limit': limit,
+    });
+    final data = res.data;
+    if (res.statusCode == 200 && data is Map<String, dynamic>) {
+      final stations = (data['stations'] as List?) ?? const [];
+      return stations.whereType<Map<String, dynamic>>().map(RadioStation.fromJson).toList();
+    }
+    throw SolcoApiException('Impossibile caricare le radio.', statusCode: res.statusCode);
+  }
+
+  Future<List<Podcast>> podcasts({String? query}) async {
+    final res = await _dio.get<dynamic>('/api/music/podcasts', queryParameters: {
+      if (query != null && query.trim().isNotEmpty) 'q': query.trim(),
+    });
+    final data = res.data;
+    if (res.statusCode == 200 && data is Map<String, dynamic>) {
+      final list = (data['podcasts'] as List?) ?? const [];
+      return list.whereType<Map<String, dynamic>>().map(Podcast.fromJson).toList();
+    }
+    throw SolcoApiException('Impossibile caricare i podcast.', statusCode: res.statusCode);
+  }
+
+  Future<PodcastDetail> podcastDetail(String id) async {
+    final res = await _dio.get<dynamic>('/api/music/podcasts/$id');
+    final data = res.data;
+    if (res.statusCode == 200 && data is Map<String, dynamic>) {
+      return PodcastDetail.fromJson(data);
+    }
+    throw SolcoApiException('Impossibile caricare il podcast.', statusCode: res.statusCode);
+  }
+
   // --- Libreria (mutazioni: Origin impostato dall'interceptor) ---
 
   /// Registra un ascolto nella cronologia. Best-effort: non deve mai rompere la riproduzione.
-  Future<void> recordPlay(AudiusTrack track) async {
-    final artist = track.artistName.trim().isEmpty ? 'Sconosciuto' : track.artistName.trim();
+  Future<void> recordPlay(PlayableItem item) async {
+    String cut(String value, int max) =>
+        value.length > max ? value.substring(0, max) : value;
+    final artist = item.subtitle.trim().isEmpty ? item.sourceLabel : item.subtitle.trim();
     try {
       await _dio.post<dynamic>('/api/music/library', data: {
         'action': 'record_play',
         'track': {
-          'qualifiedId': track.qualifiedId,
-          'title': track.title,
-          'artistName': artist,
-          'artworkUrl': track.artworkUrl,
-          'sourceLabel': 'Audius',
+          'qualifiedId': item.qualifiedId,
+          'title': cut(item.title, 400),
+          'artistName': cut(artist, 300),
+          'artworkUrl': item.artworkUrl,
+          'sourceLabel': cut(item.sourceLabel, 80),
           'sourceUrl': null,
           'albumId': null,
-          'durationSeconds': track.durationSeconds,
-          'playbackMode': 'audius',
+          'durationSeconds': item.durationSeconds,
+          'playbackMode': item.playbackMode,
         },
       });
     } on DioException {

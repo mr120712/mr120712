@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 
+import '../api/models.dart';
 import '../player/player_controller.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
@@ -64,17 +65,17 @@ class PlayerScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    track.artistName,
+                    track.subtitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(color: Colors.white60, fontSize: 15),
                   ),
                   const SizedBox(height: 18),
-                  _SeekBar(player: player),
+                  track.isLive ? const _LiveBadge() : _SeekBar(player: player),
                   const SizedBox(height: 8),
                   _Controls(player: player),
                   const Spacer(),
-                  const _Attribution(),
+                  _Attribution(item: track),
                   if (player.queue.length > 1)
                     TextButton.icon(
                       icon: const Icon(Icons.queue_music, size: 20),
@@ -112,9 +113,9 @@ class PlayerScreen extends ConsumerWidget {
                 size: 20,
               ),
               title: Text(t.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-              subtitle: Text(t.artistName, maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: Text(t.subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
               onTap: () {
-                player.playQueue(queue, i);
+                player.playItems(queue, i);
                 Navigator.of(context).pop();
               },
             );
@@ -261,15 +262,51 @@ class _Controls extends StatelessWidget {
   }
 }
 
-class _Attribution extends StatelessWidget {
-  const _Attribution();
+class _LiveBadge extends StatelessWidget {
+  const _LiveBadge();
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.only(bottom: 4),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: kSolcoChristmasRed.withOpacity(0.18),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: const BoxDecoration(color: kSolcoChristmasRed, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 6),
+          const Text('IN DIRETTA',
+              style: TextStyle(color: Colors.white, fontSize: 12, letterSpacing: 1)),
+        ],
+      ),
+    );
+  }
+}
+
+class _Attribution extends StatelessWidget {
+  const _Attribution({required this.item});
+  final PlayableItem item;
+  @override
+  Widget build(BuildContext context) {
+    final text = switch (item.playbackMode) {
+      'audius' => 'Audius · Open Music License',
+      'radio' => 'Radio in diretta · ${item.subtitle}',
+      'podcast' => item.sourceLabel,
+      _ => item.sourceLabel,
+    };
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
       child: Text(
-        'Audius · Open Music License',
-        style: TextStyle(color: Colors.white38, fontSize: 11),
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(color: Colors.white38, fontSize: 11),
       ),
     );
   }

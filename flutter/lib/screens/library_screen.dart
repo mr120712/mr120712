@@ -7,6 +7,7 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import 'player_screen.dart';
 import 'playlist_screen.dart';
+import 'podcast_detail_screen.dart';
 
 /// La libreria: cronologia, playlist, radio salvate e podcast seguiti.
 /// I brani Audius della cronologia e delle playlist si riproducono; le altre
@@ -93,8 +94,8 @@ class _HistorySection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (history.isEmpty) return const SizedBox.shrink();
-    final audiusEntries = history.where((e) => e.isAudius).toList();
-    final audiusTracks = audiusEntries.map((e) => e.audiusTrack!).toList();
+    final playable = history.where((e) => e.toPlayable() != null).toList();
+    final items = playable.map((e) => e.toPlayable()!).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -107,6 +108,7 @@ class _HistorySection extends ConsumerWidget {
           ),
         ),
         ...history.take(30).map((entry) {
+          final canPlay = entry.toPlayable() != null;
           return ListTile(
             leading: _Art(url: entry.artworkUrl),
             title: Text(entry.title, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -115,18 +117,18 @@ class _HistorySection extends ConsumerWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
-            trailing: Icon(entry.isAudius ? Icons.play_arrow : Icons.open_in_new,
-                color: entry.isAudius ? Colors.white70 : Colors.white24),
+            trailing: Icon(canPlay ? Icons.play_arrow : Icons.open_in_new,
+                color: canPlay ? Colors.white70 : Colors.white24),
             onTap: () {
-              if (!entry.isAudius) {
+              if (!canPlay) {
                 ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
                   content: Text('Questa fonte si ascolta dal sito.'),
                 ));
                 return;
               }
               final startIndex =
-                  audiusEntries.indexWhere((e) => e.qualifiedId == entry.qualifiedId);
-              ref.read(playerProvider)?.playQueue(audiusTracks, startIndex < 0 ? 0 : startIndex);
+                  playable.indexWhere((e) => e.qualifiedId == entry.qualifiedId);
+              ref.read(playerProvider)?.playItems(items, startIndex < 0 ? 0 : startIndex);
               _openPlayer(context);
             },
           );
@@ -200,6 +202,10 @@ class _StationsSection extends ConsumerWidget {
               leading: _Art(url: s.artworkUrl, icon: Icons.radio),
               title: Text(s.name, maxLines: 1, overflow: TextOverflow.ellipsis),
               subtitle: s.country != null ? Text(s.country!) : null,
+              onTap: () {
+                ref.read(playerProvider)?.playItems([s.toPlayable()], 0);
+                _openPlayer(context);
+              },
               trailing: IconButton(
                 icon: const Icon(Icons.delete_outline, color: Colors.white38),
                 onPressed: () async {
@@ -230,6 +236,13 @@ class _PodcastsSection extends ConsumerWidget {
               leading: _Art(url: p.artworkUrl, icon: Icons.podcasts),
               title: Text(p.title, maxLines: 1, overflow: TextOverflow.ellipsis),
               subtitle: p.author != null ? Text(p.author!) : null,
+              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => PodcastDetailScreen(
+                  podcastId: p.podcastId,
+                  fallback: Podcast(
+                      id: p.podcastId, title: p.title, author: p.author, artworkUrl: p.artworkUrl),
+                ),
+              )),
               trailing: IconButton(
                 icon: const Icon(Icons.delete_outline, color: Colors.white38),
                 onPressed: () async {
