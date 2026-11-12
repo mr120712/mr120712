@@ -1,0 +1,32 @@
+name: solco
+description: Solco — app mobile nativa (Flutter) che riusa il backend di solcomusic.vercel.app.
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Stato (semplice, testabile)
+  flutter_riverpod: ^2.5.1
+  # Rete + cookie di sessione (l'accesso di Solco usa un cookie better-auth)
+  dio: ^5.7.0
+  cookie_jar: ^4.0.8
+  dio_cookie_manager: ^3.1.1
+  path_provider: ^2.1.4
+  # Riproduzione audio con background e comandi dalla schermata di blocco
+  just_audio: ^0.9.42
+  just_audio_background: ^0.0.1-beta.13
+  # Copertine
+  cached_network_image: ^3.4.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

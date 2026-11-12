@@ -1,0 +1,17 @@
+# Flutter / Dart
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+pubspec.lock
+.idea/
+*.iml
+
+# Piattaforme generate da `flutter create` (vedi README): non versionate qui
+android/
+ios/
+web/
+macos/
+linux/
+windows/
