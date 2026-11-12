@@ -127,8 +127,10 @@ export async function getOwnedRecording(
 export async function deleteRecording(userId: string, recordingId: string): Promise<boolean> {
   // Si rimuove la riga del DB. L'oggetto privato in archivio resta orfano: il modulo file-upload
   // non espone una delete, e authorizeDownload nega /api/files, quindi senza una riga che lo mappi
-  // l'oggetto è irraggiungibile (nessuna esposizione). È solo costo di archivio, limitato dal tetto
-  // di MAX_RECORDINGS_PER_USER registrazioni per utente.
+  // l'oggetto è irraggiungibile (nessuna esposizione di dati). Il cap per-utente conta le righe, non
+  // i byte, quindi cicli registra→elimina accumulano oggetti orfani: la crescita è però limitata dal
+  // tetto di dimensione (40 MB) e dal rate-limit giornaliero (recordings.write). Un lavoro di pulizia
+  // lato Polsia resta da fare quando il modulo esporrà una delete.
   const result = await prisma.userRecording.deleteMany({ where: { id: recordingId, userId } });
   return result.count > 0;
 }

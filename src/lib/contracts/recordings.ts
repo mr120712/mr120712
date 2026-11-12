@@ -35,11 +35,13 @@ export const RecordingCreateSchema = z.object({
   title: z.string().trim().min(1).max(80),
   fileKey: privateFileKey,
   mimeType: audioMimeType,
+  // 40 MB: abbondante per 10 minuti di Opus (~10 MB). Tiene basso il peso di un eventuale
+  // oggetto orfano in archivio (vedi deleteRecording: il modulo non espone una delete).
   byteLength: z
     .number()
     .int()
     .positive()
-    .max(100 * 1024 * 1024),
+    .max(40 * 1024 * 1024),
   /** Durata misurata dal client (secondi): fallback quando il contenitore non la riporta. */
   elapsedSeconds: z.number().int().positive().max(86_400),
 });
