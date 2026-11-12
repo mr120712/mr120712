@@ -4,8 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/track_tile.dart';
+import 'classics_screen.dart';
+import 'favorites_screen.dart';
 import 'podcasts_screen.dart';
 import 'radio_screen.dart';
+import 'record_pool_screen.dart';
 import 'youtube_screen.dart';
 
 class HomeScreen extends ConsumerWidget {
@@ -65,6 +68,42 @@ class HomeScreen extends ConsumerWidget {
                               label: 'YouTube',
                               onTap: () => Navigator.of(context).push(
                                 MaterialPageRoute<void>(builder: (_) => const YouTubeScreen()),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: _BrowseCard(
+                              icon: Icons.album,
+                              label: 'Record Pool',
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(builder: (_) => const RecordPoolScreen()),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _BrowseCard(
+                              icon: Icons.history_edu,
+                              label: 'Classici',
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(builder: (_) => const ClassicsScreen()),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _BrowseCard(
+                              icon: Icons.favorite,
+                              label: 'Preferiti',
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(builder: (_) => const FavoritesScreen()),
                               ),
                             ),
                           ),

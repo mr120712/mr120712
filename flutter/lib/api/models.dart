@@ -319,6 +319,62 @@ class PlaylistItem {
   return null;
 }
 
+/// Una playlist tematica dei "Classici per decennio".
+class ClassicsPlaylist {
+  ClassicsPlaylist({
+    required this.id,
+    required this.title,
+    required this.description,
+    required this.tracks,
+  });
+
+  final String id;
+  final String title;
+  final String description;
+  final List<AudiusTrack> tracks;
+
+  factory ClassicsPlaylist.fromJson(Map<String, dynamic> json) {
+    final tracks = ((json['tracks'] as List?) ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(AudiusTrack.fromJson)
+        .toList();
+    return ClassicsPlaylist(
+      id: (json['id'] as String?) ?? '',
+      title: (json['title'] as String?) ?? 'Playlist',
+      description: (json['description'] as String?) ?? '',
+      tracks: tracks,
+    );
+  }
+}
+
+/// Risposta dei "Classici per decennio": decennio scelto + le sue playlist.
+class ClassicsResult {
+  ClassicsResult({
+    required this.decade,
+    required this.label,
+    required this.tagline,
+    required this.playlists,
+  });
+
+  final String decade;
+  final String label;
+  final String tagline;
+  final List<ClassicsPlaylist> playlists;
+
+  factory ClassicsResult.fromJson(Map<String, dynamic> json) {
+    final playlists = ((json['playlists'] as List?) ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(ClassicsPlaylist.fromJson)
+        .toList();
+    return ClassicsResult(
+      decade: (json['decade'] as String?) ?? '',
+      label: (json['label'] as String?) ?? '',
+      tagline: (json['tagline'] as String?) ?? '',
+      playlists: playlists,
+    );
+  }
+}
+
 class Playlist {
   Playlist({
     required this.id,

@@ -64,6 +64,42 @@ final favoritesProvider = Provider<Playlist?>((ref) {
   return null;
 });
 
+// --- Record Pool (brani royalty-free scaricabili, Audius OML) ---
+const recordPoolGenres = <({String slug, String label})>[
+  (slug: '', label: 'Tutti'),
+  (slug: 'techno', label: 'Techno'),
+  (slug: 'drum-and-bass', label: 'Drum & Bass'),
+  (slug: 'dubstep', label: 'Dubstep'),
+  (slug: 'trap', label: 'Trap'),
+  (slug: 'disco', label: 'Disco'),
+  (slug: 'funk', label: 'Funk'),
+  (slug: 'downtempo', label: 'Downtempo'),
+  (slug: 'ambient', label: 'Ambient'),
+  (slug: 'lo-fi', label: 'Lo-Fi'),
+  (slug: 'acoustic', label: 'Acustica'),
+  (slug: 'classical', label: 'Classica'),
+  (slug: 'jazz', label: 'Jazz'),
+];
+
+/// Record Pool per genere (slug vuoto = tutti).
+final recordPoolProvider = FutureProvider.family<List<AudiusTrack>, String>((ref, genre) async {
+  final api = await ref.watch(apiProvider.future);
+  return api.recordPool(genre: genre.isEmpty ? null : genre);
+});
+
+// --- Classici per decennio ---
+const classicsDecades = <({String slug, String label})>[
+  (slug: '60s', label: 'Anni 60'),
+  (slug: '70s', label: 'Anni 70'),
+  (slug: '80s', label: 'Anni 80'),
+  (slug: '90s', label: 'Anni 90'),
+];
+
+final classicsProvider = FutureProvider.family<ClassicsResult, String>((ref, decade) async {
+  final api = await ref.watch(apiProvider.future);
+  return api.classics(decade: decade);
+});
+
 /// Scoperta radio: testo corrente + stazioni (vuoto = più votate).
 final radioQueryProvider = StateProvider<String>((ref) => '');
 final radioStationsProvider = FutureProvider<List<RadioStation>>((ref) async {

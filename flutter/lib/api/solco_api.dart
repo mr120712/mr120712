@@ -271,6 +271,29 @@ class SolcoApi {
     throw SolcoApiException('Trascrizione non disponibile.', statusCode: res.statusCode);
   }
 
+  /// Record Pool: brani royalty-free scaricabili (Audius OML), eventualmente per genere.
+  Future<List<AudiusTrack>> recordPool({String? genre}) async {
+    final res = await _dio.get<dynamic>('/api/music/pool', queryParameters: {
+      if (genre != null && genre.isNotEmpty) 'genre': genre,
+    });
+    final data = res.data;
+    if (res.statusCode == 200 && data is Map<String, dynamic>) {
+      final list = (data['tracks'] as List?) ?? const [];
+      return list.whereType<Map<String, dynamic>>().map(AudiusTrack.fromJson).toList();
+    }
+    throw SolcoApiException('Impossibile caricare il Record Pool.', statusCode: res.statusCode);
+  }
+
+  /// Classici per decennio: playlist curate dal catalogo lecito.
+  Future<ClassicsResult> classics({required String decade}) async {
+    final res = await _dio.get<dynamic>('/api/music/classics', queryParameters: {'decade': decade});
+    final data = res.data;
+    if (res.statusCode == 200 && data is Map<String, dynamic>) {
+      return ClassicsResult.fromJson(data);
+    }
+    throw SolcoApiException('Impossibile caricare i Classici.', statusCode: res.statusCode);
+  }
+
   // --- Libreria (mutazioni: Origin impostato dall'interceptor) ---
 
   /// Registra un ascolto nella cronologia. Best-effort: non deve mai rompere la riproduzione.
