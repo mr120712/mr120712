@@ -313,6 +313,28 @@ class SolcoApi {
     }
   }
 
+  // --- Collezioni: Preferiti e playlist (Origin impostato dall'interceptor) ---
+
+  /// Aggiunge un brano ai Preferiti (collezione speciale, creata se manca).
+  Future<void> addFavorite(String source, String sourceId) => _collectionMutation(
+        {'action': 'favorite', 'source': source, 'sourceId': sourceId},
+      );
+
+  /// Rimuove un elemento da una collezione (es. togliere dai Preferiti).
+  Future<void> removeCollectionItem(String collectionId, String itemId) => _collectionMutation(
+        {'action': 'remove_item', 'collectionId': collectionId, 'itemId': itemId},
+      );
+
+  Future<void> _collectionMutation(Map<String, dynamic> body) async {
+    final res = await _dio.post<dynamic>('/api/music/collections', data: body);
+    if (res.statusCode != 200) {
+      if (res.statusCode == 401) {
+        throw SolcoApiException('Accedi per gestire i Preferiti.', statusCode: 401);
+      }
+      throw SolcoApiException('Operazione non riuscita.', statusCode: res.statusCode);
+    }
+  }
+
   // --- Download offline ("scarica il permesso") ---
 
   Future<DownloadResult> downloadAudiusTrack(String trackId) =>

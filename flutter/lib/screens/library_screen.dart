@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/models.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
+import 'favorites_screen.dart';
 import 'player_screen.dart';
 import 'playlist_screen.dart';
 import 'podcast_detail_screen.dart';
@@ -34,6 +35,7 @@ class LibraryScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final library = ref.watch(libraryProvider);
     final collections = ref.watch(collectionsProvider);
+    final favorites = ref.watch(favoritesProvider);
     final downloads = ref.watch(downloadsProvider).valueOrNull ?? const <DownloadedTrack>[];
 
     return RefreshIndicator(
@@ -59,8 +61,11 @@ class LibraryScreen extends ConsumerWidget {
               ),
             ],
             data: (data) {
-              final playlists = collections.valueOrNull ?? const <Playlist>[];
-              if (downloads.isEmpty && data.isEmpty && playlists.isEmpty) {
+              final allCollections = collections.valueOrNull ?? const <Playlist>[];
+              // I Preferiti hanno una sezione propria in cima: escludili dalle playlist normali.
+              final playlists = allCollections.where((p) => p.kind != 'favorites').toList();
+              final hasFavorites = favorites != null && favorites.items.isNotEmpty;
+              if (downloads.isEmpty && data.isEmpty && playlists.isEmpty && !hasFavorites) {
                 return const [
                   _InlineNotice(
                     text:
@@ -69,6 +74,7 @@ class LibraryScreen extends ConsumerWidget {
                 ];
               }
               return [
+                _FavoritesSection(favorites: favorites),
                 _HistorySection(history: data.history),
                 _PlaylistSection(playlists: playlists),
                 _StationsSection(stations: data.stations),
@@ -153,6 +159,73 @@ class _SectionHeader extends StatelessWidget {
           if (trailing != null) trailing!,
         ],
       ),
+    );
+  }
+}
+
+class _FavoritesSection extends ConsumerWidget {
+  const _FavoritesSection({required this.favorites});
+  final Playlist? favorites;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final fav = favorites;
+    if (fav == null || fav.items.isEmpty) return const SizedBox.shrink();
+    final audiusTracks = fav.audiusTracks;
+    final preview = fav.items.take(4).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionHeader(
+          'Preferiti',
+          trailing: TextButton(
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => const FavoritesScreen(),
+            )),
+            child: const Text('Vedi tutti'),
+          ),
+        ),
+        ...preview.map((item) {
+          final playable = item.isAudius;
+          return ListTile(
+            leading: ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: SizedBox(
+                width: 48,
+                height: 48,
+                child: item.artworkUrl != null
+                    ? CachedNetworkImage(imageUrl: item.artworkUrl!, fit: BoxFit.cover)
+                    : const ColoredBox(
+                        color: kSolcoNavyCard, child: Icon(Icons.favorite, color: kSolcoLime)),
+              ),
+            ),
+            title: Text(item.title ?? 'Senza titolo',
+                maxLines: 1, overflow: TextOverflow.ellipsis),
+            subtitle: Text(item.creatorName ?? '',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white54)),
+            trailing: Icon(playable ? Icons.play_arrow : Icons.lock_outline,
+                color: playable ? Colors.white70 : Colors.white24, size: 20),
+            onTap: () {
+              if (!playable) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                  content: Text('Questo brano si ascolta dal sito.'),
+                ));
+                return;
+              }
+              final startIndex = audiusTracks
+                  .indexWhere((t) => t.qualifiedId == item.audiusTrack!.qualifiedId);
+              ref.read(playerProvider)?.playQueue(audiusTracks, startIndex < 0 ? 0 : startIndex);
+              Navigator.of(context).push(MaterialPageRoute<void>(
+                fullscreenDialog: true,
+                builder: (_) => const PlayerScreen(),
+              ));
+            },
+          );
+        }),
+      ],
     );
   }
 }

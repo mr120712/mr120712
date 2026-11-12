@@ -38,7 +38,7 @@ class PlayerScreen extends ConsumerWidget {
             ),
             title: const Text('In riproduzione', style: TextStyle(fontSize: 15)),
             centerTitle: true,
-            actions: [_DownloadAction(item: track)],
+            actions: [_FavoriteAction(item: track), _DownloadAction(item: track)],
           ),
           body: Stack(
             children: [
@@ -360,6 +360,59 @@ class _DownloadAction extends ConsumerWidget {
           messenger.hideCurrentSnackBar();
           messenger.showSnackBar(SnackBar(
             content: Text(e is SolcoApiException ? e.message : 'Download non riuscito.'),
+          ));
+        }
+      },
+    );
+  }
+}
+
+/// Cuore "Preferiti" nel lettore. Appare solo per i brani favoritabili (Audius/YouTube);
+/// pieno se già nei Preferiti, e un tocco aggiunge o toglie.
+class _FavoriteAction extends ConsumerWidget {
+  const _FavoriteAction({required this.item});
+  final PlayableItem item;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final target = favoriteTargetFor(item.qualifiedId);
+    if (target == null) return const SizedBox.shrink();
+
+    final favorites = ref.watch(favoritesProvider);
+    PlaylistItem? existing;
+    if (favorites != null) {
+      for (final entry in favorites.items) {
+        if (entry.source == target.source && entry.sourceId == target.sourceId) {
+          existing = entry;
+          break;
+        }
+      }
+    }
+    final favId = favorites?.id;
+    final existingId = existing?.id;
+    final isFavorite = existingId != null;
+    final source = target.source;
+    final sourceId = target.sourceId;
+
+    return IconButton(
+      icon: Icon(isFavorite ? Icons.favorite : Icons.favorite_border,
+          color: isFavorite ? kSolcoLime : Colors.white70),
+      tooltip: isFavorite ? 'Togli dai Preferiti' : 'Aggiungi ai Preferiti',
+      onPressed: () async {
+        final messenger = ScaffoldMessenger.of(context);
+        try {
+          final api = await ref.read(apiProvider.future);
+          if (isFavorite && favId != null && existingId != null) {
+            await api.removeCollectionItem(favId, existingId);
+            messenger.showSnackBar(const SnackBar(content: Text('Rimosso dai Preferiti.')));
+          } else {
+            await api.addFavorite(source, sourceId);
+            messenger.showSnackBar(const SnackBar(content: Text('Aggiunto ai Preferiti.')));
+          }
+          ref.invalidate(collectionsProvider);
+        } catch (e) {
+          messenger.showSnackBar(SnackBar(
+            content: Text(e is SolcoApiException ? e.message : 'Operazione non riuscita.'),
           ));
         }
       },

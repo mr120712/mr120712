@@ -308,6 +308,17 @@ class PlaylistItem {
 }
 
 /// Una playlist dell'utente (GET /api/music/collections → collections).
+/// (source, sourceId) favoritabili ricavati da un qualifiedId del player, oppure null se il brano
+/// non è favoritabile (radio, podcast, file locali e registrazioni non sono tra le sorgenti dei
+/// Preferiti, che accettano solo 'audius' e 'youtube').
+({String source, String sourceId})? favoriteTargetFor(String qualifiedId) {
+  final audius = RegExp(r'^audius:([A-Za-z0-9_-]{1,128})$').firstMatch(qualifiedId);
+  if (audius != null) return (source: 'audius', sourceId: audius.group(1)!);
+  final youtube = RegExp(r'^youtube:([A-Za-z0-9_-]{11})$').firstMatch(qualifiedId);
+  if (youtube != null) return (source: 'youtube', sourceId: youtube.group(1)!);
+  return null;
+}
+
 class Playlist {
   Playlist({
     required this.id,

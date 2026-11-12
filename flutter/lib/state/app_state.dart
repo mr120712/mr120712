@@ -54,6 +54,16 @@ final collectionsProvider = FutureProvider<List<Playlist>>((ref) async {
   return api.getCollections();
 });
 
+/// La collezione speciale "Preferiti" (kind 'favorites'), o null se non c'è ancora.
+final favoritesProvider = Provider<Playlist?>((ref) {
+  final collections = ref.watch(collectionsProvider).valueOrNull;
+  if (collections == null) return null;
+  for (final collection in collections) {
+    if (collection.kind == 'favorites') return collection;
+  }
+  return null;
+});
+
 /// Scoperta radio: testo corrente + stazioni (vuoto = più votate).
 final radioQueryProvider = StateProvider<String>((ref) => '');
 final radioStationsProvider = FutureProvider<List<RadioStation>>((ref) async {
