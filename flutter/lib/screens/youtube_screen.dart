@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/models.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
+import '../widgets/mini_player.dart';
 import 'youtube_player_screen.dart';
 
 /// Ricerca YouTube e riproduzione col player ufficiale (WebView). La ricerca
@@ -36,6 +37,7 @@ class _YouTubeScreenState extends ConsumerState<YouTubeScreen> {
     final hasQuery = ref.watch(youtubeQueryProvider).trim().isNotEmpty;
     return Scaffold(
       appBar: AppBar(title: const Text('YouTube')),
+      bottomNavigationBar: const MiniPlayer(),
       body: Column(
         children: [
           Padding(

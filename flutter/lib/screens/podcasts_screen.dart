@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/models.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
+import '../widgets/mini_player.dart';
 import 'podcast_detail_screen.dart';
 
 /// Scoperta podcast: cerca o sfoglia la classifica, apri un podcast per gli episodi.
@@ -34,6 +35,7 @@ class _PodcastsScreenState extends ConsumerState<PodcastsScreen> {
     final podcasts = ref.watch(podcastsProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Podcast')),
+      bottomNavigationBar: const MiniPlayer(),
       body: Column(
         children: [
           Padding(

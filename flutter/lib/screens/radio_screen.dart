@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/models.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
+import '../widgets/mini_player.dart';
 import 'player_screen.dart';
 
 /// Scoperta radio: cerca o sfoglia le stazioni più votate, e riproduci in diretta.
@@ -36,6 +37,7 @@ class _RadioScreenState extends ConsumerState<RadioScreen> {
     final stations = ref.watch(radioStationsProvider);
     return Scaffold(
       appBar: AppBar(title: const Text('Radio')),
+      bottomNavigationBar: const MiniPlayer(),
       body: Column(
         children: [
           Padding(

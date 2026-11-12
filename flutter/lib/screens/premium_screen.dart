@@ -5,6 +5,7 @@ import 'package:in_app_purchase/in_app_purchase.dart';
 import '../billing/iap_controller.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
+import '../widgets/mini_player.dart';
 
 /// Paywall: attiva Premium con un acquisto in-app (Apple App Store / Google Play).
 class PremiumScreen extends ConsumerStatefulWidget {
@@ -30,6 +31,7 @@ class _PremiumScreenState extends ConsumerState<PremiumScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Solco Premium')),
+      bottomNavigationBar: const MiniPlayer(),
       body: controller == null
           ? const Center(child: CircularProgressIndicator())
           : ListenableBuilder(

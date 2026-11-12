@@ -6,6 +6,7 @@ import '../api/models.dart';
 import '../player/player_controller.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
+import '../widgets/mini_player.dart';
 import 'player_screen.dart';
 
 /// Dettaglio di un podcast: intestazione + episodi, con riproduzione.
@@ -40,6 +41,7 @@ class PodcastDetailScreen extends ConsumerWidget {
     final detailAsync = ref.watch(podcastDetailProvider(podcastId));
     return Scaffold(
       appBar: AppBar(title: Text(fallback?.title ?? 'Podcast')),
+      bottomNavigationBar: const MiniPlayer(),
       body: detailAsync.when(
         loading: () => const Center(child: CircularProgressIndicator(color: kSolcoLime)),
         error: (e, _) => const Center(

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/models.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
+import '../widgets/mini_player.dart';
 import 'player_screen.dart';
 
 /// Dettaglio di una playlist: i brani, con riproduzione dei soli brani Audius.
@@ -17,6 +18,7 @@ class PlaylistScreen extends ConsumerWidget {
     final audiusTracks = playlist.audiusTracks;
     return Scaffold(
       appBar: AppBar(title: Text(playlist.name)),
+      bottomNavigationBar: const MiniPlayer(),
       body: Column(
         children: [
           if (audiusTracks.isNotEmpty)
