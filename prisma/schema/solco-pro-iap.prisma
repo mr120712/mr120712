@@ -1,0 +1,49 @@
+// @polsia:user-owned — abbonamenti Premium comprati con acquisti in-app (Apple App Store /
+// Google Play). Un abbonamento in-app concede lo STESSO accesso Pro degli abbonamenti web
+// (Stripe/PayPal): lo stato autorevole vive sempre presso lo store e viene riverificato.
+model SolcoIapSubscription {
+  id       String @id @default(cuid())
+  userId   String
+  // 'apple' | 'google'.
+  platform String
+
+  // Identità STABILE dell'abbonamento presso lo store: Apple originalTransactionId,
+  // Google purchaseToken (la catena linkedPurchaseToken viene seguita all'upgrade/riacquisto).
+  // Unica per piattaforma: un abbonamento può appartenere a UN SOLO account Solco.
+  storeSubId String
+  // Ultima transazione/ordine vista (Apple transactionId, Google latestOrderId): per diagnosi.
+  latestOrderId String?
+
+  // productId dello store (es. "solco_premium_monthly") e piano/periodo Solco sbloccati.
+  productId String
+  planId    String // 'premium' | 'premium-plus' | 'family'
+  period    String // 'month' | 'year'
+
+  // 'active' | 'grace' | 'on_hold' | 'paused' | 'canceled' | 'expired' | 'revoked'.
+  // 'active'|'grace' danno accesso; gli altri no. 'canceled' = non si rinnova ma può essere
+  // ancora valido fino a validUntil.
+  state       String
+  autoRenew   Boolean @default(true)
+  // 'Production' | 'Sandbox' (Apple) o 'production' | 'test' (Google).
+  environment String
+
+  // Token che lega l'acquisto all'account Solco (Apple appAccountToken UUID /
+  // Google obfuscatedExternalAccountId): verificato lato server contro l'utente.
+  accountToken String?
+
+  validFrom  DateTime
+  validUntil DateTime?
+
+  // Google: l'acquisto è stato confermato (acknowledge) entro la scadenza di 3 giorni.
+  acknowledged Boolean @default(false)
+  // Primo pagamento verificato presso lo store (per le ricompense referral, come Stripe/PayPal).
+  firstPaidAt DateTime?
+
+  // Ultimo tentativo di sincronizzazione con lo store (come SolcoSubscription.checkedAt).
+  checkedAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([platform, storeSubId])
+  @@index([userId, state])
+}

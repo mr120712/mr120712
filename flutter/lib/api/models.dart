@@ -593,3 +593,86 @@ class DownloadedTrack {
     );
   }
 }
+
+/// Stato dell'abbonamento in-app dell'utente (GET /api/solco-pro/iap/status).
+class ProStatus {
+  const ProStatus({required this.active, this.validUntil, this.planId});
+  final bool active;
+  final DateTime? validUntil;
+  final String? planId;
+
+  factory ProStatus.fromJson(Map<String, dynamic> json) => ProStatus(
+        active: json['active'] == true,
+        validUntil: json['validUntil'] is String
+            ? DateTime.tryParse(json['validUntil'] as String)
+            : null,
+        planId: json['planId'] as String?,
+      );
+
+  static const none = ProStatus(active: false);
+}
+
+/// Un prodotto in-app offerto dal catalogo del backend.
+class IapProduct {
+  const IapProduct({
+    required this.productId,
+    required this.planId,
+    required this.period,
+    required this.label,
+  });
+  final String productId;
+  final String planId;
+  final String period; // month | year
+  final String label;
+
+  factory IapProduct.fromJson(Map<String, dynamic> json) => IapProduct(
+        productId: json['productId'] as String,
+        planId: (json['planId'] as String?) ?? '',
+        period: (json['period'] as String?) ?? 'month',
+        label: (json['label'] as String?) ?? '',
+      );
+}
+
+/// Catalogo IAP: prodotti, disponibilità per piattaforma e token di account (UUID da passare
+/// allo store per legare l'acquisto a questo utente). GET /api/solco-pro/iap/products.
+class IapCatalog {
+  const IapCatalog({
+    required this.available,
+    required this.appleAvailable,
+    required this.googleAvailable,
+    required this.products,
+    required this.accountToken,
+  });
+  final bool available;
+  final bool appleAvailable;
+  final bool googleAvailable;
+  final List<IapProduct> products;
+  final String accountToken;
+
+  factory IapCatalog.fromJson(Map<String, dynamic> json) {
+    final platforms = json['platforms'] as Map<String, dynamic>? ?? const {};
+    final list = (json['products'] as List?) ?? const [];
+    return IapCatalog(
+      available: json['available'] == true,
+      appleAvailable: platforms['apple'] == true,
+      googleAvailable: platforms['google'] == true,
+      products:
+          list.whereType<Map<String, dynamic>>().map(IapProduct.fromJson).toList(),
+      accountToken: (json['accountToken'] as String?) ?? '',
+    );
+  }
+}
+
+/// Esito della verifica di un acquisto in-app (POST /api/solco-pro/iap/verify).
+class IapVerifyResult {
+  const IapVerifyResult({required this.ok, this.active = false, this.reason});
+  final bool ok;
+  final bool active;
+  final String? reason;
+
+  factory IapVerifyResult.fromJson(Map<String, dynamic> json) => IapVerifyResult(
+        ok: json['ok'] == true,
+        active: json['active'] == true,
+        reason: json['reason'] as String?,
+      );
+}

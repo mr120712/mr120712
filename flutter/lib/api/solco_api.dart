@@ -338,4 +338,50 @@ class SolcoApi {
     } catch (_) {}
     throw SolcoApiException(message, statusCode: status);
   }
+
+  // --- Premium: acquisti in-app (Apple/Google) ---
+
+  /// Stato dell'abbonamento in-app dell'utente. Fail-soft: in caso di errore, "non attivo".
+  Future<ProStatus> getProStatus() async {
+    try {
+      final res = await _dio.get<dynamic>('/api/solco-pro/iap/status');
+      final data = res.data;
+      if (res.statusCode == 200 && data is Map<String, dynamic>) {
+        return ProStatus.fromJson(data);
+      }
+    } on DioException {
+      // Ignorato: lo stato si rilegge più tardi.
+    }
+    return ProStatus.none;
+  }
+
+  /// Catalogo degli acquisti in-app + token di account (da passare allo store).
+  Future<IapCatalog> getIapCatalog() async {
+    final res = await _dio.get<dynamic>('/api/solco-pro/iap/products');
+    final data = res.data;
+    if (res.statusCode == 200 && data is Map<String, dynamic>) {
+      return IapCatalog.fromJson(data);
+    }
+    if (res.statusCode == 401) {
+      throw SolcoApiException('Accedi per attivare Premium.', statusCode: 401);
+    }
+    throw SolcoApiException('Impossibile caricare i piani.', statusCode: res.statusCode);
+  }
+
+  /// Verifica lato server un acquisto in-app. `token` è il transactionId (Apple) o il
+  /// purchaseToken (Google). Il server rilegge lo stato autorevole dallo store.
+  Future<IapVerifyResult> verifyIapPurchase({
+    required String platform,
+    required String productId,
+    required String token,
+  }) async {
+    final res = await _dio.post<dynamic>('/api/solco-pro/iap/verify', data: {
+      'platform': platform,
+      'productId': productId,
+      'token': token,
+    });
+    final data = res.data;
+    if (data is Map<String, dynamic>) return IapVerifyResult.fromJson(data);
+    return const IapVerifyResult(ok: false, reason: 'store_error');
+  }
 }

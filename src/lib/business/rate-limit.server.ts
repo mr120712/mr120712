@@ -156,6 +156,11 @@ export const ACTION_RATE_LIMITS = {
     { requests: 5, windowMs: 600_000 },
     { requests: 30, windowMs: 86_400_000 },
   ],
+  // Verifica di un acquisto in-app (Apple/Google): dopo l'acquisto e a ogni refresh dello stato.
+  'iap.verify': [
+    { requests: 15, windowMs: 60_000 },
+    { requests: 150, windowMs: 86_400_000 },
+  ],
 } as const satisfies Record<string, readonly WindowLimit[]>;
 
 export type RateLimitAction = keyof typeof ACTION_RATE_LIMITS;
@@ -378,6 +383,7 @@ const actionLabels: Record<RateLimitAction, string> = {
   'music.download': 'i download offline',
   'music.download.global': 'i download offline di oggi',
   'subscriptions.checkout': 'l’avvio dei pagamenti',
+  'iap.verify': 'le verifiche degli acquisti in-app',
 };
 
 type DeniedRateLimit = Exclude<RateLimitDecision, { allowed: true }>;

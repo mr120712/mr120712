@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/models.dart';
 import '../api/solco_api.dart';
+import '../billing/iap_controller.dart';
 import '../offline/offline_store.dart';
 import '../player/player_controller.dart';
 
@@ -94,4 +95,23 @@ final offlineStoreProvider = FutureProvider<OfflineStore>((ref) async {
 final downloadsProvider = FutureProvider<List<DownloadedTrack>>((ref) async {
   final store = await ref.watch(offlineStoreProvider.future);
   return store.list();
+});
+
+/// Stato dell'abbonamento Premium (acquisto in-app). Si ricarica dopo una verifica riuscita.
+final proStatusProvider = FutureProvider<ProStatus>((ref) async {
+  final api = await ref.watch(apiProvider.future);
+  return api.getProStatus();
+});
+
+/// Controller degli acquisti in-app, legato al client API. Dopo una verifica riuscita
+/// invalida `proStatusProvider` così la UI si aggiorna.
+final iapControllerProvider = Provider<IapController?>((ref) {
+  final api = ref.watch(apiProvider).valueOrNull;
+  if (api == null) return null;
+  final controller = IapController(
+    api,
+    onEntitlementChanged: () => ref.invalidate(proStatusProvider),
+  );
+  ref.onDispose(controller.dispose);
+  return controller;
 });

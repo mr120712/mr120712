@@ -10,7 +10,7 @@ questa è una cartella separata, accanto a `android/` (la TWA attuale) e `ios/`
 > cura ma **va compilato e provato su una macchina con Flutter**. Aspettati
 > qualche piccolo aggiustamento di versione dei pacchetti al primo `flutter pub get`.
 
-## Cosa fa già (versione 0.5)
+## Cosa fa già (versione 0.6)
 
 - **Accesso** con email e password, contro le API di Solco (`better-auth`): login,
   registrazione, sessione che sopravvive al riavvio (cookie salvato sul dispositivo).
@@ -43,6 +43,12 @@ questa è una cartella separata, accanto a `android/` (la TWA attuale) e `ios/`
   `same-origin`; il client imposta l'header `Origin = baseUrl` sulle richieste non-GET,
   così le POST passano il controllo CSRF — come fa l'SDK. Perché funzioni,
   `kSolcoBaseUrl` deve combaciare con `NEXT_PUBLIC_APP_URL` del deploy.
+- **Premium (acquisti in-app)**: dal Profilo apri la paywall e attivi Premium con un
+  **abbonamento auto-rinnovabile** (Apple App Store / Google Play) usando il plugin ufficiale
+  `in_app_purchase`. L'acquisto è legato all'account e **verificato lato server** (App Store Server
+  API / Google Play Developer API): sblocca lo stesso Pro di Stripe/PayPal. "Ripristina acquisti"
+  per chi cambia dispositivo. La configurazione degli store è in
+  [docs/in-app-purchases.md](docs/in-app-purchases.md).
 - Tema **monocromatico futuristico**: nero profondo + un unico accento NEON ciano
   (allineato al sito). Per cambiare accento basta `kSolcoLime` in `lib/theme.dart`.
 
@@ -50,7 +56,6 @@ questa è una cartella separata, accanto a `android/` (la TWA attuale) e `ios/`
 
 - Riproduzione dei brani di playlist importati da YouTube / liste testuali.
 - Accesso con Google (OAuth: va aperto in un browser di sistema con un deep link).
-- Premium / pagamenti (in-app: Apple/Google richiedono i loro acquisti in-app).
 - Cartelle delle playlist, preferiti come sezione dedicata, "non mi interessa".
 
 > **YouTube/WebView:** `youtube_player_iframe` tira dentro `webview_flutter`. Su
@@ -97,8 +102,10 @@ lib/
                             libreria, playlist, radio, podcast, youtube, player)
   player/player_controller.dart  lettore just_audio: coda di PlayableItem, shuffle,
                             ripetizione, seek, avanzamento automatico, registrazione ascolti
+  billing/iap_controller.dart  acquisti in-app (in_app_purchase): query prodotti, acquisto
+                            legato all'account, verifica lato server, ripristino
   screens/                  login, home, cerca, libreria, playlist, player_screen
                             (lettore a schermo intero), radio, podcast, podcast_detail,
-                            youtube, youtube_player (WebView), profilo
+                            youtube, youtube_player (WebView), premium (paywall), profilo
   widgets/                  track_tile, mini_player (apre il lettore a schermo intero)
 ```

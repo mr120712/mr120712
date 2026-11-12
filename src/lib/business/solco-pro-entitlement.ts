@@ -1,6 +1,7 @@
 // @polsia:user-owned
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { hasActiveIapSubscription } from '@/lib/business/iap/entitlement.server';
 import {
   evaluateSolcoProPurchase,
   getSolcoProCheckoutMissingRequirements,
@@ -248,6 +249,8 @@ export async function requireSolcoPro(request: Request): Promise<ProAccessResult
     if (entitlement) return { allowed: true, user, entitlement };
     // Premium, Premium Plus and Family subscriptions unlock the same Pro features.
     if (await hasActiveSubscription(user.id)) return { allowed: true, user, entitlement: null };
+    // Abbonamenti comprati con un acquisto in-app (Apple/Google) sbloccano lo stesso Pro.
+    if (await hasActiveIapSubscription(user.id)) return { allowed: true, user, entitlement: null };
     return { allowed: false, response: denied('pro_required', 403) };
   } catch {
     return { allowed: false, response: denied('pro_entitlement_unavailable', 503) };
