@@ -159,6 +159,26 @@ class SolcoApi {
     throw SolcoApiException('Ricerca non riuscita.', statusCode: res.statusCode);
   }
 
+  /// Ricerca video su YouTube (consenso esplicito, come sul sito): legge
+  /// `sources.youtube.videos` dalla ricerca unificata. Si riproducono solo col
+  /// player ufficiale YouTube.
+  Future<List<YouTubeVideo>> youtubeSearch(String query) async {
+    final q = query.trim();
+    if (q.isEmpty) return const [];
+    final res = await _dio.get<dynamic>(
+      '/api/music/search-all',
+      queryParameters: {'q': q, 'youtubeConsent': 'accepted'},
+    );
+    final data = res.data;
+    if (res.statusCode == 200 && data is Map<String, dynamic>) {
+      final sources = data['sources'] as Map<String, dynamic>?;
+      final youtube = sources?['youtube'] as Map<String, dynamic>?;
+      final videos = (youtube?['videos'] as List?) ?? const [];
+      return videos.whereType<Map<String, dynamic>>().map(YouTubeVideo.fromJson).toList();
+    }
+    throw SolcoApiException('Ricerca YouTube non riuscita.', statusCode: res.statusCode);
+  }
+
   // --- Libreria (GET con sessione) ---
 
   /// La libreria dell'utente: cronologia, radio salvate, podcast seguiti.

@@ -6,6 +6,7 @@ import '../theme.dart';
 import '../widgets/track_tile.dart';
 import 'podcasts_screen.dart';
 import 'radio_screen.dart';
+import 'youtube_screen.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -54,6 +55,16 @@ class HomeScreen extends ConsumerWidget {
                               label: 'Podcast',
                               onTap: () => Navigator.of(context).push(
                                 MaterialPageRoute<void>(builder: (_) => const PodcastsScreen()),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _BrowseCard(
+                              icon: Icons.ondemand_video,
+                              label: 'YouTube',
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute<void>(builder: (_) => const YouTubeScreen()),
                               ),
                             ),
                           ),

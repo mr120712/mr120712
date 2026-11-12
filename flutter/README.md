@@ -10,38 +10,48 @@ questa è una cartella separata, accanto a `android/` (la TWA attuale) e `ios/`
 > cura ma **va compilato e provato su una macchina con Flutter**. Aspettati
 > qualche piccolo aggiustamento di versione dei pacchetti al primo `flutter pub get`.
 
-## Cosa fa già (versione 0.2)
+## Cosa fa già (versione 0.4)
 
 - **Accesso** con email e password, contro le API di Solco (`better-auth`): login,
   registrazione, sessione che sopravvive al riavvio (cookie salvato sul dispositivo).
-- **Home**: le tendenze su Audius (`GET /api/music/home`).
-- **Cerca**: ricerca brani su Audius (`GET /api/music/search-all`). Mentre si scrive
-  si interroga solo Audius, come sul sito; YouTube resta al sito.
+- **Home**: le tendenze su Audius (`GET /api/music/home`) + riga "Sfoglia" con Radio,
+  Podcast e YouTube.
+- **Cerca**: ricerca brani su Audius (`GET /api/music/search-all`).
 - **Libreria** (`GET /api/music/library` + `GET /api/music/collections`): cronologia
-  (con riascolto e "svuota"), playlist (con dettaglio e "riproduci"), radio salvate e
-  podcast seguiti (con rimozione). I brani Audius si riproducono; le altre fonti si
-  mostrano soltanto.
-- **Lettore**: riproduce lo stream Audius servito da Solco
-  (`/api/music/audius/tracks/<id>/stream`) con **just_audio**, in **background** e con
-  i comandi sulla **schermata di blocco** (just_audio_background). **Mini-player**
-  (toccalo per aprire il **lettore a schermo intero**) con copertina grande, barra di
-  avanzamento con seek, precedente/play/successivo, **shuffle**, **ripetizione**
-  (coda/uno), **coda** e avanzamento automatico a fine brano. Gli ascolti vengono
-  registrati nella cronologia (`POST /api/music/library` → `record_play`).
+  (riascolto di Audius/radio/podcast, "svuota"), playlist (dettaglio + "riproduci"),
+  radio salvate (riproducibili) e podcast seguiti (aprono gli episodi), con rimozione.
+- **Radio**: scoperta (cerca o stazioni più votate) e riproduzione in diretta
+  (badge "IN DIRETTA", niente seek) — `GET /api/music/radio` + stream proxy.
+- **Podcast**: scoperta (cerca o classifica), dettaglio con gli episodi e riproduzione
+  — `GET /api/music/podcasts(/<id>)` + stream proxy.
+- **YouTube**: ricerca (`search-all` con consenso esplicito) e riproduzione con il
+  **player UFFICIALE** (IFrame Player API in un `WebView`, `youtube_player_iframe`):
+  niente download né estrazione, conforme ai termini. All'avvio mette in pausa il
+  lettore audio; lista "Successivi" per passare al prossimo video.
+- **Lettore audio**: stream Audius/radio/podcast con **just_audio**, in **background** e
+  con i comandi sulla **schermata di blocco** (just_audio_background). **Mini-player**
+  (toccalo per il **lettore a schermo intero**) con copertina grande, seek,
+  precedente/play/successivo, **shuffle**, **ripetizione** (coda/uno), **coda** e
+  avanzamento automatico. Unità unificata `PlayableItem` per tutte le fonti. Gli
+  ascolti vengono registrati nella cronologia (`POST /api/music/library` → `record_play`).
 - **Mutazioni abilitate da nativo**: le rotte che modificano dati controllano
   `same-origin`; il client imposta l'header `Origin = baseUrl` sulle richieste non-GET,
-  così le POST (cronologia, salva/segui, ecc.) passano il controllo CSRF — come fa l'SDK.
-  Perché funzioni, `kSolcoBaseUrl` deve combaciare con `NEXT_PUBLIC_APP_URL` del deploy.
+  così le POST passano il controllo CSRF — come fa l'SDK. Perché funzioni,
+  `kSolcoBaseUrl` deve combaciare con `NEXT_PUBLIC_APP_URL` del deploy.
 - Tema scuro con i colori del marchio (navy + lime).
 
 ## Cosa manca (prossimi passi)
 
-- Ricerca YouTube (player ufficiale in un `WebView`), radio e podcast riproducibili.
 - Riproduzione dei brani di playlist importati da YouTube / liste testuali.
 - Offline ("La tua musica" e "scarica il permesso").
 - Accesso con Google (OAuth: va aperto in un browser di sistema con un deep link).
 - Premium / pagamenti (in-app: Apple/Google richiedono i loro acquisti in-app).
 - Cartelle delle playlist, preferiti come sezione dedicata, "non mi interessa".
+
+> **YouTube/WebView:** `youtube_player_iframe` tira dentro `webview_flutter`. Su
+> Android serve `minSdkVersion` ≥ 19 e il permesso `INTERNET` (già richiesto da
+> `just_audio_background`); su iOS nessuna configurazione extra. Li sistema
+> `flutter create .` + `flutter pub get`.
 
 ## Come avviarla
 
@@ -70,14 +80,17 @@ lib/
   main.dart                 avvio, auth-gate, navigazione (Home/Cerca/Libreria/Profilo)
   theme.dart                colori del marchio
   api/
-    models.dart             AudiusTrack, SessionUser, HistoryEntry, SavedStation,
-                            FollowedPodcast, LibraryData, Playlist, PlaylistItem
+    models.dart             PlayableItem (unità riproducibile), AudiusTrack,
+                            SessionUser, HistoryEntry, SavedStation, FollowedPodcast,
+                            LibraryData, Playlist, RadioStation, Podcast,
+                            PodcastEpisode, PodcastDetail, YouTubeVideo
     solco_api.dart          client (dio + cookie + Origin sulle mutazioni) verso /api
   state/app_state.dart      provider Riverpod (api, sessione, tendenze, ricerca,
-                            libreria, playlist, player)
-  player/player_controller.dart  lettore just_audio: coda, shuffle, ripetizione, seek,
-                            avanzamento automatico, registrazione ascolti
-  screens/                  login, home, cerca, libreria, dettaglio_playlist,
-                            lettore_a_schermo_intero (player_screen), profilo
+                            libreria, playlist, radio, podcast, youtube, player)
+  player/player_controller.dart  lettore just_audio: coda di PlayableItem, shuffle,
+                            ripetizione, seek, avanzamento automatico, registrazione ascolti
+  screens/                  login, home, cerca, libreria, playlist, player_screen
+                            (lettore a schermo intero), radio, podcast, podcast_detail,
+                            youtube, youtube_player (WebView), profilo
   widgets/                  track_tile, mini_player (apre il lettore a schermo intero)
 ```

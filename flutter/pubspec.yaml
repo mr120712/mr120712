@@ -1,7 +1,7 @@
 name: solco
 description: Solco — app mobile nativa (Flutter) che riusa il backend di solcomusic.vercel.app.
 publish_to: "none"
-version: 0.1.0+1
+version: 0.4.0+4
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -22,6 +22,9 @@ dependencies:
   just_audio_background: ^0.0.1-beta.13
   # Copertine
   cached_network_image: ^3.4.1
+  # Player YouTube UFFICIALE in un WebView (IFrame Player API): conforme ai termini,
+  # niente download né estrazione. Tira dentro webview_flutter.
+  youtube_player_iframe: ^5.2.0
 
 dev_dependencies:
   flutter_test:

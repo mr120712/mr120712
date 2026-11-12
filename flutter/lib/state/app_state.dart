@@ -73,3 +73,12 @@ final podcastDetailProvider = FutureProvider.family<PodcastDetail, String>((ref,
   final api = await ref.watch(apiProvider.future);
   return api.podcastDetail(id);
 });
+
+/// Ricerca YouTube: testo corrente + risultati (solo all'invio, consenso esplicito).
+final youtubeQueryProvider = StateProvider<String>((ref) => '');
+final youtubeResultsProvider = FutureProvider<List<YouTubeVideo>>((ref) async {
+  final q = ref.watch(youtubeQueryProvider).trim();
+  if (q.isEmpty) return const [];
+  final api = await ref.watch(apiProvider.future);
+  return api.youtubeSearch(q);
+});

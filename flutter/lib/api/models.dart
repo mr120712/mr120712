@@ -465,3 +465,34 @@ class PodcastDetail {
     );
   }
 }
+
+/// Un video YouTube dalla ricerca (GET /api/music/search-all → sources.youtube.videos).
+/// Si riproduce solo col player ufficiale YouTube (IFrame API in un WebView).
+class YouTubeVideo {
+  YouTubeVideo({
+    required this.videoId,
+    required this.title,
+    required this.channelTitle,
+    this.thumbnailUrl,
+    this.description,
+    this.publishedAt,
+  });
+
+  final String videoId;
+  final String title;
+  final String channelTitle;
+  final String? thumbnailUrl;
+  final String? description;
+  final String? publishedAt;
+
+  factory YouTubeVideo.fromJson(Map<String, dynamic> json) {
+    return YouTubeVideo(
+      videoId: (json['videoId'] as String?) ?? '',
+      title: (json['title'] as String?) ?? 'Senza titolo',
+      channelTitle: (json['channelTitle'] as String?) ?? '',
+      thumbnailUrl: json['thumbnailUrl'] as String?,
+      description: json['description'] as String?,
+      publishedAt: json['publishedAt'] as String?,
+    );
+  }
+}
