@@ -1,0 +1,95 @@
+# @polsia:user-owned — prova della federazione dell'identità Anthropic (Workload Identity
+# Federation) da GitHub Actions: scambia il token OIDC di GitHub con un token di accesso Anthropic e
+# stampa solo l'esito, mai i token.
+#
+# Il repository è pubblico: gli ID non stanno in questo file ma nei segreti del repository
+# (GitHub → Settings → Secrets and variables → Actions → New repository secret):
+#   ANTHROPIC_FEDERATION_RULE_ID   (fdrl_…)
+#   ANTHROPIC_ORGANIZATION_ID      (UUID dell'organizzazione)
+#   ANTHROPIC_SERVICE_ACCOUNT_ID   (svac_…)
+#   ANTHROPIC_WORKSPACE_ID         (wrkspc_…)
+# Si avvia a mano: Actions → anthropic-wif-test → Run workflow.
+name: anthropic-wif-test
+
+on:
+  # Only by hand: on every push it would run (and fail) before the secrets exist.
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: anthropic-wif-test
+  cancel-in-progress: true
+
+jobs:
+  call-claude:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      ANTHROPIC_FEDERATION_RULE_ID: ${{ secrets.ANTHROPIC_FEDERATION_RULE_ID }}
+      ANTHROPIC_ORGANIZATION_ID: ${{ secrets.ANTHROPIC_ORGANIZATION_ID }}
+      ANTHROPIC_SERVICE_ACCOUNT_ID: ${{ secrets.ANTHROPIC_SERVICE_ACCOUNT_ID }}
+      ANTHROPIC_WORKSPACE_ID: ${{ secrets.ANTHROPIC_WORKSPACE_ID }}
+    steps:
+      - name: Check the repository secrets
+        run: |
+          missing=""
+          for name in ANTHROPIC_FEDERATION_RULE_ID ANTHROPIC_ORGANIZATION_ID ANTHROPIC_SERVICE_ACCOUNT_ID ANTHROPIC_WORKSPACE_ID; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Segreti mancanti:$missing (Settings → Secrets and variables → Actions)"
+            exit 1
+          fi
+
+      - name: Fetch GitHub OIDC token
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const token = await core.getIDToken('https://api.anthropic.com');
+            core.setSecret(token);
+            core.exportVariable('JWT', token);
+
+      - name: Exchange for an Anthropic access token
+        run: |
+          set -euo pipefail
+          # The body is built with jq, so no value is interpolated into JSON by hand.
+          body=$(jq -n \
+            --arg assertion "$JWT" \
+            --arg rule "$ANTHROPIC_FEDERATION_RULE_ID" \
+            --arg org "$ANTHROPIC_ORGANIZATION_ID" \
+            --arg account "$ANTHROPIC_SERVICE_ACCOUNT_ID" \
+            --arg workspace "$ANTHROPIC_WORKSPACE_ID" \
+            '{
+              grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+              assertion: $assertion,
+              federation_rule_id: $rule,
+              organization_id: $org,
+              service_account_id: $account,
+              workspace_id: $workspace
+            }')
+          status=$(curl -sS -o response.json -w '%{http_code}' \
+            https://api.anthropic.com/v1/oauth/token \
+            -H 'content-type: application/json' \
+            --data "$body")
+          echo "HTTP $status"
+          if jq -e . response.json > /dev/null 2>&1; then
+            # Every field whose name ends in "token" is hidden; the rest (type, expiry, scope or
+            # the error) is printed.
+            jq 'with_entries(if (.key | test("token$")) then .value = "<redacted>" else . end)' response.json
+            ok=$(jq -r 'if (.access_token // "") != "" then "yes" else "no" end' response.json)
+          else
+            echo "Risposta non JSON (primi 200 caratteri):"
+            head -c 200 response.json | tr -d '\r'
+            echo
+            ok=no
+          fi
+          rm -f response.json
+          if [ "$status" = "200" ] && [ "$ok" = "yes" ]; then
+            echo "Scambio riuscito: Anthropic ha rilasciato un token di accesso."
+          else
+            echo "::error::Scambio non riuscito (HTTP $status): controlla la regola di federazione e i segreti."
+            exit 1
+          fi
