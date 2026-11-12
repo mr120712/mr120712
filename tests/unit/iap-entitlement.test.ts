@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   googlePlayConfig: vi.fn(),
   iapAllowSandbox: vi.fn(),
   findUnique: vi.fn(),
+  findFirst: vi.fn(),
   findMany: vi.fn(),
   upsert: vi.fn(),
   update: vi.fn(),
@@ -34,6 +35,7 @@ vi.mock('@/lib/db', () => ({
   prisma: {
     solcoIapSubscription: {
       findUnique: mocks.findUnique,
+      findFirst: mocks.findFirst,
       findMany: mocks.findMany,
       upsert: mocks.upsert,
       update: mocks.update,
@@ -74,6 +76,7 @@ beforeEach(() => {
   mocks.googlePlayConfig.mockReturnValue({ packageName: 'com.solco.app' });
   mocks.iapAllowSandbox.mockReturnValue(false);
   mocks.findUnique.mockResolvedValue(null);
+  mocks.findFirst.mockResolvedValue(null);
   mocks.upsert.mockResolvedValue({});
 });
 
@@ -139,6 +142,13 @@ describe('verifyAndPersistIapPurchase', () => {
     expect(mocks.upsert).toHaveBeenCalledTimes(1);
     const arg = mocks.upsert.mock.calls[0]?.[0];
     expect(arg.create).toMatchObject({ userId: 'user-1', planId: 'premium', firstPaidAt: now });
+  });
+
+  it('NON riconta il primo pagamento se l’utente ha già pagato (anti-farming referral)', async () => {
+    mocks.getAppleSubscription.mockResolvedValue(appleSub());
+    mocks.findFirst.mockResolvedValue({ id: 'old-row' }); // pagamento precedente
+    const r = await verifyAndPersistIapPurchase(input);
+    expect(r).toMatchObject({ confirmed: true, active: true, firstPaid: false });
   });
 
   it('su Google conferma (acknowledge) un acquisto non ancora confermato', async () => {

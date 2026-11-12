@@ -193,7 +193,17 @@ export async function verifyAndPersistIapPurchase(input: VerifyIapInput): Promis
     { state: subscription.state, validUntil: subscription.expiresAt },
     now,
   );
-  const firstPaid = grantsAccess && !existing?.firstPaidAt;
+  // Le ricompense referral scattano SOLO al primo pagamento in-app in assoluto dell'utente: un
+  // precedente pagamento (anche su un altro abbonamento, es. disdetto e ricomprato) le esclude.
+  // Difesa contro il "farming" ripetendo acquisti.
+  let firstPaid = false;
+  if (grantsAccess && !existing?.firstPaidAt) {
+    const priorPaid = await prisma.solcoIapSubscription.findFirst({
+      where: { userId: input.userId, firstPaidAt: { not: null } },
+      select: { id: true },
+    });
+    firstPaid = priorPaid === null;
+  }
 
   const data = {
     userId: input.userId,
