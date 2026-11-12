@@ -161,6 +161,7 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
   { path: '/library', label: 'Libreria', critical: false },
   { path: '/registra', label: 'Registra', critical: false },
   { path: '/pool', label: 'Record Pool', critical: false },
+  { path: '/classici', label: 'Classici', critical: false },
   { path: '/community', label: 'Community', critical: false },
   { path: '/piani', label: 'Piani', critical: false },
   { path: '/premi', label: 'Invita amici', critical: false },
