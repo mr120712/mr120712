@@ -54,6 +54,7 @@ import {
   releasePlaybackSession,
 } from '@/lib/music/audio-session';
 import { parseVideoTitle } from '@/lib/music/background-match';
+import { setDataSaver, useDataSaver } from '@/lib/music/data-saver';
 import {
   createListeningClock,
   observeListening,
@@ -1415,6 +1416,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
    * A local file (`localUrl`: its object URL) is preloaded the same way: nothing is asked of the
    * server and nothing can block it, so only the plan (next item, no repeat one) matters.
    */
+  const dataSaver = useDataSaver();
+  const dataSaverRef = useRef(dataSaver);
+  dataSaverRef.current = dataSaver;
   const preloadOnSpare = (
     index: number,
     next: ActiveTrack,
@@ -1423,6 +1427,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   ) => {
     const spare = decks.spareDeck;
     if (!spare) return;
+    // Risparmio dati: non precaricare in anticipo l'audio del brano successivo.
+    if (dataSaverRef.current) {
+      releaseSpare();
+      return;
+    }
     const planned = repeat === 'one' ? null : followingIndex(repeat === 'all');
     const wantsPreload =
       localUrl !== null
@@ -3188,6 +3197,16 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                     </a>
                   ) : null}
                 </span>
+                <button
+                  type="button"
+                  className={styles.dataSaverToggle}
+                  aria-pressed={dataSaver}
+                  onClick={() => setDataSaver(!dataSaver)}
+                  title="Non precarica l'audio del brano successivo: meno dati, con una piccola pausa al cambio brano. Non cambia la qualità."
+                >
+                  <span className={styles.dataSaverDot} aria-hidden="true" />
+                  Risparmio dati · {dataSaver ? 'attivo' : 'spento'}
+                </button>
                 {errorMessage ? (
                   <output className={styles.playerError} aria-live="polite">
                     {errorMessage}

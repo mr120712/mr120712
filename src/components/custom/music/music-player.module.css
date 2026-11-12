@@ -323,6 +323,41 @@
   z-index: 1;
 }
 
+/* Toggle "Risparmio dati" nel player a schermo intero. */
+.dataSaverToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: start;
+  margin-top: 4px;
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dataSaverToggle[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--primary) 55%, transparent);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  color: var(--foreground);
+}
+
+.dataSaverDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--border);
+}
+
+.dataSaverToggle[aria-pressed="true"] .dataSaverDot {
+  background: var(--primary);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--primary) 70%, transparent);
+}
+
 .trackCopy {
   display: grid;
   min-width: 0;
