@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import type { Podcast, PodcastEpisode } from '@/lib/contracts/library';
+import { isPrivateAddress, ssrfSafeFetch } from '@/lib/net/ssrf-safe-fetch.server';
 
 const ITUNES = 'https://itunes.apple.com';
 const TOP_CHART = 'https://rss.applemarketingtools.com/api/v2';
@@ -163,32 +164,6 @@ async function lookupPodcast(id: string, fetcher: FetchLike) {
 
 // ---------- Feed RSS ----------
 
-function isPrivateAddress(address: string) {
-  if (isIP(address) === 6) {
-    const lower = address.toLowerCase();
-    if (lower.startsWith('::ffff:')) return isPrivateAddress(lower.slice(7));
-    return (
-      lower === '::1' ||
-      lower === '::' ||
-      lower.startsWith('fc') ||
-      lower.startsWith('fd') ||
-      lower.startsWith('fe80')
-    );
-  }
-  const parts = address.split('.').map(Number);
-  const [a = 0, b = 0] = parts;
-  return (
-    a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    (a === 100 && b >= 64 && b <= 127) ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    a >= 224
-  );
-}
-
 /** Rifiuta URL non HTTPS o che puntano a reti private (protezione SSRF). */
 export async function assertPublicHttpsUrl(
   raw: string,
@@ -201,6 +176,7 @@ export async function assertPublicHttpsUrl(
   const host = url.hostname.replace(/^\[|\]$/g, '');
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal'))
     throw new Error('private host');
+  if (url.port && url.port !== '443') throw new Error('port not allowed');
   const addresses = isIP(host) ? [host] : await resolve(host);
   if (addresses.length === 0 || addresses.some(isPrivateAddress)) throw new Error('private host');
   return url;
@@ -224,7 +200,7 @@ async function readLimited(response: Response) {
   return Buffer.concat(chunks).toString('utf8');
 }
 
-async function fetchFeed(feedUrl: string, fetcher: FetchLike) {
+async function fetchFeed(feedUrl: string, fetcher: FetchLike = ssrfSafeFetch) {
   let current = feedUrl;
   for (let hop = 0; hop < 4; hop += 1) {
     const url = await assertPublicHttpsUrl(current);
@@ -449,7 +425,8 @@ export async function getPodcastDetail(
     if (!found.feedUrl) {
       return { outcome: 'no_results', podcast: found.podcast, episodes: [] };
     }
-    const feed = parsePodcastFeed(await fetchFeed(found.feedUrl, fetcher));
+    // Il feed è influenzato dall'utente (l'URL arriva dalla directory): fetcher con DNS pinning.
+    const feed = parsePodcastFeed(await fetchFeed(found.feedUrl));
     const podcast = {
       ...found.podcast,
       artworkUrl: found.podcast.artworkUrl ?? feed.artworkUrl,

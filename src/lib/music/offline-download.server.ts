@@ -29,6 +29,7 @@ import {
 } from '@/lib/music/audius';
 import { AudiusApiError, type createAudiusApiClient } from '@/lib/music/audius-api.server';
 import { assertPublicHttpsUrl } from '@/lib/music/podcasts.server';
+import { ssrfSafeFetch } from '@/lib/net/ssrf-safe-fetch.server';
 
 /** 50 MiB per brano: oltre, il download viene rifiutato con un messaggio chiaro. */
 export const MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024;
@@ -196,7 +197,7 @@ export async function fetchBoundedAudio(
     resolve?: (host: string) => Promise<string[]>;
   } = {},
 ): Promise<BoundedAudio> {
-  const fetcher = options.fetcher ?? fetch;
+  const fetcher = options.fetcher ?? ssrfSafeFetch;
   const maxBytes = options.maxBytes ?? MAX_DOWNLOAD_BYTES;
   const headers = { Accept: 'audio/*', 'User-Agent': DOWNLOAD_USER_AGENT };
   let current = url;

@@ -2,6 +2,7 @@
 // verifica che il file o lo stream ufficiale risponda davvero con audio.
 import 'server-only';
 import { assertPublicHttpsUrl } from '@/lib/music/podcasts.server';
+import { ssrfSafeFetch } from '@/lib/net/ssrf-safe-fetch.server';
 
 type FetchLike = typeof fetch;
 
@@ -54,7 +55,7 @@ export async function probeAudioUrl(
     resolve?: (host: string) => Promise<string[]>;
   } = {},
 ): Promise<boolean> {
-  const fetcher = options.fetcher ?? fetch;
+  const fetcher = options.fetcher ?? ssrfSafeFetch;
   const headers: Record<string, string> = { Accept: 'audio/*', 'User-Agent': USER_AGENT };
   if (!options.live) headers.Range = 'bytes=0-1';
   let current = url;
