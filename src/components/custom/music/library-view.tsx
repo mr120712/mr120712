@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { type FormEvent, useState, useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
+import { AiOrganize } from '@/components/custom/music/ai-organize';
 import { FallbackArt } from '@/components/custom/music/fallback-art';
 import { useLibrary } from '@/components/custom/music/library-context';
 import { savedStationToStation } from '@/components/custom/music/live-tracks';
@@ -232,6 +233,8 @@ function PlaylistsTab() {
       <SpotifyImport onImported={() => setReloadKey((key) => key + 1)} />
 
       <TrackListImport onImported={() => setReloadKey((key) => key + 1)} />
+
+      <AiOrganize onImported={() => setReloadKey((key) => key + 1)} />
 
       <MusicCollections
         embedded

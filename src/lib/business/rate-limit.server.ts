@@ -71,6 +71,13 @@ export const ACTION_RATE_LIMITS = {
   ],
   // App-wide ceiling on paid AI searches, whatever the number of accounts.
   'music.ai_search.global': [{ requests: 400, windowMs: 86_400_000 }],
+  // "Organizza con l'AI": each call reads a long text with Opus 5.5's 1M context and can cost ~$4.
+  // Tight by design — a short burst, a few per day per account, and an app-wide daily ceiling.
+  'ai.organize': [
+    { requests: 2, windowMs: 300_000 },
+    { requests: 3, windowMs: 86_400_000 },
+  ],
+  'ai.organize.global': [{ requests: 30, windowMs: 86_400_000 }],
   // Imported songs found on YouTube (100 quota units each, only on a cache miss): per listener
   // and app-wide, leaving most of the daily 10,000 units to regular search.
   'music.resolve_song': [
@@ -295,6 +302,8 @@ const actionLabels: Record<RateLimitAction, string> = {
   'listening.write': 'le modifiche agli ascolti',
   'music.ai_search': 'le ricerche con l’AI',
   'music.ai_search.global': 'le ricerche con l’AI di oggi',
+  'ai.organize': 'l’organizzazione con l’AI',
+  'ai.organize.global': 'le organizzazioni con l’AI di oggi',
   'music.resolve_song': 'le ricerche dei brani importati',
   'music.resolve_song.global': 'le ricerche dei brani importati di oggi',
   'ai.chat': 'le richieste all’assistente',

@@ -124,6 +124,7 @@ vi.mock('@/components/custom/music/music-collections', () => ({
 }));
 vi.mock('@/components/custom/music/spotify-import', () => ({ SpotifyImport: () => null }));
 vi.mock('@/components/custom/music/track-list-import', () => ({ TrackListImport: () => null }));
+vi.mock('@/components/custom/music/ai-organize', () => ({ AiOrganize: () => null }));
 
 import { LIBRARY_OFFLINE_MESSAGE, LibraryView } from '@/components/custom/music/library-view';
 import {
