@@ -89,7 +89,9 @@ export class HttpClient {
   constructor(options: HttpClientOptions = {}) {
     this.browser = isBrowserEnv();
     this.baseUrl = normalizeBaseUrl(options.baseUrl ?? DEFAULT_BASE_URL);
-    this.origin = (options.origin ?? this.baseUrl).replace(/\/+$/, '');
+    // Origin canonico (scheme://host[:porta]): un baseUrl con un percorso non deve
+    // finire nell'header Origin, altrimenti non combacia mai col controllo same-origin.
+    this.origin = new URL(options.origin ?? this.baseUrl).origin;
 
     const resolvedFetch = options.fetch ?? (globalThis.fetch as FetchLike | undefined);
     if (!resolvedFetch) {

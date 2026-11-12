@@ -68,7 +68,9 @@ export function solcoApiErrorFromResponse(
 
   if (body && typeof body === 'object') {
     const record = body as Record<string, unknown>;
+    // Le rotte di Solco usano `error`; better-auth (/api/auth/*) usa `code`.
     if (typeof record.error === 'string') code = record.error;
+    else if (typeof record.code === 'string') code = record.code;
     if (typeof record.message === 'string') message = record.message;
     if (typeof record.retryAfterSeconds === 'number') bodyRetryAfter = record.retryAfterSeconds;
   }

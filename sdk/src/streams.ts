@@ -47,11 +47,6 @@ export class Streams {
     );
   }
 
-  /** Stream per identificativo qualificato generico (es. `audius:<id>`). */
-  track(qualifiedId: string): string {
-    return this.url(`/api/music/tracks/${encodeURIComponent(qualifiedId)}/stream`);
-  }
-
   /** URL di visione su YouTube (lo stream NON è proxato: usare il player ufficiale). */
   youtubeWatch(videoId: string): string {
     return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;

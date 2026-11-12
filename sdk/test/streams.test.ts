@@ -16,7 +16,6 @@ test('URL di stream per fonte', () => {
     s.albumTrack('al1', 'tr1'),
     'https://example.test/api/music/albums/al1/tracks/tr1/stream',
   );
-  assert.equal(s.track('audius:abc'), 'https://example.test/api/music/tracks/audius%3Aabc/stream');
 });
 
 test('gli id vengono codificati per l’URL', () => {

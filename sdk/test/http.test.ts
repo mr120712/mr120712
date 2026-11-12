@@ -146,3 +146,26 @@ test('requestBinary restituisce byte e header', async () => {
   assert.equal(res.contentType, 'audio/mpeg');
   assert.equal(res.headers.get('x-solco-download'), 'eyJ9');
 });
+
+test('legge il codice da un errore better-auth { message, code }', async () => {
+  const rec = recorder(() => json({ message: 'esiste già', code: 'USER_ALREADY_EXISTS' }, 422));
+  const http = new HttpClient({ baseUrl: 'https://example.test', fetch: rec.fetch });
+  await assert.rejects(
+    () => http.requestJson('/api/auth/sign-up/email', { method: 'POST', body: {} }),
+    (err: unknown) => {
+      assert.ok(err instanceof SolcoApiError);
+      assert.equal(err.status, 422);
+      assert.equal(err.code, 'USER_ALREADY_EXISTS');
+      assert.equal(err.message, 'esiste già');
+      return true;
+    },
+  );
+});
+
+test('un baseUrl con percorso manda un Origin canonico (senza percorso)', async () => {
+  const rec = recorder(() => json({ ok: true }));
+  const http = new HttpClient({ baseUrl: 'https://example.test/api/v1', fetch: rec.fetch });
+  await http.requestJson('/api/music/plays', { method: 'POST', body: {} });
+  const headers = rec.at(0).init.headers as Headers;
+  assert.equal(headers.get('origin'), 'https://example.test');
+});
