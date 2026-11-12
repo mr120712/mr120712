@@ -9,8 +9,8 @@
 import 'server-only';
 import {
   consumeRateLimit,
-  peekRateLimit,
   rateLimitResponse,
+  releaseRateLimit,
 } from '@/lib/business/rate-limit.server';
 import {
   OFFLINE_DOWNLOAD_META_HEADER,
@@ -62,27 +62,27 @@ function discard(response: Response) {
 }
 
 /**
- * Verifica (senza registrare) i limiti del download prima di fare lavoro: per utente e app-wide.
- * Torna la risposta 429/503 da inoltrare, o null se si può procedere.
+ * PRENOTA lo slot del download (per utente e app-wide) PRIMA di scaricare, così N richieste
+ * concorrenti non sforano il limite trasferendo ciascuna fino a 50 MiB (niente burst). Se poi il
+ * download fallisce, releaseDownloadLimits rimborsa, così un fallimento non pesa sul limite.
+ * Torna la risposta 429/503 da inoltrare, o null se la prenotazione è riuscita.
  */
-export async function peekDownloadLimits(userId: string): Promise<Response | null> {
-  const perUser = await peekRateLimit('music.download', `user:${userId}`);
-  if (!perUser.allowed) return rateLimitResponse('music.download', perUser);
-  const global = await peekRateLimit('music.download.global', 'global');
-  if (!global.allowed) return rateLimitResponse('music.download.global', global);
-  return null;
-}
-
-/**
- * Registra il download (per utente e app-wide) SOLO dopo che i byte sono confermati. Torna la
- * risposta 429/503 se nel frattempo il limite è stato raggiunto, altrimenti null.
- */
-export async function consumeDownloadLimits(userId: string): Promise<Response | null> {
+export async function reserveDownloadLimits(userId: string): Promise<Response | null> {
   const perUser = await consumeRateLimit('music.download', `user:${userId}`);
   if (!perUser.allowed) return rateLimitResponse('music.download', perUser);
   const global = await consumeRateLimit('music.download.global', 'global');
-  if (!global.allowed) return rateLimitResponse('music.download.global', global);
+  if (!global.allowed) {
+    // Il globale ha negato dopo aver prenotato l'utente: rimborsa subito lo slot utente.
+    await releaseRateLimit('music.download', `user:${userId}`);
+    return rateLimitResponse('music.download.global', global);
+  }
   return null;
+}
+
+/** Rimborsa una prenotazione (per utente e app-wide) quando il download non va a buon fine. */
+export async function releaseDownloadLimits(userId: string): Promise<void> {
+  await releaseRateLimit('music.download', `user:${userId}`);
+  await releaseRateLimit('music.download.global', 'global');
 }
 
 function extensionOf(url: string): string {

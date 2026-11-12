@@ -8,11 +8,11 @@ import { getAudiusPlaybackReasonText } from '@/lib/music/audius';
 import { createAudiusApiClient, readAudiusApiKey } from '@/lib/music/audius-api.server';
 import { playbackFailureStatus } from '@/lib/music/audius-playback.server';
 import {
-  consumeDownloadLimits,
   downloadAudiusAudio,
   offlineDownloadError,
   offlineDownloadResponse,
-  peekDownloadLimits,
+  releaseDownloadLimits,
+  reserveDownloadLimits,
   resolveAudiusDownload,
   resolveDownloadMime,
 } from '@/lib/music/offline-download.server';
@@ -106,25 +106,25 @@ export async function POST(request: Request, { params }: { params: Promise<{ tra
     );
   }
 
-  // Limite verificato (senza contare) prima di qualsiasi chiamata ad Audius.
-  const limited = await peekDownloadLimits(user.id);
-  if (limited) return limited;
+  // Prenota lo slot PRIMA di qualsiasi chiamata ad Audius: niente burst oltre il limite.
+  const reserved = await reserveDownloadLimits(user.id);
+  if (reserved) return reserved;
 
   const client = createAudiusApiClient({ apiKey });
   const resolution = await resolveAudiusDownload(trackId, client);
-  if (!resolution.ok) return resolutionError(resolution.reason, resolution.retryAfterSeconds);
+  if (!resolution.ok) {
+    await releaseDownloadLimits(user.id); // download non avvenuto: rimborsa la prenotazione
+    return resolutionError(resolution.reason, resolution.retryAfterSeconds);
+  }
 
   const audio = await downloadAudiusAudio(trackId, client);
   if (!audio.ok) {
+    await releaseDownloadLimits(user.id);
     return bytesError(
       audio.reason,
       'retryAfterSeconds' in audio ? audio.retryAfterSeconds : undefined,
     );
   }
-
-  // Byte confermati: ora si conta il download (se il limite è stato raggiunto nel frattempo, si rifiuta).
-  const counted = await consumeDownloadLimits(user.id);
-  if (counted) return counted;
 
   const mimeType = resolveDownloadMime(audio.contentType, resolution.sourceUrl ?? '');
   const meta: OfflineDownloadMeta = {

@@ -15,6 +15,7 @@ import { consumeRateLimit, getRateLimitIdentity } from '@/lib/business/rate-limi
 import { artInitial } from '@/lib/music/art-initial';
 import { isShareId, sharedPlaylistImagePath } from '@/lib/music/playlist-share';
 import { getSharedPlaylist, sharedPlaylistCovers } from '@/lib/music/shared-playlists.server';
+import { ssrfSafeFetch } from '@/lib/net/ssrf-safe-fetch.server';
 import { loadOgBackground } from '@/lib/og-image';
 
 export const dynamic = 'force-dynamic';
@@ -40,11 +41,14 @@ const imageHeaders = {
 // Errors and degraded cards: link-preview crawlers keep the first image they get for days.
 const noStoreHeaders = { 'Cache-Control': 'no-store', ...robotsHeaders };
 
-/** Covers come only from Audius (sharedPlaylistCovers); no redirects, no big files. */
+/**
+ * Covers come only from Audius (sharedPlaylistCovers); no big files. Il fetch passa da
+ * ssrfSafeFetch (solo HTTPS pubblico, DNS pinnato, nessun reindirizzamento seguito): anche se
+ * l'allowlist delle copertine venisse aggirata, non si può raggiungere un indirizzo interno.
+ */
 const coverFetch: typeof fetch = async (input, init) => {
-  const response = await fetch(input, {
+  const response = await ssrfSafeFetch(input, {
     ...init,
-    redirect: 'error',
     signal: AbortSignal.timeout(COVER_TIMEOUT_MS),
   });
   const length = Number(response.headers.get('content-length'));

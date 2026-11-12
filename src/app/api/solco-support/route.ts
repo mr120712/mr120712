@@ -70,10 +70,13 @@ export async function POST(request: Request) {
   if (decision === 'unknown') return streamAnswer(SUPPORT_UNKNOWN_ANSWER);
 
   const session = await auth.api.getSession({ headers: request.headers }).catch(() => null);
-  const limited = await enforceRateLimit(
-    'solco.support',
-    getRateLimitIdentity(session?.user.id ?? null, request.headers),
-  );
+  const limited =
+    (await enforceRateLimit(
+      'solco.support',
+      getRateLimitIdentity(session?.user.id ?? null, request.headers),
+    )) ??
+    // Tetto app-wide: ogni risposta è una richiesta a Claude a pagamento.
+    (await enforceRateLimit('solco.support.global', 'global'));
   if (limited) return limited;
 
   try {

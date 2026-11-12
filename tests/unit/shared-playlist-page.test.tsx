@@ -26,6 +26,12 @@ vi.mock('@/lib/music/shared-playlists.server', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/music/shared-playlists.server')>()),
   getSharedPlaylist: mocks.getSharedPlaylist,
 }));
+// Il fetch SSRF-safe delle copertine delega al fetch globale (stubbato qui sotto), così il test
+// continua a registrare gli URL richiesti; la logica di sicurezza resta reale ma non va in rete.
+vi.mock('@/lib/net/ssrf-safe-fetch.server', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/net/ssrf-safe-fetch.server')>()),
+  ssrfSafeFetch: (input: RequestInfo | URL, init?: RequestInit) => fetch(input, init),
+}));
 
 import { GET as previewImage } from '@/app/(custom)/playlist/[shareId]/anteprima.png/route';
 import { generateMetadata } from '@/app/(custom)/playlist/[shareId]/page';

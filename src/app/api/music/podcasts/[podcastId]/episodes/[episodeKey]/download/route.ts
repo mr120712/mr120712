@@ -5,11 +5,11 @@
 import 'server-only';
 import type { OfflineDownloadMeta } from '@/lib/contracts/offline';
 import {
-  consumeDownloadLimits,
   fetchBoundedAudio,
   offlineDownloadError,
   offlineDownloadResponse,
-  peekDownloadLimits,
+  releaseDownloadLimits,
+  reserveDownloadLimits,
   resolveDownloadMime,
 } from '@/lib/music/offline-download.server';
 import { getPodcastDetail } from '@/lib/music/podcasts.server';
@@ -38,12 +38,13 @@ export async function POST(
     return offlineDownloadError('episode_not_found', 'Episodio non trovato.', 404);
   }
 
-  // Limite verificato (senza contare) prima di risolvere il feed e di scaricare.
-  const limited = await peekDownloadLimits(user.id);
-  if (limited) return limited;
+  // Prenota lo slot PRIMA di risolvere il feed e di scaricare: niente burst oltre il limite.
+  const reserved = await reserveDownloadLimits(user.id);
+  if (reserved) return reserved;
 
   const detail = await getPodcastDetail(podcastId);
   if (detail.outcome === 'unavailable') {
+    await releaseDownloadLimits(user.id);
     return offlineDownloadError(
       'podcast_unavailable',
       'Il podcast non è raggiungibile in questo momento. Riprova più tardi.',
@@ -54,11 +55,13 @@ export async function POST(
   // arbitrario dell'utente.
   const episode = detail.episodes.find((item) => item.key === episodeKey);
   if (!episode) {
+    await releaseDownloadLimits(user.id);
     return offlineDownloadError('episode_not_found', 'Episodio non trovato.', 404);
   }
 
   const audio = await fetchBoundedAudio(episode.audioUrl);
   if (!audio.ok) {
+    await releaseDownloadLimits(user.id);
     if (audio.reason === 'too_large') {
       return offlineDownloadError(
         'too_large',
@@ -72,10 +75,6 @@ export async function POST(
       502,
     );
   }
-
-  // Byte confermati: ora si conta il download (se il limite è stato raggiunto nel frattempo, si rifiuta).
-  const counted = await consumeDownloadLimits(user.id);
-  if (counted) return counted;
 
   const podcastTitle = detail.podcast?.title ?? null;
   const author = detail.podcast?.author ?? null;

@@ -90,6 +90,8 @@ export const ACTION_RATE_LIMITS = {
     { requests: 60, windowMs: 3_600_000 },
   ],
   'solco.support': [{ requests: 5, windowMs: 600_000 }],
+  // Tetto app-wide sulle risposte del supporto: ognuna è una richiesta a Claude a pagamento.
+  'solco.support.global': [{ requests: 300, windowMs: 86_400_000 }],
   'admin.assistant': [
     { requests: 20, windowMs: 60_000 },
     { requests: 100, windowMs: 3_600_000 },
@@ -292,6 +294,49 @@ export async function consumeRateLimit(
   return unavailableDecision();
 }
 
+/**
+ * Restituisce (rimborsa) UNA prenotazione fatta con consumeRateLimit, togliendo il timestamp più
+ * recente per questa azione/identità. Serve al pattern "prenota prima, rimborsa se fallisce": così
+ * si prenota lo slot in anticipo (niente burst oltre il limite) ma un'operazione fallita non pesa.
+ * I timestamp della stessa finestra sono intercambiabili per il conteggio, quindi toglierne uno
+ * qualsiasi è corretto anche con richieste concorrenti. Un rimborso fallito non è fatale (al
+ * massimo l'operazione fallita resta contata): non lancia mai.
+ */
+export async function releaseRateLimit(
+  action: RateLimitAction,
+  identity: string | null,
+): Promise<void> {
+  if (!identity) return;
+  const identityHash = createHash('sha256').update(identity).digest('hex');
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      await prisma.$transaction(
+        async (transaction) => {
+          const where = { action_identityHash: { action, identityHash } };
+          const current = await transaction.actionRateLimit.findUnique({ where });
+          const timestamps = storedTimestamps(current?.timestamps);
+          if (timestamps.length === 0) return;
+          // Toglie un'occorrenza del timestamp più recente (<= now, se presente).
+          let index = 0;
+          for (let i = 1; i < timestamps.length; i += 1) {
+            const candidate = timestamps[i];
+            const best = timestamps[index];
+            if (candidate !== undefined && best !== undefined && candidate > best) index = i;
+          }
+          timestamps.splice(index, 1);
+          await transaction.actionRateLimit.update({ where, data: { timestamps } });
+        },
+        { isolationLevel: 'Serializable' },
+      );
+      return;
+    } catch (error) {
+      if (attempt < 3 && retryableTransactionError(error)) continue;
+      return;
+    }
+  }
+}
+
 const actionLabels: Record<RateLimitAction, string> = {
   'music.search': 'le ricerche musicali',
   'music.catalog': 'le richieste al catalogo',
@@ -316,6 +361,7 @@ const actionLabels: Record<RateLimitAction, string> = {
   'music.resolve_song.global': 'le ricerche dei brani importati di oggi',
   'ai.chat': 'le richieste all’assistente',
   'solco.support': 'le richieste al supporto',
+  'solco.support.global': 'le richieste al supporto di oggi',
   'admin.assistant': 'le richieste all’assistente amministrativo',
   'product.check.start': 'i controlli prodotto',
   'product.check.link': 'le letture dei link',

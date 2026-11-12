@@ -1,12 +1,76 @@
 // @polsia:user-owned
 import 'server-only';
 import { createHash } from 'node:crypto';
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
 import { prisma } from '@/lib/db';
 import {
   normalizeAudiusArtists,
   normalizeAudiusPlaylists,
   normalizeAudiusTracks,
 } from '@/lib/music/audius';
+import { isPrivateAddress } from '@/lib/net/ssrf-safe-fetch.server';
+
+/** Massimo di reindirizzamenti seguiti per lo stream Audius (di norma 1: discovery → content node). */
+const MAX_STREAM_REDIRECTS = 5;
+const STREAM_TIMEOUT_MS = 30_000;
+
+/** `true` se l'URL è HTTPS verso un host che risolve solo a indirizzi pubblici (no reti interne). */
+async function isPublicHttpsTarget(raw: string): Promise<boolean> {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'https:' || url.username || url.password) return false;
+    const host = url.hostname.replace(/^\[|\]$/g, '');
+    if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal')) {
+      return false;
+    }
+    const addresses = isIP(host)
+      ? [host]
+      : (await lookup(host, { all: true })).map((entry) => entry.address);
+    return addresses.length > 0 && !addresses.some(isPrivateAddress);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Segue i reindirizzamenti dello stream Audius a mano (redirect:'manual'), RI-validando a ogni salto
+ * che il bersaglio sia un host pubblico: una catena di redirect di Audius non può così portare lo
+ * stream verso una rete interna (SSRF). Un reindirizzamento verso un host non pubblico diventa un
+ * 502, che il chiamante tratta come "non disponibile" e passa all'host successivo.
+ */
+async function followAudiusStreamRedirects(
+  initial: Response,
+  initialUrl: string,
+  headers: Headers,
+  fetcher: AudiusFetch,
+): Promise<Response> {
+  let response = initial;
+  let currentUrl = initialUrl;
+  for (let hop = 0; hop < MAX_STREAM_REDIRECTS; hop += 1) {
+    if (response.status < 300 || response.status >= 400) return response;
+    const location = response.headers.get('location');
+    void response.body?.cancel().catch(() => undefined);
+    if (!location) return response;
+    let next: URL;
+    try {
+      next = new URL(location, currentUrl);
+    } catch {
+      return new Response(null, { status: 502 });
+    }
+    if (next.protocol === 'http:') next.protocol = 'https:';
+    currentUrl = next.toString();
+    if (!(await isPublicHttpsTarget(currentUrl))) return new Response(null, { status: 502 });
+    response = await fetcher(currentUrl, {
+      method: 'GET',
+      headers,
+      cache: 'no-store',
+      redirect: 'manual',
+      signal: AbortSignal.timeout(STREAM_TIMEOUT_MS),
+    });
+  }
+  return response;
+}
 
 export const AUDIUS_API_BASE = 'https://api.audius.co/v1';
 export const AUDIUS_APP_NAME = 'solco';
@@ -474,16 +538,17 @@ export function createAudiusApiClient(input: {
       for (const host of await candidateHosts()) {
         await reserveOneRequest();
         try {
-          const response = await fetcher(
-            `${host}/v1/tracks/${encodeURIComponent(trackId)}/stream?${params.toString()}`,
-            {
-              method: 'GET',
-              headers,
-              cache: 'no-store',
-              redirect: 'follow',
-              signal: AbortSignal.timeout(30_000),
-            },
-          );
+          const streamUrl = `${host}/v1/tracks/${encodeURIComponent(trackId)}/stream?${params.toString()}`;
+          // redirect:'manual' + ri-validazione di ogni salto: la catena di redirect di Audius non
+          // può portare lo stream verso una rete interna (SSRF). Lo stream resta sullo stesso fetcher.
+          const initial = await fetcher(streamUrl, {
+            method: 'GET',
+            headers,
+            cache: 'no-store',
+            redirect: 'manual',
+            signal: AbortSignal.timeout(STREAM_TIMEOUT_MS),
+          });
+          const response = await followAudiusStreamRedirects(initial, streamUrl, headers, fetcher);
           if (response.status === 429) {
             retrySeconds = Math.max(
               retrySeconds,
