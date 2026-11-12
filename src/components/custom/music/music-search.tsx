@@ -9,7 +9,12 @@ import { toast } from 'sonner';
 import { AlbumCard } from '@/components/custom/music/album-card';
 import { AudiusLicenseNotice } from '@/components/custom/music/audius-license-notice';
 import { AudiusArtistCard, AudiusPlaylistCard } from '@/components/custom/music/catalog-cards';
-import { type MusicPlayerTrack, useMusicPlayer } from '@/components/custom/music/music-player';
+import { videoToTrack } from '@/components/custom/music/live-tracks';
+import {
+  type MusicPlayerTrack,
+  trackStreamPath,
+  useMusicPlayer,
+} from '@/components/custom/music/music-player';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
 import { apiErrorMessage } from '@/lib/business/api-error-message';
@@ -32,7 +37,6 @@ import {
 } from '@/lib/music/audius';
 import { audiusGenres } from '@/lib/music/genres';
 import styles from './music.module.css';
-import { YouTubeQueuePlayer } from './youtube-queue-player';
 import { YouTubeVideoCard } from './youtube-video-card';
 
 type Source = 'audius' | 'youtube';
@@ -202,7 +206,6 @@ export function MusicSearch({
   const [trending, setTrending] = useState<MusicTrendingResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [youtubeQueueIndex, setYoutubeQueueIndex] = useState<number | null>(null);
   const [collections, setCollections] = useState<MusicCollection[]>([]);
   const [selectedPlaylistId, setSelectedPlaylistId] = useState('');
   const [category, setCategory] = useState<AudiusCategory>('all');
@@ -226,7 +229,6 @@ export function MusicSearch({
       const requestedSources: Source[] = includeYouTube ? ['audius', 'youtube'] : [requestedBy];
       setLoading(true);
       setMessage(null);
-      setYoutubeQueueIndex(null);
       setTrending(null);
       setResultsBySource({});
       setSourceErrors({});
@@ -395,10 +397,20 @@ export function MusicSearch({
   const artists = currentResult?.artists ?? [];
   const playlists = currentResult?.playlists ?? [];
   const videos = currentResult?.videos ?? [];
-  const queuedVideo = youtubeQueueIndex === null ? undefined : videos[youtubeQueueIndex];
-  const solcoAudioActive = player.status === 'playing' || player.status === 'loading';
-  const pauseSolcoAudio = () => {
-    if (player.status === 'playing') void player.togglePlayback();
+  // La riproduzione YouTube passa dal player globale (iframe persistente nel videoDock): così la
+  // musica non si ferma quando si cambia pagina, e il player YouTube resta visibile come da ToS.
+  const playYouTubeVideo = (videoIndex: number) => {
+    const video = videos[videoIndex];
+    if (!video) return;
+    const queue = videos.map(videoToTrack);
+    const selected = queue[videoIndex];
+    if (!selected) return;
+    if (player.currentTrack?.qualifiedId === selected.qualifiedId) {
+      void player.togglePlayback();
+      return;
+    }
+    const path = trackStreamPath(selected);
+    if (path) void player.playTrack(selected, path, queue);
   };
   const playableAudiusQueue: MusicPlayerTrack[] = tracks
     .filter((track) => track.playbackEligible)
@@ -536,7 +548,6 @@ export function MusicSearch({
                   setCategory('all');
                   setLoading(false);
                   setResultsBySource({});
-                  setYoutubeQueueIndex(null);
                   setSourceErrors({});
                   setSearchedQuery('');
                   setSearchedSources([]);
@@ -577,7 +588,6 @@ export function MusicSearch({
                     setResultsBySource((current) => ({ audius: current.audius }));
                     setSourceErrors((current) => ({ audius: current.audius }));
                     setSearchedSources((current) => current.filter((item) => item === 'audius'));
-                    setYoutubeQueueIndex(null);
                   }
                 }}
               />
@@ -680,30 +690,18 @@ export function MusicSearch({
               </span>
             </div>
             {source === 'youtube' ? (
-              <>
-                {queuedVideo && youtubeQueueIndex !== null ? (
-                  <YouTubeQueuePlayer
-                    items={videos}
-                    index={youtubeQueueIndex}
-                    onIndexChange={setYoutubeQueueIndex}
-                    onClose={() => setYoutubeQueueIndex(null)}
-                    onPlaying={pauseSolcoAudio}
-                    pauseRequested={solcoAudioActive}
-                  />
-                ) : null}
-                {videos.map((video, videoIndex) => (
-                  <YouTubeVideoCard
-                    key={video.videoId}
-                    video={video}
-                    inlinePlayer={false}
-                    onFavorite={() => void addFavorite('youtube', video.videoId)}
-                    onAddToPlaylist={() => void addToPlaylist('youtube', video.videoId)}
-                    hasPlaylists={collections.some((item) => item.kind === 'playlist')}
-                    selected={queuedVideo?.videoId === video.videoId}
-                    onSelect={() => setYoutubeQueueIndex(videoIndex)}
-                  />
-                ))}
-              </>
+              videos.map((video, videoIndex) => (
+                <YouTubeVideoCard
+                  key={video.videoId}
+                  video={video}
+                  inlinePlayer={false}
+                  onFavorite={() => void addFavorite('youtube', video.videoId)}
+                  onAddToPlaylist={() => void addToPlaylist('youtube', video.videoId)}
+                  hasPlaylists={collections.some((item) => item.kind === 'playlist')}
+                  selected={player.currentTrack?.qualifiedId === `youtube:${video.videoId}`}
+                  onSelect={() => playYouTubeVideo(videoIndex)}
+                />
+              ))
             ) : (
               <>
                 <fieldset className={styles.categoryTabs}>
