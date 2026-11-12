@@ -10,7 +10,7 @@ questa è una cartella separata, accanto a `android/` (la TWA attuale) e `ios/`
 > cura ma **va compilato e provato su una macchina con Flutter**. Aspettati
 > qualche piccolo aggiustamento di versione dei pacchetti al primo `flutter pub get`.
 
-## Cosa fa già (versione 0.4)
+## Cosa fa già (versione 0.5)
 
 - **Accesso** con email e password, contro le API di Solco (`better-auth`): login,
   registrazione, sessione che sopravvive al riavvio (cookie salvato sul dispositivo).
@@ -28,6 +28,11 @@ questa è una cartella separata, accanto a `android/` (la TWA attuale) e `ios/`
   **player UFFICIALE** (IFrame Player API in un `WebView`, `youtube_player_iframe`):
   niente download né estrazione, conforme ai termini. All'avvio mette in pausa il
   lettore audio; lista "Successivi" per passare al prossimo video.
+- **Offline ("scarica il permesso")**: dal lettore a schermo intero scarichi sul
+  dispositivo i brani che le licenze permettono (Audius scaricabili ed episodi
+  podcast), riusando le rotte `POST .../download`. I file stanno su disco, i metadati
+  in un indice locale; la sezione **"Scaricati"** in Libreria li elenca e li riproduce
+  **senza rete** (è mostrata sempre, anche se la libreria online non risponde).
 - **Lettore audio**: stream Audius/radio/podcast con **just_audio**, in **background** e
   con i comandi sulla **schermata di blocco** (just_audio_background). **Mini-player**
   (toccalo per il **lettore a schermo intero**) con copertina grande, seek,
@@ -43,7 +48,6 @@ questa è una cartella separata, accanto a `android/` (la TWA attuale) e `ios/`
 ## Cosa manca (prossimi passi)
 
 - Riproduzione dei brani di playlist importati da YouTube / liste testuali.
-- Offline ("La tua musica" e "scarica il permesso").
 - Accesso con Google (OAuth: va aperto in un browser di sistema con un deep link).
 - Premium / pagamenti (in-app: Apple/Google richiedono i loro acquisti in-app).
 - Cartelle delle playlist, preferiti come sezione dedicata, "non mi interessa".
@@ -80,11 +84,14 @@ lib/
   main.dart                 avvio, auth-gate, navigazione (Home/Cerca/Libreria/Profilo)
   theme.dart                colori del marchio
   api/
-    models.dart             PlayableItem (unità riproducibile), AudiusTrack,
-                            SessionUser, HistoryEntry, SavedStation, FollowedPodcast,
-                            LibraryData, Playlist, RadioStation, Podcast,
-                            PodcastEpisode, PodcastDetail, YouTubeVideo
-    solco_api.dart          client (dio + cookie + Origin sulle mutazioni) verso /api
+    models.dart             PlayableItem (unità riproducibile, con localPath offline),
+                            AudiusTrack, SessionUser, HistoryEntry, SavedStation,
+                            FollowedPodcast, LibraryData, Playlist, RadioStation,
+                            Podcast, PodcastEpisode, PodcastDetail, YouTubeVideo,
+                            DownloadedTrack
+    solco_api.dart          client (dio + cookie + Origin sulle mutazioni) verso /api;
+                            download offline (byte + metadati nell'header)
+  offline/offline_store.dart  file audio su disco + indice JSON dei download
   state/app_state.dart      provider Riverpod (api, sessione, tendenze, ricerca,
                             libreria, playlist, radio, podcast, youtube, player)
   player/player_controller.dart  lettore just_audio: coda di PlayableItem, shuffle,

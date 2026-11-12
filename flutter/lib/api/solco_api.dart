@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio/dio.dart';
@@ -6,6 +8,14 @@ import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'models.dart';
+
+/// Byte audio + metadati di un download ("scarica il permesso").
+class DownloadResult {
+  DownloadResult({required this.bytes, required this.meta, required this.contentType});
+  final Uint8List bytes;
+  final Map<String, dynamic> meta; // header x-solco-download decodificato
+  final String contentType;
+}
 
 /// Origine del backend di Solco. L'app NON reimplementa il backend: chiama le
 /// stesse API del sito. Per provare contro un backend locale cambia qui.
@@ -288,5 +298,44 @@ class SolcoApi {
     if (res.statusCode != 200) {
       throw SolcoApiException('Operazione non riuscita.', statusCode: res.statusCode);
     }
+  }
+
+  // --- Download offline ("scarica il permesso") ---
+
+  Future<DownloadResult> downloadAudiusTrack(String trackId) =>
+      _download('/api/music/audius/tracks/$trackId/download');
+
+  Future<DownloadResult> downloadPodcastEpisode(String podcastId, String episodeKey) =>
+      _download('/api/music/podcasts/$podcastId/episodes/$episodeKey/download');
+
+  /// POST che restituisce i byte audio + i metadati nell'header x-solco-download.
+  /// In caso di errore il corpo è JSON {error, message} (letto dai byte).
+  Future<DownloadResult> _download(String path) async {
+    final res = await _dio.post<List<int>>(
+      path,
+      options: Options(responseType: ResponseType.bytes, headers: {'Accept': '*/*'}),
+    );
+    final status = res.statusCode ?? 0;
+    final body = res.data ?? const <int>[];
+    if (status == 200) {
+      final header = res.headers.value('x-solco-download');
+      if (header == null) {
+        throw SolcoApiException('Risposta di download senza metadati.', statusCode: status);
+      }
+      final meta = jsonDecode(utf8.decode(base64Decode(header))) as Map<String, dynamic>;
+      return DownloadResult(
+        bytes: Uint8List.fromList(body),
+        meta: meta,
+        contentType: res.headers.value('content-type') ?? 'audio/mpeg',
+      );
+    }
+    var message = 'Download non riuscito.';
+    try {
+      final decoded = jsonDecode(utf8.decode(body));
+      if (decoded is Map && decoded['message'] is String) {
+        message = decoded['message'] as String;
+      }
+    } catch (_) {}
+    throw SolcoApiException(message, statusCode: status);
   }
 }

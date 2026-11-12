@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/models.dart';
 import '../api/solco_api.dart';
+import '../offline/offline_store.dart';
 import '../player/player_controller.dart';
 
 /// Il client API (creato una volta, con il cookie-jar persistente).
@@ -81,4 +82,16 @@ final youtubeResultsProvider = FutureProvider<List<YouTubeVideo>>((ref) async {
   if (q.isEmpty) return const [];
   final api = await ref.watch(apiProvider.future);
   return api.youtubeSearch(q);
+});
+
+/// Store dei download offline (file + indice su disco).
+final offlineStoreProvider = FutureProvider<OfflineStore>((ref) async {
+  final api = await ref.watch(apiProvider.future);
+  return OfflineStore.create(api);
+});
+
+/// I brani scaricati sul dispositivo. Si ricarica con `ref.invalidate(downloadsProvider)`.
+final downloadsProvider = FutureProvider<List<DownloadedTrack>>((ref) async {
+  final store = await ref.watch(offlineStoreProvider.future);
+  return store.list();
 });

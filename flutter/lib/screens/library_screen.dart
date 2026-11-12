@@ -18,6 +18,7 @@ class LibraryScreen extends ConsumerWidget {
   Future<void> _refresh(WidgetRef ref) async {
     ref.invalidate(libraryProvider);
     ref.invalidate(collectionsProvider);
+    ref.invalidate(downloadsProvider);
     await Future.wait([
       ref.read(libraryProvider.future).catchError((_) => LibraryData(
             history: const [],
@@ -25,6 +26,7 @@ class LibraryScreen extends ConsumerWidget {
             podcasts: const [],
           )),
       ref.read(collectionsProvider.future).catchError((_) => <Playlist>[]),
+      ref.read(downloadsProvider.future).catchError((_) => <DownloadedTrack>[]),
     ]);
   }
 
@@ -32,35 +34,103 @@ class LibraryScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final library = ref.watch(libraryProvider);
     final collections = ref.watch(collectionsProvider);
+    final downloads = ref.watch(downloadsProvider).valueOrNull ?? const <DownloadedTrack>[];
 
     return RefreshIndicator(
       color: kSolcoLime,
       backgroundColor: kSolcoNavyCard,
       onRefresh: () => _refresh(ref),
-      child: library.when(
-        loading: () => const _FullMessage(child: CircularProgressIndicator(color: kSolcoLime)),
-        error: (err, _) => _ErrorBody(message: '$err', onRetry: () => _refresh(ref)),
-        data: (data) {
-          final playlists = collections.valueOrNull ?? const <Playlist>[];
-          if (data.isEmpty && playlists.isEmpty) {
-            return const _FullMessage(
-              child: Text(
-                'La tua libreria è vuota.\nAscolta qualcosa o crea una playlist.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white60),
+      child: ListView(
+        padding: const EdgeInsets.only(bottom: 24),
+        children: [
+          // I brani scaricati funzionano anche offline: li mostriamo sempre, in cima.
+          _DownloadsSection(downloads: downloads),
+          ...library.when(
+            loading: () => const [
+              Padding(
+                padding: EdgeInsets.all(48),
+                child: Center(child: CircularProgressIndicator(color: kSolcoLime)),
               ),
-            );
-          }
-          return ListView(
-            padding: const EdgeInsets.only(bottom: 24),
-            children: [
-              _HistorySection(history: data.history),
-              _PlaylistSection(playlists: playlists),
-              _StationsSection(stations: data.stations),
-              _PodcastsSection(podcasts: data.podcasts),
             ],
+            error: (err, _) => const [
+              _InlineNotice(
+                text:
+                    'La libreria online non è raggiungibile ora. I brani scaricati qui sopra funzionano comunque.',
+              ),
+            ],
+            data: (data) {
+              final playlists = collections.valueOrNull ?? const <Playlist>[];
+              if (downloads.isEmpty && data.isEmpty && playlists.isEmpty) {
+                return const [
+                  _InlineNotice(
+                    text:
+                        'La tua libreria è vuota.\nAscolta qualcosa, crea una playlist o scarica un brano.',
+                  ),
+                ];
+              }
+              return [
+                _HistorySection(history: data.history),
+                _PlaylistSection(playlists: playlists),
+                _StationsSection(stations: data.stations),
+                _PodcastsSection(podcasts: data.podcasts),
+              ];
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DownloadsSection extends ConsumerWidget {
+  const _DownloadsSection({required this.downloads});
+  final List<DownloadedTrack> downloads;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (downloads.isEmpty) return const SizedBox.shrink();
+    final items = downloads.map((d) => d.toPlayable()).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const _SectionHeader('Scaricati'),
+        ...downloads.asMap().entries.map((entry) {
+          final i = entry.key;
+          final d = entry.value;
+          return ListTile(
+            leading: _Art(url: d.artworkUrl, icon: Icons.download_done),
+            title: Text(d.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+            subtitle: Text(d.artist ?? d.sourceLabel,
+                maxLines: 1, overflow: TextOverflow.ellipsis),
+            trailing: IconButton(
+              icon: const Icon(Icons.delete_outline, color: Colors.white38),
+              onPressed: () async {
+                final store = await ref.read(offlineStoreProvider.future);
+                await store.delete(d.qualifiedId);
+                ref.invalidate(downloadsProvider);
+              },
+            ),
+            onTap: () {
+              ref.read(playerProvider)?.playItems(items, i);
+              _openPlayer(context);
+            },
           );
-        },
+        }),
+      ],
+    );
+  }
+}
+
+class _InlineNotice extends StatelessWidget {
+  const _InlineNotice({required this.text});
+  final String text;
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 48, 24, 24),
+      child: Center(
+        child: Text(text,
+            textAlign: TextAlign.center, style: const TextStyle(color: Colors.white60)),
       ),
     );
   }
@@ -283,41 +353,6 @@ class _Art extends StatelessWidget {
   }
 
   Widget _fallback() => ColoredBox(color: kSolcoNavyCard, child: Icon(icon, color: kSolcoLime));
-}
-
-class _FullMessage extends StatelessWidget {
-  const _FullMessage({required this.child});
-  final Widget child;
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      children: [
-        SizedBox(
-          height: MediaQuery.of(context).size.height * 0.6,
-          child: Center(child: child),
-        ),
-      ],
-    );
-  }
-}
-
-class _ErrorBody extends StatelessWidget {
-  const _ErrorBody({required this.message, required this.onRetry});
-  final String message;
-  final VoidCallback onRetry;
-  @override
-  Widget build(BuildContext context) {
-    return _FullMessage(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(message, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white60)),
-          const SizedBox(height: 12),
-          FilledButton(onPressed: onRetry, child: const Text('Riprova')),
-        ],
-      ),
-    );
-  }
 }
 
 void _openPlayer(BuildContext context) {

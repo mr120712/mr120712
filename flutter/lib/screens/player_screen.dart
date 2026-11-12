@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 
 import '../api/models.dart';
+import '../api/solco_api.dart';
 import '../player/player_controller.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
@@ -34,6 +35,7 @@ class PlayerScreen extends ConsumerWidget {
             ),
             title: const Text('In riproduzione', style: TextStyle(fontSize: 15)),
             centerTitle: true,
+            actions: [_DownloadAction(item: track)],
           ),
           body: SafeArea(
             child: Padding(
@@ -308,6 +310,49 @@ class _Attribution extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
         style: const TextStyle(color: Colors.white38, fontSize: 11),
       ),
+    );
+  }
+}
+
+/// Pulsante "Scarica per offline" nel lettore. Appare solo per i brani scaricabili
+/// (Audius/podcast, non live), e mostra una spunta se già scaricato.
+class _DownloadAction extends ConsumerWidget {
+  const _DownloadAction({required this.item});
+  final PlayableItem item;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final downloadable =
+        !item.isOffline && (item.playbackMode == 'audius' || item.playbackMode == 'podcast');
+    if (!downloadable) return const SizedBox.shrink();
+
+    final downloads = ref.watch(downloadsProvider).valueOrNull ?? const <DownloadedTrack>[];
+    final already = downloads.any((d) => d.qualifiedId == item.qualifiedId);
+    if (already) {
+      return const Padding(
+        padding: EdgeInsets.only(right: 12),
+        child: Icon(Icons.download_done, color: kSolcoLime),
+      );
+    }
+    return IconButton(
+      icon: const Icon(Icons.download_outlined),
+      tooltip: 'Scarica per offline',
+      onPressed: () async {
+        final messenger = ScaffoldMessenger.of(context);
+        messenger.showSnackBar(const SnackBar(content: Text('Scarico…')));
+        try {
+          final store = await ref.read(offlineStoreProvider.future);
+          await store.download(item);
+          ref.invalidate(downloadsProvider);
+          messenger.hideCurrentSnackBar();
+          messenger.showSnackBar(const SnackBar(content: Text('Scaricato per offline.')));
+        } catch (e) {
+          messenger.hideCurrentSnackBar();
+          messenger.showSnackBar(SnackBar(
+            content: Text(e is SolcoApiException ? e.message : 'Download non riuscito.'),
+          ));
+        }
+      },
     );
   }
 }

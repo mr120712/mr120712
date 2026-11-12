@@ -83,9 +83,11 @@ class PlayerController extends ChangeNotifier {
   Future<void> _loadCurrent() async {
     final item = current;
     if (item == null) return;
-    final headers = await _api.streamHeaders();
+    final offline = item.localPath != null;
+    final uri = offline ? Uri.file(item.localPath!) : Uri.parse(_api.streamUrl(item.streamPath));
+    final headers = offline ? null : await _api.streamHeaders();
     final source = AudioSource.uri(
-      Uri.parse(_api.streamUrl(item.streamPath)),
+      uri,
       headers: headers,
       tag: MediaItem(
         id: item.qualifiedId,
@@ -99,7 +101,8 @@ class PlayerController extends ChangeNotifier {
     );
     try {
       await _player.setAudioSource(source);
-      unawaited(_api.recordPlay(item)); // cronologia, best-effort
+      // La cronologia richiede rete: solo per la riproduzione in streaming.
+      if (!offline) unawaited(_api.recordPlay(item));
     } catch (e) {
       debugPrint('Solco: impossibile caricare lo stream: $e');
       rethrow;

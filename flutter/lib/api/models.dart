@@ -15,6 +15,7 @@ class PlayableItem {
     this.isLive = false,
     required this.sourceLabel,
     required this.playbackMode,
+    this.localPath,
   });
 
   final String qualifiedId;
@@ -26,6 +27,10 @@ class PlayableItem {
   final bool isLive;
   final String sourceLabel; // "Audius" | "Radio" | nome del podcast
   final String playbackMode; // audius | radio | podcast
+  /// Percorso di un file scaricato: se presente, si riproduce OFFLINE da qui.
+  final String? localPath;
+
+  bool get isOffline => localPath != null;
 }
 
 String _sourceLabelForMode(String mode) => switch (mode) {
@@ -493,6 +498,98 @@ class YouTubeVideo {
       thumbnailUrl: json['thumbnailUrl'] as String?,
       description: json['description'] as String?,
       publishedAt: json['publishedAt'] as String?,
+    );
+  }
+}
+
+/// Un brano scaricato sul dispositivo ("scarica il permesso"). Metadati salvati
+/// nell'indice locale; il file audio sta su disco in `filePath`.
+class DownloadedTrack {
+  DownloadedTrack({
+    required this.downloadKey,
+    required this.qualifiedId,
+    required this.title,
+    this.artist,
+    this.album,
+    this.artworkUrl,
+    this.durationSeconds,
+    required this.mimeType,
+    required this.source,
+    required this.filePath,
+    this.creditLine,
+    this.sourceName,
+    this.licenseName,
+    this.licenseUrl,
+    this.sourceUrl,
+  });
+
+  final String downloadKey;
+  final String qualifiedId;
+  final String title;
+  final String? artist;
+  final String? album;
+  final String? artworkUrl;
+  final int? durationSeconds;
+  final String mimeType;
+  final String source; // audius-download | podcast-download
+  final String filePath;
+  final String? creditLine;
+  final String? sourceName;
+  final String? licenseName;
+  final String? licenseUrl;
+  final String? sourceUrl;
+
+  String get playbackMode => source == 'podcast-download' ? 'podcast' : 'audius';
+  String get sourceLabel =>
+      source == 'podcast-download' ? (album ?? 'Podcast') : 'Audius';
+
+  PlayableItem toPlayable() => PlayableItem(
+        qualifiedId: qualifiedId,
+        title: title,
+        subtitle: artist ?? sourceLabel,
+        artworkUrl: artworkUrl,
+        streamPath: '',
+        durationSeconds: durationSeconds,
+        sourceLabel: sourceLabel,
+        playbackMode: playbackMode,
+        localPath: filePath,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'downloadKey': downloadKey,
+        'qualifiedId': qualifiedId,
+        'title': title,
+        'artist': artist,
+        'album': album,
+        'artworkUrl': artworkUrl,
+        'durationSeconds': durationSeconds,
+        'mimeType': mimeType,
+        'source': source,
+        'filePath': filePath,
+        'creditLine': creditLine,
+        'sourceName': sourceName,
+        'licenseName': licenseName,
+        'licenseUrl': licenseUrl,
+        'sourceUrl': sourceUrl,
+      };
+
+  factory DownloadedTrack.fromJson(Map<String, dynamic> json) {
+    return DownloadedTrack(
+      downloadKey: (json['downloadKey'] as String?) ?? '',
+      qualifiedId: (json['qualifiedId'] as String?) ?? '',
+      title: (json['title'] as String?) ?? 'Senza titolo',
+      artist: json['artist'] as String?,
+      album: json['album'] as String?,
+      artworkUrl: json['artworkUrl'] as String?,
+      durationSeconds: (json['durationSeconds'] as num?)?.toInt(),
+      mimeType: (json['mimeType'] as String?) ?? 'audio/mpeg',
+      source: (json['source'] as String?) ?? 'audius-download',
+      filePath: (json['filePath'] as String?) ?? '',
+      creditLine: json['creditLine'] as String?,
+      sourceName: json['sourceName'] as String?,
+      licenseName: json['licenseName'] as String?,
+      licenseUrl: json['licenseUrl'] as String?,
+      sourceUrl: json['sourceUrl'] as String?,
     );
   }
 }
