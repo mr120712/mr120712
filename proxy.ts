@@ -51,6 +51,9 @@ export function proxy(request: NextRequest) {
 
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set('Content-Security-Policy', csp);
+  // Sonda diagnostica (innocua): conferma dal vivo che questo proxy viene eseguito. Serve a sapere
+  // se la CSP stretta può valere qui (passo di preparazione per #20/#24). Non cambia la CSP.
+  response.headers.set('x-solco-edge', '1');
   return response;
 }
 
