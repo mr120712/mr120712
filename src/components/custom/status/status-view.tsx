@@ -1,6 +1,8 @@
 // @polsia:user-owned — pagina di stato pubblica dell'API: legge /api/status e mostra SOLO i
 // controlli core (essenziali) dell'API — database, accesso, registrazione — con stato generale
 // calcolato su di essi. Le integrazioni esterne non sono incluse. Nessun dato riservato.
+// Servita a /stato: pubblica (fuori dal login wall) e spoglia (niente nav/footer del sito), ed è
+// la pagina a cui status.solcomusic.online fa redirect — così il sottodominio mostra solo lo stato.
 'use client';
 
 import { CircleCheck, CircleHelp, CircleX, RotateCw, TriangleAlert } from 'lucide-react';
