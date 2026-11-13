@@ -122,6 +122,24 @@ describe('registerPublicUpload', () => {
       PublicUploadLimitReached,
     );
   });
+
+  it('registra comunque se head() va in timeout/errore (degradazione, niente blocco)', async () => {
+    mocks.uploadCount.mockResolvedValue(0);
+    mocks.head.mockRejectedValue(new Error('timeout'));
+    mocks.uploadCreate.mockResolvedValue({
+      id: 'c'.repeat(25),
+      uploaderUserId: 'user-1',
+      title: 'Brano',
+      artist: 'Io',
+      blobUrl: validInput.blobUrl,
+      durationSeconds: 120,
+      playCount: 0,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
+    const result = await registerPublicUpload('user-1', validInput);
+    expect(result.title).toBe('Brano');
+    expect(mocks.uploadCreate).toHaveBeenCalled();
+  });
 });
 
 describe('reportPublicUpload', () => {

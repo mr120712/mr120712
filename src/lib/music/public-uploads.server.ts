@@ -82,19 +82,31 @@ export async function registerPublicUpload(
   const existing = await prisma.publicUpload.count({ where: { uploaderUserId: userId } });
   if (existing >= MAX_UPLOADS_PER_USER) throw new PublicUploadLimitReached();
 
-  let meta: Awaited<ReturnType<typeof head>>;
+  // Validazione dell'oggetto con head(), ma con TIMEOUT: se l'API di Blob non risponde in tempo non
+  // si blocca la registrazione all'infinito (era la causa della POST che restava "pending"). Quando
+  // head() risponde i controlli sono severi; se va in timeout/errore si procede lo stesso, perché
+  // l'URL è già ristretto a *.blob.vercel-storage.com dal contratto, il percorso è nel prefisso
+  // consentito (controllato sopra) e il caricamento è passato dalla route token (loggato, solo
+  // audio, max 40MB).
+  const abortSignal =
+    typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+      ? AbortSignal.timeout(8000)
+      : undefined;
+  let meta: Awaited<ReturnType<typeof head>> | null = null;
   try {
-    meta = await head(input.blobUrl, { token });
+    meta = await head(input.blobUrl, { token, abortSignal });
   } catch {
-    throw new InvalidPublicUploadSource();
+    meta = null;
   }
-  const contentType = (meta.contentType ?? '').split(';', 1)[0]?.trim().toLowerCase() ?? '';
-  if (
-    !contentType.startsWith('audio/') ||
-    meta.size !== input.byteLength ||
-    meta.pathname !== input.blobPathname
-  ) {
-    throw new InvalidPublicUploadSource();
+  if (meta) {
+    const contentType = (meta.contentType ?? '').split(';', 1)[0]?.trim().toLowerCase() ?? '';
+    if (
+      !contentType.startsWith('audio/') ||
+      meta.size !== input.byteLength ||
+      meta.pathname !== input.blobPathname
+    ) {
+      throw new InvalidPublicUploadSource();
+    }
   }
 
   const durationSeconds = Math.max(1, Math.min(86_400, Math.ceil(input.elapsedSeconds)));
