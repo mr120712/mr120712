@@ -26,19 +26,21 @@ export function HomeTracksSection() {
   // pannello Vercel Blob. Il primo caricamento usa invece l'endpoint in cache (economico). Non
   // mette mai in stato 'loading': un aggiornamento in background non deve nascondere la sezione.
   const load = useCallback(async (fresh = false) => {
+    // Segna il momento SUBITO (prima dell'await): così due eventi ravvicinati (focus +
+    // visibilitychange al ritorno sulla scheda) non fanno partire due richieste identiche — la
+    // seconda cade dentro la finestra di throttle.
+    lastLoadRef.current = Date.now();
     try {
       const url = fresh ? `/api/music/home-tracks?t=${Date.now()}` : '/api/music/home-tracks';
       const { items: list } = await apiFetch(url, { schema: HomeTracksResponseSchema });
       setItems(list);
       setState('ready');
-      lastLoadRef.current = Date.now();
     } catch {
       setState((current) => (current === 'loading' ? 'error' : current));
     }
   }, []);
 
   useEffect(() => {
-    lastLoadRef.current = Date.now();
     void load();
   }, [load]);
 

@@ -76,15 +76,17 @@ describe('HomeTracksSection auto-refresh', () => {
     expect(text).toContain('IN EVIDENZA');
   });
 
-  it('al ritorno sulla scheda ricarica con cache-bust (per vedere subito i file nuovi)', async () => {
+  it('al ritorno sulla scheda ricarica una sola volta con cache-bust (focus + visibilitychange)', async () => {
     mocks.apiFetch.mockResolvedValue({ items: [item('a.mp3', 'Primo')] });
     render();
     await flush();
     const before = searchCalls().length;
 
-    // Oltre il throttle, poi scheda di nuovo visibile.
+    // Oltre il throttle, poi scheda di nuovo visibile: focus e visibilitychange insieme devono
+    // produrre UN SOLO aggiornamento (dedupe tramite il throttle segnato all'inizio del load).
     await act(async () => {
       vi.advanceTimersByTime(16_000);
+      window.dispatchEvent(new Event('focus'));
       document.dispatchEvent(new Event('visibilitychange'));
       await Promise.resolve();
     });
