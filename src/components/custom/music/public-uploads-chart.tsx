@@ -2,7 +2,7 @@
 // ascolta; chi è loggato può segnalare un brano (moderazione) e rimuovere i propri.
 'use client';
 
-import { Flag, Pause, Play, Trash2 } from 'lucide-react';
+import { Flag, Lock, Pause, Play, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { publicUploadToTrack } from '@/components/custom/music/live-tracks';
@@ -48,13 +48,28 @@ export function PublicUploadsChart({
   const shown = typeof limit === 'number' ? items.slice(0, limit) : items;
 
   const play = (upload: PublicUpload) => {
+    // I brani pubblicati sono ascoltabili solo dagli utenti Premium: senza streamUrl si mostra
+    // l'invito a passare a Premium invece di provare a riprodurre.
+    if (!upload.canPlay || !upload.streamUrl) {
+      toast('Brano Premium', {
+        description: 'I brani della community si ascoltano con Solco Premium.',
+        action: {
+          label: 'Scopri Premium',
+          onClick: () => {
+            window.location.href = '/piani';
+          },
+        },
+      });
+      return;
+    }
     const track = publicUploadToTrack(upload);
     if (player.currentTrack?.qualifiedId === track.qualifiedId) {
       void player.togglePlayback();
       return;
     }
-    const queue = shown.map(publicUploadToTrack);
-    void player.playTrack(track, track.streamUrl ?? '', queue);
+    // La coda contiene solo i brani ascoltabili (evita di fermarsi su un brano bloccato).
+    const queue = shown.filter((item) => item.canPlay && item.streamUrl).map(publicUploadToTrack);
+    void player.playTrack(track, upload.streamUrl, queue);
     // Conta l'ascolto (best-effort, non blocca la riproduzione).
     void fetch(`/api/music/public-uploads/${upload.id}/play`, { method: 'POST' }).catch(
       () => undefined,
@@ -118,10 +133,23 @@ export function PublicUploadsChart({
             <button
               type="button"
               className={styles.playButton}
+              data-locked={upload.canPlay ? undefined : 'true'}
               onClick={() => play(upload)}
-              aria-label={playing ? `Metti in pausa ${upload.title}` : `Riproduci ${upload.title}`}
+              aria-label={
+                upload.canPlay
+                  ? playing
+                    ? `Metti in pausa ${upload.title}`
+                    : `Riproduci ${upload.title}`
+                  : `${upload.title} è un brano Premium: passa a Premium per ascoltarlo`
+              }
             >
-              {playing ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
+              {!upload.canPlay ? (
+                <Lock aria-hidden="true" />
+              ) : playing ? (
+                <Pause aria-hidden="true" />
+              ) : (
+                <Play aria-hidden="true" />
+              )}
             </button>
             <div className={styles.copy}>
               <strong className={styles.title} title={upload.title}>
@@ -131,6 +159,7 @@ export function PublicUploadsChart({
                 {upload.artist ? `${upload.artist} · ` : ''}
                 {formatClock(upload.durationSeconds)} ·{' '}
                 {upload.playCount === 1 ? '1 ascolto' : `${upload.playCount} ascolti`}
+                {upload.canPlay ? null : <span className={styles.premiumTag}>Premium</span>}
               </span>
             </div>
             <div className={styles.actions}>

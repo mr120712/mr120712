@@ -3065,6 +3065,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             data-status={status}
             data-solco-player
           >
+            {/* Fulmini: lampi soffusi durante la riproduzione, per tutti gli utenti. */}
+            <span className={styles.lightning} aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
             <button
               ref={miniExpandRef}
               type="button"
@@ -3166,6 +3172,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             hidden={!showFull}
             inert={!showFull}
           >
+            {/* Fulmini: lampi soffusi durante la riproduzione, per tutti gli utenti. */}
+            <span className={styles.lightning} aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
             {!youtubeActive && currentArtwork ? (
               <div className={styles.fullBackdrop} aria-hidden="true">
                 {/* Copertina sfocata come sfondo (solo fonti audio). La musica non si ferma. */}

@@ -4,6 +4,7 @@ import {
   audioMimeType,
   PUBLIC_UPLOAD_MAX_PER_USER,
   PublicUploadCreateSchema,
+  PublicUploadSchema,
   storagePublicUrl,
 } from '@/lib/contracts/public-uploads';
 
@@ -47,6 +48,39 @@ describe('audioMimeType', () => {
   it('rifiuta non audio', () => {
     expect(audioMimeType.safeParse('image/png').success).toBe(false);
     expect(audioMimeType.safeParse('video/mp4').success).toBe(false);
+  });
+});
+
+describe('PublicUploadSchema (ascolto solo Premium)', () => {
+  const base = {
+    id: 'c'.repeat(25),
+    title: 'Brano',
+    artist: null,
+    durationSeconds: 100,
+    playCount: 0,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    mine: false,
+    published: true,
+  };
+
+  it('accetta streamUrl null quando il brano è bloccato (canPlay false)', () => {
+    expect(PublicUploadSchema.safeParse({ ...base, streamUrl: null, canPlay: false }).success).toBe(
+      true,
+    );
+  });
+
+  it('accetta un URL S3 valido quando canPlay è true', () => {
+    expect(
+      PublicUploadSchema.safeParse({
+        ...base,
+        streamUrl: 'https://bucket.s3.eu-west-1.amazonaws.com/public-uploads/x.mp3',
+        canPlay: true,
+      }).success,
+    ).toBe(true);
+  });
+
+  it('richiede il campo canPlay', () => {
+    expect(PublicUploadSchema.safeParse({ ...base, streamUrl: null }).success).toBe(false);
   });
 });
 

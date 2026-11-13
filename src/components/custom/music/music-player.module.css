@@ -922,6 +922,87 @@
   }
 }
 
+/* ============ Fulmini: lampi soffusi quando un brano è in riproduzione (tutti gli utenti) ======
+   Dietro ai contenuti (z-index: -1, il contenitore ha overflow: hidden), con colore del brand e
+   bagliore. L'animazione è un lampo lento e doppio — MAI uno stroboscopio: picco di opacità
+   moderato, finestre brevi e sfalsate, così la frequenza complessiva resta ben sotto la soglia di
+   sicurezza. Spenti del tutto con prefers-reduced-motion. */
+.lightning {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.mini[data-status="playing"] .lightning,
+.full[data-status="playing"] .lightning {
+  opacity: 1;
+}
+
+.lightning i {
+  position: absolute;
+  top: -12%;
+  width: 46px;
+  height: 124%;
+  opacity: 0;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--primary) 0%, transparent),
+    color-mix(in srgb, var(--primary) 85%, #fff),
+    #ffffff,
+    color-mix(in srgb, var(--primary) 0%, transparent)
+  );
+  filter: drop-shadow(0 0 8px color-mix(in srgb, var(--primary) 80%, transparent));
+  clip-path: polygon(52% 0, 30% 42%, 48% 42%, 24% 100%, 70% 36%, 50% 36%, 66% 0);
+}
+
+/* Posizione + animazione dei fulmini solo in riproduzione (da fermi .lightning è invisibile). */
+.mini[data-status="playing"] .lightning i,
+.full[data-status="playing"] .lightning i {
+  left: 12%;
+  animation: boltStrike 4.2s ease-in-out infinite;
+}
+
+.mini[data-status="playing"] .lightning i:nth-child(2),
+.full[data-status="playing"] .lightning i:nth-child(2) {
+  left: 48%;
+  transform: scale(0.82) rotate(4deg);
+  animation-duration: 5.1s;
+  animation-delay: 1.5s;
+}
+
+.mini[data-status="playing"] .lightning i:nth-child(3),
+.full[data-status="playing"] .lightning i:nth-child(3) {
+  left: 78%;
+  transform: scaleX(-1) scale(0.9);
+  animation-duration: 4.7s;
+  animation-delay: 3s;
+}
+
+@keyframes boltStrike {
+  0%,
+  44% {
+    opacity: 0;
+  }
+  48% {
+    opacity: 0.5;
+  }
+  52% {
+    opacity: 0.12;
+  }
+  56% {
+    opacity: 0.34;
+  }
+  62%,
+  100% {
+    opacity: 0;
+  }
+}
+
 /* Rispetta la preferenza di movimento ridotto: niente animazioni, solo stati statici. */
 @media (prefers-reduced-motion: reduce) {
   .mini,
@@ -929,7 +1010,14 @@
   .mini[data-status="playing"] .eq i,
   .full[data-status="playing"] .control,
   .full[data-status="playing"] .fullArt,
-  .mini[data-status="playing"] .miniProgress > span::after {
+  .mini[data-status="playing"] .miniProgress > span::after,
+  .mini[data-status="playing"] .lightning i,
+  .full[data-status="playing"] .lightning i {
     animation: none;
+  }
+
+  /* Niente lampeggio: i fulmini restano invisibili con movimento ridotto. */
+  .lightning {
+    display: none;
   }
 }

@@ -16,12 +16,14 @@ const mocks = vi.hoisted(() => ({
   del: vi.fn(),
   report: vi.fn(),
   play: vi.fn(),
+  premium: vi.fn(),
 }));
 
 vi.mock('@/lib/require-auth', () => ({
   requireAuth: mocks.requireAuth,
   getSessionUser: mocks.getSessionUser,
 }));
+vi.mock('@/lib/business/premium-access.server', () => ({ hasPremiumAccess: mocks.premium }));
 vi.mock('@/lib/same-origin', () => ({ sameOrigin: mocks.sameOrigin }));
 vi.mock('@/lib/business/rate-limit.server', () => ({
   enforceRateLimit: mocks.enforceRateLimit,
@@ -67,6 +69,7 @@ const item = {
   createdAt: '2026-01-01T00:00:00.000Z',
   mine: false,
   published: true,
+  canPlay: true,
 };
 const validBody = {
   title: 'Brano',
@@ -92,16 +95,29 @@ beforeEach(() => {
   mocks.getSessionUser.mockResolvedValue({ id: 'user-1' });
   mocks.enforceRateLimit.mockResolvedValue(null);
   mocks.readJsonLimited.mockResolvedValue({ ok: true, value: validBody });
+  mocks.premium.mockResolvedValue(false);
 });
 
 describe('GET /api/music/public-uploads', () => {
-  it('elenca i brani pubblici (anche anonimo)', async () => {
+  it('elenca i brani pubblici (anche anonimo), senza Premium', async () => {
     mocks.getSessionUser.mockResolvedValue(null);
     mocks.list.mockResolvedValue([item]);
     const res = await GET();
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ items: [item] });
-    expect(mocks.list).toHaveBeenCalledWith(null);
+    // Ospite: nessun utente, nessun Premium.
+    expect(mocks.list).toHaveBeenCalledWith(null, false);
+    expect(mocks.premium).not.toHaveBeenCalled();
+  });
+
+  it('passa lo stato Premium del visitatore (ascolto solo Premium)', async () => {
+    mocks.getSessionUser.mockResolvedValue({ id: 'user-1' });
+    mocks.premium.mockResolvedValue(true);
+    mocks.list.mockResolvedValue([item]);
+    const res = await GET();
+    expect(res.status).toBe(200);
+    expect(mocks.premium).toHaveBeenCalledWith('user-1');
+    expect(mocks.list).toHaveBeenCalledWith('user-1', true);
   });
 });
 

@@ -35,6 +35,26 @@ export const storagePublicUrl = z
     { message: 'URL del file non valido.' },
   );
 
+/**
+ * URL pubblico dello stream, PRODOTTO SEMPRE DAL SERVER a partire dalla chiave (mai inviato dal
+ * client): basta esigere https. Così funziona anche con un dominio CloudFront/CDN personalizzato
+ * (es. https://media.solcomusic.online in AWS_S3_PUBLIC_BASE_URL) senza che la registrazione o
+ * l'intera libreria vadano in errore; la riproduzione passa comunque da `media-src 'https:'`.
+ */
+export const publicStreamUrl = z
+  .string()
+  .url()
+  .refine(
+    (value) => {
+      try {
+        return new URL(value).protocol === 'https:';
+      } catch {
+        return false;
+      }
+    },
+    { message: 'URL del file non valido.' },
+  );
+
 /** Chiave dell'oggetto su S3: deve stare nel prefisso consentito. */
 export const publicUploadKey = z
   .string()
@@ -50,7 +70,10 @@ export const PublicUploadSchema = z.object({
   id: z.string().min(1).max(64),
   title: z.string().min(1).max(120),
   artist: z.string().max(120).nullable(),
-  streamUrl: storagePublicUrl,
+  // null quando chi guarda NON può ascoltarlo (serve Premium e non è un suo brano): l'URL
+  // dell'oggetto non lascia mai il server verso un non abbonato. Quando presente è sempre un URL
+  // derivato dal server (vedi publicStreamUrl): https, anche su dominio CloudFront/CDN personalizzato.
+  streamUrl: publicStreamUrl.nullable(),
   durationSeconds: z.number().int().positive().max(86_400),
   playCount: z.number().int().nonnegative(),
   createdAt: z.string().datetime(),
@@ -58,6 +81,11 @@ export const PublicUploadSchema = z.object({
   mine: z.boolean(),
   /** true = pubblicato e verificato (live, puntino verde). false = ritirato/in revisione. */
   published: z.boolean(),
+  /**
+   * true = chi guarda può ascoltarlo (è un suo brano, oppure ha Premium). I brani pubblicati sono
+   * ascoltabili SOLO dagli utenti Premium: per gli altri è false e l'anteprima resta bloccata.
+   */
+  canPlay: z.boolean(),
 });
 export type PublicUpload = z.infer<typeof PublicUploadSchema>;
 

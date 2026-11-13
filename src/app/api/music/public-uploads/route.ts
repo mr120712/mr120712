@@ -1,7 +1,9 @@
-// @polsia:user-owned — libreria pubblica dei brani caricati: GET elenco (pubblico), POST registra
-// (loggato) un brano già salvato su Vercel Blob.
+// @polsia:user-owned — libreria pubblica dei brani caricati: GET elenco (i brani sono ascoltabili
+// solo dai Premium: ai non-Premium arriva l'anteprima bloccata), POST registra (loggato) un brano
+// già salvato su S3.
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { hasPremiumAccess } from '@/lib/business/premium-access.server';
 import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
 import {
   PublicUploadCreateResponseSchema,
@@ -28,7 +30,9 @@ const privateHeaders = {
 export async function GET() {
   try {
     const viewer = await getSessionUser();
-    const items = await listPublicUploads(viewer?.id ?? null);
+    // Solo i Premium (e il proprietario sui propri brani) ricevono lo streamUrl per ascoltare.
+    const premium = viewer ? await hasPremiumAccess(viewer.id) : false;
+    const items = await listPublicUploads(viewer?.id ?? null, premium);
     return NextResponse.json(PublicUploadListResponseSchema.parse({ items }), {
       headers: privateHeaders,
     });

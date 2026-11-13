@@ -33,7 +33,7 @@ export function publicUploadToTrack(upload: {
   id: string;
   title: string;
   artist: string | null;
-  streamUrl: string;
+  streamUrl: string | null;
   durationSeconds: number;
 }): MusicPlayerTrack {
   return {

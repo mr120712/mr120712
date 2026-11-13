@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   uploadDelete: vi.fn(),
   reportCreate: vi.fn(),
   reportCount: vi.fn(),
+  transaction: vi.fn(),
 }));
 
 vi.mock('@/lib/music/s3-storage.server', () => ({
@@ -36,6 +37,7 @@ vi.mock('@/lib/db', () => ({
       delete: mocks.uploadDelete,
     },
     publicUploadReport: { create: mocks.reportCreate, count: mocks.reportCount },
+    $transaction: mocks.transaction,
   },
 }));
 
@@ -43,6 +45,7 @@ import {
   AUTO_UNPUBLISH_REPORTS,
   deletePublicUpload,
   InvalidPublicUploadSource,
+  listPublicUploads,
   MAX_UPLOADS_PER_USER,
   PublicUploadLimitReached,
   recordPublicUploadPlay,
@@ -76,6 +79,10 @@ const createdRow = {
 
 beforeEach(() => {
   vi.resetAllMocks();
+  // La transazione interattiva esegue la callback con un client che espone gli stessi mock.
+  mocks.transaction.mockImplementation((fn: (tx: unknown) => unknown) =>
+    fn({ publicUpload: { count: mocks.uploadCount, create: mocks.uploadCreate } }),
+  );
 });
 
 describe('registerPublicUpload', () => {
@@ -87,6 +94,8 @@ describe('registerPublicUpload', () => {
     expect(result.title).toBe('Brano');
     expect(result.streamUrl).toBe(OBJECT_URL);
     expect(result.mine).toBe(true);
+    // Il proprietario può sempre ascoltare il proprio brano.
+    expect(result.canPlay).toBe(true);
     // L'URL e la chiave salvati sono derivati dal server, non dal client.
     expect(mocks.uploadCreate.mock.calls[0]?.[0].data).toMatchObject({
       blobUrl: OBJECT_URL,
@@ -127,6 +136,54 @@ describe('registerPublicUpload', () => {
     const result = await registerPublicUpload('user-1', validInput);
     expect(result.title).toBe('Brano');
     expect(mocks.uploadCreate).toHaveBeenCalled();
+  });
+
+  it('rifiuta e rimuove da S3 un oggetto oltre il tetto di dimensione (PUT firmato non vincola)', async () => {
+    mocks.uploadCount.mockResolvedValue(0);
+    mocks.headObject.mockResolvedValue({
+      contentType: 'audio/mpeg',
+      contentLength: 41 * 1024 * 1024,
+    });
+    await expect(registerPublicUpload('user-1', validInput)).rejects.toBeInstanceOf(
+      InvalidPublicUploadSource,
+    );
+    expect(mocks.deleteObject).toHaveBeenCalledWith(KEY);
+    expect(mocks.uploadCreate).not.toHaveBeenCalled();
+  });
+});
+
+describe('listPublicUploads (ascolto solo Premium)', () => {
+  // Brano pubblicato da un altro utente.
+  const publicRow = { ...createdRow, uploaderUserId: 'owner' };
+
+  it('un non-Premium non proprietario NON riceve lo streamUrl (anteprima bloccata)', async () => {
+    mocks.uploadFindMany.mockResolvedValue([publicRow]);
+    const [row] = await listPublicUploads('viewer', false);
+    expect(row?.canPlay).toBe(false);
+    expect(row?.streamUrl).toBeNull();
+    expect(row?.mine).toBe(false);
+  });
+
+  it('un utente Premium riceve lo streamUrl e può ascoltare', async () => {
+    mocks.uploadFindMany.mockResolvedValue([publicRow]);
+    const [row] = await listPublicUploads('viewer', true);
+    expect(row?.canPlay).toBe(true);
+    expect(row?.streamUrl).toBe(OBJECT_URL);
+  });
+
+  it('il proprietario può ascoltare i propri brani anche senza Premium', async () => {
+    mocks.uploadFindMany.mockResolvedValue([publicRow]);
+    const [row] = await listPublicUploads('owner', false);
+    expect(row?.mine).toBe(true);
+    expect(row?.canPlay).toBe(true);
+    expect(row?.streamUrl).toBe(OBJECT_URL);
+  });
+
+  it('un ospite (non loggato) non può ascoltare', async () => {
+    mocks.uploadFindMany.mockResolvedValue([publicRow]);
+    const [row] = await listPublicUploads(null, false);
+    expect(row?.canPlay).toBe(false);
+    expect(row?.streamUrl).toBeNull();
   });
 });
 

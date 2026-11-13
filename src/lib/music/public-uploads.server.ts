@@ -4,7 +4,9 @@
 // moderano le segnalazioni e si rimuovono (anche l'oggetto su S3).
 import 'server-only';
 import { randomUUID } from 'node:crypto';
+import { Prisma } from '@prisma/client';
 import {
+  MAX_PUBLIC_UPLOAD_BYTES,
   PUBLIC_UPLOAD_MAX_PER_USER,
   type PublicUpload,
   type PublicUploadCreateInput,
@@ -100,17 +102,30 @@ type UploadRow = {
   createdAt: Date;
 };
 
-function toPublicUpload(row: UploadRow, viewerUserId: string | null): PublicUpload {
+/**
+ * Riga DB → brano pubblico per il client. I brani pubblicati sono ascoltabili SOLO dagli utenti
+ * Premium (o dal proprietario sui propri brani): a chi non può ascoltare NON si invia lo streamUrl
+ * (null), così l'URL dell'oggetto non lascia mai il server verso un non abbonato. L'anteprima resta
+ * visibile (titolo, artista, ascolti) ma bloccata.
+ */
+function toPublicUpload(
+  row: UploadRow,
+  viewerUserId: string | null,
+  viewerPremium: boolean,
+): PublicUpload {
+  const mine = viewerUserId !== null && row.uploaderUserId === viewerUserId;
+  const canPlay = mine || viewerPremium;
   return {
     id: row.id,
     title: row.title,
     artist: row.artist,
-    streamUrl: row.blobUrl,
+    streamUrl: canPlay ? row.blobUrl : null,
     durationSeconds: row.durationSeconds,
     playCount: row.playCount,
     createdAt: row.createdAt.toISOString(),
-    mine: viewerUserId !== null && row.uploaderUserId === viewerUserId,
+    mine,
     published: row.published,
+    canPlay,
   };
 }
 
@@ -120,6 +135,12 @@ function toPublicUpload(row: UploadRow, viewerUserId: string | null): PublicUplo
  * registrare un URL arbitrario. HEAD dell'oggetto con timeout (fail-open): se S3 risponde si rifiuta
  * un oggetto chiaramente non audio; se va in timeout si procede (l'upload è passato dalla route
  * firmata — loggato, solo audio, max 40MB — e la chiave è nel prefisso consentito).
+ *
+ * HEAD serve anche da controllo di dimensione: l'URL PUT firmato NON vincola la dimensione del
+ * corpo, quindi qui si rifiuta (e si rimuove) un oggetto oltre il tetto consentito, così non
+ * finiscono su S3 file enormi serviti poi a tutti. Il tetto per utente è imposto in modo ATOMICO
+ * (conteggio + create nella stessa transazione serializzabile), così richieste concorrenti non
+ * possono superarlo.
  */
 export async function registerPublicUpload(
   userId: string,
@@ -128,51 +149,78 @@ export async function registerPublicUpload(
   if (!isS3Configured()) throw new StorageNotConfigured();
   if (!input.key.startsWith(PUBLIC_UPLOAD_PREFIX)) throw new InvalidPublicUploadSource();
 
-  const existing = await prisma.publicUpload.count({ where: { uploaderUserId: userId } });
-  if (existing >= MAX_UPLOADS_PER_USER) throw new PublicUploadLimitReached();
-
   const head = await headObject(input.key);
   if (head?.contentType) {
     const contentType = head.contentType.split(';', 1)[0]?.trim().toLowerCase() ?? '';
     if (contentType && !contentType.startsWith('audio/')) {
+      await deleteObject(input.key);
       throw new InvalidPublicUploadSource();
     }
+  }
+  // Dimensione reale dell'oggetto su S3: se supera il tetto, rimuovi e rifiuta (il PUT firmato non
+  // la vincola). Fail-open resta solo quando HEAD va in timeout/errore (contentLength assente).
+  if (head?.contentLength != null && head.contentLength > MAX_PUBLIC_UPLOAD_BYTES) {
+    await deleteObject(input.key);
+    throw new InvalidPublicUploadSource();
   }
 
   const objectUrl = s3ObjectUrl(input.key);
   const durationSeconds = Math.max(1, Math.min(86_400, Math.ceil(input.elapsedSeconds)));
+  const data = {
+    uploaderUserId: userId,
+    title: input.title,
+    artist: input.artist && input.artist.length > 0 ? input.artist : null,
+    blobUrl: objectUrl,
+    blobPathname: input.key,
+    mimeType: input.mimeType,
+    byteLength: input.byteLength,
+    durationSeconds,
+  };
 
-  try {
-    const row = await prisma.publicUpload.create({
-      data: {
-        uploaderUserId: userId,
-        title: input.title,
-        artist: input.artist && input.artist.length > 0 ? input.artist : null,
-        blobUrl: objectUrl,
-        blobPathname: input.key,
-        mimeType: input.mimeType,
-        byteLength: input.byteLength,
-        durationSeconds,
-      },
-      select: selectUpload,
-    });
-    return toPublicUpload(row, userId);
-  } catch (error) {
-    // Stesso oggetto già registrato (blobUrl/blobPathname unici): sorgente non valida.
-    if (isUniqueViolation(error)) throw new InvalidPublicUploadSource();
-    throw error;
+  // Conteggio + create atomici: la transazione serializzabile impedisce a più richieste concorrenti
+  // dello stesso utente di superare il tetto. Su conflitto di serializzazione si riprova una volta
+  // (il nuovo conteggio vede la riga concorrente e fa scattare il tetto).
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const row = await prisma.$transaction(
+        async (tx) => {
+          const existing = await tx.publicUpload.count({ where: { uploaderUserId: userId } });
+          if (existing >= MAX_UPLOADS_PER_USER) throw new PublicUploadLimitReached();
+          return tx.publicUpload.create({ data, select: selectUpload });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+      // È un brano del proprietario stesso: può sempre ascoltarlo (canPlay).
+      return toPublicUpload(row, userId, true);
+    } catch (error) {
+      if (error instanceof PublicUploadLimitReached) throw error;
+      // Stesso oggetto già registrato (blobUrl/blobPathname unici): sorgente non valida.
+      if (isUniqueViolation(error)) throw new InvalidPublicUploadSource();
+      // Conflitto di serializzazione (P2034): riprova una sola volta.
+      if (isSerializationFailure(error) && attempt === 0) continue;
+      throw error;
+    }
   }
+  // Irraggiungibile: il ciclo ritorna o lancia sempre.
+  throw new PublicUploadLimitReached();
 }
 
-/** Classifica pubblica: brani pubblicati, i più ascoltati prima, poi i più recenti. */
-export async function listPublicUploads(viewerUserId: string | null): Promise<PublicUpload[]> {
+/**
+ * Classifica pubblica: brani pubblicati, i più ascoltati prima, poi i più recenti. `viewerPremium`
+ * decide chi riceve lo streamUrl: solo gli utenti Premium (e il proprietario sui propri brani)
+ * possono ascoltare; agli altri arriva l'anteprima bloccata (streamUrl null, canPlay false).
+ */
+export async function listPublicUploads(
+  viewerUserId: string | null,
+  viewerPremium: boolean,
+): Promise<PublicUpload[]> {
   const rows = await prisma.publicUpload.findMany({
     where: { published: true },
     orderBy: [{ playCount: 'desc' }, { createdAt: 'desc' }],
     take: 100,
     select: selectUpload,
   });
-  return rows.map((row) => toPublicUpload(row, viewerUserId));
+  return rows.map((row) => toPublicUpload(row, viewerUserId, viewerPremium));
 }
 
 /** I brani caricati dall'utente (anche ritirati dalla moderazione), per gestirli. */
@@ -183,7 +231,8 @@ export async function listMyPublicUploads(userId: string): Promise<PublicUpload[
     take: 100,
     select: selectUpload,
   });
-  return rows.map((row) => toPublicUpload(row, userId));
+  // Sono tutti brani del proprietario: li può sempre ascoltare (canPlay).
+  return rows.map((row) => toPublicUpload(row, userId, true));
 }
 
 /**
@@ -260,10 +309,19 @@ export async function deletePublicUpload(userId: string, uploadId: string): Prom
 }
 
 function isUniqueViolation(error: unknown): boolean {
+  return hasPrismaCode(error, 'P2002');
+}
+
+/** P2034: transazione fallita per conflitto di scrittura/serializzazione (va ritentata). */
+function isSerializationFailure(error: unknown): boolean {
+  return hasPrismaCode(error, 'P2034');
+}
+
+function hasPrismaCode(error: unknown, code: string): boolean {
   return (
     typeof error === 'object' &&
     error !== null &&
     'code' in error &&
-    (error as { code?: unknown }).code === 'P2002'
+    (error as { code?: unknown }).code === code
   );
 }
