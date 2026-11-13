@@ -66,6 +66,7 @@ const item = {
   playCount: 3,
   createdAt: '2026-01-01T00:00:00.000Z',
   mine: false,
+  published: true,
 };
 const validBody = {
   title: 'Brano',

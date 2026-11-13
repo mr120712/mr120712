@@ -92,9 +92,16 @@ export function PublicLibraryView() {
               <li key={upload.id} className={styles.mineItem}>
                 <div className={styles.mineInfo}>
                   <span className={styles.mineTitle}>{upload.title}</span>
-                  {upload.artist ? (
-                    <span className={styles.mineArtist}>{upload.artist}</span>
-                  ) : null}
+                  <span
+                    className={styles.mineStatus}
+                    data-status={upload.published ? 'live' : 'review'}
+                  >
+                    <span className={styles.statusDot} aria-hidden="true" />
+                    {upload.published ? 'Verificato · pubblicato' : 'In revisione'}
+                    {upload.artist ? (
+                      <span className={styles.mineArtist}> · {upload.artist}</span>
+                    ) : null}
+                  </span>
                 </div>
                 <Button
                   type="button"

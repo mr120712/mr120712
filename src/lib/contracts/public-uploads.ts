@@ -38,6 +38,8 @@ export const PublicUploadSchema = z.object({
   createdAt: z.string().datetime(),
   /** true se il brano è dell'utente che guarda (può rimuoverlo). */
   mine: z.boolean(),
+  /** true = pubblicato e verificato (live, puntino verde). false = ritirato/in revisione. */
+  published: z.boolean(),
 });
 export type PublicUpload = z.infer<typeof PublicUploadSchema>;
 

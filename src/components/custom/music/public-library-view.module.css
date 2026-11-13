@@ -61,6 +61,7 @@
 .mineInfo {
   display: flex;
   flex-direction: column;
+  gap: 0.15rem;
   min-width: 0;
 }
 
@@ -71,12 +72,39 @@
   text-overflow: ellipsis;
 }
 
-.mineArtist {
-  font-size: 0.82rem;
+/* Riga di stato: puntino verde = verificato/pubblicato; ambra = in revisione. */
+.mineStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  font-size: 0.8rem;
   color: var(--muted-foreground);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.statusDot {
+  flex: none;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: var(--muted-foreground);
+}
+
+.mineStatus[data-status="live"] .statusDot {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #22c55e 25%, transparent);
+}
+
+.mineStatus[data-status="review"] .statusDot {
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #f59e0b 25%, transparent);
+}
+
+.mineArtist {
+  color: var(--muted-foreground);
 }
 
 .spin {

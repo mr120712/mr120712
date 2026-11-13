@@ -75,6 +75,7 @@ describe('registerPublicUpload', () => {
       artist: 'Io',
       blobUrl: validInput.blobUrl,
       durationSeconds: 120,
+      published: true,
       playCount: 0,
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
     });
@@ -106,6 +107,7 @@ describe('registerPublicUpload', () => {
       artist: 'Io',
       blobUrl: validInput.blobUrl,
       durationSeconds: 120,
+      published: true,
       playCount: 0,
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
     });
@@ -142,6 +144,7 @@ describe('registerPublicUpload', () => {
       artist: 'Io',
       blobUrl: validInput.blobUrl,
       durationSeconds: 120,
+      published: true,
       playCount: 0,
       createdAt: new Date('2026-01-01T00:00:00.000Z'),
     });

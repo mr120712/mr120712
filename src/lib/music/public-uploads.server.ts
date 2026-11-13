@@ -39,6 +39,7 @@ const selectUpload = {
   artist: true,
   blobUrl: true,
   durationSeconds: true,
+  published: true,
   playCount: true,
   createdAt: true,
 } as const;
@@ -50,6 +51,7 @@ type UploadRow = {
   artist: string | null;
   blobUrl: string;
   durationSeconds: number;
+  published: boolean;
   playCount: number;
   createdAt: Date;
 };
@@ -64,6 +66,7 @@ function toPublicUpload(row: UploadRow, viewerUserId: string | null): PublicUplo
     playCount: row.playCount,
     createdAt: row.createdAt.toISOString(),
     mine: viewerUserId !== null && row.uploaderUserId === viewerUserId,
+    published: row.published,
   };
 }
 
