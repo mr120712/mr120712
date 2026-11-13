@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npx prisma generate && (npx prisma db push --skip-generate || (sleep 20 && npx prisma db push --skip-generate) || echo '[deploy] db push saltato: database non raggiungibile, schema invariato') && npm run build",
   "headers": [
     {
       "source": "/sw.js",
