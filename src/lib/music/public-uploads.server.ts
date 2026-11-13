@@ -103,11 +103,13 @@ export async function registerPublicUpload(
   const meta = await Promise.race([headResult, timeout]);
   if (meta) {
     const contentType = (meta.contentType ?? '').split(';', 1)[0]?.trim().toLowerCase() ?? '';
-    if (
-      !contentType.startsWith('audio/') ||
-      meta.size !== input.byteLength ||
-      meta.pathname !== input.blobPathname
-    ) {
+    // Si rifiuta SOLO se head() dice chiaramente che non è audio. Non si confrontano esattamente
+    // dimensione e percorso: i valori restituiti da Blob (es. slash iniziale nel percorso, o una
+    // dimensione calcolata diversamente) possono differire da quelli del client e farebbero
+    // fallire registrazioni perfettamente valide — era la causa dei brani che non comparivano.
+    // La sicurezza di base resta: URL ristretto a *.blob.vercel-storage.com, prefisso consentito,
+    // caricamento passato dalla route token (loggato, solo audio, max 40MB).
+    if (contentType && !contentType.startsWith('audio/')) {
       throw new InvalidPublicUploadSource();
     }
   }

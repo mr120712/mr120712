@@ -92,16 +92,25 @@ describe('registerPublicUpload', () => {
     expect(mocks.head).not.toHaveBeenCalled();
   });
 
-  it('rifiuta se head non combacia (dimensione o tipo)', async () => {
+  it('tollera dimensione/percorso diversi da head (formati di Blob), basta che sia audio', async () => {
     mocks.uploadCount.mockResolvedValue(0);
     mocks.head.mockResolvedValue({
       contentType: 'audio/mpeg',
-      size: 999,
-      pathname: 'public-uploads/x.mp3',
+      size: 999, // diversa da byteLength: non deve far fallire
+      pathname: '/public-uploads/x.mp3', // slash iniziale: non deve far fallire
     });
-    await expect(registerPublicUpload('user-1', validInput)).rejects.toBeInstanceOf(
-      InvalidPublicUploadSource,
-    );
+    mocks.uploadCreate.mockResolvedValue({
+      id: 'c'.repeat(25),
+      uploaderUserId: 'user-1',
+      title: 'Brano',
+      artist: 'Io',
+      blobUrl: validInput.blobUrl,
+      durationSeconds: 120,
+      playCount: 0,
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
+    const result = await registerPublicUpload('user-1', validInput);
+    expect(result.title).toBe('Brano');
   });
 
   it('rifiuta un contenuto non audio', async () => {
