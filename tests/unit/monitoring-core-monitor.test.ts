@@ -251,6 +251,7 @@ describe('publicStatus', () => {
     stale: false,
     failing: [],
     warnings: ['email', 'jamendo'],
+    ok: ['database'],
   };
 
   it('reuses a run younger than 50 minutes without claiming or scheduling a refresh', async () => {
@@ -267,6 +268,7 @@ describe('publicStatus', () => {
       stale: false,
       failing: ['radio'],
       warnings: ['email'],
+      ok: ['database'],
     });
     expect(tasks).toHaveLength(0);
     expect(store.monitorHeartbeat.updateMany).not.toHaveBeenCalled();
@@ -387,6 +389,7 @@ describe('publicStatus', () => {
       stale: false,
       failing: [],
       warnings: [],
+      ok: [],
     });
     expect(tasks).toHaveLength(1);
     await tasks[0]?.();

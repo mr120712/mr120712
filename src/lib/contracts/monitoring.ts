@@ -67,6 +67,9 @@ export const PublicMonitorStatusSchema = z.object({
   stale: z.boolean(),
   failing: z.array(MonitorCheckIdSchema),
   warnings: z.array(MonitorCheckIdSchema),
+  /** Checks that actually ran and passed. A check id absent from ok/failing/warnings
+   *  never ran in this run (e.g. added after it) and must NOT be shown as green. */
+  ok: z.array(MonitorCheckIdSchema),
 });
 
 /** GET /api/admin/monitoring. */

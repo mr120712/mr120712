@@ -44,6 +44,7 @@ describe('StatusView', () => {
       stale: false,
       failing: ['database'],
       warnings: [],
+      ok: ['signup_write', 'auth_config', 'google_signin'],
     });
     await mount();
 
@@ -65,6 +66,7 @@ describe('StatusView', () => {
       stale: false,
       failing: ['audius'],
       warnings: ['youtube_quota'],
+      ok: ['database', 'signup_write', 'auth_config', 'google_signin'],
     });
     await mount();
     const text = container.textContent ?? '';
@@ -86,6 +88,7 @@ describe('StatusView', () => {
       stale: false,
       failing: [],
       warnings: [],
+      ok: ['database', 'signup_write', 'auth_config', 'google_signin'],
     });
     await mount();
     expect(container.textContent ?? '').toContain('Tutto funziona');

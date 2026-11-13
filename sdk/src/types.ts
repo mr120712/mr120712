@@ -324,6 +324,9 @@ export interface PublicMonitorStatus {
   stale: boolean;
   failing: MonitorCheckId[];
   warnings: MonitorCheckId[];
+  /** Controlli che hanno davvero girato e sono passati. Un id assente da ok/failing/warnings
+   *  non è stato eseguito in questo giro e non va mostrato come "verde". */
+  ok: MonitorCheckId[];
 }
 
 // ---------- Ascolti ----------

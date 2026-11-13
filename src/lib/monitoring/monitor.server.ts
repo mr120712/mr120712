@@ -330,7 +330,7 @@ export async function publicStatus(
     }
   }
   if (!run) {
-    return { status: 'unknown', checkedAt: null, stale: false, failing: [], warnings: [] };
+    return { status: 'unknown', checkedAt: null, stale: false, failing: [], warnings: [], ok: [] };
   }
   return {
     status: run.status,
@@ -338,5 +338,6 @@ export async function publicStatus(
     stale: ageMs(run, now) > STALE_AFTER_MS,
     failing: idsWithStatus(run, 'fail'),
     warnings: idsWithStatus(run, 'warn'),
+    ok: idsWithStatus(run, 'ok'),
   };
 }

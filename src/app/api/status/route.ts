@@ -23,6 +23,7 @@ const UNAVAILABLE: PublicMonitorStatus = {
   stale: true,
   failing: [],
   warnings: [],
+  ok: [],
 };
 
 export async function GET() {

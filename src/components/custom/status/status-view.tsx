@@ -57,7 +57,10 @@ const CHECK_LABEL: Record<CheckStatus, string> = {
 function checkStatusOf(id: MonitorCheckId, data: PublicMonitorStatus): CheckStatus {
   if (data.failing.includes(id)) return 'fail';
   if (data.warnings.includes(id)) return 'warn';
-  return data.status === 'unknown' ? 'unknown' : 'ok';
+  // Verde solo se il controllo ha davvero girato ed è passato. Un id assente dal giro
+  // (es. aggiunto dopo l'ultimo controllo) resta "sconosciuto", mai un falso verde.
+  if (data.ok.includes(id)) return 'ok';
+  return 'unknown';
 }
 
 /** Stato generale calcolato SOLO sui controlli core dell'API (non sulle integrazioni esterne). */
@@ -65,6 +68,9 @@ function overallFromCore(data: PublicMonitorStatus): PublicMonitorStatus['status
   if (data.status === 'unknown') return 'unknown';
   if (CORE_CHECK_IDS.some((id) => data.failing.includes(id))) return 'down';
   if (CORE_CHECK_IDS.some((id) => data.warnings.includes(id))) return 'degraded';
+  // Se un controllo core non è tra quelli passati, non è stato verificato: stato sconosciuto,
+  // non "tutto funziona".
+  if (CORE_CHECK_IDS.some((id) => !data.ok.includes(id))) return 'unknown';
   return 'ok';
 }
 

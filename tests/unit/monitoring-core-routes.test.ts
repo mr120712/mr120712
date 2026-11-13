@@ -132,6 +132,7 @@ describe('GET /api/status', () => {
       stale: false,
       failing: ['google_signin'],
       warnings: ['email'],
+      ok: ['database'],
     };
     mocks.publicStatus.mockResolvedValue(status);
     const response = await statusRoute.GET();
@@ -154,6 +155,7 @@ describe('GET /api/status', () => {
       stale: true,
       failing: [],
       warnings: [],
+      ok: ['database', 'signup_write', 'auth_config', 'google_signin'],
     });
     const response = await statusRoute.GET();
     expect(response.status).toBe(200);
@@ -164,7 +166,14 @@ describe('GET /api/status', () => {
   });
 
   it('does not cache "unknown" (no run yet): the first run is starting in the background', async () => {
-    const unknown = { status: 'unknown', checkedAt: null, stale: false, failing: [], warnings: [] };
+    const unknown = {
+      status: 'unknown',
+      checkedAt: null,
+      stale: false,
+      failing: [],
+      warnings: [],
+      ok: [],
+    };
     mocks.publicStatus.mockResolvedValue(unknown);
     const response = await statusRoute.GET();
     expect(response.status).toBe(200);
@@ -196,6 +205,7 @@ describe('GET /api/status', () => {
       stale: true,
       failing: [],
       warnings: [],
+      ok: [],
     });
     expect(warned).toHaveBeenCalledWith('[monitor] status unavailable', 'Error');
     expect(JSON.stringify(warned.mock.calls)).not.toContain('db down');
