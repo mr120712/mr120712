@@ -18,8 +18,14 @@
 // Preserve all existing roles and grant admin only to the Better Auth record
 // matched by the exact requested email.
 import { describeDatabaseUrls, preferPooledDatabaseUrl } from '@/lib/runtime-database-url';
+import { hardenGlobalPrototypes } from '@/lib/security/prototype-guard';
 
 export async function seed(): Promise<void> {
+  // Difesa-in-profondità contro il prototype pollution: congela i prototype nativi all'avvio del
+  // server, prima di servire richieste. Da qui in poi scrivere su Object.prototype (es. tramite un
+  // __proto__ malevolo) fallisce. È idempotente; se qualcosa non fosse congelabile, non blocca il boot.
+  hardenGlobalPrototypes();
+
   // Before @/lib/db is first loaded: pooled database connections on Vercel.
   const pooled = preferPooledDatabaseUrl();
   console.info(`[solco] database pooled=${pooled} ${describeDatabaseUrls()}`);

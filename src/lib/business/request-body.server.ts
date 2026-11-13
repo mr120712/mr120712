@@ -1,4 +1,6 @@
 // @polsia:user-owned
+import { safeJsonParse } from '@/lib/security/prototype-guard';
+
 export type LimitedJsonResult =
   | { ok: true; value: unknown }
   | { ok: false; status: 400 | 413; error: 'invalid_json' | 'payload_too_large' };
@@ -31,7 +33,10 @@ export async function readJsonLimited(
       text += decoder.decode(part.value, { stream: true });
     }
     text += decoder.decode();
-    return { ok: true, value: JSON.parse(text) as unknown };
+    // safeJsonParse scarta le chiavi pericolose (__proto__/constructor/prototype): nessun handler a
+    // valle può ricevere dati capaci di inquinare Object.prototype. I payload legittimi non usano
+    // quelle chiavi, quindi non c'è alcun impatto funzionale.
+    return { ok: true, value: safeJsonParse(text) };
   } catch {
     return { ok: false, status: 400, error: 'invalid_json' };
   }
