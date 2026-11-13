@@ -86,7 +86,7 @@ export type SpotifyImportRequest = z.input<typeof SpotifyImportRequestSchema>;
 export const SpotifyImportSourceSchema = z.union([SpotifyIdSchema, z.literal('saved')]);
 
 export const SpotifyImportedPlaylistSchema = z.object({
-  /** Playlist di Solco appena creata (UserMusicCollection.id). */
+  /** Playlist di Solco creata o aggiornata (UserMusicCollection.id). */
   collectionId: z.string().min(1),
   name: z.string().min(1),
   imported: z.number().int().nonnegative(),
@@ -95,6 +95,10 @@ export const SpotifyImportedPlaylistSchema = z.object({
   /** Brani oltre il limite di 200 per playlist. */
   truncated: z.number().int().nonnegative(),
   source: SpotifyImportSourceSchema,
+  /** Brani aggiunti rispetto a prima (= imported per una playlist nuova). */
+  added: z.number().int().nonnegative(),
+  /** Brani rimossi perché non più nella sorgente Spotify (solo per un aggiornamento). */
+  removed: z.number().int().nonnegative(),
 });
 
 export const SpotifyImportFailureSchema = z.object({
@@ -107,10 +111,24 @@ export const SpotifyImportFailureSchema = z.object({
 
 export const SpotifyImportResponseSchema = z.object({
   created: z.array(SpotifyImportedPlaylistSchema),
+  /** Sorgenti già importate prima e ora RISINCRONIZZATE (stessa playlist Solco, specchio esatto). */
+  updated: z.array(SpotifyImportedPlaylistSchema).default([]),
   /** Sorgenti non importate (es. playlist seguite ma non tue: Spotify ne nega la lettura). */
   failed: z.array(SpotifyImportFailureSchema).default([]),
 });
 export type SpotifyImportResponse = z.infer<typeof SpotifyImportResponseSchema>;
+
+/**
+ * POST /api/spotify/sync — "Aggiorna da Spotify": risincronizza TUTTE le sorgenti già importate
+ * (brani salvati + ogni playlist importata) nelle rispettive playlist Solco, a specchio esatto.
+ */
+export const SpotifySyncResponseSchema = z.object({
+  updated: z.array(SpotifyImportedPlaylistSchema),
+  failed: z.array(SpotifyImportFailureSchema).default([]),
+  /** true quando l'utente non ha ancora importato nulla da Spotify (niente da aggiornare). */
+  nothingToSync: z.boolean().default(false),
+});
+export type SpotifySyncResponse = z.infer<typeof SpotifySyncResponseSchema>;
 
 /**
  * Corpo di ogni errore delle route /api/spotify/*: `{ error, message }` (italiano) e, per i 429,

@@ -359,6 +359,8 @@ describe('Importa da Spotify — importazione e disconnessione', () => {
               skipped: 3,
               truncated: 0,
               source: spotifyId(1),
+              added: 120,
+              removed: 0,
             },
             {
               collectionId: 'c2',
@@ -367,6 +369,8 @@ describe('Importa da Spotify — importazione e disconnessione', () => {
               skipped: 0,
               truncated: 50,
               source: 'saved',
+              added: 200,
+              removed: 0,
             },
           ],
           failed: [
@@ -399,7 +403,7 @@ describe('Importa da Spotify — importazione e disconnessione', () => {
     );
     expect(container.textContent).toContain('“Playlist 3”: non importata.');
     expect(checkbox(container, 'Playlist 1').checked).toBe(false);
-    expect(container.querySelector('output')?.textContent).toBe('Importazione completata.');
+    expect(container.querySelector('output')?.textContent).toBe('Operazione completata.');
   });
 
   it('chiede di ricollegare Spotify quando il server risponde spotify_reauth', async () => {
@@ -482,6 +486,8 @@ describe('Importa da Spotify — importazione e disconnessione', () => {
               skipped: 0,
               truncated: 0,
               source: spotifyId(1),
+              added: 10,
+              removed: 0,
             },
           ],
           failed: [
@@ -744,6 +750,8 @@ describe('Importa da Spotify — pagine non caricate e Retry-After', () => {
               skipped: 0,
               truncated: 0,
               source: spotifyId(1),
+              added: 11,
+              removed: 0,
             },
           ],
           failed: [],

@@ -21,7 +21,11 @@ import {
   withPrivateHeaders,
 } from '@/lib/spotify/config.server';
 import { deleteConnection, spotifyAuthFor } from '@/lib/spotify/connection.server';
-import { runSpotifyImport, type SpotifyImportSource } from '@/lib/spotify/import.server';
+import {
+  runSpotifyImport,
+  type SpotifyImportSource,
+  spotifySourceDb,
+} from '@/lib/spotify/import.server';
 
 export const dynamic = 'force-dynamic';
 /** 5 sources × (1 + 6 pages) Spotify calls at most; the budget below keeps it far from 60 s. */
@@ -73,12 +77,26 @@ export async function POST(request: Request) {
     ...(body.data.saved ? [{ kind: 'saved' as const }] : []),
   ];
 
+  // Le sorgenti già importate si AGGIORNANO in loco (stessa playlist): non contano verso il tetto,
+  // solo quelle nuove occupano un posto.
+  const alreadyImported = new Set(
+    (
+      await prisma.userMusicCollection.findMany({
+        where: { userId: user.id, spotifySource: { in: sources.map(spotifySourceDb) } },
+        select: { spotifySource: true },
+      })
+    ).map((collection) => collection.spotifySource),
+  );
+  const newSources = sources.filter(
+    (source) => !alreadyImported.has(spotifySourceDb(source)),
+  ).length;
+
   // Keep each library bounded: the whole library is loaded on every visit.
   const playlists = await prisma.userMusicCollection.count({
     where: { userId: user.id, kind: 'playlist' },
   });
   const room = MAX_PLAYLISTS_PER_USER - playlists;
-  if (room < sources.length) {
+  if (room < newSources) {
     return spotifyJson(
       {
         error: 'limit_reached',

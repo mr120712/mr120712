@@ -32,6 +32,7 @@ import {
   SpotifyImportResponseSchema,
   type SpotifyPlaylistsResponse,
   SpotifyPlaylistsResponseSchema,
+  SpotifySyncResponseSchema,
 } from '@/lib/contracts/spotify';
 import styles from './spotify-import.module.css';
 
@@ -171,6 +172,29 @@ function failureSummary(failed: FailedSource[]) {
   return `${failed.length} elementi non importati: ${failed.map((item) => item.message).join(' ')}`;
 }
 
+/** Riassunto di un aggiornamento (sincronizzazione) da Spotify: quante playlist, +aggiunti −rimossi. */
+function syncSummary(updated: CreatedPlaylist[]) {
+  const added = updated.reduce((sum, playlist) => sum + playlist.added, 0);
+  const removed = updated.reduce((sum, playlist) => sum + playlist.removed, 0);
+  const [first] = updated;
+  const base =
+    updated.length === 1 && first
+      ? `“${first.name}” aggiornata`
+      : `${updated.length} playlist aggiornate`;
+  const deltas = [added ? `+${songs(added)}` : null, removed ? `−${songs(removed)}` : null]
+    .filter(Boolean)
+    .join(', ');
+  return deltas ? `${base}: ${deltas}.` : `${base}: già allineate, nessuna novità.`;
+}
+
+/** Messaggio combinato quando un'operazione crea e/o aggiorna playlist. */
+function changeSummary(created: CreatedPlaylist[], updated: CreatedPlaylist[]) {
+  const parts: string[] = [];
+  if (created.length) parts.push(importSummary(created));
+  if (updated.length) parts.push(syncSummary(updated));
+  return parts.join(' ');
+}
+
 /**
  * Official Spotify logo files (public/brand/spotify). Both monochrome variants are in the
  * markup and CSS shows the one that contrasts with the card: white on the dark theme
@@ -235,6 +259,7 @@ export function SpotifyImport({ onImported }: { onImported: () => void }) {
   const [selected, setSelected] = useState<string[]>([]);
   const [saved, setSaved] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [created, setCreated] = useState<CreatedPlaylist[]>([]);
   const [failed, setFailed] = useState<FailedSource[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
@@ -441,14 +466,16 @@ export function SpotifyImport({ onImported }: { onImported: () => void }) {
         body: JSON.stringify({ playlistIds: selected, saved } satisfies SpotifyImportRequest),
         schema: SpotifyImportResponseSchema,
       });
-      // `failed` has a schema default; apiFetch's typing exposes the pre-default input shape.
+      // `failed`/`updated` have schema defaults; apiFetch's typing exposes the pre-default shape.
       const notImported = result.failed ?? [];
-      setCreated(result.created);
+      // Una sorgente già importata viene AGGIORNATA (stessa playlist), non duplicata.
+      const updatedList = result.updated ?? [];
+      setCreated([...result.created, ...updatedList]);
       setFailed(notImported);
       setSelected([]);
       setSaved(false);
-      if (result.created.length) {
-        toast.success(importSummary(result.created));
+      if (result.created.length || updatedList.length) {
+        toast.success(changeSummary(result.created, updatedList));
         onImported();
       }
       if (notImported.length) toast.error(failureSummary(notImported));
@@ -481,6 +508,66 @@ export function SpotifyImport({ onImported }: { onImported: () => void }) {
       toast.error(message);
     } finally {
       setImporting(false);
+    }
+  };
+
+  // Gestione errori condivisa fra importazione e aggiornamento (reauth, nuovo consenso, limiti).
+  const handleSpotifyActionError = (error: unknown, fallback: string) => {
+    if (needsReauth(error)) {
+      askReauth();
+      toast.error('La connessione con Spotify è scaduta: ricollega Spotify per continuare.');
+      return;
+    }
+    if (needsNewConsent(error)) {
+      askNewConsent(error);
+      return;
+    }
+    const message = errorMessage(error, fallback);
+    const code = errorBody(error)?.error;
+    if (typeof code === 'string' && SPOTIFY_LIMIT_ERRORS.has(code)) {
+      startCooldown(error, message);
+    } else {
+      const seconds = retryAfterSeconds(error);
+      if (seconds !== null) {
+        const until = Date.now() + seconds * 1000;
+        importBlockedRef.current = until;
+        setImportBlockedUntil(until);
+      }
+    }
+    toast.error(message);
+  };
+
+  // "Aggiorna da Spotify": risincronizza libreria + playlist importate (nessuna scelta da fare).
+  const runSync = async () => {
+    if (importing || syncing || activeCooldown() || importBlocked()) return;
+    setSyncing(true);
+    setCreated([]);
+    setFailed([]);
+    try {
+      const result = await apiFetch('/api/spotify/sync', {
+        method: 'POST',
+        schema: SpotifySyncResponseSchema,
+      });
+      const notSynced = result.failed ?? [];
+      const updatedList = result.updated ?? [];
+      setCreated(updatedList);
+      setFailed(notSynced);
+      if (result.nothingToSync) {
+        toast(
+          'Non hai ancora importato nulla da Spotify: scegli prima le playlist o i brani salvati.',
+        );
+      } else if (updatedList.length) {
+        toast.success(syncSummary(updatedList));
+        onImported();
+      } else if (notSynced.length === 0) {
+        toast('Le tue playlist Solco sono già allineate a Spotify.');
+      }
+      if (notSynced.length) toast.error(failureSummary(notSynced));
+      if (notSynced.some((item) => item.error === 'spotify_reauth')) askReauth();
+    } catch (error) {
+      handleSpotifyActionError(error, 'Aggiornamento da Spotify non riuscito. Riprova.');
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -521,11 +608,13 @@ export function SpotifyImport({ onImported }: { onImported: () => void }) {
     page && page.offset > 0 ? Math.max(0, page.offset - SPOTIFY_PLAYLISTS_PAGE_SIZE) : null;
   const progress = importing
     ? 'Importazione in corso: Solco sta leggendo i brani da Spotify. Può richiedere fino a un minuto.'
-    : loadingList
-      ? 'Caricamento delle playlist da Spotify…'
-      : created.length || failed.length
-        ? 'Importazione completata.'
-        : '';
+    : syncing
+      ? 'Aggiornamento in corso: Solco sta risincronizzando le tue playlist con Spotify. Può richiedere fino a un minuto.'
+      : loadingList
+        ? 'Caricamento delle playlist da Spotify…'
+        : created.length || failed.length
+          ? 'Operazione completata.'
+          : '';
 
   return (
     <section className={styles.card} aria-labelledby={ids.title}>
@@ -618,8 +707,17 @@ export function SpotifyImport({ onImported }: { onImported: () => void }) {
             </Button>
             <Button
               type="button"
+              variant="outline"
+              disabled={importing || syncing || coolingDown || importBlockedUntil !== null}
+              onClick={() => void runSync()}
+              title="Risincronizza i brani salvati e le playlist già importate con la tua libreria Spotify"
+            >
+              {syncing ? 'Aggiornamento…' : 'Aggiorna da Spotify'}
+            </Button>
+            <Button
+              type="button"
               variant="ghost"
-              disabled={disconnecting || importing}
+              disabled={disconnecting || importing || syncing}
               onClick={() => void disconnect()}
             >
               {disconnecting ? 'Scollegamento…' : 'Disconnetti Spotify'}

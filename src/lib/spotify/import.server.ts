@@ -23,13 +23,15 @@ import {
   songIdentity,
   TRACK_LIST_MAX_TRACKS,
 } from '@/lib/business/track-list-import';
-import { createSongPlaylist } from '@/lib/business/track-list-import.server';
+import { upsertSpotifySongPlaylist } from '@/lib/business/track-list-import.server';
 import type {
   SpotifyImportResponse,
   SpotifyPlaylist,
   SpotifyPlaylistsResponse,
+  SpotifySyncResponse,
 } from '@/lib/contracts/spotify';
 import { SPOTIFY_PLAYLISTS_PAGE_SIZE } from '@/lib/contracts/spotify';
+import { prisma } from '@/lib/db';
 import {
   describeSpotifyError,
   type SpotifyAuth,
@@ -361,11 +363,22 @@ async function playlistName(
 
 export type SpotifyImportSource = { kind: 'playlist'; id: string } | { kind: 'saved' };
 
-type Created = SpotifyImportResponse['created'][number];
+type Entry = SpotifyImportResponse['created'][number];
 type Failed = SpotifyImportResponse['failed'][number];
 
 const sourceKey = (source: SpotifyImportSource) =>
   source.kind === 'saved' ? ('saved' as const) : source.id;
+
+/** Chiave stabile salvata su UserMusicCollection.spotifySource per ritrovare la stessa playlist. */
+export const spotifySourceDb = (source: SpotifyImportSource): string =>
+  source.kind === 'saved' ? 'saved' : `playlist:${source.id}`;
+
+/** Converte la chiave salvata nella sorgente da ri-leggere; null se non più riconosciuta. */
+export function dbToSpotifySource(db: string): SpotifyImportSource | null {
+  if (db === 'saved') return { kind: 'saved' };
+  const match = /^playlist:([A-Za-z0-9]{22})$/.exec(db);
+  return match?.[1] ? { kind: 'playlist', id: match[1] } : null;
+}
 
 /** Per-source problems that do not stop the other sources. */
 function isSourceError(error: unknown) {
@@ -374,11 +387,66 @@ function isSourceError(error: unknown) {
   );
 }
 
+/** Sorgente senza brani importabili (file locali/podcast esclusi, o playlist vuota). */
+class EmptySourceError extends Error {
+  constructor(readonly playlistName: string) {
+    super('empty');
+  }
+}
+
+function emptyFailure(source: SpotifyImportSource, name: string): Failed {
+  return {
+    source: sourceKey(source),
+    error: 'empty',
+    message: `“${name}” non contiene brani importabili (file locali e podcast sono esclusi).`,
+  };
+}
+
 /**
- * Imports each source (in order) as a new Solco playlist of songs resolved lazily on play.
- * A per-source refusal (playlist not owned, deleted) is reported in `failed`; any other error
- * stops the import: thrown when nothing was created yet, otherwise reported for the remaining
- * sources so the playlists already created are not hidden.
+ * Legge una sorgente Spotify e la riversa (UPSERT) nella sua playlist Solco: se la sorgente è già
+ * stata importata aggiorna la stessa playlist a specchio esatto, altrimenti ne crea una nuova. Non
+ * svuota mai una playlist esistente per una lettura vuota (sicurezza contro lo svuotamento da un
+ * errore transitorio): una sorgente senza brani resta un fallimento 'empty'. Lancia sugli errori.
+ */
+async function importOneSource(
+  userId: string,
+  source: SpotifyImportSource,
+  auth: SpotifyAuth,
+  options: SpotifyFetchOptions,
+): Promise<Entry & { wasCreated: boolean }> {
+  const name =
+    source.kind === 'saved'
+      ? SAVED_TRACKS_PLAYLIST_NAME
+      : await playlistName(source.id, auth, options);
+  const collected =
+    source.kind === 'saved'
+      ? await collectSavedTracks(auth, options)
+      : await collectPlaylistTracks(source.id, auth, options);
+  if (collected.tracks.length === 0) throw new EmptySourceError(name);
+  const result = await upsertSpotifySongPlaylist(
+    userId,
+    spotifySourceDb(source),
+    name,
+    collected.tracks,
+  );
+  return {
+    collectionId: result.collectionId,
+    name: result.name,
+    imported: collected.tracks.length,
+    skipped: collected.skipped,
+    truncated: collected.truncated,
+    source: sourceKey(source),
+    added: result.added,
+    removed: result.removed,
+    wasCreated: result.created,
+  };
+}
+
+/**
+ * Importa/sincronizza ogni sorgente (in ordine) nella rispettiva playlist Solco: una sorgente già
+ * importata viene AGGIORNATA (stessa playlist, specchio esatto), una nuova viene creata. Un rifiuto
+ * per singola sorgente (playlist non tua, cancellata, vuota) finisce in `failed`; ogni altro errore
+ * ferma tutto: lanciato se non si è ancora fatto nulla, altrimenti riportato per le rimanenti.
  */
 export async function runSpotifyImport(
   userId: string,
@@ -386,36 +454,18 @@ export async function runSpotifyImport(
   auth: SpotifyAuth,
   options: SpotifyFetchOptions = {},
 ): Promise<SpotifyImportResponse> {
-  const created: Created[] = [];
+  const created: Entry[] = [];
+  const updated: Entry[] = [];
   const failed: Failed[] = [];
   for (const [index, source] of sources.entries()) {
     try {
-      const name =
-        source.kind === 'saved'
-          ? SAVED_TRACKS_PLAYLIST_NAME
-          : await playlistName(source.id, auth, options);
-      const collected =
-        source.kind === 'saved'
-          ? await collectSavedTracks(auth, options)
-          : await collectPlaylistTracks(source.id, auth, options);
-      if (collected.tracks.length === 0) {
-        failed.push({
-          source: sourceKey(source),
-          error: 'empty',
-          message: `“${name}” non contiene brani importabili (file locali e podcast sono esclusi).`,
-        });
+      const { wasCreated, ...entry } = await importOneSource(userId, source, auth, options);
+      (wasCreated ? created : updated).push(entry);
+    } catch (error) {
+      if (error instanceof EmptySourceError) {
+        failed.push(emptyFailure(source, error.playlistName));
         continue;
       }
-      const playlist = await createSongPlaylist(userId, name, collected.tracks);
-      created.push({
-        collectionId: playlist.collectionId,
-        name: playlist.name,
-        imported: collected.tracks.length,
-        skipped: collected.skipped,
-        truncated: collected.truncated,
-        source: sourceKey(source),
-      });
-    } catch (error) {
       if (isSourceError(error)) {
         const description = describeSpotifyError(error);
         failed.push({
@@ -425,7 +475,7 @@ export async function runSpotifyImport(
         });
         continue;
       }
-      if (created.length === 0) throw error;
+      if (created.length === 0 && updated.length === 0) throw error;
       const description = describeSpotifyError(error);
       for (const remaining of sources.slice(index)) {
         failed.push({
@@ -437,5 +487,67 @@ export async function runSpotifyImport(
       break;
     }
   }
-  return { created, failed };
+  return { created, updated, failed };
+}
+
+/**
+ * "Aggiorna da Spotify": risincronizza TUTTE le sorgenti già importate dall'utente (brani salvati +
+ * ogni playlist importata), ciascuna nella sua playlist Solco a specchio esatto. Stessa semantica
+ * di errore di runSpotifyImport. `nothingToSync` quando non c'è nulla di importato da Spotify.
+ */
+export async function runSpotifySync(
+  userId: string,
+  auth: SpotifyAuth,
+  options: SpotifyFetchOptions = {},
+): Promise<SpotifySyncResponse> {
+  const rows = await prisma.userMusicCollection.findMany({
+    where: { userId, spotifySource: { not: null } },
+    select: { spotifySource: true },
+    orderBy: { updatedAt: 'asc' },
+  });
+  const sources: SpotifyImportSource[] = [];
+  for (const row of rows) {
+    const source = row.spotifySource ? dbToSpotifySource(row.spotifySource) : null;
+    if (source) sources.push(source);
+  }
+  if (sources.length === 0) return { updated: [], failed: [], nothingToSync: true };
+
+  const updated: Entry[] = [];
+  const failed: Failed[] = [];
+  for (const [index, source] of sources.entries()) {
+    try {
+      const { wasCreated: _wasCreated, ...entry } = await importOneSource(
+        userId,
+        source,
+        auth,
+        options,
+      );
+      updated.push(entry);
+    } catch (error) {
+      if (error instanceof EmptySourceError) {
+        failed.push(emptyFailure(source, error.playlistName));
+        continue;
+      }
+      if (isSourceError(error)) {
+        const description = describeSpotifyError(error);
+        failed.push({
+          source: sourceKey(source),
+          error: description.error,
+          message: description.message,
+        });
+        continue;
+      }
+      if (updated.length === 0) throw error;
+      const description = describeSpotifyError(error);
+      for (const remaining of sources.slice(index)) {
+        failed.push({
+          source: sourceKey(remaining),
+          error: description.error,
+          message: description.message,
+        });
+      }
+      break;
+    }
+  }
+  return { updated, failed, nothingToSync: false };
 }

@@ -13,6 +13,13 @@ model UserMusicCollection {
   /// (id casuali a 128 bit e controllo prima di assegnarli).
   shareId   String?
   sharedAt  DateTime?
+  /// Sorgente Spotify da cui la playlist è stata importata/sincronizzata: 'saved' per i brani
+  /// salvati, 'playlist:<id>' per una playlist. null = non importata da Spotify. L'"Aggiorna da
+  /// Spotify" ritrova per questa chiave la stessa playlist e la risincronizza (specchio esatto)
+  /// invece di crearne una nuova. Indice NON unico (come shareId): un nuovo vincolo unico
+  /// bloccherebbe `prisma db push` sul deploy; l'unicità per (userId, spotifySource) la garantisce
+  /// il codice.
+  spotifySource String?
   createdAt DateTime                  @default(now())
   updatedAt DateTime                  @updatedAt
   items     UserMusicCollectionItem[]
@@ -21,6 +28,7 @@ model UserMusicCollection {
   @@index([userId, kind])
   @@index([folderId])
   @@index([shareId])
+  @@index([userId, spotifySource])
 }
 
 model UserMusicCollectionItem {

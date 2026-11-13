@@ -90,8 +90,12 @@ vi.mock('@/lib/db', () => ({
     spotifyConnection: mocks.spotifyConnection,
     userMusicCollection: {
       count: async () => mocks.playlistCount,
-      findFirst: async ({ where }: { where: { name: string } }) =>
-        mocks.created.some((playlist) => playlist.name === where.name) ? { id: 'taken' } : null,
+      // Usato dal controllo del tetto (sorgenti già importate): nessuna, nei test di importazione.
+      findMany: async () => [],
+      findFirst: async ({ where }: { where: { name?: string } }) =>
+        where.name && mocks.created.some((playlist) => playlist.name === where.name)
+          ? { id: 'taken' }
+          : null,
       create: async ({
         data,
       }: {
@@ -728,6 +732,8 @@ describe('importazione', () => {
           skipped: 4,
           truncated: 0,
           source: PLAYLIST_A,
+          added: 2,
+          removed: 0,
         },
         {
           collectionId: 'col-2',
@@ -736,8 +742,11 @@ describe('importazione', () => {
           skipped: 0,
           truncated: 0,
           source: 'saved',
+          added: 1,
+          removed: 0,
         },
       ],
+      updated: [],
       failed: [],
     });
     const items = calls.find((url) => url.pathname.endsWith('/items'));
