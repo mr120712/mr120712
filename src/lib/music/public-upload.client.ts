@@ -127,6 +127,10 @@ export async function uploadPublicSong(
   const mime = canonicalAudioMime(file);
   const pathname = `public-uploads/${slugify(options.title || file.name)}.${extensionForMime(mime)}`;
 
+  // Durata PRIMA del caricamento (con timeout interno): così dopo il 100% resta solo la
+  // registrazione e non c'è nessun passo che possa "piantarsi" dopo la barra piena.
+  const seconds = Math.max(1, Math.ceil(await readDurationSeconds(file)));
+
   let result: Awaited<ReturnType<typeof upload>>;
   try {
     result = await upload(pathname, file, {
@@ -136,6 +140,11 @@ export async function uploadPublicSong(
       onUploadProgress: options.onProgress
         ? ({ percentage }) => options.onProgress?.(Math.round(percentage))
         : undefined,
+      // Cap generoso: se il caricamento resta appeso (anche dopo il 100%), fallisce invece di
+      // bloccare per sempre l'interfaccia.
+      ...(typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+        ? { abortSignal: AbortSignal.timeout(180_000) }
+        : {}),
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
@@ -149,7 +158,12 @@ export async function uploadPublicSong(
     throw new PublicUploadError(message || 'Caricamento del file non riuscito.');
   }
 
-  const seconds = Math.max(1, Math.ceil(await readDurationSeconds(file)));
+  // Timeout sulla registrazione: se il server non risponde, l'interfaccia non resta appesa in
+  // eterno — fallisce con un errore invece di "piantarsi".
+  const signal =
+    typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+      ? AbortSignal.timeout(45_000)
+      : undefined;
   const { upload: created } = await apiFetch('/api/music/public-uploads', {
     method: 'POST',
     body: JSON.stringify({
@@ -162,6 +176,7 @@ export async function uploadPublicSong(
       elapsedSeconds: seconds,
     }),
     schema: PublicUploadCreateResponseSchema,
+    signal,
   });
   return created;
 }
