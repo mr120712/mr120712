@@ -19,7 +19,7 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { buildCsp, DASHBOARD_FRAME_ANCESTORS } from '@/lib/csp';
 // Per-app extra CSP sources (frame/connect/media/font/img). User-owned, default empty.
-import { cspExtraSources } from './next.user-config';
+import { cspExtraSources } from '../next.user-config';
 
 export function proxy(request: NextRequest) {
   const nonce = Buffer.from(crypto.randomUUID()).toString('base64');
