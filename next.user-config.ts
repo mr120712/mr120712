@@ -50,13 +50,15 @@ export const cspExtraSources: CspExtraSources = {
     'https://www.tiktok.com',
   ],
   // Apple Music (MusicKit JS): catalogue API, playback licences and audio segments.
-  // Vercel Blob: upload diretto dal browser dei brani della libreria pubblica (PUT cross-origin).
-  // Serve sia l'apex (API) sia QUALSIASI sottodominio dello store (il PUT va su <store>.blob… o
-  // <store>.public.blob…): *.blob.vercel-storage.com copre entrambi.
+  // Vercel Blob: il client carica i byte DIRETTO dal browser. In @vercel/blob 2.x il PUT va al
+  // gateway https://vercel.com/api/blob (verificato dal vivo: senza questo host il browser blocca
+  // il PUT via CSP e il client ritenta all'infinito → "Caricamento…" bloccato). Gli host
+  // blob.vercel-storage.com restano per le altre operazioni; la riproduzione usa media-src https.
   connectSrc: [
     'https://api.music.apple.com',
     'https://*.apple.com',
     'https://*.mzstatic.com',
+    'https://vercel.com',
     'https://blob.vercel-storage.com',
     'https://*.blob.vercel-storage.com',
   ],
