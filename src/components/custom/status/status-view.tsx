@@ -1,5 +1,6 @@
-// @polsia:user-owned — pagina di stato pubblica: legge /api/status e mostra lo stato dei servizi
-// (database, accesso, ricerca, cataloghi musicali…). Nessun dato riservato: solo stato per controllo.
+// @polsia:user-owned — pagina di stato pubblica dell'API: legge /api/status e mostra SOLO i
+// controlli core (essenziali) dell'API — database, accesso, registrazione — con stato generale
+// calcolato su di essi. Le integrazioni esterne non sono incluse. Nessun dato riservato.
 'use client';
 
 import { CircleCheck, CircleHelp, CircleX, RotateCw, TriangleAlert } from 'lucide-react';
@@ -17,6 +18,11 @@ import { MONITOR_CHECKS, OVERALL_STATUS_LABELS } from '@/lib/monitoring/catalog'
 
 const ENDPOINT = '/api/status';
 const REFRESH_MS = 60_000;
+
+// Controlli "core" dell'API: quelli marcati essenziali nel catalogo (se falliscono, l'API non è
+// utilizzabile). La pagina pubblica mostra SOLO questi, e lo stato generale è calcolato su di essi,
+// così riflette l'API e non le integrazioni esterne (Audius, YouTube, radio, podcast…).
+const CORE_CHECK_IDS = MONITOR_CHECK_IDS.filter((id) => MONITOR_CHECKS[id].critical);
 
 type CheckStatus = 'ok' | 'warn' | 'fail' | 'unknown';
 
@@ -52,6 +58,14 @@ function checkStatusOf(id: MonitorCheckId, data: PublicMonitorStatus): CheckStat
   if (data.failing.includes(id)) return 'fail';
   if (data.warnings.includes(id)) return 'warn';
   return data.status === 'unknown' ? 'unknown' : 'ok';
+}
+
+/** Stato generale calcolato SOLO sui controlli core dell'API (non sulle integrazioni esterne). */
+function overallFromCore(data: PublicMonitorStatus): PublicMonitorStatus['status'] {
+  if (data.status === 'unknown') return 'unknown';
+  if (CORE_CHECK_IDS.some((id) => data.failing.includes(id))) return 'down';
+  if (CORE_CHECK_IDS.some((id) => data.warnings.includes(id))) return 'degraded';
+  return 'ok';
 }
 
 function relativeTime(iso: string | null, now: number): string {
@@ -105,16 +119,18 @@ export function StatusView() {
   }, [load]);
 
   const data = view.kind === 'ready' ? view.data : null;
-  const overall = data?.status ?? 'unknown';
+  const overall = data ? overallFromCore(data) : 'unknown';
 
   return (
     <div className="mx-auto grid w-full max-w-2xl gap-6">
       <header className="grid gap-2">
-        <p className="text-sm font-medium text-muted-foreground">Stato del servizio</p>
-        <h1 className="text-3xl font-semibold tracking-tight text-foreground">Stato di Solco</h1>
+        <p className="text-sm font-medium text-muted-foreground">Stato dell’API</p>
+        <h1 className="text-3xl font-semibold tracking-tight text-foreground">
+          Stato dell’API Solco
+        </h1>
         <p className="text-sm leading-6 text-muted-foreground">
-          Stato in tempo quasi reale dei sistemi di Solco: database, accesso, ricerca e cataloghi
-          musicali. Aggiornamento automatico ogni minuto.
+          Stato in tempo quasi reale dei sistemi essenziali dell’API: database, accesso e
+          registrazione. Aggiornamento automatico ogni minuto.
         </p>
       </header>
 
@@ -179,7 +195,7 @@ export function StatusView() {
 
           <section aria-label="Controlli" className="grid gap-2">
             <ul className="grid gap-px overflow-hidden rounded-xl border border-border bg-border">
-              {MONITOR_CHECK_IDS.map((id) => {
+              {CORE_CHECK_IDS.map((id) => {
                 const status = checkStatusOf(id, data);
                 const Icon = CHECK_ICON[status];
                 return (
@@ -195,11 +211,6 @@ export function StatusView() {
                     />
                     <span className="flex-1 text-sm font-medium text-card-foreground">
                       {MONITOR_CHECKS[id].label}
-                      {MONITOR_CHECKS[id].critical ? (
-                        <span className="ml-2 align-middle text-xs font-normal text-muted-foreground">
-                          essenziale
-                        </span>
-                      ) : null}
                     </span>
                     <span className="text-sm" style={{ color: CHECK_COLOR[status] }}>
                       {CHECK_LABEL[status]}
@@ -209,8 +220,8 @@ export function StatusView() {
               })}
             </ul>
             <p className="text-xs text-muted-foreground">
-              «Essenziale»: se non funziona, Solco non è utilizzabile. Gli avvisi indicano servizi
-              non configurati o lenti, non un disservizio.
+              Sono i controlli essenziali dell’API: se uno non funziona, Solco non è utilizzabile.
+              Le integrazioni esterne (ricerca e cataloghi musicali) non sono incluse.
             </p>
           </section>
         </>
