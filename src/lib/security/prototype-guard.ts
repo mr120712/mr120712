@@ -47,32 +47,32 @@ export function safeJsonParse(text: string): unknown {
   return JSON.parse(text, (key, val) => (POLLUTION_KEYS.includes(key) ? undefined : val));
 }
 
-/** Prototype dei tipi nativi più esposti al prototype pollution / ai "gadget". */
+/**
+ * Target del rafforzamento: SOLO Object.prototype, il vero bersaglio del prototype pollution.
+ * NB: NON si usa Object.freeze. Congelare Object.prototype rende non scrivibili toString/valueOf e
+ * rompe librerie legittime che fanno `obj.toString = …` (es. Prisma: "Cannot assign to read only
+ * property 'toString'"). Si usa invece Object.seal, che rende il prototype NON ESTENSIBILE: non si
+ * possono AGGIUNGERE nuove proprietà (ed è così che il prototype pollution inietta chiavi arbitrarie
+ * come "isAdmin"), mentre le proprietà esistenti restano scrivibili e il resto dell'app funziona.
+ */
 function defaultPrototypeTargets(): object[] {
-  return [
-    Object.prototype,
-    Array.prototype,
-    Function.prototype,
-    String.prototype,
-    Number.prototype,
-    Boolean.prototype,
-  ];
+  return [Object.prototype];
 }
 
 let hardened = false;
 
 /**
- * Congela i prototype indicati (default: i nativi principali). Idempotente e difensivo: ogni target
- * è protetto a sé, così un errore su uno non impedisce di congelare gli altri. Dopo il congelamento,
- * qualunque tentativo di aggiungere/modificare una proprietà su quel prototype fallisce (in strict
- * mode lancia), neutralizzando il prototype pollution a runtime.
+ * Rende i prototype indicati (default: Object.prototype) NON ESTENSIBILI con Object.seal, così non
+ * si possono più aggiungere proprietà: il prototype pollution a runtime viene neutralizzato senza
+ * rompere il codice che assegna proprietà proprie agli oggetti. Idempotente e difensivo (ogni target
+ * a sé; un errore su uno non blocca gli altri).
  */
 export function hardenGlobalPrototypes(targets: object[] = defaultPrototypeTargets()): void {
   for (const target of targets) {
     try {
-      if (target && !Object.isFrozen(target)) Object.freeze(target);
+      if (target && !Object.isSealed(target)) Object.seal(target);
     } catch {
-      // Target non congelabile in questo ambiente: si prosegue con gli altri.
+      // Target non sigillabile in questo ambiente: si prosegue con gli altri.
     }
   }
   hardened = true;

@@ -61,18 +61,24 @@ describe('safeJsonParse', () => {
 });
 
 describe('hardenGlobalPrototypes', () => {
-  it('congela i target indicati (senza toccare i globali reali nel test)', () => {
-    const dummy = { a: 1 };
+  it('sigilla i target: non si possono AGGIUNGERE proprietà (ma le esistenti restano scrivibili)', () => {
+    const dummy: Record<string, unknown> = { a: 1 };
     hardenGlobalPrototypes([dummy]);
-    expect(Object.isFrozen(dummy)).toBe(true);
+    expect(Object.isSealed(dummy)).toBe(true);
+    // Aggiungere una nuova proprietà (come fa il prototype pollution) fallisce.
     expect(() => {
-      (dummy as Record<string, unknown>).b = 2;
+      dummy.nuova = 2;
     }).toThrow();
+    // Modificare una proprietà già presente continua a funzionare (serve a non rompere le librerie).
+    expect(() => {
+      dummy.a = 9;
+    }).not.toThrow();
+    expect(dummy.a).toBe(9);
     expect(prototypesHardened()).toBe(true);
   });
 
-  it('è idempotente e non lancia su target già congelati', () => {
-    const dummy = Object.freeze({});
+  it('è idempotente e non lancia su target già sigillati', () => {
+    const dummy = Object.seal({});
     expect(() => hardenGlobalPrototypes([dummy])).not.toThrow();
   });
 });
