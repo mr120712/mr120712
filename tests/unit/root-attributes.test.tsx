@@ -14,7 +14,15 @@ vi.mock('@/lib/root-attributes', () => ({
 }));
 // No request scope in a unit test: no nonce header, a public pathname for the nav.
 vi.mock('next/headers', () => ({ headers: async () => new Headers() }));
-vi.mock('next/navigation', () => ({ usePathname: () => '/pricing' }));
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/pricing',
+  useRouter: () => ({ replace() {}, push() {} }),
+}));
+// Il muro di login (RequireLogin) avvolge l'app: qui simuliamo una sessione attiva così il gate è
+// trasparente e il layout rende i figli come prima (questo test riguarda gli attributi root, non l'auth).
+vi.mock('@/lib/auth-client', () => ({
+  useSession: () => ({ data: { user: { id: 'u' } }, isPending: false }),
+}));
 // jsdom has a window but no matchMedia; next-themes reads the color-scheme query on render.
 vi.stubGlobal('matchMedia', () => ({
   matches: false,

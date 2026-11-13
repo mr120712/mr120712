@@ -19,11 +19,16 @@
 
 import { LibraryProvider } from '@/components/custom/music/library-context';
 import { MusicPlayerProvider } from '@/components/custom/music/music-player';
+import { RequireLogin } from '@/components/custom/require-login';
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
+  // Muro di login come wrapper più esterno: senza sessione (e fuori dalle rotte pubbliche) non si
+  // monta nulla sotto — né nav, né player, né pagina — e si reindirizza a /login.
   return (
-    <LibraryProvider>
-      <MusicPlayerProvider>{children}</MusicPlayerProvider>
-    </LibraryProvider>
+    <RequireLogin>
+      <LibraryProvider>
+        <MusicPlayerProvider>{children}</MusicPlayerProvider>
+      </LibraryProvider>
+    </RequireLogin>
   );
 }
