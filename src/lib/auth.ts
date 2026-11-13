@@ -109,11 +109,18 @@ function ownGoogle(): GenericOAuthConfig | undefined {
     return undefined;
   }
 
-  return googleProvider(clientId, clientSecret, {
-    authorizationUrl: GOOGLE_AUTHORIZATION_URL,
-    tokenUrl: GOOGLE_TOKEN_URL,
-    userInfoUrl: GOOGLE_USERINFO_URL,
-  });
+  return {
+    ...googleProvider(clientId, clientSecret, {
+      authorizationUrl: GOOGLE_AUTHORIZATION_URL,
+      tokenUrl: GOOGLE_TOKEN_URL,
+      userInfoUrl: GOOGLE_USERINFO_URL,
+    }),
+    // Google REFUSES a relative redirect_uri. The dynamic per-host baseURL produced
+    // `/oauth2/callback/google` (relative), which broke Google sign-in on every domain. Pin an
+    // ABSOLUTE redirect_uri built from the canonical BETTER_AUTH_URL. This exact URL must be
+    // listed in the Google Cloud Console under "Authorized redirect URIs".
+    redirectURI: new URL('/api/auth/oauth2/callback/google', env.BETTER_AUTH_URL).toString(),
+  };
 }
 
 /** The Polsia Google sign-in broker (a standard OAuth provider); `undefined` unless Polsia injects its env. */
