@@ -50,16 +50,14 @@ export const cspExtraSources: CspExtraSources = {
     'https://www.tiktok.com',
   ],
   // Apple Music (MusicKit JS): catalogue API, playback licences and audio segments.
-  // AWS S3: il client carica i byte DIRETTO dal browser con un PUT all'URL firmato (host S3 o
-  // CloudFront) — serve il connect-src, altrimenti il browser blocca il PUT via CSP. La
-  // riproduzione usa media-src https. Gli host Vercel Blob restano per i brani "in evidenza"
-  // scelti dall'amministratore (flusso separato).
+  // Vercel Blob: il client carica i byte DIRETTO dal browser. In @vercel/blob 2.x il PUT va al
+  // gateway https://vercel.com/api/blob (verificato dal vivo: senza questo host il browser blocca
+  // il PUT via CSP e il client ritenta all'infinito → "Caricamento…" bloccato). Gli host
+  // blob.vercel-storage.com restano per le altre operazioni; la riproduzione usa media-src https.
   connectSrc: [
     'https://api.music.apple.com',
     'https://*.apple.com',
     'https://*.mzstatic.com',
-    'https://*.amazonaws.com',
-    'https://*.cloudfront.net',
     'https://vercel.com',
     'https://blob.vercel-storage.com',
     'https://*.blob.vercel-storage.com',

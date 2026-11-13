@@ -1,4 +1,4 @@
-// @polsia:user-owned — carica un brano nella LIBRERIA PUBBLICA: il file va su AWS S3 (oggetto
+// @polsia:user-owned — carica un brano nella LIBRERIA PUBBLICA: il file va su Vercel Blob (oggetto
 // pubblico) ed è ascoltabile da tutti. Richiede login e l'attestazione dei diritti; la moderazione
 // (segnalazioni) può ritirarlo. Non per materiale di terzi sotto copyright.
 'use client';
@@ -39,11 +39,11 @@ export function PublicUploadForm({
   const [saving, setSaving] = useState(false);
   const [percent, setPercent] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  // null = non ancora saputo; false = storage (AWS S3) non configurato sul server.
+  // null = non ancora saputo; false = Vercel Blob non configurato sul server.
   const [configured, setConfigured] = useState<boolean | null>(null);
 
   // Sa in anticipo se la libreria pubblica è attiva, per mostrare un messaggio chiaro invece
-  // di un errore criptico quando lo storage non è configurato.
+  // dell'errore criptico del client Blob quando lo storage non è configurato.
   useEffect(() => {
     if (!library.signedIn) return;
     let alive = true;
@@ -159,7 +159,7 @@ export function PublicUploadForm({
 
       {configured === false ? (
         <p className={styles.error}>
-          La libreria pubblica non è ancora attiva: lo storage (AWS S3) non è configurato sul
+          La libreria pubblica non è ancora attiva: lo storage (Vercel Blob) non è configurato sul
           server. Riprova più tardi.
         </p>
       ) : null}

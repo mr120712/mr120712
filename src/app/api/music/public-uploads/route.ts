@@ -1,6 +1,5 @@
-// @polsia:user-owned — libreria pubblica dei brani caricati: GET elenco (i brani sono ascoltabili
-// solo dai Premium: ai non-Premium arriva l'anteprima bloccata), POST registra (loggato) un brano
-// già salvato su S3.
+// @polsia:user-owned — libreria pubblica dei brani caricati: GET elenco (pubblico), POST registra
+// (loggato) un brano già salvato su Vercel Blob.
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { hasPremiumAccess } from '@/lib/business/premium-access.server';
@@ -11,11 +10,11 @@ import {
   PublicUploadListResponseSchema,
 } from '@/lib/contracts/public-uploads';
 import {
+  BlobNotConfigured,
   InvalidPublicUploadSource,
   listPublicUploads,
   PublicUploadLimitReached,
   registerPublicUpload,
-  StorageNotConfigured,
 } from '@/lib/music/public-uploads.server';
 import { getSessionUser, requireAuth } from '@/lib/require-auth';
 import { sameOrigin } from '@/lib/same-origin';
@@ -89,11 +88,11 @@ export async function POST(request: Request) {
     }
     if (error instanceof InvalidPublicUploadSource) {
       return NextResponse.json(
-        { errors: { key: 'Il file caricato non è un audio valido.' } },
+        { errors: { blobUrl: 'Il file caricato non è un audio valido.' } },
         { status: 400, headers: privateHeaders },
       );
     }
-    if (error instanceof StorageNotConfigured) {
+    if (error instanceof BlobNotConfigured) {
       return NextResponse.json(
         { error: 'not_configured', message: 'Caricamento non configurato sul server.' },
         { status: 503, headers: privateHeaders },

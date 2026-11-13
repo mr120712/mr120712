@@ -24,7 +24,7 @@ function item(id: string, title: string) {
     id,
     title,
     artist: null,
-    streamUrl: `https://bucket.s3.eu-west-1.amazonaws.com/${id}?X-Amz-Signature=abc`,
+    streamUrl: `/api/music/home-tracks/stream?p=${id}`,
     durationSeconds: 0,
   };
 }

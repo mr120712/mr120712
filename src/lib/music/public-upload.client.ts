@@ -1,12 +1,12 @@
 // @polsia:user-owned — lato browser del caricamento nella libreria pubblica: il file va DIRETTO su
-// AWS S3 (PUT firmato dal server), poi si registrano i metadati via API (si manda la CHIAVE).
+// Vercel Blob (client upload, niente passaggio dal server), poi si registrano i metadati via API.
 'use client';
 
+import { upload } from '@vercel/blob/client';
 import { apiFetch } from '@/lib/api-client';
 import {
   type PublicUpload,
   PublicUploadCreateResponseSchema,
-  PublicUploadPresignResponseSchema,
 } from '@/lib/contracts/public-uploads';
 
 export const MAX_UPLOAD_BYTES = 40 * 1024 * 1024;
@@ -45,7 +45,12 @@ export function shouldReassignMime(declaredType: string): boolean {
   return !declaredType.trim().toLowerCase().startsWith('audio/');
 }
 
-/** Alias di tipi audio che i browser dichiarano, mappati sul sottotipo canonico accettato. */
+function extensionForMime(mime: string): string {
+  for (const [ext, value] of Object.entries(MIME_BY_EXTENSION)) if (value === mime) return ext;
+  return 'audio';
+}
+
+/** Alias di tipi audio che i browser dichiarano, mappati sul sottotipo canonico accettato dal token. */
 const MIME_ALIASES: Record<string, string> = {
   'audio/mp3': 'audio/mpeg',
   'audio/x-mpeg': 'audio/mpeg',
@@ -59,9 +64,9 @@ const MIME_ALIASES: Record<string, string> = {
 };
 
 /**
- * MIME canonico (uno degli accettati) per un file: prima l'estensione nota, poi l'alias del tipo
- * dichiarato, infine il tipo base dichiarato. Serve perché il browser a volte dichiara alias
- * (audio/x-m4a, audio/mp3) che il server rifiuterebbe, e DEVE combaciare col Content-Type firmato.
+ * MIME canonico (uno degli accettati dal token Blob) per un file: prima l'estensione nota, poi
+ * l'alias del tipo dichiarato, infine il tipo base dichiarato. Serve perché il browser a volte
+ * dichiara alias (audio/x-m4a, audio/mp3) che il token rifiuterebbe.
  */
 function canonicalAudioMime(file: File): string {
   const byExt = MIME_BY_EXTENSION[fileExtension(file.name)];
@@ -96,88 +101,62 @@ export function readDurationSeconds(file: File): Promise<number> {
   });
 }
 
+function slugify(name: string): string {
+  return (
+    name
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/\.[^.]+$/, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40) || 'brano'
+  );
+}
+
 export class PublicUploadError extends Error {}
 
 /**
- * PUT del file all'URL firmato di S3 via XMLHttpRequest: così si ha la barra di avanzamento (fetch
- * non espone il progresso di upload) e un timeout (180s) che evita il "caricamento infinito".
- * Il Content-Type DEVE combaciare con quello firmato dal server, altrimenti S3 rifiuta la firma.
- */
-function putToS3(
-  url: string,
-  file: File,
-  contentType: string,
-  onProgress?: (percent: number) => void,
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open('PUT', url);
-    xhr.setRequestHeader('Content-Type', contentType);
-    xhr.timeout = 180_000;
-    if (onProgress) {
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100));
-      };
-    }
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) resolve();
-      else reject(new PublicUploadError('Caricamento del file non riuscito.'));
-    };
-    xhr.onerror = () =>
-      reject(new PublicUploadError('Caricamento del file non riuscito: controlla la rete.'));
-    xhr.ontimeout = () =>
-      reject(new PublicUploadError('Caricamento del file troppo lento: riprova.'));
-    xhr.send(file);
-  });
-}
-
-function presignError(error: unknown): PublicUploadError {
-  const cause =
-    error instanceof Error && typeof error.cause === 'object' && error.cause !== null
-      ? (error.cause as { error?: unknown; message?: unknown })
-      : null;
-  if (cause?.error === 'not_configured') {
-    return new PublicUploadError(
-      'Il caricamento non è disponibile in questo momento: lo storage (AWS S3) non è configurato sul server.',
-    );
-  }
-  if (typeof cause?.message === 'string' && cause.message.trim()) {
-    return new PublicUploadError(cause.message.trim());
-  }
-  return new PublicUploadError('Caricamento non riuscito. Riprova.');
-}
-
-/**
- * Carica un file audio nella libreria pubblica: (1) chiede un URL PUT firmato, (2) carica i byte
- * DIRETTO su S3, (3) registra i metadati con la chiave. `file` deve avere un MIME audio riconosciuto.
+ * Carica un file audio nella libreria pubblica: prima su Vercel Blob (oggetto pubblico), poi
+ * registra i metadati. `file` deve avere un MIME audio non vuoto (usa audioUploadMimeType prima).
  */
 export async function uploadPublicSong(
   file: File,
   options: { title: string; artist?: string; onProgress?: (percent: number) => void },
 ): Promise<PublicUpload> {
   const mime = canonicalAudioMime(file);
+  const pathname = `public-uploads/${slugify(options.title || file.name)}.${extensionForMime(mime)}`;
 
   // Durata PRIMA del caricamento (con timeout interno): così dopo il 100% resta solo la
   // registrazione e non c'è nessun passo che possa "piantarsi" dopo la barra piena.
   const seconds = Math.max(1, Math.ceil(await readDurationSeconds(file)));
 
-  let presigned: { uploadUrl: string; key: string; contentType: string };
+  let result: Awaited<ReturnType<typeof upload>>;
   try {
-    presigned = await apiFetch('/api/music/public-uploads/blob', {
-      method: 'POST',
-      body: JSON.stringify({
-        title: options.title,
-        fileName: file.name,
-        contentType: mime,
-        byteLength: file.size,
-      }),
-      schema: PublicUploadPresignResponseSchema,
+    result = await upload(pathname, file, {
+      access: 'public',
+      handleUploadUrl: '/api/music/public-uploads/blob',
+      contentType: mime,
+      onUploadProgress: options.onProgress
+        ? ({ percentage }) => options.onProgress?.(Math.round(percentage))
+        : undefined,
+      // Cap generoso: se il caricamento resta appeso (anche dopo il 100%), fallisce invece di
+      // bloccare per sempre l'interfaccia.
+      ...(typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+        ? { abortSignal: AbortSignal.timeout(180_000) }
+        : {}),
     });
   } catch (error) {
-    throw presignError(error);
+    const message = error instanceof Error ? error.message : '';
+    // Il client Blob dà "Failed to retrieve the client token" quando il nostro endpoint del token
+    // risponde non-2xx: la causa tipica è lo storage non configurato sul server.
+    if (/client token/i.test(message) || /not.?configured/i.test(message)) {
+      throw new PublicUploadError(
+        'Il caricamento non è disponibile in questo momento: lo storage (Vercel Blob) non è configurato sul server.',
+      );
+    }
+    throw new PublicUploadError(message || 'Caricamento del file non riuscito.');
   }
-
-  await putToS3(presigned.uploadUrl, file, presigned.contentType, options.onProgress);
 
   // Timeout sulla registrazione: se il server non risponde, l'interfaccia non resta appesa in
   // eterno — fallisce con un errore invece di "piantarsi".
@@ -190,8 +169,9 @@ export async function uploadPublicSong(
     body: JSON.stringify({
       title: options.title,
       artist: options.artist,
-      key: presigned.key,
-      mimeType: mime,
+      blobUrl: result.url,
+      blobPathname: result.pathname,
+      mimeType: mime.split(';', 1)[0]?.trim().toLowerCase() ?? mime,
       byteLength: file.size,
       elapsedSeconds: seconds,
     }),

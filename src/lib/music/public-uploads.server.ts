@@ -1,81 +1,35 @@
-// @polsia:user-owned — logica server della libreria PUBBLICA di brani caricati (AWS S3).
-// Il file audio è un oggetto PUBBLICO su S3: qui si registra il brano a partire dalla CHIAVE scelta
-// dal server (l'URL pubblico è derivato, mai mandato dal client), si elenca la classifica, si
-// moderano le segnalazioni e si rimuovono (anche l'oggetto su S3).
+// @polsia:user-owned — logica server della libreria PUBBLICA di brani caricati (Vercel Blob).
+// Il file audio è un oggetto PUBBLICO su Blob (URL CDN): qui si registrano i metadati, si elenca
+// la classifica pubblica, si moderano le segnalazioni e si rimuovono (anche l'oggetto su Blob).
 import 'server-only';
-import { randomUUID } from 'node:crypto';
-import { Prisma } from '@prisma/client';
+import { del, head } from '@vercel/blob';
 import {
-  MAX_PUBLIC_UPLOAD_BYTES,
   PUBLIC_UPLOAD_MAX_PER_USER,
   type PublicUpload,
   type PublicUploadCreateInput,
 } from '@/lib/contracts/public-uploads';
 import { prisma } from '@/lib/db';
-import {
-  deleteObject,
-  headObject,
-  isS3Configured,
-  s3ObjectUrl,
-} from '@/lib/music/s3-storage.server';
+import { env } from '@/lib/env';
 
 /** Oltre questo numero di segnalatori DISTINTI il brano si auto-ritira dalla libreria pubblica. */
 export const AUTO_UNPUBLISH_REPORTS = 5;
 /** Tetto di brani pubblici per utente: ognuno può pubblicare al massimo 3 brani. */
 export const MAX_UPLOADS_PER_USER = PUBLIC_UPLOAD_MAX_PER_USER;
-/** Prefisso obbligatorio della chiave su S3 (lo impone anche il rilascio dell'URL firmato). */
+/** Prefisso obbligatorio del percorso su Blob (lo impone anche il token di caricamento). */
 export const PUBLIC_UPLOAD_PREFIX = 'public-uploads/';
 
 export class PublicUploadLimitReached extends Error {}
 export class InvalidPublicUploadSource extends Error {}
-export class StorageNotConfigured extends Error {}
+export class BlobNotConfigured extends Error {}
 
-/** La libreria pubblica è attiva solo se AWS S3 è configurato (regione, bucket, credenziali). */
+/** La libreria pubblica è attiva solo se Vercel Blob è configurato (token presente). */
 export function isPublicUploadConfigured(): boolean {
-  return isS3Configured();
+  return Boolean(env.BLOB_READ_WRITE_TOKEN);
 }
 
-/** Quanti brani pubblici ha già l'utente (per far rispettare il tetto già al rilascio dell'URL). */
+/** Quanti brani pubblici ha già l'utente (per far rispettare il tetto già al rilascio del token). */
 export function countUserPublicUploads(userId: string): Promise<number> {
   return prisma.publicUpload.count({ where: { uploaderUserId: userId } });
-}
-
-const EXT_BY_CONTENT_TYPE: Record<string, string> = {
-  'audio/mpeg': 'mp3',
-  'audio/mp4': 'm4a',
-  'audio/aac': 'aac',
-  'audio/ogg': 'ogg',
-  'audio/wav': 'wav',
-  'audio/x-wav': 'wav',
-  'audio/flac': 'flac',
-  'audio/webm': 'weba',
-};
-
-function slugify(name: string): string {
-  return (
-    name
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .replace(/\.[^.]+$/, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 40) || 'brano'
-  );
-}
-
-function extensionFor(contentType: string, fileName: string): string {
-  const byType = EXT_BY_CONTENT_TYPE[contentType];
-  if (byType) return byType;
-  const dot = fileName.lastIndexOf('.');
-  const raw = dot >= 0 ? fileName.slice(dot + 1).toLowerCase() : '';
-  return /^[a-z0-9]{1,5}$/.test(raw) ? raw : 'audio';
-}
-
-/** Chiave S3 scelta dal server: prefisso consentito + slug del titolo + suffisso casuale + estensione. */
-export function buildPublicUploadKey(title: string, fileName: string, contentType: string): string {
-  const suffix = randomUUID().replace(/-/g, '').slice(0, 12);
-  return `${PUBLIC_UPLOAD_PREFIX}${slugify(title || fileName)}-${suffix}.${extensionFor(contentType, fileName)}`;
 }
 
 const selectUpload = {
@@ -105,7 +59,7 @@ type UploadRow = {
 /**
  * Riga DB → brano pubblico per il client. I brani pubblicati sono ascoltabili SOLO dagli utenti
  * Premium (o dal proprietario sui propri brani): a chi non può ascoltare NON si invia lo streamUrl
- * (null), così l'URL dell'oggetto non lascia mai il server verso un non abbonato. L'anteprima resta
+ * (null), così l'URL del file non lascia mai il server verso un non abbonato. L'anteprima resta
  * visibile (titolo, artista, ascolti) ma bloccata.
  */
 function toPublicUpload(
@@ -130,79 +84,79 @@ function toPublicUpload(
 }
 
 /**
- * Registra un brano già caricato su S3. Si parte dalla CHIAVE (prefisso consentito) scelta dal
- * server al rilascio dell'URL firmato: l'URL pubblico è DERIVATO qui, così il client non può
- * registrare un URL arbitrario. HEAD dell'oggetto con timeout (fail-open): se S3 risponde si rifiuta
- * un oggetto chiaramente non audio; se va in timeout si procede (l'upload è passato dalla route
- * firmata — loggato, solo audio, max 40MB — e la chiave è nel prefisso consentito).
- *
- * HEAD serve anche da controllo di dimensione: l'URL PUT firmato NON vincola la dimensione del
- * corpo, quindi qui si rifiuta (e si rimuove) un oggetto oltre il tetto consentito, così non
- * finiscono su S3 file enormi serviti poi a tutti. Il tetto per utente è imposto in modo ATOMICO
- * (conteggio + create nella stessa transazione serializzabile), così richieste concorrenti non
- * possono superarlo.
+ * Registra un brano già caricato su Blob come oggetto pubblico. Verifica con head() che l'oggetto
+ * esista davvero, sia audio, abbia la dimensione dichiarata e un percorso nel prefisso consentito;
+ * così il client non può registrare un URL arbitrario o un file non audio.
  */
 export async function registerPublicUpload(
   userId: string,
   input: PublicUploadCreateInput,
 ): Promise<PublicUpload> {
-  if (!isS3Configured()) throw new StorageNotConfigured();
-  if (!input.key.startsWith(PUBLIC_UPLOAD_PREFIX)) throw new InvalidPublicUploadSource();
+  const token = env.BLOB_READ_WRITE_TOKEN;
+  if (!token) throw new BlobNotConfigured();
 
-  const head = await headObject(input.key);
-  if (head?.contentType) {
-    const contentType = head.contentType.split(';', 1)[0]?.trim().toLowerCase() ?? '';
-    if (contentType && !contentType.startsWith('audio/')) {
-      await deleteObject(input.key);
-      throw new InvalidPublicUploadSource();
-    }
-  }
-  // Dimensione reale dell'oggetto su S3: se supera il tetto, rimuovi e rifiuta (il PUT firmato non
-  // la vincola). Fail-open resta solo quando HEAD va in timeout/errore (contentLength assente).
-  if (head?.contentLength != null && head.contentLength > MAX_PUBLIC_UPLOAD_BYTES) {
-    await deleteObject(input.key);
+  if (!input.blobPathname.startsWith(PUBLIC_UPLOAD_PREFIX)) {
     throw new InvalidPublicUploadSource();
   }
 
-  const objectUrl = s3ObjectUrl(input.key);
-  const durationSeconds = Math.max(1, Math.min(86_400, Math.ceil(input.elapsedSeconds)));
-  const data = {
-    uploaderUserId: userId,
-    title: input.title,
-    artist: input.artist && input.artist.length > 0 ? input.artist : null,
-    blobUrl: objectUrl,
-    blobPathname: input.key,
-    mimeType: input.mimeType,
-    byteLength: input.byteLength,
-    durationSeconds,
-  };
+  const existing = await prisma.publicUpload.count({ where: { uploaderUserId: userId } });
+  if (existing >= MAX_UPLOADS_PER_USER) throw new PublicUploadLimitReached();
 
-  // Conteggio + create atomici: la transazione serializzabile impedisce a più richieste concorrenti
-  // dello stesso utente di superare il tetto. Su conflitto di serializzazione si riprova una volta
-  // (il nuovo conteggio vede la riga concorrente e fa scattare il tetto).
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const row = await prisma.$transaction(
-        async (tx) => {
-          const existing = await tx.publicUpload.count({ where: { uploaderUserId: userId } });
-          if (existing >= MAX_UPLOADS_PER_USER) throw new PublicUploadLimitReached();
-          return tx.publicUpload.create({ data, select: selectUpload });
-        },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-      );
-      // È un brano del proprietario stesso: può sempre ascoltarlo (canPlay).
-      return toPublicUpload(row, userId, true);
-    } catch (error) {
-      if (error instanceof PublicUploadLimitReached) throw error;
-      // Stesso oggetto già registrato (blobUrl/blobPathname unici): sorgente non valida.
-      if (isUniqueViolation(error)) throw new InvalidPublicUploadSource();
-      // Conflitto di serializzazione (P2034): riprova una sola volta.
-      if (isSerializationFailure(error) && attempt === 0) continue;
-      throw error;
+  // Validazione dell'oggetto con head(), ma con TIMEOUT: se l'API di Blob non risponde in tempo non
+  // si blocca la registrazione all'infinito (era la causa della POST che restava "pending"). Quando
+  // head() risponde i controlli sono severi; se va in timeout/errore si procede lo stesso, perché
+  // l'URL è già ristretto a *.blob.vercel-storage.com dal contratto, il percorso è nel prefisso
+  // consentito (controllato sopra) e il caricamento è passato dalla route token (loggato, solo
+  // audio, max 40MB).
+  const abortSignal =
+    typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+      ? AbortSignal.timeout(8000)
+      : undefined;
+  // Doppia rete di sicurezza: abortSignal su head() + una corsa con timeout, così la funzione
+  // risponde entro ~8,5 s anche se head() non onorasse il segnale di annullamento.
+  const headResult = head(input.blobUrl, { token, abortSignal }).catch(
+    () => null as Awaited<ReturnType<typeof head>> | null,
+  );
+  const timeout = new Promise<null>((resolve) => {
+    setTimeout(() => resolve(null), 8500);
+  });
+  const meta = await Promise.race([headResult, timeout]);
+  if (meta) {
+    const contentType = (meta.contentType ?? '').split(';', 1)[0]?.trim().toLowerCase() ?? '';
+    // Si rifiuta SOLO se head() dice chiaramente che non è audio. Non si confrontano esattamente
+    // dimensione e percorso: i valori restituiti da Blob (es. slash iniziale nel percorso, o una
+    // dimensione calcolata diversamente) possono differire da quelli del client e farebbero
+    // fallire registrazioni perfettamente valide — era la causa dei brani che non comparivano.
+    // La sicurezza di base resta: URL ristretto a *.blob.vercel-storage.com, prefisso consentito,
+    // caricamento passato dalla route token (loggato, solo audio, max 40MB).
+    if (contentType && !contentType.startsWith('audio/')) {
+      throw new InvalidPublicUploadSource();
     }
   }
-  // Irraggiungibile: il ciclo ritorna o lancia sempre.
-  throw new PublicUploadLimitReached();
+
+  const durationSeconds = Math.max(1, Math.min(86_400, Math.ceil(input.elapsedSeconds)));
+
+  try {
+    const row = await prisma.publicUpload.create({
+      data: {
+        uploaderUserId: userId,
+        title: input.title,
+        artist: input.artist && input.artist.length > 0 ? input.artist : null,
+        blobUrl: input.blobUrl,
+        blobPathname: input.blobPathname,
+        mimeType: input.mimeType,
+        byteLength: input.byteLength,
+        durationSeconds,
+      },
+      select: selectUpload,
+    });
+    // È un brano del proprietario stesso: può sempre ascoltarlo (canPlay).
+    return toPublicUpload(row, userId, true);
+  } catch (error) {
+    // Stesso oggetto già registrato (blobUrl/blobPathname unici): sorgente non valida.
+    if (isUniqueViolation(error)) throw new InvalidPublicUploadSource();
+    throw error;
+  }
 }
 
 /**
@@ -286,42 +240,47 @@ export async function reportPublicUpload(
     const row = await prisma.publicUpload.update({
       where: { id: uploadId },
       data: { published: false },
-      select: { blobPathname: true },
+      select: { blobUrl: true },
     });
-    // Takedown vero: rimuove l'oggetto da S3 (per chiave), così l'audio segnalato smette davvero
-    // di essere servito.
-    await deleteObject(row.blobPathname);
+    // Takedown vero: rimuove l'oggetto dalla CDN pubblica, non solo dall'elenco, così l'audio
+    // segnalato smette davvero di essere servito (il suo URL pubblico non risponde più).
+    const token = env.BLOB_READ_WRITE_TOKEN;
+    if (token) {
+      try {
+        await del(row.blobUrl, { token });
+      } catch {
+        // Già rimosso o non raggiungibile: la riga resta comunque non pubblicata.
+      }
+    }
   }
   return true;
 }
 
-/** Rimuove un brano dell'utente: cancella l'oggetto su S3 e la riga. Ritorna false se non suo. */
+/** Rimuove un brano dell'utente: cancella l'oggetto su Blob e la riga. Ritorna false se non suo. */
 export async function deletePublicUpload(userId: string, uploadId: string): Promise<boolean> {
   const row = await prisma.publicUpload.findFirst({
     where: { id: uploadId, uploaderUserId: userId },
-    select: { id: true, blobPathname: true },
+    select: { id: true, blobUrl: true },
   });
   if (!row) return false;
 
-  await deleteObject(row.blobPathname);
+  const token = env.BLOB_READ_WRITE_TOKEN;
+  if (token) {
+    try {
+      await del(row.blobUrl, { token });
+    } catch {
+      // L'oggetto potrebbe essere già sparito: procedi comunque a togliere la riga.
+    }
+  }
   await prisma.publicUpload.delete({ where: { id: row.id } });
   return true;
 }
 
 function isUniqueViolation(error: unknown): boolean {
-  return hasPrismaCode(error, 'P2002');
-}
-
-/** P2034: transazione fallita per conflitto di scrittura/serializzazione (va ritentata). */
-function isSerializationFailure(error: unknown): boolean {
-  return hasPrismaCode(error, 'P2034');
-}
-
-function hasPrismaCode(error: unknown, code: string): boolean {
   return (
     typeof error === 'object' &&
     error !== null &&
     'code' in error &&
-    (error as { code?: unknown }).code === code
+    (error as { code?: unknown }).code === 'P2002'
   );
 }

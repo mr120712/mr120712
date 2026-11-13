@@ -47,19 +47,9 @@ export const env = createEnv({
     // @polsia:contrib file-upload start
     POLSIA_R2_BASE_URL: z.string().url().optional(),
     // @polsia:contrib file-upload end
-    // Vercel Blob: storage pubblico per i brani "in evidenza" scelti dall'amministratore.
-    // Opzionale.
+    // Vercel Blob: storage pubblico per i brani caricati dagli utenti (libreria pubblica).
+    // Opzionale: senza, la funzione di caricamento è disattivata (mostra "non configurato").
     BLOB_READ_WRITE_TOKEN: z.string().min(1).optional(),
-    // AWS S3: storage dei brani caricati dagli utenti (libreria pubblica). Il browser carica DIRETTO
-    // su S3 con un URL PUT firmato dal server; l'oggetto è pubblico in lettura (policy del bucket o
-    // CloudFront) e la riproduzione usa media-src https. Opzionali: senza, il caricamento è
-    // disattivato (il form mostra "non configurato").
-    AWS_REGION: z.string().min(1).optional(),
-    AWS_S3_BUCKET: z.string().min(1).optional(),
-    AWS_ACCESS_KEY_ID: z.string().min(1).optional(),
-    AWS_SECRET_ACCESS_KEY: z.string().min(1).optional(),
-    // Base pubblica per il GET degli oggetti (es. CloudFront). Senza, si usa l'endpoint S3 standard.
-    AWS_S3_PUBLIC_BASE_URL: z.string().url().optional(),
     // Bot Telegram per i codici di invito (collega l'account e consegna il codice referral).
     // Opzionali: senza, il bot è disattivato (il pulsante "Ricevi su Telegram" non compare e il
     // webhook non risponde). TELEGRAM_BOT_TOKEN è il token di BotFather; TELEGRAM_WEBHOOK_SECRET è
@@ -124,11 +114,6 @@ export const env = createEnv({
     POLSIA_R2_BASE_URL: process.env.POLSIA_R2_BASE_URL,
     // @polsia:contrib file-upload end
     BLOB_READ_WRITE_TOKEN: process.env.BLOB_READ_WRITE_TOKEN,
-    AWS_REGION: process.env.AWS_REGION,
-    AWS_S3_BUCKET: process.env.AWS_S3_BUCKET,
-    AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID,
-    AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY,
-    AWS_S3_PUBLIC_BASE_URL: process.env.AWS_S3_PUBLIC_BASE_URL,
     TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
     TELEGRAM_WEBHOOK_SECRET: process.env.TELEGRAM_WEBHOOK_SECRET,
     TELEGRAM_CHANNEL_CHAT_ID: process.env.TELEGRAM_CHANNEL_CHAT_ID,
