@@ -69,24 +69,27 @@ export const cspExtraSources: CspExtraSources = {
 
 /** Package-level Next options (transpilePackages, experimental.optimizePackageImports, …). */
 export const userNextConfig: NextConfig = {
-  // Sottodominio di stato: la radice di status.solcomusic.online mostra la pagina /stato,
-  // mantenendo l'URL. È un rewrite `beforeFiles` (prima del filesystem) così sovrascrive la home
-  // solo per quell'host; gli asset e /api passano inalterati. Match su `host` e `x-forwarded-host`
-  // per robustezza dietro il proxy della piattaforma. Gli altri domini non sono toccati.
-  async rewrites() {
+  // Sottodominio di stato: la radice di status.solcomusic.online porta alla pagina /stato.
+  // Si usa un REDIRECT (non un rewrite): con un rewrite l'URL resta "/" e il router client di
+  // Next re-renderizza la home dopo l'idratazione (si vedrebbe la landing, non lo stato). Il
+  // redirect cambia l'URL in /stato, quindi il browser carica davvero la pagina di stato.
+  // Match su host e x-forwarded-host per robustezza dietro il proxy. Gli altri domini non sono toccati.
+  async redirects() {
     const statusHost = 'status.solcomusic.online';
-    return {
-      beforeFiles: [
-        { source: '/', has: [{ type: 'host', value: statusHost }], destination: '/stato' },
-        {
-          source: '/',
-          has: [{ type: 'header', key: 'x-forwarded-host', value: statusHost }],
-          destination: '/stato',
-        },
-      ],
-      afterFiles: [],
-      fallback: [],
-    };
+    return [
+      {
+        source: '/',
+        has: [{ type: 'host', value: statusHost }],
+        destination: '/stato',
+        permanent: false,
+      },
+      {
+        source: '/',
+        has: [{ type: 'header', key: 'x-forwarded-host', value: statusHost }],
+        destination: '/stato',
+        permanent: false,
+      },
+    ];
   },
 };
 
