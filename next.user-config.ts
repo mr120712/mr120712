@@ -68,7 +68,27 @@ export const cspExtraSources: CspExtraSources = {
 };
 
 /** Package-level Next options (transpilePackages, experimental.optimizePackageImports, …). */
-export const userNextConfig: NextConfig = {};
+export const userNextConfig: NextConfig = {
+  // Sottodominio di stato: la radice di status.solcomusic.online mostra la pagina /stato,
+  // mantenendo l'URL. È un rewrite `beforeFiles` (prima del filesystem) così sovrascrive la home
+  // solo per quell'host; gli asset e /api passano inalterati. Match su `host` e `x-forwarded-host`
+  // per robustezza dietro il proxy della piattaforma. Gli altri domini non sono toccati.
+  async rewrites() {
+    const statusHost = 'status.solcomusic.online';
+    return {
+      beforeFiles: [
+        { source: '/', has: [{ type: 'host', value: statusHost }], destination: '/stato' },
+        {
+          source: '/',
+          has: [{ type: 'header', key: 'x-forwarded-host', value: statusHost }],
+          destination: '/stato',
+        },
+      ],
+      afterFiles: [],
+      fallback: [],
+    };
+  },
+};
 
 export type ConfigPlugin = (config: NextConfig) => NextConfig;
 

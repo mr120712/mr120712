@@ -44,6 +44,7 @@ export const navItems: NavItem[] = [
   { label: 'Installa l’app', href: '/app', group: 'primary', order: 6 },
   { label: 'Flashcard', href: '/flashcards', group: 'primary', order: 7 },
   { label: 'Apple Music', href: '/apple-music', group: 'footer', order: -1 },
+  { label: 'Stato', href: '/stato', group: 'footer', order: 2 },
   { label: 'Privacy', href: '/privacy', group: 'footer', order: 0 },
   { label: 'Termini', href: '/terms', group: 'footer', order: 1 },
 ];

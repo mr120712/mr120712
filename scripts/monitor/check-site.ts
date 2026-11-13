@@ -134,6 +134,7 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
   { path: '/app', label: 'Installa l’app', critical: false },
   { path: '/flashcards', label: 'Flashcard', critical: false },
   { path: '/apple-music', label: 'Apple Music', critical: false },
+  { path: '/stato', label: 'Stato', critical: false },
   { path: '/privacy', label: 'Privacy', critical: false },
   { path: '/terms', label: 'Termini', critical: false },
   { path: '/login', label: 'Accedi', critical: false },
