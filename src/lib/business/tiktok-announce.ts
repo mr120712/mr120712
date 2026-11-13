@@ -12,9 +12,13 @@ export type RawTikTokAnnouncement = {
   altText?: unknown;
 };
 
-const STR = { hook: 140, caption: 220, cta: 140, soundIdea: 240, altText: 320, beat: 160, at: 24 };
+// La didascalia è limitata a 200: è anche il limite del campo didascalia del clip TikTok
+// (TikTokClipCreateSchema.caption), così "Usa come didascalia" produce sempre un valore salvabile.
+const STR = { hook: 140, caption: 200, cta: 140, soundIdea: 240, altText: 320, beat: 160, at: 24 };
 const MAX_HASHTAGS = 8;
 const MAX_BEATS = 8;
+// Limite generoso sul numero di scene grezze da elaborare prima di scartare le vuote e tagliare a 8.
+const MAX_RAW_BEATS = 40;
 const MIN_SECONDS = 10;
 const MAX_SECONDS = 60;
 const DEFAULT_SECONDS = 30;
@@ -48,8 +52,10 @@ export function sanitizeAnnouncement(raw: RawTikTokAnnouncement): TikTokAnnounce
   }
 
   const rawBeats = Array.isArray(raw.script?.beats) ? raw.script.beats : [];
+  // Scarta le scene vuote PRIMA di tagliare a 8, così una scena vuota in testa non consuma uno slot
+  // e non spinge fuori una scena valida.
   const beats = rawBeats
-    .slice(0, MAX_BEATS)
+    .slice(0, MAX_RAW_BEATS)
     .map((beat: unknown) => {
       const value = (beat ?? {}) as Record<string, unknown>;
       return {
@@ -59,7 +65,8 @@ export function sanitizeAnnouncement(raw: RawTikTokAnnouncement): TikTokAnnounce
         visual: clamp(value.visual, STR.beat),
       };
     })
-    .filter((beat) => beat.onScreen || beat.voiceover || beat.visual);
+    .filter((beat) => beat.onScreen || beat.voiceover || beat.visual)
+    .slice(0, MAX_BEATS);
 
   const rawDuration = Number(raw.script?.durationSeconds);
   const durationSeconds = Number.isFinite(rawDuration)

@@ -64,18 +64,23 @@ describe('sanitizeAnnouncement', () => {
     ).toBe(30);
   });
 
-  it('taglia a 8 scene e scarta le scene completamente vuote', () => {
-    const beats = [
-      ...Array.from({ length: 10 }, () => beat()),
-      beat({ onScreen: '', voiceover: '', visual: '' }),
-    ];
+  it('scarta le scene vuote prima di applicare il limite di 8', () => {
+    // La scena vuota è in mezzo alle prime 8: il filtro DEVE elaborarla e scartarla.
+    const beats = [beat(), beat({ onScreen: '', voiceover: '', visual: '' }), beat()];
     const out = sanitizeAnnouncement(plan({ script: { durationSeconds: 20, beats, cta: 'x' } }));
-    expect(out.script.beats).toHaveLength(8);
+    expect(out.script.beats).toHaveLength(2);
     expect(out.script.beats.every((b) => b.onScreen || b.voiceover || b.visual)).toBe(true);
   });
 
-  it('accorcia i testi troppo lunghi', () => {
-    const out = sanitizeAnnouncement(plan({ hook: 'a'.repeat(500) }));
+  it('taglia a 8 scene quando ce ne sono di più', () => {
+    const beats = Array.from({ length: 10 }, () => beat());
+    const out = sanitizeAnnouncement(plan({ script: { durationSeconds: 20, beats, cta: 'x' } }));
+    expect(out.script.beats).toHaveLength(8);
+  });
+
+  it('accorcia i testi troppo lunghi (didascalia a 200, come il campo del clip)', () => {
+    const out = sanitizeAnnouncement(plan({ hook: 'a'.repeat(500), caption: 'b'.repeat(500) }));
     expect(out.hook.length).toBe(140);
+    expect(out.caption.length).toBe(200);
   });
 });
