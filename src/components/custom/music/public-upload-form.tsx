@@ -37,10 +37,16 @@ export function PublicUploadForm({ onUploaded }: { onUploaded: (upload: PublicUp
   useEffect(() => {
     if (!library.signedIn) return;
     let alive = true;
-    fetch('/api/music/public-uploads/blob', { method: 'GET' })
-      .then((res) => (res.ok ? res.json() : { configured: false }))
-      .then((data: { configured?: boolean }) => {
-        if (alive) setConfigured(data.configured === true);
+    fetch('/api/music/public-uploads/blob', { method: 'GET', cache: 'no-store' })
+      .then(async (res) => {
+        // Una risposta non-ok (tipicamente il 502 di cold-start della serverless function) NON
+        // significa "storage non configurato": lasciamo lo stato "sconosciuto" (null), così il form
+        // resta utilizzabile invece di mostrare falsamente "non attiva" e disattivare il caricamento.
+        if (!res.ok) return null;
+        return (await res.json()) as { configured?: boolean };
+      })
+      .then((data) => {
+        if (alive && data) setConfigured(data.configured === true);
       })
       .catch(() => {
         if (alive) setConfigured(null);
