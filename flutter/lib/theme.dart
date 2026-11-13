@@ -1,18 +1,26 @@
 import 'package:flutter/material.dart';
 
-/// Palette Solco — monocromatico FUTURISTICO: nero profondo + un unico accento
-/// NEON ciano (come il sito). I nomi delle costanti restano per compatibilità;
-/// i valori sono il nuovo tema. Per cambiare accento, sostituisci kSolcoLime.
-const Color kSolcoNavy = Color(0xFF05070A); // sfondo nero
-const Color kSolcoNavyCard = Color(0xFF0A0E14); // superfici / card
-const Color kSolcoLime = Color(0xFF22D3EE); // accento NEON ciano
-const Color kSolcoChristmasRed = Color(0xFFFF5D6C); // rosso (es. badge "in diretta")
-const Color kSolcoGold = Color(0xFFE0B24E);
+/// Palette Solco — look AGGRESSIVO/VIRALE: nero profondo + accento MAGENTA
+/// elettrico e un gradiente brand (come il sito). I nomi delle costanti restano
+/// per compatibilità; i valori sono il nuovo tema. Per cambiare accento,
+/// sostituisci kSolcoLime.
+const Color kSolcoNavy = Color(0xFF08060E); // sfondo nero-violaceo
+const Color kSolcoNavyCard = Color(0xFF120E1C); // superfici / card
+const Color kSolcoLime = Color(0xFFFF2E88); // accento MAGENTA elettrico
+const Color kSolcoChristmasRed = Color(0xFFFF4D5E); // rosso (es. badge "in diretta")
+const Color kSolcoGold = Color(0xFFF59E0B); // ambra (avvisi)
 
-const Color _fg = Color(0xFFE9EDF2);
-const Color _onAccent = Color(0xFF04161B);
-const Color _border = Color(0xFF1B2430);
-const Color _muted = Color(0xFFB3C0CC);
+/// Gradiente brand (violetto → magenta → ambra): per header e accenti "virali".
+const LinearGradient kSolcoGradient = LinearGradient(
+  begin: Alignment.centerLeft,
+  end: Alignment.centerRight,
+  colors: [Color(0xFF8B5CF6), Color(0xFFEC4899), Color(0xFFF59E0B)],
+);
+
+const Color _fg = Color(0xFFF4F2F8);
+const Color _onAccent = Color(0xFF180314);
+const Color _border = Color(0xFF271D38);
+const Color _muted = Color(0xFFAA9FBB);
 
 ThemeData solcoTheme() {
   final base = ThemeData.dark(useMaterial3: true);
@@ -59,9 +67,9 @@ ThemeData solcoTheme() {
       ),
     ),
     navigationBarTheme: NavigationBarThemeData(
-      backgroundColor: const Color(0xFF080B10),
+      backgroundColor: const Color(0xFF0F0A18),
       elevation: 0,
-      indicatorColor: kSolcoLime.withOpacity(0.18),
+      indicatorColor: kSolcoLime.withOpacity(0.20),
       labelTextStyle: WidgetStateProperty.all(
         const TextStyle(fontSize: 12, color: _muted),
       ),
