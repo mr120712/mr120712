@@ -1,7 +1,36 @@
-// @polsia:user-owned — client minimale del bot Telegram (invio messaggi) e utilità del link invito.
+// @polsia:user-owned — client minimale del bot Telegram (invio messaggi, diagnostica, webhook) e
+// utilità del link invito.
 import 'server-only';
 import { env } from '@/lib/env';
 import { siteUrl } from '@/lib/site';
+
+/** Chiamata all'API Bot di Telegram (POST JSON, timeout 8s). Non lancia: ritorna la risposta o null. */
+async function telegramApi(
+  method: string,
+  params: Record<string, unknown>,
+): Promise<{ ok?: boolean; result?: Record<string, unknown>; description?: string } | null> {
+  const token = env.TELEGRAM_BOT_TOKEN;
+  if (!token) return null;
+  const signal =
+    typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+      ? AbortSignal.timeout(8000)
+      : undefined;
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(params),
+      signal,
+    });
+    return (await res.json().catch(() => null)) as {
+      ok?: boolean;
+      result?: Record<string, unknown>;
+      description?: string;
+    } | null;
+  } catch {
+    return null;
+  }
+}
 
 /** Il bot è attivo solo se è configurato il token di BotFather. */
 export function isTelegramBotConfigured(): boolean {
@@ -111,6 +140,88 @@ export async function telegramBotDiagnostics(): Promise<TelegramDiagnostics> {
   }
 
   return out;
+}
+
+/** URL su cui Telegram deve inviare gli aggiornamenti del bot (webhook). */
+export function telegramWebhookUrl(): string {
+  return `${siteUrl}/api/telegram/webhook`;
+}
+
+export type TelegramWebhookStatus = {
+  /** Bot + secret configurati E webhook registrato sull'URL atteso. */
+  ready: boolean;
+  botConfigured: boolean;
+  secretConfigured: boolean;
+  expectedUrl: string;
+  currentUrl: string | null;
+  matches: boolean;
+  pendingUpdates: number;
+  lastError: string | null;
+};
+
+/** Stato del webhook interattivo: bot/secret configurati e registrato sull'URL atteso? */
+export async function telegramWebhookStatus(): Promise<TelegramWebhookStatus> {
+  const botConfigured = isTelegramBotConfigured();
+  const secretConfigured = Boolean(env.TELEGRAM_WEBHOOK_SECRET);
+  const expectedUrl = telegramWebhookUrl();
+  const base: TelegramWebhookStatus = {
+    ready: false,
+    botConfigured,
+    secretConfigured,
+    expectedUrl,
+    currentUrl: null,
+    matches: false,
+    pendingUpdates: 0,
+    lastError: null,
+  };
+  if (!botConfigured) return base;
+
+  const info = await telegramApi('getWebhookInfo', {});
+  if (!info?.ok || !info.result) {
+    const desc = info?.description
+      ? redactToken(info.description, env.TELEGRAM_BOT_TOKEN ?? '')
+      : 'getWebhookInfo non riuscito';
+    return { ...base, lastError: desc };
+  }
+  const currentUrl =
+    typeof info.result.url === 'string' && info.result.url ? info.result.url : null;
+  const matches = currentUrl === expectedUrl;
+  return {
+    ...base,
+    currentUrl,
+    matches,
+    pendingUpdates: Number(info.result.pending_update_count ?? 0),
+    lastError:
+      typeof info.result.last_error_message === 'string' ? info.result.last_error_message : null,
+    ready: botConfigured && secretConfigured && matches,
+  };
+}
+
+/** Registra il webhook su Telegram (setWebhook) con l'URL atteso e il secret di verifica. */
+export async function registerTelegramWebhook(): Promise<{ ok: boolean; message: string }> {
+  if (!isTelegramBotConfigured()) {
+    return { ok: false, message: 'TELEGRAM_BOT_TOKEN non impostato: imposta il token su Vercel.' };
+  }
+  const secret = env.TELEGRAM_WEBHOOK_SECRET;
+  if (!secret) {
+    return {
+      ok: false,
+      message:
+        'TELEGRAM_WEBHOOK_SECRET non impostato: aggiungilo su Vercel e ridistribuisci, poi riprova.',
+    };
+  }
+  const res = await telegramApi('setWebhook', {
+    url: telegramWebhookUrl(),
+    secret_token: secret,
+    allowed_updates: ['message'],
+  });
+  if (res?.ok) return { ok: true, message: 'Webhook registrato con successo.' };
+  return {
+    ok: false,
+    message: res?.description
+      ? redactToken(res.description, env.TELEGRAM_BOT_TOKEN ?? '')
+      : 'setWebhook non riuscito (nessuna risposta da Telegram).',
+  };
 }
 
 /** Invia un messaggio di testo a una chat. Non lancia mai: ritorna solo esito. */

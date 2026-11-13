@@ -2,7 +2,7 @@
 // on-demand sul canale. Legge e scrive solo tramite /api/admin/telegram-announce.
 'use client';
 
-import { CircleCheck, CircleX, RotateCw, Send } from 'lucide-react';
+import { CircleCheck, CircleX, RotateCw, Send, Webhook } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { ZodError } from 'zod';
@@ -17,8 +17,14 @@ import {
   AnnouncePreviewSchema,
   AnnounceResultSchema,
 } from '@/lib/contracts/telegram-announce';
+import {
+  TelegramWebhookRegisterResultSchema,
+  type TelegramWebhookStatus,
+  TelegramWebhookStatusSchema,
+} from '@/lib/contracts/telegram-webhook';
 
 const ENDPOINT = '/api/admin/telegram-announce';
+const WEBHOOK_ENDPOINT = '/api/admin/telegram-webhook';
 const ERROR_TEXT_MAX = 300;
 
 const ERROR_CODE_TEXT: Record<string, string> = {
@@ -62,6 +68,8 @@ export function TelegramAnnouncePanel() {
   const [view, setView] = useState<ViewState>({ kind: 'loading' });
   const [publishing, setPublishing] = useState(false);
   const [announcement, setAnnouncement] = useState('');
+  const [webhook, setWebhook] = useState<TelegramWebhookStatus | null>(null);
+  const [registering, setRegistering] = useState(false);
   const publishingRef = useRef(false);
   const requestRef = useRef(0);
 
@@ -81,12 +89,39 @@ export function TelegramAnnouncePanel() {
     }
   }, []);
 
+  const loadWebhook = useCallback(async () => {
+    try {
+      const data = await apiFetch(WEBHOOK_ENDPOINT, { schema: TelegramWebhookStatusSchema });
+      setWebhook(data);
+    } catch {
+      // Non blocca il pannello: se non riesco a leggere lo stato del webhook, lo nascondo.
+    }
+  }, []);
+
+  const registerWebhook = async () => {
+    setRegistering(true);
+    try {
+      const result = await apiFetch(WEBHOOK_ENDPOINT, {
+        method: 'POST',
+        schema: TelegramWebhookRegisterResultSchema,
+      });
+      setWebhook(result.status);
+      if (result.ok) toast.success('Webhook del bot registrato.');
+      else toast.error(result.message);
+    } catch (error) {
+      toast.error(failureMessage(error, 'Registrazione del webhook non riuscita.'));
+    } finally {
+      setRegistering(false);
+    }
+  };
+
   useEffect(() => {
     void load();
+    void loadWebhook();
     return () => {
       requestRef.current += 1;
     };
-  }, [load]);
+  }, [load, loadWebhook]);
 
   const publish = async () => {
     if (publishingRef.current) return;
@@ -204,6 +239,59 @@ export function TelegramAnnouncePanel() {
             )}
           </Panel>
         </>
+      ) : null}
+
+      {webhook ? (
+        <Panel
+          title="Bot interattivo (codici invito)"
+          description="Quando è attivo, chi tocca «Ricevi il codice su Telegram» apre il bot e riceve il proprio codice referral in chat."
+        >
+          <ul className="grid gap-2 text-sm">
+            <li className="flex items-center gap-2">
+              <ConfigMark ok={webhook.botConfigured} />
+              Bot {webhook.botConfigured ? 'configurato' : 'non configurato (TELEGRAM_BOT_TOKEN)'}
+            </li>
+            <li className="flex items-center gap-2">
+              <ConfigMark ok={webhook.secretConfigured} />
+              Secret del webhook{' '}
+              {webhook.secretConfigured ? 'impostato' : 'mancante (TELEGRAM_WEBHOOK_SECRET)'}
+            </li>
+            <li className="flex items-center gap-2">
+              <ConfigMark ok={webhook.matches} />
+              Webhook {webhook.matches ? 'registrato su Telegram' : 'non registrato'}
+            </li>
+          </ul>
+          {webhook.lastError ? (
+            <p className="mt-2 text-sm text-destructive">
+              Ultimo errore da Telegram: {webhook.lastError}
+            </p>
+          ) : null}
+          {!webhook.secretConfigured ? (
+            <p className="mt-3 text-sm text-muted-foreground">
+              Aggiungi <code>TELEGRAM_WEBHOOK_SECRET</code> su Vercel (una stringa casuale) e
+              ridistribuisci, poi premi «Attiva webhook».
+            </p>
+          ) : null}
+          <div className="mt-4">
+            <Button
+              type="button"
+              variant={webhook.ready ? 'outline' : 'default'}
+              onClick={() => void registerWebhook()}
+              aria-disabled={
+                registering || !webhook.botConfigured || !webhook.secretConfigured || undefined
+              }
+              className="aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
+            >
+              <Webhook aria-hidden="true" />
+              {registering
+                ? 'Registrazione…'
+                : webhook.ready
+                  ? 'Ri-registra webhook'
+                  : 'Attiva webhook'}
+            </Button>
+          </div>
+          <p className="mt-2 break-all text-xs text-muted-foreground">URL: {webhook.expectedUrl}</p>
+        </Panel>
       ) : null}
     </AppSurface>
   );

@@ -5,111 +5,86 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 
 const mocks = vi.hoisted(() => ({
-  configured: true,
-  secret: 'sek' as string | undefined,
-  readJson: vi.fn(),
-  verifyToken: vi.fn(),
-  ensureCode: vi.fn(),
-  send: vi.fn(),
-  upsert: vi.fn(),
-  deleteMany: vi.fn(),
-  findUnique: vi.fn(),
+  getSession: vi.fn(),
+  status: vi.fn(),
+  register: vi.fn(),
+  sameOrigin: vi.fn(),
 }));
 
-vi.mock('@/lib/env', () => ({
-  get env() {
-    return { TELEGRAM_WEBHOOK_SECRET: mocks.secret, TELEGRAM_BOT_TOKEN: 'tok' };
-  },
-}));
-vi.mock('@/lib/business/request-body.server', () => ({ readJsonLimited: mocks.readJson }));
-vi.mock('@/lib/business/rewards.server', () => ({ ensureReferralCode: mocks.ensureCode }));
+vi.mock('@/lib/auth', () => ({ auth: { api: { getSession: mocks.getSession } } }));
 vi.mock('@/lib/business/telegram-bot.server', () => ({
-  isTelegramBotConfigured: () => mocks.configured,
-  sendTelegramMessage: mocks.send,
-  inviteLinkForCode: (code: string) => `https://solco.example/invito/${code}`,
+  telegramWebhookStatus: mocks.status,
+  registerTelegramWebhook: mocks.register,
 }));
-vi.mock('@/lib/business/telegram-link', () => ({ verifyTelegramLinkToken: mocks.verifyToken }));
-vi.mock('@/lib/db', () => ({
-  prisma: {
-    telegramAccountLink: {
-      upsert: mocks.upsert,
-      deleteMany: mocks.deleteMany,
-      findUnique: mocks.findUnique,
-    },
-  },
-}));
+vi.mock('@/lib/same-origin', () => ({ sameOrigin: mocks.sameOrigin }));
 
-import { POST } from '@/app/api/telegram/webhook/route';
+import { GET, POST } from '@/app/api/admin/telegram-webhook/route';
 
-function req(secretHeader?: string) {
-  const headers: Record<string, string> = {};
-  if (secretHeader !== undefined) headers['x-telegram-bot-api-secret-token'] = secretHeader;
-  return new Request('https://solco.example/api/telegram/webhook', { method: 'POST', headers });
-}
-function update(text: string, chatId: number | string = 555, username = 'mario') {
-  return { ok: true, value: { message: { text, chat: { id: chatId }, from: { username } } } };
+const admin = { user: { id: 'u1', role: 'admin', emailVerified: true } };
+const status = {
+  ready: true,
+  botConfigured: true,
+  secretConfigured: true,
+  expectedUrl: 'https://solco.example/api/telegram/webhook',
+  currentUrl: 'https://solco.example/api/telegram/webhook',
+  matches: true,
+  pendingUpdates: 0,
+  lastError: null,
+};
+
+function req(method = 'GET') {
+  return new Request('https://solco.example/api/admin/telegram-webhook', {
+    method,
+    headers: method === 'POST' ? { origin: 'https://solco.example' } : undefined,
+  });
 }
 
 beforeEach(() => {
   vi.resetAllMocks();
-  mocks.configured = true;
-  mocks.secret = 'sek';
-  mocks.ensureCode.mockResolvedValue('ABCD1234');
-  mocks.send.mockResolvedValue(true);
-  mocks.readJson.mockResolvedValue(update('/codice'));
+  mocks.sameOrigin.mockReturnValue(true);
+  mocks.getSession.mockResolvedValue(admin);
+  mocks.status.mockResolvedValue(status);
+  mocks.register.mockResolvedValue({ ok: true, message: 'ok' });
 });
 
-describe('POST /api/telegram/webhook', () => {
-  it('404 se bot/secret non configurati', async () => {
-    mocks.configured = false;
-    expect((await POST(req('sek'))).status).toBe(404);
-    mocks.configured = true;
-    mocks.secret = undefined;
-    expect((await POST(req('sek'))).status).toBe(404);
+describe('GET /api/admin/telegram-webhook', () => {
+  it('401 senza sessione', async () => {
+    mocks.getSession.mockResolvedValue(null);
+    expect((await GET(req())).status).toBe(401);
   });
 
-  it('401 se il secret header è sbagliato o assente', async () => {
-    expect((await POST(req('sbagliato'))).status).toBe(401);
-    expect((await POST(req())).status).toBe(401);
-    expect(mocks.readJson).not.toHaveBeenCalled();
+  it('403 se non admin / email non verificata', async () => {
+    mocks.getSession.mockResolvedValue({ user: { id: 'u', role: 'user', emailVerified: true } });
+    expect((await GET(req())).status).toBe(403);
   });
 
-  it('/start <token> valido → collega l’account e invia il codice', async () => {
-    mocks.verifyToken.mockReturnValue('user-9');
-    mocks.readJson.mockResolvedValue(update('/start LINKTOKEN'));
-    const res = await POST(req('sek'));
+  it('200 con lo stato del webhook per un admin', async () => {
+    const res = await GET(req());
     expect(res.status).toBe(200);
-    expect(mocks.deleteMany).toHaveBeenCalled();
-    expect(mocks.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { userId: 'user-9' },
-        create: expect.objectContaining({ userId: 'user-9', telegramChatId: '555' }),
-      }),
-    );
-    expect(mocks.send).toHaveBeenCalledWith('555', expect.stringContaining('ABCD1234'));
+    expect((await res.json()).ready).toBe(true);
+  });
+});
+
+describe('POST /api/admin/telegram-webhook', () => {
+  it('403 su origine diversa', async () => {
+    mocks.sameOrigin.mockReturnValue(false);
+    expect((await POST(req('POST'))).status).toBe(403);
+    expect(mocks.register).not.toHaveBeenCalled();
   });
 
-  it('/start <token> non valido → messaggio di errore, nessun collegamento', async () => {
-    mocks.verifyToken.mockReturnValue(null);
-    mocks.readJson.mockResolvedValue(update('/start SCADUTO'));
-    await POST(req('sek'));
-    expect(mocks.upsert).not.toHaveBeenCalled();
-    expect(mocks.send).toHaveBeenCalledWith('555', expect.stringMatching(/scaduto|non valido/i));
+  it('registra il webhook e ritorna 200 + stato aggiornato', async () => {
+    const res = await POST(req('POST'));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.status.ready).toBe(true);
+    expect(mocks.register).toHaveBeenCalled();
   });
 
-  it('/codice quando già collegato → invia il codice', async () => {
-    mocks.findUnique.mockResolvedValue({ userId: 'user-7' });
-    mocks.readJson.mockResolvedValue(update('/codice'));
-    await POST(req('sek'));
-    expect(mocks.ensureCode).toHaveBeenCalledWith('user-7');
-    expect(mocks.send).toHaveBeenCalledWith('555', expect.stringContaining('ABCD1234'));
-  });
-
-  it('/codice senza collegamento → spiega come collegare', async () => {
-    mocks.findUnique.mockResolvedValue(null);
-    mocks.readJson.mockResolvedValue(update('/codice'));
-    await POST(req('sek'));
-    expect(mocks.ensureCode).not.toHaveBeenCalled();
-    expect(mocks.send).toHaveBeenCalledWith('555', expect.stringMatching(/collega/i));
+  it('502 quando setWebhook fallisce', async () => {
+    mocks.register.mockResolvedValue({ ok: false, message: 'errore' });
+    const res = await POST(req('POST'));
+    expect(res.status).toBe(502);
+    expect((await res.json()).ok).toBe(false);
   });
 });
