@@ -1,6 +1,7 @@
 // @polsia:user-owned — Home di Solco in stile app di streaming (schede, caroselli, player).
 
 import {
+  BarChart3,
   Crown,
   Disc3,
   Download,
@@ -49,6 +50,7 @@ const shortcuts = [
   { href: '/radio', label: 'Radio', icon: Radio },
   { href: '/podcasts', label: 'Podcast', icon: Mic },
   { href: '/library', label: 'Libreria', icon: Library },
+  { href: '/statistiche', label: 'Statistiche', icon: BarChart3 },
   { href: '#la-tua-musica', label: 'Musica offline', icon: Download },
   { href: '/pubblica', label: 'Pubblica', icon: Globe2 },
   { href: '/piani', label: 'Premium', icon: Crown },

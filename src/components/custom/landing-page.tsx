@@ -4,10 +4,38 @@
 
 import Link from 'next/link';
 import { useEffect, useRef } from 'react';
+import { getSolcoProPricing } from '@/lib/business/solco-pro-pricing';
 import styles from './landing-page.module.css';
+
+/** Riassunto breve dei vantaggi per piano (i dettagli completi sono su /piani dopo l'accesso). */
+const PLAN_SUMMARY: Record<string, { tagline: string; perks: string[]; featured?: boolean }> = {
+  free: {
+    tagline: 'Per iniziare',
+    perks: ['40 ascolti al mese', 'Radio e YouTube senza limiti', 'Libreria e playlist'],
+  },
+  premium: {
+    tagline: 'Il più scelto',
+    perks: ['Ascolti illimitati', 'Cerca con l’AI', 'Ascolto in background illimitato'],
+    featured: true,
+  },
+  'premium-plus': {
+    tagline: 'Per chi vuole di più',
+    perks: ['Tutto Premium', 'Statistiche avanzate e temi extra', 'Creazione di brani'],
+  },
+  family: {
+    tagline: 'Per tutta la famiglia',
+    perks: ['Tutti i vantaggi Premium', 'Fino a 6 account', 'Un unico abbonamento'],
+  },
+};
+
+function formatEuro(cents: number): string {
+  if (cents === 0) return 'Gratis';
+  return `€${(cents / 100).toFixed(2).replace('.', ',')}`;
+}
 
 export function LandingPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const { plans } = getSolcoProPricing();
 
   useEffect(() => {
     const video = videoRef.current;
@@ -77,6 +105,62 @@ export function LandingPage() {
             />
           </div>
         </div>
+
+        <section className={styles.plans} aria-labelledby="landing-plans-heading">
+          <div className={styles.plansHead}>
+            <p className={styles.eyebrow}>PIANI</p>
+            <h2 id="landing-plans-heading" className={styles.plansTitle}>
+              Scegli il tuo piano
+            </h2>
+            <p className={styles.plansLead}>
+              Inizia gratis, passa a Premium quando vuoi. Prezzi in euro, al mese.
+            </p>
+          </div>
+          <div className={styles.planGrid}>
+            {plans.map((plan) => {
+              const summary = PLAN_SUMMARY[plan.id];
+              const free = plan.monthlyEuroCents === 0;
+              return (
+                <div
+                  key={plan.id}
+                  className={
+                    summary?.featured
+                      ? `${styles.planCard} ${styles.planFeatured}`
+                      : styles.planCard
+                  }
+                >
+                  {summary?.featured ? <span className={styles.planBadge}>Consigliato</span> : null}
+                  <p className={styles.planName}>{plan.name}</p>
+                  {summary?.tagline ? (
+                    <p className={styles.planTagline}>{summary.tagline}</p>
+                  ) : null}
+                  <p className={styles.planPrice}>
+                    <strong>{formatEuro(plan.monthlyEuroCents)}</strong>
+                    {free ? null : <span className={styles.planPer}>/mese</span>}
+                  </p>
+                  {free ? null : (
+                    <p className={styles.planYear}>o {formatEuro(plan.annualEuroCents)}/anno</p>
+                  )}
+                  <ul className={styles.planPerks}>
+                    {(summary?.perks ?? []).map((perk) => (
+                      <li key={perk}>{perk}</li>
+                    ))}
+                  </ul>
+                  <Link
+                    className={summary?.featured ? styles.planCtaPrimary : styles.planCta}
+                    href="/login"
+                  >
+                    {free ? 'Inizia gratis' : 'Accedi e abbonati'}
+                  </Link>
+                </div>
+              );
+            })}
+          </div>
+          <p className={styles.plansNote}>
+            Al primo abbonamento hai <strong>10 giorni di Premium gratis</strong>. Puoi disdire
+            quando vuoi.
+          </p>
+        </section>
       </div>
     </main>
   );

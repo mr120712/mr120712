@@ -33,6 +33,7 @@ export const navItems: NavItem[] = [
   { label: 'Radio', href: '/radio', group: 'primary', order: 1 },
   { label: 'Podcast', href: '/podcasts', group: 'primary', order: 2 },
   { label: 'Libreria', href: '/library', group: 'primary', order: 3 },
+  { label: 'Statistiche', href: '/statistiche', group: 'primary', requiresAuth: true, order: 3 },
   { label: 'Record Pool', href: '/pool', group: 'primary', order: 2 },
   { label: 'Classici', href: '/classici', group: 'primary', order: 2 },
   { label: 'Pubblica', href: '/pubblica', group: 'primary', order: 3 },
