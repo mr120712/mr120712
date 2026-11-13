@@ -2,9 +2,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   audioMimeType,
-  blobPublicUrl,
   PUBLIC_UPLOAD_MAX_PER_USER,
   PublicUploadCreateSchema,
+  storagePublicUrl,
 } from '@/lib/contracts/public-uploads';
 
 describe('limite brani pubblici per utente', () => {
@@ -13,26 +13,29 @@ describe('limite brani pubblici per utente', () => {
   });
 });
 
-describe('blobPublicUrl', () => {
-  it('accetta solo URL https su *.blob.vercel-storage.com', () => {
+describe('storagePublicUrl', () => {
+  it('accetta https su host S3, CloudFront o Vercel Blob', () => {
     expect(
-      blobPublicUrl.safeParse('https://abc123.public.blob.vercel-storage.com/public-uploads/x.mp3')
+      storagePublicUrl.safeParse('https://bucket.s3.eu-west-1.amazonaws.com/public-uploads/x.mp3')
+        .success,
+    ).toBe(true);
+    expect(
+      storagePublicUrl.safeParse('https://d111.cloudfront.net/public-uploads/x.mp3').success,
+    ).toBe(true);
+    expect(
+      storagePublicUrl.safeParse('https://abc.public.blob.vercel-storage.com/public-uploads/x.mp3')
         .success,
     ).toBe(true);
   });
 
   it('rifiuta host diversi, http e URL non validi', () => {
-    expect(blobPublicUrl.safeParse('https://evil.example.com/x.mp3').success).toBe(false);
-    // L'host API nudo non è un URL di file pubblico (i file stanno su *.public.blob…).
-    expect(blobPublicUrl.safeParse('https://blob.vercel-storage.com/x.mp3').success).toBe(false);
-    expect(blobPublicUrl.safeParse('http://abc.public.blob.vercel-storage.com/x.mp3').success).toBe(
-      false,
-    );
-    expect(blobPublicUrl.safeParse('not-a-url').success).toBe(false);
-    // Nessun suffisso ingannevole: deve finire con .blob.vercel-storage.com
-    expect(blobPublicUrl.safeParse('https://blob.vercel-storage.com.evil.com/x.mp3').success).toBe(
-      false,
-    );
+    expect(storagePublicUrl.safeParse('https://evil.example.com/x.mp3').success).toBe(false);
+    expect(
+      storagePublicUrl.safeParse('http://bucket.s3.eu-west-1.amazonaws.com/x.mp3').success,
+    ).toBe(false);
+    expect(storagePublicUrl.safeParse('not-a-url').success).toBe(false);
+    // Nessun suffisso ingannevole.
+    expect(storagePublicUrl.safeParse('https://amazonaws.com.evil.com/x.mp3').success).toBe(false);
   });
 });
 
@@ -51,8 +54,7 @@ describe('PublicUploadCreateSchema', () => {
   const valid = {
     title: 'La mia canzone',
     artist: 'Io',
-    blobUrl: 'https://abc.public.blob.vercel-storage.com/public-uploads/x.mp3',
-    blobPathname: 'public-uploads/x.mp3',
+    key: 'public-uploads/la-mia-canzone-ab12cd34ef56.mp3',
     mimeType: 'audio/mpeg',
     byteLength: 1000,
     elapsedSeconds: 120,
@@ -66,10 +68,10 @@ describe('PublicUploadCreateSchema', () => {
     expect(PublicUploadCreateSchema.safeParse({ ...valid, title: '  ' }).success).toBe(false);
   });
 
-  it('rifiuta un blobUrl non su Blob', () => {
-    expect(
-      PublicUploadCreateSchema.safeParse({ ...valid, blobUrl: 'https://evil.com/x.mp3' }).success,
-    ).toBe(false);
+  it('rifiuta una chiave fuori dal prefisso consentito', () => {
+    expect(PublicUploadCreateSchema.safeParse({ ...valid, key: 'altrove/x.mp3' }).success).toBe(
+      false,
+    );
   });
 
   it('rifiuta file troppo grandi (oltre 40 MB)', () => {

@@ -9,11 +9,11 @@ import {
   PublicUploadListResponseSchema,
 } from '@/lib/contracts/public-uploads';
 import {
-  BlobNotConfigured,
   InvalidPublicUploadSource,
   listPublicUploads,
   PublicUploadLimitReached,
   registerPublicUpload,
+  StorageNotConfigured,
 } from '@/lib/music/public-uploads.server';
 import { getSessionUser, requireAuth } from '@/lib/require-auth';
 import { sameOrigin } from '@/lib/same-origin';
@@ -85,11 +85,11 @@ export async function POST(request: Request) {
     }
     if (error instanceof InvalidPublicUploadSource) {
       return NextResponse.json(
-        { errors: { blobUrl: 'Il file caricato non è un audio valido.' } },
+        { errors: { key: 'Il file caricato non è un audio valido.' } },
         { status: 400, headers: privateHeaders },
       );
     }
-    if (error instanceof BlobNotConfigured) {
+    if (error instanceof StorageNotConfigured) {
       return NextResponse.json(
         { error: 'not_configured', message: 'Caricamento non configurato sul server.' },
         { status: 503, headers: privateHeaders },

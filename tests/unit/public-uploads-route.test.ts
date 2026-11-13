@@ -34,7 +34,7 @@ vi.mock('@/lib/business/request-body.server', () => ({
 vi.mock('@/lib/music/public-uploads.server', () => {
   class PublicUploadLimitReached extends Error {}
   class InvalidPublicUploadSource extends Error {}
-  class BlobNotConfigured extends Error {}
+  class StorageNotConfigured extends Error {}
   return {
     listPublicUploads: mocks.list,
     registerPublicUpload: mocks.register,
@@ -43,7 +43,7 @@ vi.mock('@/lib/music/public-uploads.server', () => {
     recordPublicUploadPlay: mocks.play,
     PublicUploadLimitReached,
     InvalidPublicUploadSource,
-    BlobNotConfigured,
+    StorageNotConfigured,
   };
 });
 
@@ -70,8 +70,7 @@ const item = {
 };
 const validBody = {
   title: 'Brano',
-  blobUrl: item.streamUrl,
-  blobPathname: 'public-uploads/x.mp3',
+  key: 'public-uploads/x.mp3',
   mimeType: 'audio/mpeg',
   byteLength: 1000,
   elapsedSeconds: 100,
@@ -139,7 +138,7 @@ describe('POST /api/music/public-uploads', () => {
     const res = await POST(postReq(validBody));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { errors?: Record<string, string> };
-    expect(body.errors?.blobUrl).toBeTruthy();
+    expect(body.errors?.key).toBeTruthy();
   });
 });
 
