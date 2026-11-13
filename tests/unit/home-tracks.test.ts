@@ -5,117 +5,100 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 
 const mocks = vi.hoisted(() => ({
-  list: vi.fn(),
-  token: 'tok_test' as string | undefined,
+  listPage: vi.fn(),
+  presign: vi.fn(),
+  configured: true as boolean,
 }));
 
-vi.mock('@vercel/blob', () => ({ list: mocks.list }));
-vi.mock('@/lib/env', () => ({
-  get env() {
-    return { BLOB_READ_WRITE_TOKEN: mocks.token };
-  },
+vi.mock('@/lib/music/s3-storage.server', () => ({
+  isS3Configured: () => mocks.configured,
+  listObjectsPage: mocks.listPage,
+  presignGetUrl: mocks.presign,
 }));
 
 import { isHomeTracksConfigured, listHomeTracks } from '@/lib/music/home-tracks.server';
 
-function blob(pathname: string, url: string, uploadedAt: string) {
-  return { pathname, url, downloadUrl: url, size: 1000, uploadedAt: new Date(uploadedAt) };
+function obj(key: string, lastModified: string) {
+  return { key, size: 1000, lastModified: new Date(lastModified) };
 }
-function page(blobs: ReturnType<typeof blob>[], hasMore = false, cursor?: string) {
-  return { blobs, hasMore, cursor };
+function pageOf(objects: ReturnType<typeof obj>[], nextToken?: string) {
+  return { objects, nextToken };
 }
-
-const PUBLIC = 'https://store.public.blob.vercel-storage.com';
-const PRIVATE = 'https://store.private.blob.vercel-storage.com';
 
 beforeEach(() => {
   vi.resetAllMocks();
-  mocks.token = 'tok_test';
+  mocks.configured = true;
+  // URL GET firmato: firma locale sul bucket S3 (nessuna rete).
+  mocks.presign.mockImplementation(
+    async (key: string) =>
+      `https://bucket.s3.eu-west-1.amazonaws.com/${encodeURIComponent(key)}?X-Amz-Signature=abc`,
+  );
 });
 
 describe('isHomeTracksConfigured', () => {
-  it('true con token, false senza', () => {
-    mocks.token = 'tok_test';
+  it('rispecchia la configurazione di AWS S3', () => {
+    mocks.configured = true;
     expect(isHomeTracksConfigured()).toBe(true);
-    mocks.token = undefined;
+    mocks.configured = false;
     expect(isHomeTracksConfigured()).toBe(false);
   });
 });
 
 describe('listHomeTracks', () => {
   it('elenca solo audio, esclude gli upload utenti, ordina dal più recente', async () => {
-    mocks.list.mockResolvedValue(
-      page([
-        blob('ciao-mondo.mp3', `${PUBLIC}/ciao-mondo.mp3`, '2026-01-01T00:00:00.000Z'),
-        blob('bella.wav', `${PUBLIC}/bella.wav`, '2026-03-01T00:00:00.000Z'),
-        blob(
-          'public-uploads/di-un-utente.mp3',
-          `${PUBLIC}/public-uploads/di-un-utente.mp3`,
-          '2026-05-01T00:00:00.000Z',
-        ),
-        blob('copertina.png', `${PUBLIC}/copertina.png`, '2026-04-01T00:00:00.000Z'),
+    mocks.listPage.mockResolvedValue(
+      pageOf([
+        obj('ciao-mondo.mp3', '2026-01-01T00:00:00.000Z'),
+        obj('bella.wav', '2026-03-01T00:00:00.000Z'),
+        obj('public-uploads/di-un-utente.mp3', '2026-05-01T00:00:00.000Z'),
+        obj('copertina.png', '2026-04-01T00:00:00.000Z'),
       ]),
     );
     const items = await listHomeTracks();
     expect(items.map((i) => i.id)).toEqual(['bella.wav', 'ciao-mondo.mp3']);
     expect(items[0]?.title).toBe('Bella');
     expect(items[1]?.title).toBe('Ciao mondo');
-    // File su host pubblico → stream diretto dal CDN.
-    expect(items[0]?.streamUrl).toBe(`${PUBLIC}/bella.wav`);
+    // streamUrl è un URL GET firmato su S3 (il player lo riproduce diretto, seek/Range nativi).
+    expect(items[0]?.streamUrl).toContain('amazonaws.com');
+    expect(items[0]?.streamUrl).toContain('X-Amz-Signature');
     expect(items[0]?.durationSeconds).toBe(0);
     expect(items[0]?.artist).toBeNull();
   });
 
-  it('un file PRIVATO è servito dal proxy same-origin, non dall’URL diretto', async () => {
-    mocks.list.mockResolvedValue(
-      page([blob('mia canzone.m4a', `${PRIVATE}/mia%20canzone.m4a`, '2026-01-01T00:00:00.000Z')]),
-    );
-    const items = await listHomeTracks();
-    expect(items[0]?.streamUrl).toBe('/api/music/home-tracks/stream?p=mia%20canzone.m4a');
-  });
-
   it('ricava il titolo dalla cartella/nome e rispetta i nomi già leggibili', async () => {
-    mocks.list.mockResolvedValue(
-      page([
-        blob('home/Bella Ciao.mp3', `${PUBLIC}/home/Bella%20Ciao.mp3`, '2026-01-01T00:00:00.000Z'),
-      ]),
+    mocks.listPage.mockResolvedValue(
+      pageOf([obj('home/Bella Ciao.mp3', '2026-01-01T00:00:00.000Z')]),
     );
     const items = await listHomeTracks();
     expect(items[0]?.title).toBe('Bella Ciao');
   });
 
-  it('pagina oltre la prima pagina (cursore) per non perdere brani quando lo store cresce', async () => {
-    mocks.list
-      .mockResolvedValueOnce(
-        page([blob('a.mp3', `${PUBLIC}/a.mp3`, '2026-01-01T00:00:00.000Z')], true, 'cur1'),
-      )
-      .mockResolvedValueOnce(
-        page([blob('b.mp3', `${PUBLIC}/b.mp3`, '2026-02-01T00:00:00.000Z')], false),
-      );
+  it('pagina oltre la prima pagina (token) per non perdere brani quando lo store cresce', async () => {
+    mocks.listPage
+      .mockResolvedValueOnce(pageOf([obj('a.mp3', '2026-01-01T00:00:00.000Z')], 'cur1'))
+      .mockResolvedValueOnce(pageOf([obj('b.mp3', '2026-02-01T00:00:00.000Z')]));
     const items = await listHomeTracks();
-    expect(mocks.list).toHaveBeenCalledTimes(2);
-    expect(mocks.list.mock.calls[1]?.[0]).toMatchObject({ cursor: 'cur1' });
+    expect(mocks.listPage).toHaveBeenCalledTimes(2);
+    expect(mocks.listPage.mock.calls[1]?.[0]).toBe('cur1');
     // Ordinati per data: b (feb) prima di a (gen).
     expect(items.map((i) => i.id)).toEqual(['b.mp3', 'a.mp3']);
   });
 
-  it('ritorna [] senza token (storage non configurato)', async () => {
-    mocks.token = undefined;
+  it('ritorna [] se S3 non è configurato', async () => {
+    mocks.configured = false;
     const items = await listHomeTracks();
     expect(items).toEqual([]);
-    expect(mocks.list).not.toHaveBeenCalled();
+    expect(mocks.listPage).not.toHaveBeenCalled();
   });
 
-  it('ritorna [] se list() va in errore (degradazione, niente crash della Home)', async () => {
-    mocks.list.mockRejectedValue(new Error('blob down'));
+  it('ritorna [] se il listing va in errore (degradazione, niente crash della Home)', async () => {
+    mocks.listPage.mockRejectedValue(new Error('s3 down'));
     expect(await listHomeTracks()).toEqual([]);
   });
 
   it('se una pagina successiva fallisce, mostra comunque quanto già raccolto', async () => {
-    mocks.list
-      .mockResolvedValueOnce(
-        page([blob('ok.mp3', `${PUBLIC}/ok.mp3`, '2026-01-01T00:00:00.000Z')], true, 'cur1'),
-      )
+    mocks.listPage
+      .mockResolvedValueOnce(pageOf([obj('ok.mp3', '2026-01-01T00:00:00.000Z')], 'cur1'))
       .mockRejectedValueOnce(new Error('timeout'));
     const items = await listHomeTracks();
     expect(items.map((i) => i.id)).toEqual(['ok.mp3']);

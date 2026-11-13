@@ -1,15 +1,12 @@
 // @polsia:user-owned — contratto condiviso (client + route handler) per i "brani in evidenza" della
-// Home: file audio che l'amministratore mette DIRETTAMENTE nello store Vercel Blob (dal pannello),
+// Home: file audio che l'amministratore mette DIRETTAMENTE nel bucket AWS S3 (dalla console),
 // elencati e riprodotti in Home. Non passano dal flusso di upload degli utenti (/pubblica).
 import { z } from 'zod';
 
-/** Prefisso del proxy same-origin che serve i brani in evidenza PRIVATI (lettura lato server). */
-export const HOME_TRACK_STREAM_PREFIX = '/api/music/home-tracks/stream';
-
 /**
- * URL di riproduzione di un brano in evidenza. Due forme possibili:
- *  - un URL CDN https su un host *.public.blob.vercel-storage.com (file reso pubblico: stream diretto);
- *  - un percorso same-origin del proxy (file privato: lo stream passa dal server con il token).
+ * URL di riproduzione di un brano in evidenza: un URL GET firmato (presigned) prodotto dal server a
+ * partire dalla chiave dell'oggetto su S3. Basta esigere https (il valore è sempre derivato dal
+ * server, mai dal client); la riproduzione passa comunque da `media-src 'https:'`.
  */
 const homeTrackStreamUrl = z
   .string()
@@ -17,12 +14,8 @@ const homeTrackStreamUrl = z
   .max(2048)
   .refine(
     (value) => {
-      if (value.startsWith(`${HOME_TRACK_STREAM_PREFIX}?p=`)) return true;
       try {
-        const url = new URL(value);
-        return (
-          url.protocol === 'https:' && url.hostname.endsWith('.public.blob.vercel-storage.com')
-        );
+        return new URL(value).protocol === 'https:';
       } catch {
         return false;
       }
@@ -30,11 +23,11 @@ const homeTrackStreamUrl = z
     { message: 'URL di riproduzione non valido.' },
   );
 
-/** Un brano in evidenza letto dallo store Blob. durationSeconds 0 = sconosciuta (la legge il player). */
+/** Un brano in evidenza letto dal bucket S3. durationSeconds 0 = sconosciuta (la legge il player). */
 export const HomeTrackSchema = z.object({
-  // Il pathname dell'oggetto su Blob: stabile e unico nello store. I pathname di Vercel Blob
-  // arrivano fino a 1024 caratteri (come nel contratto degli upload utenti): non tagliare più corto,
-  // altrimenti un file dal nome/cartella lunghi verrebbe scartato in silenzio.
+  // La chiave dell'oggetto su S3: stabile e unica nel bucket. Le chiavi S3 arrivano fino a 1024
+  // caratteri (come nel contratto degli upload utenti): non tagliare più corto, altrimenti un file
+  // dal nome/cartella lunghi verrebbe scartato in silenzio.
   id: z.string().min(1).max(1024),
   title: z.string().min(1).max(200),
   artist: z.string().max(200).nullable(),

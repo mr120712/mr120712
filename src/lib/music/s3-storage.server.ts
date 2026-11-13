@@ -5,7 +5,9 @@
 import 'server-only';
 import {
   DeleteObjectCommand,
+  GetObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
@@ -58,6 +60,46 @@ export function presignUploadPut(key: string, contentType: string): Promise<stri
     ContentType: contentType,
   });
   return getSignedUrl(s3(), command, { expiresIn: 600 });
+}
+
+/**
+ * URL GET firmato (presigned) per ASCOLTARE un oggetto, anche se il bucket non è pubblico. Il
+ * browser scarica direttamente da S3 (seek/Range nativi) senza passare dal server. Scade in 6 ore:
+ * abbastanza per la riproduzione, la lista si rigenera ben prima. È firma locale: nessuna rete.
+ */
+export function presignGetUrl(key: string, expiresIn = 21_600): Promise<string> {
+  return getSignedUrl(s3(), new GetObjectCommand({ Bucket: env.AWS_S3_BUCKET, Key: key }), {
+    expiresIn,
+  });
+}
+
+export type S3Object = { key: string; size: number; lastModified: Date | null };
+
+/**
+ * Una pagina di oggetti del bucket (max 1000, ordinati per chiave). `nextToken` presente finché ci
+ * sono altre pagine. Non lancia su timeout? Sì, può lanciare: il chiamante decide la degradazione
+ * (es. i brani in evidenza mostrano quanto già raccolto). Fail-open su timeout tramite deadlineMs.
+ */
+export async function listObjectsPage(
+  continuationToken?: string,
+  deadlineMs = 8000,
+): Promise<{ objects: S3Object[]; nextToken?: string }> {
+  const abortSignal =
+    typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+      ? AbortSignal.timeout(deadlineMs)
+      : undefined;
+  const out = await s3().send(
+    new ListObjectsV2Command({
+      Bucket: env.AWS_S3_BUCKET,
+      MaxKeys: 1000,
+      ContinuationToken: continuationToken,
+    }),
+    { abortSignal },
+  );
+  const objects: S3Object[] = (out.Contents ?? []).flatMap((o) =>
+    o.Key ? [{ key: o.Key, size: o.Size ?? 0, lastModified: o.LastModified ?? null }] : [],
+  );
+  return { objects, nextToken: out.IsTruncated ? out.NextContinuationToken : undefined };
 }
 
 export type S3Head = { contentType: string | null; contentLength: number | null };
