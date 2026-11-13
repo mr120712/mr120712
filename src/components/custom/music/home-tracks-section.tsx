@@ -4,32 +4,65 @@
 'use client';
 
 import { Pause, Play } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { homeTrackToTrack } from '@/components/custom/music/live-tracks';
 import { useMusicPlayer } from '@/components/custom/music/music-player';
 import { apiFetch } from '@/lib/api-client';
 import { type HomeTrack, HomeTracksResponseSchema } from '@/lib/contracts/home-tracks';
 import styles from './home-tracks-section.module.css';
 
+/** Intervallo minimo tra due aggiornamenti automatici (anti-martellamento). */
+const REFRESH_THROTTLE_MS = 15_000;
+/** Backstop: ricontrolla lo store Blob ogni tanto mentre la scheda è aperta e visibile. */
+const BACKGROUND_REFRESH_MS = 60_000;
+
 export function HomeTracksSection() {
   const player = useMusicPlayer();
   const [items, setItems] = useState<HomeTrack[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const lastLoadRef = useRef(0);
 
-  const load = useCallback(async () => {
+  // `fresh` aggira la cache CDN (query-string): serve a vedere SUBITO un file appena caricato nel
+  // pannello Vercel Blob. Il primo caricamento usa invece l'endpoint in cache (economico). Non
+  // mette mai in stato 'loading': un aggiornamento in background non deve nascondere la sezione.
+  const load = useCallback(async (fresh = false) => {
     try {
-      const { items: list } = await apiFetch('/api/music/home-tracks', {
-        schema: HomeTracksResponseSchema,
-      });
+      const url = fresh ? `/api/music/home-tracks?t=${Date.now()}` : '/api/music/home-tracks';
+      const { items: list } = await apiFetch(url, { schema: HomeTracksResponseSchema });
       setItems(list);
       setState('ready');
+      lastLoadRef.current = Date.now();
     } catch {
-      setState('error');
+      setState((current) => (current === 'loading' ? 'error' : current));
     }
   }, []);
 
   useEffect(() => {
+    lastLoadRef.current = Date.now();
     void load();
+  }, [load]);
+
+  // Auto-aggiornamento: ogni volta che carichi un file nel pannello Vercel (altra scheda) e torni su
+  // Solco, l'elenco si aggiorna da solo interrogando di nuovo lo store Blob. Trigger: ritorno di
+  // focus / scheda di nuovo visibile, più un controllo periodico di riserva mentre resti sulla
+  // pagina. Il throttle evita richieste ravvicinate; l'API resta protetta dal suo rate-limit.
+  useEffect(() => {
+    const refresh = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      if (Date.now() - lastLoadRef.current < REFRESH_THROTTLE_MS) return;
+      void load(true);
+    };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', onVisible);
+    const interval = setInterval(refresh, BACKGROUND_REFRESH_MS);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', onVisible);
+      clearInterval(interval);
+    };
   }, [load]);
 
   const play = (item: HomeTrack) => {
