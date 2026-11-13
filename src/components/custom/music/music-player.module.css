@@ -60,6 +60,7 @@
 }
 
 .miniArt {
+  position: relative;
   display: grid;
   width: 44px;
   aspect-ratio: 1;
@@ -761,4 +762,174 @@
   font-weight: 700;
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+
+/* ============ Animazioni native del player (CSP-safe, reduced-motion aware) ============ */
+
+/* Mini player: entrata morbida dal basso alla comparsa. */
+.mini {
+  animation: miniIn 0.32s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes miniIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Player a schermo intero: dissolvenza + leggera salita quando si apre. */
+.full:not([hidden]) {
+  animation: fullIn 0.3s ease both;
+}
+
+@keyframes fullIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Equalizzatore sulla copertina del mini player: animato solo durante la riproduzione. */
+.eq {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 14px;
+  padding: 2px;
+  border-radius: 4px;
+  background: color-mix(in srgb, #000 55%, transparent);
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.eq i {
+  width: 3px;
+  height: 40%;
+  border-radius: 2px;
+  background: var(--primary);
+}
+
+.mini[data-status="playing"] .eq {
+  opacity: 1;
+}
+
+.mini[data-status="playing"] .eq i {
+  animation: eqBar 0.9s ease-in-out infinite;
+}
+
+.mini[data-status="playing"] .eq i:nth-child(2) {
+  animation-duration: 0.66s;
+  animation-delay: 0.12s;
+}
+
+.mini[data-status="playing"] .eq i:nth-child(3) {
+  animation-duration: 1.05s;
+  animation-delay: 0.22s;
+}
+
+@keyframes eqBar {
+  0%,
+  100% {
+    height: 28%;
+  }
+  50% {
+    height: 95%;
+  }
+}
+
+/* Play/pausa: pressione morbida ovunque; anello pulsante attorno al tasto grande in riproduzione. */
+.control,
+.miniControl {
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.25s ease;
+}
+
+.control:active,
+.miniControl:active {
+  transform: scale(0.92);
+}
+
+.full[data-status="playing"] .control {
+  animation: controlPulse 2.4s ease-out infinite;
+}
+
+@keyframes controlPulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 32%, transparent);
+  }
+  70%,
+  100% {
+    box-shadow: 0 0 0 11px color-mix(in srgb, var(--primary) 0%, transparent);
+  }
+}
+
+/* Copertina a schermo intero: "respiro" lento + alone più ampio in riproduzione. */
+.full[data-status="playing"] .fullArt {
+  animation: artBreathe 6s ease-in-out infinite;
+}
+
+@keyframes artBreathe {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 24px 60px rgb(0 0 0 / 45%);
+  }
+  50% {
+    transform: scale(1.012);
+    box-shadow: 0 30px 72px rgb(0 0 0 / 55%);
+  }
+}
+
+/* Barra di avanzamento del mini player: riflesso che scorre durante la riproduzione. */
+.miniProgress > span {
+  position: relative;
+  overflow: hidden;
+}
+
+.mini[data-status="playing"] .miniProgress > span::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, #fff 55%, transparent),
+    transparent
+  );
+  transform: translateX(-100%);
+  animation: progressSheen 2.2s ease-in-out infinite;
+}
+
+@keyframes progressSheen {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(320%);
+  }
+}
+
+/* Rispetta la preferenza di movimento ridotto: niente animazioni, solo stati statici. */
+@media (prefers-reduced-motion: reduce) {
+  .mini,
+  .full:not([hidden]),
+  .mini[data-status="playing"] .eq i,
+  .full[data-status="playing"] .control,
+  .full[data-status="playing"] .fullArt,
+  .mini[data-status="playing"] .miniProgress > span::after {
+    animation: none;
+  }
 }

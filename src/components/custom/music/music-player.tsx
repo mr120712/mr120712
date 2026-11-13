@@ -3041,6 +3041,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             className={styles.mini}
             aria-label="Player musicale Solco"
             aria-busy={status === 'loading' || buffering}
+            data-status={status}
             data-solco-player
           >
             <button
@@ -3053,6 +3054,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             >
               <span className={styles.miniArt} aria-hidden="true">
                 <Artwork track={currentTrack} size={44} url={currentArtwork} />
+                <span className={styles.eq} aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                </span>
               </span>
               <span className={styles.miniCopy}>
                 <strong>{currentTrack.title}</strong>
@@ -3134,6 +3140,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           <section
             className={`${styles.full} ${youtubeActive ? styles.fullVideo : ''}`}
             aria-label="Player a schermo intero"
+            data-status={status}
             data-solco-player
             hidden={!showFull}
             inert={!showFull}
