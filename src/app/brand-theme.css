@@ -1,5 +1,6 @@
-/* @polsia:user-owned — identità visiva Solco: monocromatico FUTURISTICO — nero profondo,
- * grigi, un unico accento NEON (ciano). Per cambiare accento, sostituisci #22d3ee ovunque. */
+/* @polsia:user-owned — identità visiva Solco: look AGGRESSIVO/VIRALE — nero profondo con accento
+ * MAGENTA elettrico e un gradiente brand (violetto → magenta → ambra). Per cambiare accento,
+ * sostituisci #ff2e88 (dark) e aggiorna --grad-brand. */
 
 @theme inline {
   /* Text on bg-destructive (destructive Button/Badge): the framework fallback has no such role. */
@@ -17,64 +18,66 @@
   --card-foreground: #0a0a0a;
   --popover: #ffffff;
   --popover-foreground: #0a0a0a;
-  --primary: #0a0a0a;
+  --primary: #cc1f66;
   --primary-foreground: #ffffff;
-  --secondary: #ebebeb;
-  --secondary-foreground: #171717;
-  --muted: #ededed;
-  --muted-foreground: #525252;
-  --accent: #e0e0e0;
-  --accent-foreground: #0a0a0a;
-  --destructive: #8f1d1d;
-  --destructive-foreground: #ffffff; /* ~8.9:1 on --destructive */
-  --border: #d4d4d4;
-  --input: #bdbdbd;
-  --ring: #0a0a0a;
-  --status-positive: #262626;
-  --status-warning: #404040;
-  --rating: #262626;
-  --rating-fill: #404040;
-  --ambient-line: #a3a3a3;
+  --secondary: #f0e9f3;
+  --secondary-foreground: #1b1022;
+  --muted: #efe8f2;
+  --muted-foreground: #5a4f66;
+  --accent: #f7d9ea;
+  --accent-foreground: #3a0f29;
+  --destructive: #c81e32;
+  --destructive-foreground: #ffffff;
+  --border: #e0d5e6;
+  --input: #cdbdd6;
+  --ring: #cc1f66;
+  --status-positive: #15803d;
+  --status-warning: #b45309;
+  --rating: #cc1f66;
+  --rating-fill: #cc1f66;
+  --ambient-line: #b79ec9;
   --font-display: "Space Grotesk", "Space Grotesk Fallback", Arial, sans-serif;
   --font-body: "Space Grotesk", "Space Grotesk Fallback", Arial, sans-serif;
   --radius: 0.5rem;
-  --elevation-1: rgb(20 54 66 / 8%);
-  --elevation-2: rgb(15 45 58 / 12%);
-  --elevation-3: rgb(10 33 46 / 17%);
-  --shadow-brand-color: rgb(0 0 0 / 14%);
+  --grad-brand: linear-gradient(100deg, #7c3aed 0%, #db2777 50%, #ea580c 100%);
+  --elevation-1: rgb(40 10 30 / 8%);
+  --elevation-2: rgb(40 10 30 / 12%);
+  --elevation-3: rgb(40 10 30 / 17%);
+  --shadow-brand-color: rgb(204 31 102 / 16%);
 }
 
 .dark {
   color-scheme: dark;
-  /* Nero profondo + un unico accento neon ciano. Design monocromatico futuristico. */
-  --background: #05070a;
-  --foreground: #e9edf2;
-  --card: #0a0e14;
-  --card-foreground: #e9edf2;
-  --popover: #0c1118;
-  --popover-foreground: #e9edf2;
-  --primary: #22d3ee; /* NEON ciano */
-  --primary-foreground: #04161b; /* testo scuro sull'accento */
-  --secondary: #121820;
-  --secondary-foreground: #cdd6df;
-  --muted: #0e141c;
-  --muted-foreground: #7c8a99; /* grigio, ~6:1 su --background */
-  --accent: #0f2c33; /* superficie con un velo di ciano (hover) */
-  --accent-foreground: #8af0fb;
-  --destructive: #ff5d6c;
+  /* Nero profondo + accento MAGENTA elettrico e gradiente brand. Look aggressivo/virale. */
+  --background: #08060e;
+  --foreground: #f4f2f8;
+  --card: #120e1c;
+  --card-foreground: #f4f2f8;
+  --popover: #15101f;
+  --popover-foreground: #f4f2f8;
+  --primary: #ff2e88; /* MAGENTA elettrico */
+  --primary-foreground: #0a0510; /* testo scuro sull'accento */
+  --secondary: #1c1529;
+  --secondary-foreground: #e9e3f2;
+  --muted: #171020;
+  --muted-foreground: #aa9fbb; /* ~8:1 su --background */
+  --accent: #2a1340; /* superficie con un velo viola (hover) */
+  --accent-foreground: #ffa6d4;
+  --destructive: #ff4d5e;
   --destructive-foreground: #1a0407; /* testo scuro su --destructive */
-  --border: #1b2430;
-  --input: #27333f;
-  --ring: #22d3ee;
-  --status-positive: #22d3ee;
-  --status-warning: #e0b24e;
-  --rating: #22d3ee;
-  --rating-fill: #22d3ee;
-  --ambient-line: #22333d;
-  --elevation-1: rgb(0 0 0 / 40%);
-  --elevation-2: rgb(0 0 0 / 50%);
-  --elevation-3: rgb(0 0 0 / 60%);
-  --shadow-brand-color: rgb(34 211 238 / 22%); /* bagliore ciano */
+  --border: #271d38;
+  --input: #37284c;
+  --ring: #ff2e88;
+  --status-positive: #34d399;
+  --status-warning: #f59e0b;
+  --rating: #ff2e88;
+  --rating-fill: #ff2e88;
+  --ambient-line: #4a3566;
+  --grad-brand: linear-gradient(100deg, #8b5cf6 0%, #ec4899 48%, #f59e0b 100%);
+  --elevation-1: rgb(0 0 0 / 42%);
+  --elevation-2: rgb(0 0 0 / 52%);
+  --elevation-3: rgb(0 0 0 / 62%);
+  --shadow-brand-color: rgb(255 46 136 / 30%); /* bagliore magenta */
 }
 
 :root[data-solco-pro-theme="blue-hour"] {

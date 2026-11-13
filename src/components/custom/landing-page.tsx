@@ -33,6 +33,17 @@ function formatEuro(cents: number): string {
   return `€${(cents / 100).toFixed(2).replace('.', ',')}`;
 }
 
+/** Parole della striscia scorrevole "virale" sotto l'hero. */
+const MARQUEE = [
+  'Musica',
+  'Radio dal vivo',
+  'Podcast',
+  'Classifiche',
+  'In background',
+  'Offline',
+  'Gratis',
+];
+
 export function LandingPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const bgVideoRef = useRef<HTMLVideoElement>(null);
@@ -104,18 +115,33 @@ export function LandingPage() {
           </header>
 
           <div className={styles.copy}>
-            <span className={styles.kicker}>Musica · Radio · Podcast</span>
-            <h1 className={styles.title}>La tua musica, in un solo posto.</h1>
+            <span className={styles.kicker}>Musica · Radio dal vivo · Podcast</span>
+            <h1 className={styles.title}>
+              Tutta la musica.
+              <br />
+              <span className={styles.titleAccent}>Un solo player.</span>
+            </h1>
             <p className={styles.lead}>
-              Brani, radio dal vivo e podcast in un unico player. Accedi per iniziare ad ascoltare.
+              Brani, radio dal vivo e podcast in un unico posto. Gratis. Accedi e parti.
             </p>
             <div className={styles.actions}>
-              <Link className={styles.primary} href="/login">
+              <Link className={styles.primary} href="/signup">
+                Inizia gratis
+              </Link>
+              <Link className={styles.secondary} href="/login">
                 Accedi
               </Link>
-              <Link className={styles.secondary} href="/signup">
-                Crea un account
-              </Link>
+            </div>
+            <div className={styles.marquee} aria-hidden="true">
+              <div className={styles.marqueeTrack}>
+                {[0, 1].flatMap((set) =>
+                  MARQUEE.map((word) => (
+                    <span key={`${set}-${word}`} className={styles.marqueeItem}>
+                      {word}
+                    </span>
+                  )),
+                )}
+              </div>
             </div>
             <p className={styles.legal}>
               Accedendo accetti i <Link href="/terms">Termini</Link> e la{' '}

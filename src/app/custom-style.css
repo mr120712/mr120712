@@ -438,43 +438,57 @@ body.has-video-dock .solco-support-launcher {
   display: none;
 }
 
-/* ========== Monocromatico FUTURISTICO: nero + accento neon ciano ========== */
-/* Sfondo: un bagliore ciano in alto e una griglia tenue. Solo immagini sul body:
-   non coprono nulla e non catturano i clic. (Il colore di sfondo resta --background.) */
+/* ========== Look AGGRESSIVO/VIRALE: nero + accento magenta + alone viola ========== */
+/* Sfondo: due bagliori (magenta in alto, viola in basso) + una griglia tenue che segue l'accento.
+   Solo immagini sul body: non coprono nulla e non catturano i clic. */
 body {
   background-image:
-    radial-gradient(1100px 560px at 50% -8%, rgb(34 211 238 / 8%), transparent 70%),
-    linear-gradient(rgb(34 211 238 / 3%) 1px, transparent 1px),
-    linear-gradient(90deg, rgb(34 211 238 / 3%) 1px, transparent 1px);
+    radial-gradient(
+      1200px 620px at 50% -10%,
+      color-mix(in srgb, var(--primary) 16%, transparent),
+      transparent 70%
+    ),
+    radial-gradient(
+      900px 520px at 100% 108%,
+      color-mix(in srgb, var(--ambient-line) 30%, transparent),
+      transparent 62%
+    ), linear-gradient(color-mix(in srgb, var(--primary) 5%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--primary) 5%, transparent) 1px, transparent 1px);
   background-size:
+    100% 100%,
     100% 100%,
     46px 46px,
     46px 46px;
   background-position:
     center top,
+    center bottom,
     center,
     center;
-  background-repeat: no-repeat, repeat, repeat;
+  background-repeat: no-repeat, no-repeat, repeat, repeat;
   background-attachment: fixed;
 }
 
 ::selection {
-  background: rgb(34 211 238 / 30%);
-  color: #e9edf2;
+  background: color-mix(in srgb, var(--primary) 38%, transparent);
+  color: var(--foreground);
 }
 
-/* Un filo di bagliore neon sui pulsanti d'azione primari (solo CSS, CSP-safe). */
+/* Bagliore magenta sui pulsanti d'azione primari (solo CSS, CSP-safe). */
 button.bg-primary,
 a.bg-primary {
   box-shadow:
-    0 0 0 1px rgb(34 211 238 / 35%),
-    0 0 18px -6px rgb(34 211 238 / 55%);
+    0 0 0 1px color-mix(in srgb, var(--primary) 40%, transparent),
+    0 8px 26px -10px color-mix(in srgb, var(--primary) 75%, transparent);
 }
 
-/* Il dock del player: un alone ciano, come superficie "viva" dell'interfaccia. */
+/* Il dock del player: un alone magenta, come superficie "viva" dell'interfaccia. */
 section[data-solco-player] {
   background:
-    radial-gradient(circle at 50% -40%, rgb(34 211 238 / 16%), transparent 60%), var(--background);
+    radial-gradient(
+      circle at 50% -40%,
+      color-mix(in srgb, var(--primary) 20%, transparent),
+      transparent 60%
+    ), var(--background);
 }
 
 /* Tema natalizio: il player (che ha colori propri) segue rosso, verde e oro. */
