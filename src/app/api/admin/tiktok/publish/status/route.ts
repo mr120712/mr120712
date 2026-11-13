@@ -21,7 +21,8 @@ export async function GET(request: Request) {
   if (!config) return notConfiguredResponse();
 
   const publishId = new URL(request.url).searchParams.get('publishId') ?? '';
-  if (!/^[A-Za-z0-9._-]{1,256}$/.test(publishId)) {
+  // I publish_id di TikTok contengono la tilde (es. "v_pub_url~v2.123…"), quindi è ammessa.
+  if (!/^[A-Za-z0-9._~-]{1,256}$/.test(publishId)) {
     return NextResponse.json(
       { error: 'invalid_id' },
       { status: 400, headers: tiktokPrivateHeaders },
