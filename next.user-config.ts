@@ -51,12 +51,14 @@ export const cspExtraSources: CspExtraSources = {
   ],
   // Apple Music (MusicKit JS): catalogue API, playback licences and audio segments.
   // Vercel Blob: upload diretto dal browser dei brani della libreria pubblica (PUT cross-origin).
+  // Serve sia l'apex (API) sia QUALSIASI sottodominio dello store (il PUT va su <store>.blob… o
+  // <store>.public.blob…): *.blob.vercel-storage.com copre entrambi.
   connectSrc: [
     'https://api.music.apple.com',
     'https://*.apple.com',
     'https://*.mzstatic.com',
     'https://blob.vercel-storage.com',
-    'https://*.public.blob.vercel-storage.com',
+    'https://*.blob.vercel-storage.com',
   ],
   mediaSrc: [],
   fontSrc: [],

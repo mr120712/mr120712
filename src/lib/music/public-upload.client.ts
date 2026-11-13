@@ -75,16 +75,26 @@ function canonicalAudioMime(file: File): string {
   return MIME_ALIASES[declared] ?? (declared.startsWith('audio/') ? declared : 'audio/mpeg');
 }
 
-/** Durata del file lato client (fallback se il contenitore non la riporta). */
+/**
+ * Durata del file lato client (fallback se il contenitore non la riporta). Si risolve SEMPRE entro
+ * un timeout: con certi file né `onloadedmetadata` né `onerror` scattano, e senza timeout la promise
+ * resterebbe appesa per sempre bloccando il caricamento.
+ */
 export function readDurationSeconds(file: File): Promise<number> {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(file);
     const audio = document.createElement('audio');
     audio.preload = 'metadata';
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout>;
     const finish = (value: number) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       URL.revokeObjectURL(url);
       resolve(value);
     };
+    timer = setTimeout(() => finish(0), 8000);
     audio.onloadedmetadata = () => finish(Number.isFinite(audio.duration) ? audio.duration : 0);
     audio.onerror = () => finish(0);
     audio.src = url;
