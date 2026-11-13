@@ -85,6 +85,13 @@ export const ACTION_RATE_LIMITS = {
     { requests: 3, windowMs: 86_400_000 },
   ],
   'ai.organize.global': [{ requests: 30, windowMs: 86_400_000 }],
+  // Generatore di annunci TikTok con Claude 5.5 (azione admin): ogni call è una richiesta a pagamento.
+  // Qualche tentativo al minuto per admin, un tetto giornaliero, più un tetto app-wide.
+  'tiktok.announce.admin': [
+    { requests: 6, windowMs: 60_000 },
+    { requests: 60, windowMs: 86_400_000 },
+  ],
+  'tiktok.announce.global': [{ requests: 200, windowMs: 86_400_000 }],
   // Imported songs found on YouTube (100 quota units each, only on a cache miss): per listener
   // and app-wide, leaving most of the daily 10,000 units to regular search.
   'music.resolve_song': [
@@ -382,6 +389,8 @@ const actionLabels: Record<RateLimitAction, string> = {
   'music.ai_search.global': 'le ricerche con l’AI di oggi',
   'ai.organize': 'l’organizzazione con l’AI',
   'ai.organize.global': 'le organizzazioni con l’AI di oggi',
+  'tiktok.announce.admin': 'gli annunci TikTok con l’AI',
+  'tiktok.announce.global': 'gli annunci TikTok con l’AI di oggi',
   'music.resolve_song': 'le ricerche dei brani importati',
   'music.resolve_song.global': 'le ricerche dei brani importati di oggi',
   'ai.chat': 'le richieste all’assistente',

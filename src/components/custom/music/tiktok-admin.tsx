@@ -10,6 +10,7 @@ import { apiFetch } from '@/lib/api-client';
 import { type TikTokClip, TikTokClipListSchema } from '@/lib/contracts/library';
 import { genreCatalog } from '@/lib/music/genre-catalog';
 import styles from './discover.module.css';
+import { TikTokAnnounceGenerator } from './tiktok-announce-generator';
 
 function errorText(error: unknown) {
   const cause =
@@ -96,6 +97,7 @@ export function TikTokAdmin() {
           contano negli ascolti né nel piano Premium.
         </p>
       </header>
+      <TikTokAnnounceGenerator genreSlug={genreSlug} onUseCaption={setCaption} />
       <form className={styles.aiForm} onSubmit={(event) => void add(event)}>
         <label className={styles.state} htmlFor="tiktok-url">
           Link completo del video (TikTok → Condividi → Copia link, poi aprilo nel browser)
