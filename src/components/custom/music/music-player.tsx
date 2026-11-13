@@ -375,8 +375,12 @@ export function trackStreamPath(track: MusicPlayerTrack) {
     return id ? `/local/${id}` : null;
   }
   if (track.playbackMode === 'upload') {
-    // Public user upload: streamed directly from its Vercel Blob CDN URL (media-src allows https:).
-    return track.streamUrl && /^https:\/\//.test(track.streamUrl) ? track.streamUrl : null;
+    const stream = track.streamUrl ?? '';
+    // Due casi: brano pubblico (upload utente o file in evidenza reso pubblico) → URL CDN https
+    // diretto; brano in evidenza PRIVATO → percorso same-origin del proxy che lo serve dal server.
+    if (/^https:\/\//.test(stream)) return stream;
+    if (stream.startsWith('/api/music/home-tracks/stream?p=')) return stream;
+    return null;
   }
   const match = /^audius:([A-Za-z0-9_-]{1,128})$/.exec(track.qualifiedId);
   if (!match?.[1]) return null;
