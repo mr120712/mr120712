@@ -456,7 +456,7 @@ export function SpotifyImport({ onImported }: { onImported: () => void }) {
 
   const runImport = async (event: FormEvent) => {
     event.preventDefault();
-    if (importing || chosen === 0 || activeCooldown() || importBlocked()) return;
+    if (importing || syncing || chosen === 0 || activeCooldown() || importBlocked()) return;
     setImporting(true);
     setCreated([]);
     setFailed([]);
@@ -906,7 +906,13 @@ export function SpotifyImport({ onImported }: { onImported: () => void }) {
               <div className={styles.actions}>
                 <Button
                   type="submit"
-                  disabled={importing || chosen === 0 || coolingDown || importBlockedUntil !== null}
+                  disabled={
+                    importing ||
+                    syncing ||
+                    chosen === 0 ||
+                    coolingDown ||
+                    importBlockedUntil !== null
+                  }
                 >
                   {importing ? 'Importazione…' : 'Importa in Solco'}
                 </Button>
