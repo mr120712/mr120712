@@ -19,6 +19,9 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/lib/auth-client', () => ({
   useSession: () => mocks.session,
 }));
+vi.mock('@/components/custom/landing-page', () => ({
+  LandingPage: () => <div>LANDING_PUBBLICA</div>,
+}));
 
 import { isPublicRoute, RequireLogin } from '@/components/custom/require-login';
 
@@ -97,10 +100,12 @@ describe('RequireLogin', () => {
     expect(mocks.replace).toHaveBeenCalledWith('/login?callbackURL=%2Fradio');
   });
 
-  it('home protetta, non loggato → /login senza callbackURL', () => {
+  it('home "/" non loggato → mostra la landing pubblica, senza redirect', () => {
     mocks.pathname = '/';
     mocks.session = { data: null, isPending: false };
     render();
-    expect(mocks.replace).toHaveBeenCalledWith('/login');
+    expect(container.textContent).toContain('LANDING_PUBBLICA');
+    expect(container.textContent).not.toContain('CONTENUTO_PROTETTO');
+    expect(mocks.replace).not.toHaveBeenCalled();
   });
 });

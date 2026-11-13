@@ -7,6 +7,7 @@
 
 import { usePathname, useRouter } from 'next/navigation';
 import { type ReactNode, useEffect } from 'react';
+import { LandingPage } from '@/components/custom/landing-page';
 import { useSession } from '@/lib/auth-client';
 import { isSafeAuthDestination } from '@/lib/business/auth-form';
 import styles from './require-login.module.css';
@@ -33,24 +34,28 @@ export function RequireLogin({ children }: { children: ReactNode }) {
   const { data: session, isPending } = useSession();
   const authed = Boolean(session?.user);
   const open = authed || isPublicRoute(pathname);
+  const atRoot = pathname === '/';
 
   useEffect(() => {
-    // Sessione nota (non in verifica), rotta protetta, nessun utente → al login, conservando la
-    // destinazione così dopo l'accesso si torna dove si voleva andare.
-    if (open || isPending) return;
-    const callback =
-      isSafeAuthDestination(pathname) && pathname !== '/'
-        ? `?callbackURL=${encodeURIComponent(pathname)}`
-        : '';
+    // Sessione nota (non in verifica), rotta protetta diversa da "/", nessun utente → al login,
+    // conservando la destinazione così dopo l'accesso si torna dove si voleva andare. Su "/" NON si
+    // reindirizza: si mostra la landing pubblica.
+    if (open || isPending || atRoot) return;
+    const callback = isSafeAuthDestination(pathname)
+      ? `?callbackURL=${encodeURIComponent(pathname)}`
+      : '';
     router.replace(`/login${callback}`);
-  }, [open, isPending, pathname, router]);
+  }, [open, isPending, atRoot, pathname, router]);
 
   if (open) return <>{children}</>;
 
-  // Rotta protetta e non loggato: niente contenuto. Finché la sessione è in verifica si mostra un
-  // caricamento (evita di sbattere fuori un utente loggato prima di saperlo); poi il rimando al login.
+  // Non loggato sulla home "/": landing pubblica con il video e il pulsante di accesso.
+  if (!isPending && atRoot) return <LandingPage />;
+
+  // Altre rotte protette e non loggato: niente contenuto. Finché la sessione è in verifica si mostra
+  // un caricamento (evita di sbattere fuori un utente loggato prima di saperlo); poi il rimando al login.
   return (
-    <div className={styles.gate} role="status" aria-live="polite">
+    <output className={styles.gate} aria-live="polite">
       <div className={styles.card}>
         <p className={styles.brand}>Solco</p>
         <p className={styles.message}>
@@ -62,6 +67,6 @@ export function RequireLogin({ children }: { children: ReactNode }) {
           </a>
         )}
       </div>
-    </div>
+    </output>
   );
 }
