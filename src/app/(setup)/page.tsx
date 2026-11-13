@@ -10,7 +10,6 @@ import {
   Library,
   Mic,
   Radio,
-  Search,
   Smartphone,
   TrendingUp,
 } from 'lucide-react';
@@ -22,6 +21,7 @@ import { AiSearchShortcut } from '@/components/custom/music/ai-search-shortcut';
 import { AudiusSection } from '@/components/custom/music/audius-section';
 import { HomeTracksSection } from '@/components/custom/music/home-tracks-section';
 import { JamendoSection } from '@/components/custom/music/jamendo-section';
+import { LiveMusicSearch } from '@/components/custom/music/live-music-search';
 import { LocalMusicHomeCard } from '@/components/custom/music/local-music-home-card';
 import { FeedSectionLink, MoodChipGroup, MoodChips } from '@/components/custom/music/mood-chips';
 import { HomeMoodSwitch } from '@/components/custom/music/mood-feed';
@@ -107,22 +107,8 @@ export default function HomePage() {
       <main className={styles.home}>
         <section className={styles.intro} aria-labelledby="home-title">
           <h1 id="home-title">Cosa ascoltiamo oggi?</h1>
-          <form className={styles.searchForm} action="/search" method="get">
-            <label className={styles.searchField} htmlFor="home-music-query">
-              <Search aria-hidden="true" />
-              <span className="sr-only">
-                Cerca un brano, un artista, una playlist, una radio o un podcast
-              </span>
-              <input
-                id="home-music-query"
-                name="q"
-                type="search"
-                maxLength={80}
-                placeholder="Brani, artisti, radio, podcast"
-                autoComplete="off"
-              />
-            </label>
-          </form>
+          {/* Ricerca "mentre scrivi": mostra subito i migliori brani; Invio apre /search. */}
+          <LiveMusicSearch />
           {/* Until the URL is read the chips show "Tutto" and do nothing. */}
           <Suspense fallback={<MoodChipGroup selectedId={null} />}>
             <MoodChips />

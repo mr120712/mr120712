@@ -10,6 +10,8 @@ vi.mock('@/components/custom/install-app-banner', () => ({ InstallAppBanner: () 
 vi.mock('@/components/custom/music/ai-search-shortcut', () => ({ AiSearchShortcut: () => null }));
 vi.mock('@/components/custom/music/audius-section', () => ({ AudiusSection: () => null }));
 vi.mock('@/components/custom/music/jamendo-section', () => ({ JamendoSection: () => null }));
+vi.mock('@/components/custom/music/home-tracks-section', () => ({ HomeTracksSection: () => null }));
+vi.mock('@/components/custom/music/live-music-search', () => ({ LiveMusicSearch: () => null }));
 vi.mock('@/components/custom/music/local-music-home-card', () => ({
   LocalMusicHomeCard: () => null,
 }));
