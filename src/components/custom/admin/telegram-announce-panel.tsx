@@ -2,7 +2,7 @@
 // on-demand sul canale. Legge e scrive solo tramite /api/admin/telegram-announce.
 'use client';
 
-import { CircleCheck, CircleX, RotateCw, Send, Webhook } from 'lucide-react';
+import { AppWindow, CircleCheck, CircleX, RotateCw, Send, Webhook } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { ZodError } from 'zod';
@@ -18,6 +18,11 @@ import {
   AnnounceResultSchema,
 } from '@/lib/contracts/telegram-announce';
 import {
+  TelegramMenuSetResultSchema,
+  type TelegramMenuStatus,
+  TelegramMenuStatusSchema,
+} from '@/lib/contracts/telegram-menu';
+import {
   TelegramWebhookRegisterResultSchema,
   type TelegramWebhookStatus,
   TelegramWebhookStatusSchema,
@@ -25,6 +30,7 @@ import {
 
 const ENDPOINT = '/api/admin/telegram-announce';
 const WEBHOOK_ENDPOINT = '/api/admin/telegram-webhook';
+const MENU_ENDPOINT = '/api/admin/telegram-menu';
 const ERROR_TEXT_MAX = 300;
 
 const ERROR_CODE_TEXT: Record<string, string> = {
@@ -70,6 +76,8 @@ export function TelegramAnnouncePanel() {
   const [announcement, setAnnouncement] = useState('');
   const [webhook, setWebhook] = useState<TelegramWebhookStatus | null>(null);
   const [registering, setRegistering] = useState(false);
+  const [menu, setMenu] = useState<TelegramMenuStatus | null>(null);
+  const [settingMenu, setSettingMenu] = useState(false);
   const publishingRef = useRef(false);
   const requestRef = useRef(0);
 
@@ -98,6 +106,15 @@ export function TelegramAnnouncePanel() {
     }
   }, []);
 
+  const loadMenu = useCallback(async () => {
+    try {
+      const data = await apiFetch(MENU_ENDPOINT, { schema: TelegramMenuStatusSchema });
+      setMenu(data);
+    } catch {
+      // Non blocca il pannello: se non riesco a leggere lo stato del pulsante, lo nascondo.
+    }
+  }, []);
+
   const registerWebhook = async () => {
     setRegistering(true);
     try {
@@ -115,13 +132,31 @@ export function TelegramAnnouncePanel() {
     }
   };
 
+  const setMenuButton = async () => {
+    setSettingMenu(true);
+    try {
+      const result = await apiFetch(MENU_ENDPOINT, {
+        method: 'POST',
+        schema: TelegramMenuSetResultSchema,
+      });
+      setMenu(result.status);
+      if (result.ok) toast.success('Pulsante del bot impostato.');
+      else toast.error(result.message);
+    } catch (error) {
+      toast.error(failureMessage(error, 'Impostazione del pulsante non riuscita.'));
+    } finally {
+      setSettingMenu(false);
+    }
+  };
+
   useEffect(() => {
     void load();
     void loadWebhook();
+    void loadMenu();
     return () => {
       requestRef.current += 1;
     };
-  }, [load, loadWebhook]);
+  }, [load, loadWebhook, loadMenu]);
 
   const publish = async () => {
     if (publishingRef.current) return;
@@ -291,6 +326,51 @@ export function TelegramAnnouncePanel() {
             </Button>
           </div>
           <p className="mt-2 break-all text-xs text-muted-foreground">URL: {webhook.expectedUrl}</p>
+        </Panel>
+      ) : null}
+
+      {menu ? (
+        <Panel
+          title="Pulsante nel bot (apre Solco)"
+          description="Imposta il pulsante del menu del bot su una Mini App: chi apre il bot vede «Apri Solco» e tocca per aprire il sito dentro Telegram."
+        >
+          <ul className="grid gap-2 text-sm">
+            <li className="flex items-center gap-2">
+              <ConfigMark ok={menu.botConfigured} />
+              Bot {menu.botConfigured ? 'configurato' : 'non configurato (TELEGRAM_BOT_TOKEN)'}
+            </li>
+            <li className="flex items-center gap-2">
+              <ConfigMark ok={menu.matches} />
+              Pulsante {menu.matches ? 'impostato su «Apri Solco»' : 'non ancora impostato'}
+            </li>
+          </ul>
+          {menu.matches && menu.text ? (
+            <p className="mt-2 text-sm text-muted-foreground">
+              Testo attuale del pulsante: «{menu.text}»
+            </p>
+          ) : null}
+          {menu.lastError ? (
+            <p className="mt-2 text-sm text-destructive">
+              Ultimo errore da Telegram: {menu.lastError}
+            </p>
+          ) : null}
+          <div className="mt-4">
+            <Button
+              type="button"
+              variant={menu.matches ? 'outline' : 'default'}
+              onClick={() => void setMenuButton()}
+              aria-disabled={settingMenu || !menu.botConfigured || undefined}
+              className="aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
+            >
+              <AppWindow aria-hidden="true" />
+              {settingMenu
+                ? 'Impostazione…'
+                : menu.matches
+                  ? 'Reimposta pulsante'
+                  : 'Imposta pulsante nel bot'}
+            </Button>
+          </div>
+          <p className="mt-2 break-all text-xs text-muted-foreground">Apre: {menu.expectedUrl}</p>
         </Panel>
       ) : null}
     </AppSurface>

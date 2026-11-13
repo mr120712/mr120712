@@ -224,6 +224,85 @@ export async function registerTelegramWebhook(): Promise<{ ok: boolean; message:
   };
 }
 
+/** Testo del pulsante del bot che apre Solco come Mini App. */
+export const TELEGRAM_MENU_BUTTON_TEXT = 'Apri Solco';
+
+/** URL che il pulsante del bot (Mini App) apre. */
+export function telegramMenuUrl(): string {
+  return siteUrl;
+}
+
+export type TelegramMenuStatus = {
+  botConfigured: boolean;
+  /** Tipo attuale del pulsante: 'web_app' quando apre Solco, 'default'/'commands' altrimenti. */
+  type: string | null;
+  text: string | null;
+  url: string | null;
+  expectedUrl: string;
+  /** true quando il pulsante è un web_app che apre l'URL atteso. */
+  matches: boolean;
+  lastError: string | null;
+};
+
+/** Stato del pulsante-menu del bot: apre già Solco come Mini App? */
+export async function telegramMenuStatus(): Promise<TelegramMenuStatus> {
+  const botConfigured = isTelegramBotConfigured();
+  const expectedUrl = telegramMenuUrl();
+  const base: TelegramMenuStatus = {
+    botConfigured,
+    type: null,
+    text: null,
+    url: null,
+    expectedUrl,
+    matches: false,
+    lastError: null,
+  };
+  if (!botConfigured) return base;
+
+  const info = await telegramApi('getChatMenuButton', {});
+  if (!info?.ok || !info.result) {
+    return {
+      ...base,
+      lastError: info?.description
+        ? redactToken(info.description, env.TELEGRAM_BOT_TOKEN ?? '')
+        : 'getChatMenuButton non riuscito',
+    };
+  }
+  const result = info.result as { type?: string; text?: string; web_app?: { url?: string } };
+  const type = typeof result.type === 'string' ? result.type : null;
+  const url = typeof result.web_app?.url === 'string' ? result.web_app.url : null;
+  return {
+    ...base,
+    type,
+    text: typeof result.text === 'string' ? result.text : null,
+    url,
+    matches: type === 'web_app' && url === expectedUrl,
+  };
+}
+
+/** Imposta il pulsante-menu del bot su una Mini App che apre Solco. */
+export async function setTelegramMenuButton(): Promise<{ ok: boolean; message: string }> {
+  if (!isTelegramBotConfigured()) {
+    return { ok: false, message: 'TELEGRAM_BOT_TOKEN non impostato: imposta il token su Vercel.' };
+  }
+  const res = await telegramApi('setChatMenuButton', {
+    menu_button: {
+      type: 'web_app',
+      text: TELEGRAM_MENU_BUTTON_TEXT,
+      web_app: { url: telegramMenuUrl() },
+    },
+  });
+  if (res?.ok) {
+    return { ok: true, message: `Pulsante «${TELEGRAM_MENU_BUTTON_TEXT}» impostato nel bot.` };
+  }
+  return {
+    ok: false,
+    message: res?.description
+      ? redactToken(res.description, env.TELEGRAM_BOT_TOKEN ?? '')
+      : 'setChatMenuButton non riuscito (nessuna risposta da Telegram).',
+  };
+}
+
 /** Invia un messaggio di testo a una chat. Non lancia mai: ritorna solo esito. */
 export async function sendTelegramMessage(chatId: string, text: string): Promise<boolean> {
   const token = env.TELEGRAM_BOT_TOKEN;
