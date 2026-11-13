@@ -20,6 +20,7 @@ import { Suspense } from 'react';
 import { InstallAppBanner } from '@/components/custom/install-app-banner';
 import { AiSearchShortcut } from '@/components/custom/music/ai-search-shortcut';
 import { AudiusSection } from '@/components/custom/music/audius-section';
+import { HomeTracksSection } from '@/components/custom/music/home-tracks-section';
 import { JamendoSection } from '@/components/custom/music/jamendo-section';
 import { LocalMusicHomeCard } from '@/components/custom/music/local-music-home-card';
 import { FeedSectionLink, MoodChipGroup, MoodChips } from '@/components/custom/music/mood-chips';
@@ -62,6 +63,10 @@ export default function HomePage() {
   const defaultFeed = (
     <>
       <InstallAppBanner />
+
+      {/* "In evidenza": file audio messi dall'amministratore nello store Vercel Blob. Si nasconde
+          da sola se non ce ne sono. */}
+      <HomeTracksSection />
 
       <RecentlyPlayedRow />
 

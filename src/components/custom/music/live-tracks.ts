@@ -1,5 +1,6 @@
 // @polsia:user-owned — conversione di stazioni, episodi e cronologia in brani del player.
 import type { MusicPlayerTrack } from '@/components/custom/music/music-player';
+import type { HomeTrack } from '@/lib/contracts/home-tracks';
 import type {
   HistoryEntry,
   JamendoTrack,
@@ -8,6 +9,25 @@ import type {
   RadioStation,
   SavedStation,
 } from '@/lib/contracts/library';
+
+/**
+ * Un "brano in evidenza" della Home (file messo dall'amministratore nello store Blob) → elemento del
+ * player. Stream diretto dall'URL pubblico Blob. durationSeconds 0/sconosciuta → null, così il player
+ * legge la durata reale dai metadati dell'audio alla riproduzione.
+ */
+export function homeTrackToTrack(track: HomeTrack): MusicPlayerTrack {
+  return {
+    qualifiedId: `upload:${track.id}`,
+    title: track.title,
+    artistName: track.artist ?? 'Solco',
+    artworkUrl: null,
+    sourceLabel: 'In evidenza',
+    sourceUrl: null,
+    durationSeconds: track.durationSeconds > 0 ? track.durationSeconds : null,
+    streamUrl: track.streamUrl,
+    playbackMode: 'upload',
+  };
+}
 /** Un brano della libreria pubblica → elemento del player (stream diretto dall'URL pubblico Blob). */
 export function publicUploadToTrack(upload: {
   id: string;
