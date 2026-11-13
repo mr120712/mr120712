@@ -5,6 +5,7 @@ import { Cake, Copy, Crown, Gem, Gift, Headphones, Share2, Users } from 'lucide-
 import Link from 'next/link';
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { TelegramLinkButton } from '@/components/custom/telegram-link-button';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
 import { useSession } from '@/lib/auth-client';
@@ -218,6 +219,8 @@ export function RewardsView() {
                 <Copy aria-hidden="true" /> Copia
               </Button>
             </div>
+            {/* Ricevi/condividi il tuo codice tramite il bot Telegram (compare se il bot è attivo). */}
+            <TelegramLinkButton />
             <p className={styles.muted}>
               Amici registrati: {summary.friends.joined} · abbonati: {qualified} · premio totale:{' '}
               {progress.totalDays / 30} {progress.totalDays === 30 ? 'mese' : 'mesi'}

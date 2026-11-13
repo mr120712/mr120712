@@ -50,6 +50,12 @@ export const env = createEnv({
     // Vercel Blob: storage pubblico per i brani caricati dagli utenti (libreria pubblica).
     // Opzionale: senza, la funzione di caricamento è disattivata (mostra "non configurato").
     BLOB_READ_WRITE_TOKEN: z.string().min(1).optional(),
+    // Bot Telegram per i codici di invito (collega l'account e consegna il codice referral).
+    // Opzionali: senza, il bot è disattivato (il pulsante "Ricevi su Telegram" non compare e il
+    // webhook non risponde). TELEGRAM_BOT_TOKEN è il token di BotFather; TELEGRAM_WEBHOOK_SECRET è
+    // il secret che Telegram rimanda nell'header X-Telegram-Bot-Api-Secret-Token.
+    TELEGRAM_BOT_TOKEN: z.string().min(1).optional(),
+    TELEGRAM_WEBHOOK_SECRET: z.string().min(1).optional(),
     // @polsia:slot env_vars_server end
   },
 
@@ -64,6 +70,9 @@ export const env = createEnv({
     NEXT_PUBLIC_POLSIA_GOOGLE_SIGNIN: z.string().optional(),
     NEXT_PUBLIC_GOOGLE_SIGNIN_CLIENT_ID: z.string().min(1).optional(),
     // @polsia:contrib better-auth end
+    // Username del bot Telegram (senza @), per costruire il deep-link t.me/<username>?start=<token>.
+    // Il pulsante "Ricevi il codice su Telegram" compare solo se è impostato.
+    NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: z.string().optional(),
     // @polsia:slot env_vars_client end
   },
 
@@ -102,6 +111,9 @@ export const env = createEnv({
     POLSIA_R2_BASE_URL: process.env.POLSIA_R2_BASE_URL,
     // @polsia:contrib file-upload end
     BLOB_READ_WRITE_TOKEN: process.env.BLOB_READ_WRITE_TOKEN,
+    TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
+    TELEGRAM_WEBHOOK_SECRET: process.env.TELEGRAM_WEBHOOK_SECRET,
+    NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME,
     // @polsia:slot env_runtime end
   },
   emptyStringAsUndefined: true,

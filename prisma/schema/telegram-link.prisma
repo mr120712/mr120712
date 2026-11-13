@@ -1,0 +1,11 @@
+// @polsia:app-owned — collegamento tra un account Solco e una chat Telegram, per consegnare il
+// codice di invito (referral) tramite il bot. Relazione 1:1: un utente collega una sola chat e
+// viceversa.
+model TelegramAccountLink {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  telegramChatId   String   @unique
+  telegramUsername String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
