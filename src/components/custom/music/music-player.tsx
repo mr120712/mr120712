@@ -29,6 +29,7 @@ import {
   useState,
 } from 'react';
 import { apiFetch } from '@/lib/api-client';
+import { useSession } from '@/lib/auth-client';
 import { AudiusPlaybackCheckSchema } from '@/lib/contracts/music';
 import {
   createObjectUrlForArtwork,
@@ -1216,6 +1217,26 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       // Storage unavailable (private mode): nothing to clear.
     }
   }, [pruneLocalSources, releaseAudio, showNowPlaying]);
+
+  // Al logout (o al cambio account) ferma e svuota il player. Il muro di login lascia montato il
+  // player sulle rotte pubbliche (es. /login, dove porta "Esci" dalla dashboard), quindi senza
+  // questo l'audio continuerebbe a suonare dopo l'uscita. La musica richiede comunque l'accesso e
+  // la route di streaming ricontrolla sessione e quota a ogni richiesta: qui fermiamo l'elemento.
+  const { data: authSession, isPending: authPending } = useSession();
+  const authUserId = authSession?.user?.id ?? null;
+  const previousUserIdRef = useRef<string | null>(null);
+  const authResolvedRef = useRef(false);
+  useEffect(() => {
+    // Durante una verifica/refresh della sessione non decidiamo nulla: evita falsi logout.
+    if (authPending) return;
+    const previousUserId = previousUserIdRef.current;
+    // Transizione da un utente a nessuno (logout) o a un altro utente (cambio account): stop.
+    if (authResolvedRef.current && previousUserId !== null && previousUserId !== authUserId) {
+      stopPlayback();
+    }
+    previousUserIdRef.current = authUserId;
+    authResolvedRef.current = true;
+  }, [authUserId, authPending, stopPlayback]);
 
   // First statement of a tap that will start audio after a network wait (see MusicPlayerValue).
   // Only unlocks the element: the 'playback' session is declared right before play(), so a search
