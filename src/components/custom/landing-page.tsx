@@ -35,36 +35,54 @@ function formatEuro(cents: number): string {
 
 export function LandingPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const bgVideoRef = useRef<HTMLVideoElement>(null);
   const { plans } = getSolcoProPricing();
 
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    // muted impostato anche via proprietà: alcuni browser ignorano l'attributo e bloccano l'autoplay.
-    video.muted = true;
+    const videos = [videoRef.current, bgVideoRef.current].filter(
+      (video): video is HTMLVideoElement => Boolean(video),
+    );
     const reduce =
       typeof window !== 'undefined' &&
       typeof window.matchMedia === 'function' &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    try {
-      if (reduce) {
-        video.pause();
-        return;
+    for (const video of videos) {
+      // muted via proprietà: alcuni browser ignorano l'attributo e bloccano l'autoplay.
+      video.muted = true;
+      try {
+        if (reduce) {
+          video.pause();
+          continue;
+        }
+        const started = video.play?.();
+        if (started && typeof started.catch === 'function') started.catch(() => undefined);
+      } catch {
+        // play()/pause() non disponibili (jsdom) o autoplay bloccato: il poster resta visibile.
       }
-      const started = video.play?.();
-      if (started && typeof started.catch === 'function') started.catch(() => undefined);
-    } catch {
-      // play()/pause() non disponibili (jsdom) o autoplay bloccato: il poster resta visibile.
     }
   }, []);
 
   return (
     <main className={styles.page}>
       <section className={styles.hero}>
-        {/* Sfondo video a tutta pagina (decorativo, muto, in loop) + velo per la leggibilità. */}
+        {/* Sfondo: copia SFOCATA del video che riempie tutto lo schermo. */}
+        <video
+          ref={bgVideoRef}
+          className={styles.bgBlur}
+          src="/landing/intro.mp4"
+          poster="/landing/intro-poster.jpg"
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="metadata"
+          aria-hidden="true"
+          tabIndex={-1}
+        />
+        {/* Video INTERO centrato sopra lo sfondo sfocato (nessun ritaglio). */}
         <video
           ref={videoRef}
-          className={styles.bgVideo}
+          className={styles.frontVideo}
           src="/landing/intro.mp4"
           poster="/landing/intro-poster.jpg"
           autoPlay

@@ -15,31 +15,45 @@
   background: #000;
 }
 
-.bgVideo {
+/* Copia SFOCATA del video che riempie lo schermo (riempie i bordi attorno al video intero). */
+.bgBlur {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transform: scale(1.15);
+  filter: blur(42px) brightness(0.65) saturate(1.1);
   z-index: 0;
 }
 
+/* Il video INTERO, centrato e senza ritaglio (le bande trasparenti lasciano vedere lo sfondo sfocato). */
+.frontVideo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  z-index: 1;
+}
+
+/* Velo per la leggibilità: scuro in alto (barra) e in basso (testo), trasparente al centro. */
 .scrim {
   position: absolute;
   inset: 0;
-  z-index: 1;
+  z-index: 2;
   background: linear-gradient(
     to bottom,
-    rgba(0, 0, 0, 0.45) 0%,
-    rgba(0, 0, 0, 0.12) 32%,
-    rgba(0, 0, 0, 0.35) 62%,
-    rgba(0, 0, 0, 0.78) 100%
+    rgba(0, 0, 0, 0.5) 0%,
+    rgba(0, 0, 0, 0) 22%,
+    rgba(0, 0, 0, 0) 60%,
+    rgba(0, 0, 0, 0.82) 100%
   );
 }
 
 .heroContent {
   position: relative;
-  z-index: 2;
+  z-index: 3;
   min-height: 100dvh;
   width: 100%;
   max-width: 1100px;
