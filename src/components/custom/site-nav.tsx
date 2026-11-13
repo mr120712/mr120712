@@ -89,8 +89,11 @@ function splitPrimarySlots(slots: NavSlot[]): { inline: NavSlot[]; overflow: Nav
 }
 
 // Member and admin shells own navigation on their routes, including loading states.
+// La pagina di stato (/stato, servita anche su status.solcomusic.online) è volutamente spoglia:
+// mostra SOLO lo stato dell'API/servizio, senza intestazione, footer o barra di Solco.
 function hasOwnNavigation(pathname: string) {
   return (
+    pathname === '/stato' ||
     pathname === '/admin' ||
     pathname.startsWith('/admin/') ||
     pathname === '/dashboard' ||

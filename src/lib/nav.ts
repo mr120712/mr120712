@@ -69,6 +69,7 @@ export const tabItems: TabItem[] = [
 /** Rotte con una propria navigazione: niente barra delle schede. */
 export function hidesTabBar(pathname: string) {
   return (
+    pathname === '/stato' ||
     pathname === '/admin' ||
     pathname.startsWith('/admin/') ||
     pathname === '/dashboard' ||
