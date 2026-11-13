@@ -1,0 +1,7 @@
+// @polsia:app-owned — tiene traccia delle build già annunciate sul canale Telegram, così ogni
+// aggiornamento viene pubblicato UNA sola volta anche se il server si riavvia o gira su più istanze.
+model BuildAnnouncement {
+  id          String   @id @default(cuid())
+  commitSha   String   @unique
+  announcedAt DateTime @default(now())
+}

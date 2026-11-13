@@ -30,9 +30,14 @@ export async function seed(): Promise<void> {
   const pooled = preferPooledDatabaseUrl();
   console.info(`[solco] database pooled=${pooled} ${describeDatabaseUrls()}`);
 
-  const [{ prisma }, { normalizePersistedAdminRoles, REQUESTED_ADMIN_EMAIL }] = await Promise.all([
+  const [
+    { prisma },
+    { normalizePersistedAdminRoles, REQUESTED_ADMIN_EMAIL },
+    { announceBuildIfNew },
+  ] = await Promise.all([
     import('@/lib/db'),
     import('@/lib/business/admin-account-policy'),
+    import('@/lib/business/build-announcement.server'),
   ]);
 
   const requestedAdmin = await prisma.user.findUnique({
@@ -46,4 +51,8 @@ export async function seed(): Promise<void> {
     },
     requestedAdmin?.id,
   );
+
+  // Annuncia sul canale Telegram la build appena distribuita (una sola volta, senza dati sensibili).
+  // Best-effort: non deve mai impedire l'avvio del server.
+  await announceBuildIfNew().catch(() => undefined);
 }

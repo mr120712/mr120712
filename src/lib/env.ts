@@ -56,6 +56,9 @@ export const env = createEnv({
     // il secret che Telegram rimanda nell'header X-Telegram-Bot-Api-Secret-Token.
     TELEGRAM_BOT_TOKEN: z.string().min(1).optional(),
     TELEGRAM_WEBHOOK_SECRET: z.string().min(1).optional(),
+    // Dove pubblicare gli annunci di aggiornamento build (es. "@solcomusic" o l'id numerico del
+    // canale). Il bot dev'essere amministratore del canale. Senza, gli annunci sono disattivati.
+    TELEGRAM_CHANNEL_CHAT_ID: z.string().min(1).optional(),
     // @polsia:slot env_vars_server end
   },
 
@@ -113,6 +116,7 @@ export const env = createEnv({
     BLOB_READ_WRITE_TOKEN: process.env.BLOB_READ_WRITE_TOKEN,
     TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
     TELEGRAM_WEBHOOK_SECRET: process.env.TELEGRAM_WEBHOOK_SECRET,
+    TELEGRAM_CHANNEL_CHAT_ID: process.env.TELEGRAM_CHANNEL_CHAT_ID,
     NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME,
     // @polsia:slot env_runtime end
   },
