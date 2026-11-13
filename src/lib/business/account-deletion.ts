@@ -47,6 +47,8 @@ export type AccountDeletionTransaction = {
    * before the Spotify import keep compiling; the Prisma transaction client always provides it.
    */
   spotifyConnection?: UserOwnedRecords;
+  /** TikTok tokens (no relation to User, so deleted explicitly). Optional as above. */
+  tikTokConnection?: UserOwnedRecords;
   /** Dates of YouTube data in the listening history (no relation to User). Optional as above. */
   youTubeHistoryFetch?: UserOwnedRecords;
   referral: {
@@ -91,6 +93,8 @@ export async function deleteAccountData(
   await transaction.aiMusicSearchCache.deleteMany({ where: { userId } });
   // Spotify tokens: the Spotify Developer Policy requires deleting them with the account.
   await transaction.spotifyConnection?.deleteMany({ where: { userId } });
+  // TikTok tokens: deleted with the account (no relation to User).
+  await transaction.tikTokConnection?.deleteMany({ where: { userId } });
   await transaction.referral.deleteMany({
     where: { OR: [{ inviterId: userId }, { inviteeId: userId }] },
   });

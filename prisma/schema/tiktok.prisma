@@ -1,0 +1,21 @@
+// @polsia:user-owned
+/// Collegamento fra Solco (l'amministratore che collega) e un account TikTok, via Login Kit v2
+/// (Authorization Code con PKCE + client_secret). accessToken e refreshToken sono cifrati
+/// (AES-256-GCM, formato "v1.<iv>.<ct>"), mai in chiaro e mai in una risposta o in un log.
+/// Nessuna relazione con User: "Disconnetti TikTok" e la cancellazione dell'account eliminano la
+/// riga in modo esplicito. Serve a pubblicare i video annunciati con l'API Content Posting.
+model TikTokConnection {
+  id               String   @id @default(cuid())
+  userId           String   @unique
+  openId           String
+  accessToken      String
+  refreshToken     String
+  accessExpiresAt  DateTime
+  refreshExpiresAt DateTime
+  scope            String
+  displayName      String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("tiktok_connection")
+}

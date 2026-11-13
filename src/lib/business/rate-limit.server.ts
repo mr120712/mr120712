@@ -92,6 +92,12 @@ export const ACTION_RATE_LIMITS = {
     { requests: 60, windowMs: 86_400_000 },
   ],
   'tiktok.announce.global': [{ requests: 200, windowMs: 86_400_000 }],
+  // Pubblicazione di un video su TikTok (Content Posting, azione admin): poche al giorno.
+  'tiktok.publish.admin': [
+    { requests: 5, windowMs: 60_000 },
+    { requests: 25, windowMs: 86_400_000 },
+  ],
+  'tiktok.publish.global': [{ requests: 100, windowMs: 86_400_000 }],
   // Imported songs found on YouTube (100 quota units each, only on a cache miss): per listener
   // and app-wide, leaving most of the daily 10,000 units to regular search.
   'music.resolve_song': [
@@ -391,6 +397,8 @@ const actionLabels: Record<RateLimitAction, string> = {
   'ai.organize.global': 'le organizzazioni con l’AI di oggi',
   'tiktok.announce.admin': 'gli annunci TikTok con l’AI',
   'tiktok.announce.global': 'gli annunci TikTok con l’AI di oggi',
+  'tiktok.publish.admin': 'le pubblicazioni su TikTok',
+  'tiktok.publish.global': 'le pubblicazioni su TikTok di oggi',
   'music.resolve_song': 'le ricerche dei brani importati',
   'music.resolve_song.global': 'le ricerche dei brani importati di oggi',
   'ai.chat': 'le richieste all’assistente',
