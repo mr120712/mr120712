@@ -19,8 +19,18 @@ import {
 } from '@/lib/music/public-upload.client';
 import styles from './public-upload-form.module.css';
 
-export function PublicUploadForm({ onUploaded }: { onUploaded: (upload: PublicUpload) => void }) {
+export function PublicUploadForm({
+  onUploaded,
+  count,
+  limit,
+}: {
+  onUploaded: (upload: PublicUpload) => void;
+  /** Quanti brani pubblici ha già l'utente, e il tetto massimo. */
+  count: number;
+  limit: number;
+}) {
   const library = useLibrary();
+  const atLimit = count >= limit;
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState('');
@@ -137,8 +147,12 @@ export function PublicUploadForm({ onUploaded }: { onUploaded: (upload: PublicUp
         <div>
           <h2 className={styles.title}>Carica un brano pubblico</h2>
           <p className={styles.subtitle}>
-            Il brano sarà ascoltabile da tutti nella libreria pubblica. Carica solo musica tua o
-            libera (pubblico dominio / Creative Commons): niente materiale di terzi sotto copyright.
+            Puoi pubblicare fino a <strong>{limit} brani</strong>, ascoltabili da tutti nella
+            libreria pubblica. Carica solo musica tua o libera (pubblico dominio / Creative
+            Commons): niente materiale di terzi sotto copyright.
+          </p>
+          <p className={styles.counter} aria-live="polite">
+            <strong>{count}</strong> / {limit} brani pubblicati
           </p>
         </div>
       </div>
@@ -150,11 +164,18 @@ export function PublicUploadForm({ onUploaded }: { onUploaded: (upload: PublicUp
         </p>
       ) : null}
 
+      {atLimit ? (
+        <p className={styles.limitNotice}>
+          Hai raggiunto il massimo di {limit} brani pubblici. Rimuovi un brano qui sotto per
+          pubblicarne un altro.
+        </p>
+      ) : null}
+
       <input
         ref={inputRef}
         type="file"
         accept={`audio/*,${AUDIO_UPLOAD_EXTENSIONS.map((ext) => `.${ext}`).join(',')}`}
-        disabled={saving || configured === false}
+        disabled={saving || configured === false || atLimit}
         onChange={(event) => pick(event.target.files?.[0] ?? null)}
       />
 
@@ -209,7 +230,9 @@ export function PublicUploadForm({ onUploaded }: { onUploaded: (upload: PublicUp
         <Button
           type="button"
           onClick={() => void save()}
-          disabled={saving || !file || !title.trim() || !confirmed || configured === false}
+          disabled={
+            saving || !file || !title.trim() || !confirmed || configured === false || atLimit
+          }
         >
           {saving ? (
             <Loader2 aria-hidden="true" className={styles.spin} />

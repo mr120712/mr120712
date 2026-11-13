@@ -3,14 +3,18 @@
 // la classifica pubblica, si moderano le segnalazioni e si rimuovono (anche l'oggetto su Blob).
 import 'server-only';
 import { del, head } from '@vercel/blob';
-import type { PublicUpload, PublicUploadCreateInput } from '@/lib/contracts/public-uploads';
+import {
+  PUBLIC_UPLOAD_MAX_PER_USER,
+  type PublicUpload,
+  type PublicUploadCreateInput,
+} from '@/lib/contracts/public-uploads';
 import { prisma } from '@/lib/db';
 import { env } from '@/lib/env';
 
 /** Oltre questo numero di segnalatori DISTINTI il brano si auto-ritira dalla libreria pubblica. */
 export const AUTO_UNPUBLISH_REPORTS = 5;
-/** Tetto di brani pubblici per utente (anti-abuso). */
-export const MAX_UPLOADS_PER_USER = 30;
+/** Tetto di brani pubblici per utente: ognuno può pubblicare al massimo 3 brani. */
+export const MAX_UPLOADS_PER_USER = PUBLIC_UPLOAD_MAX_PER_USER;
 /** Prefisso obbligatorio del percorso su Blob (lo impone anche il token di caricamento). */
 export const PUBLIC_UPLOAD_PREFIX = 'public-uploads/';
 

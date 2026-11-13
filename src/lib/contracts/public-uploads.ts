@@ -74,3 +74,6 @@ export const PublicUploadMineResponseSchema = z.object({
 });
 
 export const MAX_PUBLIC_UPLOAD_BYTES = MAX_BYTES;
+
+/** Quanti brani può pubblicare al massimo un utente nella libreria pubblica. */
+export const PUBLIC_UPLOAD_MAX_PER_USER = 3;

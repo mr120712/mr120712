@@ -3,8 +3,15 @@ import { describe, expect, it } from 'vitest';
 import {
   audioMimeType,
   blobPublicUrl,
+  PUBLIC_UPLOAD_MAX_PER_USER,
   PublicUploadCreateSchema,
 } from '@/lib/contracts/public-uploads';
+
+describe('limite brani pubblici per utente', () => {
+  it('ogni utente può pubblicare al massimo 3 brani', () => {
+    expect(PUBLIC_UPLOAD_MAX_PER_USER).toBe(3);
+  });
+});
 
 describe('blobPublicUrl', () => {
   it('accetta solo URL https su *.blob.vercel-storage.com', () => {
