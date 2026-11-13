@@ -104,6 +104,7 @@ export function LandingPage() {
           </header>
 
           <div className={styles.copy}>
+            <span className={styles.kicker}>Musica · Radio · Podcast</span>
             <h1 className={styles.title}>La tua musica, in un solo posto.</h1>
             <p className={styles.lead}>
               Brani, radio dal vivo e podcast in un unico player. Accedi per iniziare ad ascoltare.
@@ -122,6 +123,19 @@ export function LandingPage() {
             </p>
           </div>
         </div>
+
+        <a className={styles.scrollCue} href="#landing-plans-heading" aria-label="Scopri i piani">
+          <span>Scopri i piani</span>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path
+              d="M6 9l6 6 6-6"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </a>
       </section>
 
       <div className={styles.inner}>
