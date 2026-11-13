@@ -92,12 +92,15 @@ export async function registerPublicUpload(
     typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
       ? AbortSignal.timeout(8000)
       : undefined;
-  let meta: Awaited<ReturnType<typeof head>> | null = null;
-  try {
-    meta = await head(input.blobUrl, { token, abortSignal });
-  } catch {
-    meta = null;
-  }
+  // Doppia rete di sicurezza: abortSignal su head() + una corsa con timeout, così la funzione
+  // risponde entro ~8,5 s anche se head() non onorasse il segnale di annullamento.
+  const headResult = head(input.blobUrl, { token, abortSignal }).catch(
+    () => null as Awaited<ReturnType<typeof head>> | null,
+  );
+  const timeout = new Promise<null>((resolve) => {
+    setTimeout(() => resolve(null), 8500);
+  });
+  const meta = await Promise.race([headResult, timeout]);
   if (meta) {
     const contentType = (meta.contentType ?? '').split(';', 1)[0]?.trim().toLowerCase() ?? '';
     if (
