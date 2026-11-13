@@ -1,30 +1,56 @@
-/* @polsia:user-owned — landing pubblica (hero col video + accesso). */
+/* @polsia:user-owned — landing pubblica: video a tutta pagina + accesso, poi i piani. */
 
 .page {
   min-height: 100dvh;
-  background:
-    radial-gradient(
-      120% 90% at 80% 0%,
-      color-mix(in srgb, var(--primary) 20%, transparent),
-      transparent 60%
-    ), var(--background);
+  background: var(--background);
   color: var(--foreground);
-  display: flex;
-  flex-direction: column;
 }
 
-.inner {
+/* HERO a tutta pagina: il video riempie lo schermo; testo e pulsanti sopra. */
+.hero {
+  position: relative;
+  min-height: 100dvh;
+  overflow: hidden;
+  color: #fff;
+  background: #000;
+}
+
+.bgVideo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
+
+.scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.45) 0%,
+    rgba(0, 0, 0, 0.12) 32%,
+    rgba(0, 0, 0, 0.35) 62%,
+    rgba(0, 0, 0, 0.78) 100%
+  );
+}
+
+.heroContent {
+  position: relative;
+  z-index: 2;
+  min-height: 100dvh;
   width: 100%;
   max-width: 1100px;
   margin: 0 auto;
-  padding: 20px 16px 48px;
+  padding: 20px 16px 40px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  flex: 1;
 }
 
 .topbar {
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -35,58 +61,56 @@
   font-weight: 800;
   font-size: 1.3rem;
   letter-spacing: -0.02em;
+  color: #fff;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.5);
 }
 
 .topLogin {
   font-size: 0.9rem;
   font-weight: 600;
-  color: var(--primary);
+  color: #fff;
   text-decoration: none;
   padding: 8px 14px;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--primary) 45%, transparent);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  background: rgba(0, 0, 0, 0.25);
 }
 
 .topLogin:hover {
-  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  background: rgba(255, 255, 255, 0.18);
 }
 
-.hero {
-  flex: 1;
-  display: grid;
-  grid-template-columns: 1fr;
-  align-items: center;
-  gap: 28px;
-}
-
+/* Testo in basso a sinistra, sopra il video. */
 .copy {
+  flex: 1;
   display: flex;
   flex-direction: column;
+  justify-content: flex-end;
   gap: 16px;
-  text-align: center;
-  align-items: center;
+  max-width: 640px;
 }
 
 .title {
   margin: 0;
-  font-size: clamp(2rem, 7vw, 3.4rem);
-  line-height: 1.05;
+  font-size: clamp(2.2rem, 8vw, 4rem);
+  line-height: 1.03;
   letter-spacing: -0.02em;
   font-weight: 800;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.55);
 }
 
 .lead {
   margin: 0;
   max-width: 34ch;
-  color: var(--muted-foreground);
-  font-size: clamp(1rem, 2.6vw, 1.2rem);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: clamp(1rem, 2.6vw, 1.25rem);
+  text-shadow: 0 1px 14px rgba(0, 0, 0, 0.5);
 }
 
 .actions {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
-  justify-content: center;
   margin-top: 4px;
 }
 
@@ -103,30 +127,31 @@
   text-decoration: none;
 }
 
+/* Sopra il video i pulsanti sono su bianco / vetro, sempre leggibili. */
 .primary {
-  background: var(--primary);
-  color: var(--primary-foreground);
-  box-shadow: 0 12px 28px -12px color-mix(in srgb, var(--primary) 70%, transparent);
+  background: #fff;
+  color: #0a0a0a;
+  box-shadow: 0 12px 28px -12px rgba(0, 0, 0, 0.6);
 }
 
 .primary:hover {
-  opacity: 0.93;
+  opacity: 0.92;
 }
 
 .secondary {
-  background: transparent;
-  color: var(--foreground);
-  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.28);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.55);
 }
 
 .secondary:hover {
-  background: var(--muted);
+  background: rgba(255, 255, 255, 0.16);
 }
 
 .legal {
   margin: 4px 0 0;
   font-size: 0.8rem;
-  color: var(--muted-foreground);
+  color: rgba(255, 255, 255, 0.82);
 }
 
 .legal a {
@@ -134,51 +159,23 @@
   text-decoration: underline;
 }
 
-.frame {
-  justify-self: center;
-  width: min(280px, 72vw);
-  aspect-ratio: 464 / 848;
-  border-radius: 28px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  background: #000;
-  box-shadow: 0 30px 60px -24px color-mix(in srgb, var(--foreground) 45%, transparent);
-}
-
-.video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-/* Desktop: testo a sinistra, anteprima a destra. */
 @media (min-width: 820px) {
-  .hero {
-    grid-template-columns: 1.1fr 0.9fr;
-    gap: 40px;
-  }
-
   .copy {
-    text-align: left;
-    align-items: flex-start;
+    max-width: 44ch;
   }
+}
 
-  .actions {
-    justify-content: flex-start;
-  }
-
-  .frame {
-    width: min(320px, 38vw);
-    justify-self: end;
-  }
+/* Contenitore dei piani sotto l'hero. */
+.inner {
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 32px 16px 56px;
 }
 
 /* Sezione piani sulla landing */
 .plans {
-  margin-top: 8px;
-  padding-top: 28px;
-  border-top: 1px solid var(--border);
+  padding-top: 8px;
 }
 
 .plansHead {

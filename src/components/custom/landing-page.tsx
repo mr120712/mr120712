@@ -60,15 +60,31 @@ export function LandingPage() {
 
   return (
     <main className={styles.page}>
-      <div className={styles.inner}>
-        <header className={styles.topbar}>
-          <span className={styles.brand}>Solco</span>
-          <Link className={styles.topLogin} href="/login">
-            Accedi
-          </Link>
-        </header>
+      <section className={styles.hero}>
+        {/* Sfondo video a tutta pagina (decorativo, muto, in loop) + velo per la leggibilità. */}
+        <video
+          ref={videoRef}
+          className={styles.bgVideo}
+          src="/landing/intro.mp4"
+          poster="/landing/intro-poster.jpg"
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="metadata"
+          aria-hidden="true"
+          tabIndex={-1}
+        />
+        <div className={styles.scrim} aria-hidden="true" />
 
-        <div className={styles.hero}>
+        <div className={styles.heroContent}>
+          <header className={styles.topbar}>
+            <span className={styles.brand}>Solco</span>
+            <Link className={styles.topLogin} href="/login">
+              Accedi
+            </Link>
+          </header>
+
           <div className={styles.copy}>
             <h1 className={styles.title}>La tua musica, in un solo posto.</h1>
             <p className={styles.lead}>
@@ -87,25 +103,10 @@ export function LandingPage() {
               <Link href="/privacy">Privacy</Link>.
             </p>
           </div>
-
-          <div className={styles.frame}>
-            {/* Decorativo: nessun audio, in loop. Poster per il primo frame / motion ridotto. */}
-            <video
-              ref={videoRef}
-              className={styles.video}
-              src="/landing/intro.mp4"
-              poster="/landing/intro-poster.jpg"
-              autoPlay
-              muted
-              loop
-              playsInline
-              preload="metadata"
-              aria-hidden="true"
-              tabIndex={-1}
-            />
-          </div>
         </div>
+      </section>
 
+      <div className={styles.inner}>
         <section className={styles.plans} aria-labelledby="landing-plans-heading">
           <div className={styles.plansHead}>
             <p className={styles.eyebrow}>PIANI</p>
