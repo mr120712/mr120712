@@ -58,6 +58,11 @@ export const ACTION_RATE_LIMITS = {
     { requests: 5, windowMs: 600_000 },
     { requests: 40, windowMs: 86_400_000 },
   ],
+  // Pubblicazione manuale dell'annuncio build sul canale Telegram (azione admin): poche al giorno.
+  'telegram.announce.admin': [
+    { requests: 3, windowMs: 600_000 },
+    { requests: 20, windowMs: 86_400_000 },
+  ],
   'solco.pro.write': [
     { requests: 20, windowMs: 60_000 },
     { requests: 200, windowMs: 86_400_000 },
@@ -370,6 +375,7 @@ const actionLabels: Record<RateLimitAction, string> = {
   'spotify.read': 'le letture da Spotify',
   'monitor.run': 'i controlli automatici',
   'monitor.run.admin': 'i controlli manuali',
+  'telegram.announce.admin': 'gli annunci su Telegram',
   'solco.pro.write': 'le modifiche a Solco Pro',
   'listening.write': 'le modifiche agli ascolti',
   'music.ai_search': 'le ricerche con l’AI',

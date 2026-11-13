@@ -2,6 +2,7 @@
 // (deduplicato per commit, resistente a riavvii e più istanze). Pubblica solo la riga di sintesi del
 // commit e la versione breve: niente corpo del commit (trailer, link di sessione), niente env/segreti.
 import 'server-only';
+import { Prisma } from '@prisma/client';
 import { isTelegramBotConfigured, sendTelegramMessage } from '@/lib/business/telegram-bot.server';
 import { prisma } from '@/lib/db';
 import { env } from '@/lib/env';
@@ -17,10 +18,11 @@ export function redactSecrets(text: string): string {
       )
       // credenziali in un URL (user:pass@host)
       .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+:[^\s/@]+@/gi, '$1•••@')
-      // blob lunghi tipo token/hash (base64url o hex, ≥ 24 caratteri)
-      .replace(/\b[A-Za-z0-9_-]{24,}\b/g, (match) =>
-        /^[0-9a-f]+$/i.test(match) || /[_-]/.test(match) ? '•••' : match,
-      )
+      // Blob lunghi (≥ 24) tipo chiave/token/hash — base62, base64, base64url o hex, con eventuale
+      // padding "=". In un titolo di commit un blob così lungo e contiguo non è testo naturale (le
+      // frasi hanno spazi): si oscura SEMPRE. Meglio oscurare di troppo (un path lungo) che lasciar
+      // passare un segreto puramente alfanumerico (che le varianti precedenti non coprivano).
+      .replace(/[A-Za-z0-9+/_-]{24,}={0,2}/g, '•••')
   );
 }
 
@@ -29,12 +31,92 @@ export function buildAnnouncementText(commitSha: string, commitMessage: string):
   const subjectRaw = (commitMessage.split('\n', 1)[0] ?? '').trim();
   const subject = redactSecrets(subjectRaw).slice(0, 200).trim() || 'Nuovo aggiornamento';
   const shortSha = commitSha.slice(0, 7);
-  return `🚀 Solco si è aggiornato\n${subject}\n(versione ${shortSha})`;
+  const version = shortSha ? `\n(versione ${shortSha})` : '';
+  return `🚀 Solco si è aggiornato\n${subject}${version}`;
 }
 
 /** True se gli annunci build sono configurati (bot + canale). */
 export function isBuildAnnouncementConfigured(): boolean {
   return isTelegramBotConfigured() && Boolean(env.TELEGRAM_CHANNEL_CHAT_ID);
+}
+
+/** Dati della build corrente (su Vercel) o stringhe vuote altrove. */
+function currentBuild(): { commitSha: string; commitMessage: string } {
+  return {
+    commitSha: process.env.VERCEL_GIT_COMMIT_SHA ?? '',
+    commitMessage: process.env.VERCEL_GIT_COMMIT_MESSAGE ?? '',
+  };
+}
+
+export type AnnouncementPreview = {
+  botConfigured: boolean;
+  channelConfigured: boolean;
+  commitShort: string;
+  preview: string;
+  alreadyAnnounced: boolean;
+};
+
+/**
+ * Anteprima per il pannello admin: cosa verrebbe pubblicato e se è già stato annunciato. Di sola
+ * lettura; non invia nulla. Non lancia: in caso di problemi col DB riporta alreadyAnnounced=false.
+ */
+export async function announcementPreview(): Promise<AnnouncementPreview> {
+  const { commitSha, commitMessage } = currentBuild();
+  let alreadyAnnounced = false;
+  if (commitSha) {
+    try {
+      alreadyAnnounced = Boolean(
+        await prisma.buildAnnouncement.findUnique({ where: { commitSha }, select: { id: true } }),
+      );
+    } catch {
+      alreadyAnnounced = false;
+    }
+  }
+  return {
+    botConfigured: isTelegramBotConfigured(),
+    channelConfigured: Boolean(env.TELEGRAM_CHANNEL_CHAT_ID),
+    commitShort: commitSha.slice(0, 7),
+    preview: buildAnnouncementText(commitSha, commitMessage),
+    alreadyAnnounced,
+  };
+}
+
+export type AnnounceReason =
+  | 'ok'
+  | 'telegram_failed'
+  | 'bot_not_configured'
+  | 'channel_not_configured';
+
+export type AnnounceResult = { posted: boolean; text: string; reason: AnnounceReason };
+
+/**
+ * Pubblica SUBITO l'annuncio della build corrente sul canale (azione admin on-demand). A differenza
+ * di announceBuildIfNew(), pubblica anche se il commit è già registrato (è una richiesta esplicita);
+ * registra comunque il commit (upsert) così l'annuncio automatico al boot non lo ripubblica.
+ */
+export async function publishAnnouncementNow(): Promise<AnnounceResult> {
+  if (!isTelegramBotConfigured()) {
+    return { posted: false, text: '', reason: 'bot_not_configured' };
+  }
+  const channel = env.TELEGRAM_CHANNEL_CHAT_ID;
+  if (!channel) return { posted: false, text: '', reason: 'channel_not_configured' };
+
+  const { commitSha, commitMessage } = currentBuild();
+  const text = buildAnnouncementText(commitSha, commitMessage);
+  const posted = await sendTelegramMessage(channel, text);
+  if (posted && commitSha) {
+    try {
+      // Segna il commit come annunciato così seed() non lo ripubblica al prossimo boot.
+      await prisma.buildAnnouncement.upsert({
+        where: { commitSha },
+        create: { commitSha },
+        update: {},
+      });
+    } catch {
+      // La registrazione è solo anti-doppione: se fallisce, il post è comunque andato.
+    }
+  }
+  return { posted, text, reason: posted ? 'ok' : 'telegram_failed' };
 }
 
 /**
@@ -51,16 +133,28 @@ export async function announceBuildIfNew(): Promise<void> {
   if (!channel) return;
 
   try {
-    // Claim atomico: se esiste già (unique), un'altra istanza ha già annunciato → esci.
+    // Claim atomico: la create con commitSha @unique registra questa build.
     await prisma.buildAnnouncement.create({ data: { commitSha } });
-  } catch {
-    return;
+  } catch (error) {
+    // Solo la violazione di unicità (P2002) significa "già annunciato da un'altra istanza" → esci.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') return;
+    // Errore transitorio (es. P2024 pool timeout al boot su stack scale-to-zero): nessuna riga
+    // scritta, quindi NON è un dedup-hit. Rilancia invece di fingere "già annunciato": seed.ts
+    // (.catch) e instrumentation.ts lo ingoiano, così il boot non si blocca e un cold boot ritenta.
+    throw error;
   }
 
+  // Invio DOPO il claim. sendTelegramMessage non lancia: ritorna false su errore/timeout/non-2xx.
+  // Se NON è andato a buon fine, rilascia il claim così un boot futuro potrà ritentare (altrimenti
+  // il claim resterebbe e l'annuncio non partirebbe mai — es. bot non ancora admin del canale).
+  let sent = false;
   try {
     const text = buildAnnouncementText(commitSha, process.env.VERCEL_GIT_COMMIT_MESSAGE ?? '');
-    await sendTelegramMessage(channel, text);
+    sent = await sendTelegramMessage(channel, text);
   } catch {
-    // L'annuncio è best-effort: se l'invio fallisce non si ritenta (il claim resta registrato).
+    sent = false;
+  }
+  if (!sent) {
+    await prisma.buildAnnouncement.delete({ where: { commitSha } }).catch(() => undefined);
   }
 }

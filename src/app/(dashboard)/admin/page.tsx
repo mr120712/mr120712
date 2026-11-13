@@ -1,5 +1,5 @@
 // @polsia:user-owned
-import { ArrowRight, AudioLines, Bot } from 'lucide-react';
+import { ArrowRight, AudioLines, Bot, Send } from 'lucide-react';
 import Link from 'next/link';
 import { RateLimitNotice } from '@/components/custom/admin/rate-limit-notice';
 import { Button } from '@/components/ui/button';
@@ -36,6 +36,20 @@ export default function AdminPage() {
           <Button asChild variant="outline" className="mt-1 justify-between">
             <Link href="/admin/assistente">
               Apri assistente
+              <ArrowRight aria-hidden="true" className="size-4" />
+            </Link>
+          </Button>
+        </article>
+        <article className="grid content-start gap-3 rounded-xl border border-border bg-card p-6">
+          <Send aria-hidden="true" className="size-5 text-primary" />
+          <h2 className="font-semibold text-card-foreground">Annunci su Telegram</h2>
+          <p className="text-sm leading-6 text-muted-foreground">
+            Pubblica sul canale un avviso con la riga di sintesi del commit e la versione. Nessun
+            dato sensibile.
+          </p>
+          <Button asChild variant="outline" className="mt-1 justify-between">
+            <Link href="/admin/telegram">
+              Pubblica un annuncio
               <ArrowRight aria-hidden="true" className="size-4" />
             </Link>
           </Button>
