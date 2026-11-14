@@ -1,5 +1,5 @@
 // @polsia:user-owned
-import { ArrowRight, AudioLines, Bot, Clapperboard, Send } from 'lucide-react';
+import { ArrowRight, AudioLines, Bot, Clapperboard, Send, Users } from 'lucide-react';
 import Link from 'next/link';
 import { RateLimitNotice } from '@/components/custom/admin/rate-limit-notice';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,20 @@ export default function AdminPage() {
         <h1 className="text-3xl font-semibold tracking-normal text-foreground">Panoramica</h1>
       </div>
       <section className="grid max-w-xl gap-4">
+        <article className="grid content-start gap-3 rounded-xl border border-border bg-card p-6">
+          <Users aria-hidden="true" className="size-5 text-primary" />
+          <h2 className="font-semibold text-card-foreground">Iscritti</h2>
+          <p className="text-sm leading-6 text-muted-foreground">
+            Quanti account ci sono, i nuovi delle ultime 24 ore, 7 e 30 giorni e l’andamento giorno
+            per giorno. Solo numeri aggregati, nessun dato personale.
+          </p>
+          <Button asChild variant="outline" className="mt-1 justify-between">
+            <Link href="/admin/iscritti">
+              Apri iscritti
+              <ArrowRight aria-hidden="true" className="size-4" />
+            </Link>
+          </Button>
+        </article>
         <article className="grid content-start gap-3 rounded-xl border border-border bg-card p-6">
           <AudioLines aria-hidden="true" className="size-5 text-primary" />
           <h2 className="font-semibold text-card-foreground">Diritti musicali</h2>

@@ -1,7 +1,7 @@
 // @polsia:user-owned
 'use client';
 
-import { Activity, AudioLines, Bot, Clapperboard, LayoutDashboard } from 'lucide-react';
+import { Activity, AudioLines, Bot, Clapperboard, LayoutDashboard, Users } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 // Add every admin feature here; child pages inherit this navigation.
 const navItems = [
   { href: '/admin', label: 'Panoramica', icon: LayoutDashboard },
+  { href: '/admin/iscritti', label: 'Iscritti', icon: Users },
   { href: '/admin/assistente', label: 'Assistente IA', icon: Bot },
   { href: '/admin/music-rights', label: 'Diritti musicali', icon: AudioLines },
   { href: '/admin/tiktok', label: 'Video TikTok', icon: Clapperboard },
