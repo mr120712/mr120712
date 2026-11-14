@@ -16,19 +16,44 @@ import {
   inviteLinkForCode,
   isTelegramBotConfigured,
   miniAppKeyboard,
+  searchKeyboard,
   sendTelegramMessage,
 } from '@/lib/business/telegram-bot.server';
 import { verifyTelegramLinkToken } from '@/lib/business/telegram-link';
 import { prisma } from '@/lib/db';
 import { env } from '@/lib/env';
+import { botSearch } from '@/lib/music/bot-search.server';
 
 export const dynamic = 'force-dynamic';
+/** /cerca interroga più fonti: lascia margine oltre la fonte più lenta (tempo massimo in botSearch). */
+export const maxDuration = 20;
 
 const CONNECT_HINT =
   'Per ricevere il tuo codice di invito, collega il tuo account: apri Solco → Premi → «Ricevi il codice su Telegram».';
 
 const HELP_TEXT =
-  '<b>Solco Music</b> 🎧\n\nEcco cosa posso fare:\n• /codice — il tuo codice di invito\n• /invito — il tuo link di invito\n\nTocca <b>Apri Solco</b> per aprire l’app qui dentro, come Mini App.';
+  '<b>Solco Music</b> 🎧\n\nEcco cosa posso fare:\n• /cerca parole — trova musica Creative Commons\n• /codice — il tuo codice di invito\n• /invito — il tuo link di invito\n• /app — apri Solco (Mini App)\n\nTocca <b>Apri Solco</b> per aprire l’app qui dentro, come Mini App.';
+
+/** Risultati del bot formattati per Telegram (HTML). Tutti Creative Commons, riproducibili su Solco. */
+function formatSearchResults(
+  query: string,
+  results: Awaited<ReturnType<typeof botSearch>>,
+): string {
+  const lines = results.slice(0, 5).map((result, index) => {
+    const n = index + 1;
+    if (result.kind === 'audius') {
+      return `${n}. 🎵 <b>${escapeTelegramHtml(result.track.title)}</b> — ${escapeTelegramHtml(result.track.artistName)}`;
+    }
+    if (result.kind === 'radio') {
+      return `${n}. 📻 <b>${escapeTelegramHtml(result.station.name)}</b> · radio`;
+    }
+    if (result.kind === 'podcast') {
+      return `${n}. 🎙️ <b>${escapeTelegramHtml(result.podcast.title)}</b> · podcast`;
+    }
+    return `${n}. …`;
+  });
+  return `🔎 <b>${escapeTelegramHtml(query)}</b>\n\n${lines.join('\n')}\n\nTutti con licenza Creative Commons. Tocca <b>Ascolta su Solco</b> per riprodurli. 🎧`;
+}
 
 async function sendCode(
   chatId: string,
@@ -85,6 +110,43 @@ async function handleUpdate(
     return;
   }
 
+  // /cerca <parole> → musica Creative Commons (Audius + radio + podcast), riproducibile su Solco.
+  const search = /^\/(?:cerca|search|trova)(?:@\w+)?(?:\s+([\s\S]+))?$/.exec(text);
+  if (search) {
+    const query = (search[1] ?? '').trim().slice(0, 80);
+    if (!query) {
+      await sendTelegramMessage(
+        chatId,
+        'Uso: <b>/cerca parole</b>\nEs. <i>/cerca lofi per studiare</i>',
+        { parseMode: 'HTML', replyMarkup: miniAppKeyboard(chatType) },
+      );
+      return;
+    }
+    const results = await botSearch(query);
+    if (results.length === 0) {
+      await sendTelegramMessage(
+        chatId,
+        `Nessun brano Creative Commons per «${escapeTelegramHtml(query)}». Prova altre parole.`,
+        { parseMode: 'HTML' },
+      );
+      return;
+    }
+    await sendTelegramMessage(chatId, formatSearchResults(query, results), {
+      parseMode: 'HTML',
+      disableWebPagePreview: true,
+      replyMarkup: searchKeyboard(query, chatType),
+    });
+    return;
+  }
+
+  // /app → apri Solco come Mini App.
+  if (/^\/(?:app|apri|solco)(@\w+)?$/.test(text)) {
+    await sendTelegramMessage(chatId, 'Apri Solco qui dentro, come Mini App 👇', {
+      replyMarkup: miniAppKeyboard(chatType),
+    });
+    return;
+  }
+
   // /start (senza token), /codice, /invito, o testo vuoto → rimanda il codice se già collegato.
   if (text === '' || /^\/(start|codice|invito|invita)(@\w+)?$/.test(text)) {
     const link = await prisma.telegramAccountLink.findUnique({
@@ -100,8 +162,8 @@ async function handleUpdate(
 
   await sendTelegramMessage(
     chatId,
-    'Scrivi /codice per ricevere il tuo codice di invito, oppure /help.',
-    { replyMarkup: miniAppKeyboard(chatType) },
+    'Prova <b>/cerca lofi</b> per trovare musica, <b>/codice</b> per il tuo codice di invito, o <b>/help</b>.',
+    { parseMode: 'HTML', replyMarkup: miniAppKeyboard(chatType) },
   );
 }
 

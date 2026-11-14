@@ -421,10 +421,22 @@ export function miniAppKeyboard(chatType: string | null) {
   return { inline_keyboard: [[openSolcoButton(chatType)]] };
 }
 
+/** Tastiera "Ascolta su Solco": apre la ricerca per quelle parole (Mini App in privato, link altrove). */
+export function searchKeyboard(query: string, chatType: string | null) {
+  const url = `${BOT_PUBLIC_URL}/search?q=${encodeURIComponent(query)}`;
+  const open =
+    chatType === 'private'
+      ? { text: '▶️ Ascolta su Solco', web_app: { url } }
+      : { text: '▶️ Ascolta su Solco', url };
+  return { inline_keyboard: [[open]] };
+}
+
 /** Comandi del bot mostrati nel menu "/" di Telegram (setMyCommands). */
 export const TELEGRAM_BOT_COMMANDS = [
+  { command: 'cerca', description: 'Cerca musica Creative Commons' },
   { command: 'codice', description: 'Ricevi il tuo codice di invito' },
   { command: 'invito', description: 'Ricevi il tuo link di invito' },
+  { command: 'app', description: 'Apri Solco (Mini App)' },
   { command: 'help', description: 'Cosa può fare questo bot' },
 ] as const;
 

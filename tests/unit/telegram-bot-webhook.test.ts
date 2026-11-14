@@ -15,10 +15,12 @@ const mocks = vi.hoisted(() => ({
   upsert: vi.fn(async () => ({})),
   findUnique: vi.fn(),
   enforceRateLimit: vi.fn(),
+  botSearch: vi.fn(async (_query?: string) => [] as unknown[]),
 }));
 
 vi.mock('@/lib/env', () => ({ env: mocks.env }));
 vi.mock('@/lib/business/rate-limit.server', () => ({ enforceRateLimit: mocks.enforceRateLimit }));
+vi.mock('@/lib/music/bot-search.server', () => ({ botSearch: mocks.botSearch }));
 vi.mock('@/lib/business/telegram-bot.server', () => ({
   sendTelegramMessage: mocks.send,
   isTelegramBotConfigured: () => mocks.configured,
@@ -26,6 +28,7 @@ vi.mock('@/lib/business/telegram-bot.server', () => ({
   escapeTelegramHtml: (s: string) => s,
   inviteKeyboard: () => ({ kind: 'invite' }),
   miniAppKeyboard: () => ({ kind: 'mini' }),
+  searchKeyboard: () => ({ kind: 'search' }),
 }));
 vi.mock('@/lib/business/rewards.server', () => ({ ensureReferralCode: mocks.ensureCode }));
 vi.mock('@/lib/business/telegram-link', () => ({ verifyTelegramLinkToken: mocks.verify }));
@@ -73,6 +76,7 @@ beforeEach(() => {
   mocks.findUnique.mockResolvedValue(null);
   mocks.verify.mockReturnValue(null);
   mocks.enforceRateLimit.mockResolvedValue(null);
+  mocks.botSearch.mockResolvedValue([]);
 });
 
 describe('POST /api/telegram/webhook (bot)', () => {
@@ -140,5 +144,46 @@ describe('POST /api/telegram/webhook (bot)', () => {
     expect(mocks.upsert).toHaveBeenCalled();
     expect(mocks.ensureCode).toHaveBeenCalledWith('user-9');
     expect(lastSend().text).toContain('Account collegato');
+  });
+
+  it('/cerca <parole>: cerca CC e risponde con i risultati + tastiera di ascolto', async () => {
+    mocks.botSearch.mockResolvedValue([
+      {
+        kind: 'audius',
+        key: 'audius:1',
+        score: 100,
+        track: { title: 'Alba', artistName: 'Artista' },
+        youtubeAlternative: null,
+      },
+      { kind: 'radio', key: 'radio:1', score: 80, station: { name: 'Indie FM' } },
+    ]);
+    await POST(req(msg('/cerca lofi')));
+    expect(mocks.botSearch).toHaveBeenCalledWith('lofi');
+    const { text, options } = lastSend();
+    expect(text).toContain('Alba');
+    expect(text).toContain('Indie FM');
+    expect(options.parseMode).toBe('HTML');
+    expect(options.replyMarkup).toEqual({ kind: 'search' });
+  });
+
+  it('/cerca senza parole: mostra l’uso, non cerca', async () => {
+    await POST(req(msg('/cerca')));
+    expect(mocks.botSearch).not.toHaveBeenCalled();
+    expect(lastSend().text).toContain('/cerca parole');
+  });
+
+  it('/cerca senza risultati: lo dice, non cerca a vuoto', async () => {
+    mocks.botSearch.mockResolvedValue([]);
+    await POST(req(msg('/cerca xyzqwkk')));
+    expect(mocks.botSearch).toHaveBeenCalledWith('xyzqwkk');
+    expect(lastSend().text).toContain('Nessun brano');
+  });
+
+  it('/app: invita ad aprire la Mini App', async () => {
+    await POST(req(msg('/app')));
+    const { text, options } = lastSend();
+    expect(text).toContain('Mini App');
+    expect(options.replyMarkup).toEqual({ kind: 'mini' });
+    expect(mocks.botSearch).not.toHaveBeenCalled();
   });
 });

@@ -29,20 +29,34 @@ function validItems<T>(schema: ZodType<T>, rows: readonly unknown[]): T[] {
   });
 }
 
-/** Esegue il lavoro, ma in caso di errore torna il valore di riserva (la sezione resta vuota). */
-async function safe<T>(task: () => Promise<T>, fallback: T): Promise<T> {
-  try {
-    return await task();
-  } catch {
-    return fallback;
-  }
+/**
+ * Esegue il lavoro con un tempo massimo: in errore o oltre la scadenza torna il valore di riserva
+ * (quella sezione resta vuota, le altre proseguono). Serve soprattutto al webhook Telegram, che deve
+ * rispondere in fretta: una fonte lenta non deve far scadere l'intera richiesta.
+ */
+function withDeadline<T>(task: () => Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), ms);
+  });
+  const work = Promise.resolve()
+    .then(task)
+    .catch(() => fallback);
+  return Promise.race([work, deadline]).finally(() => clearTimeout(timer));
 }
+
+/** Tempo massimo per fonte. */
+const SOURCE_TIMEOUT_MS = 6000;
 
 export async function botSearch(query: string): Promise<UnifiedResult[]> {
   const [audius, radio, podcasts] = await Promise.all([
-    safe(() => searchMusic('audius', query), null),
-    safe(() => listStations({ q: query, limit: RADIO_FETCH_LIMIT }), null),
-    safe(() => searchPodcasts(query), null),
+    withDeadline(() => searchMusic('audius', query), SOURCE_TIMEOUT_MS, null),
+    withDeadline(
+      () => listStations({ q: query, limit: RADIO_FETCH_LIMIT }),
+      SOURCE_TIMEOUT_MS,
+      null,
+    ),
+    withDeadline(() => searchPodcasts(query), SOURCE_TIMEOUT_MS, null),
   ]);
 
   const audiusTracks = audius
