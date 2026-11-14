@@ -21,6 +21,7 @@ import {
   trackStreamPath,
   useMusicPlayer,
 } from '@/components/custom/music/music-player';
+import { setPlaybackSpeed } from '@/lib/music/playback-speed';
 
 const audiusA: MusicPlayerTrack = {
   qualifiedId: 'audius:track-a',
@@ -259,6 +260,11 @@ beforeEach(() => {
 
 afterEach(async () => {
   vi.useRealTimers();
+  try {
+    window.localStorage.clear();
+  } catch {
+    // ignora
+  }
   for (const root of roots.splice(0)) await act(async () => root.unmount());
   Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
   Reflect.deleteProperty(navigator, 'mediaSession');
@@ -570,7 +576,8 @@ describe('controlli di sistema (schermata di blocco, notifica, cuffie)', () => {
     await start(container, 'Avvia Audius');
     state.duration = 200;
     state.currentTime = 0;
-    state.playbackRate = 1.25;
+    // La velocità viene dallo store "slowed/sped up": sceglila e l'elemento la assume al loadedmetadata.
+    await act(async () => setPlaybackSpeed(1.25));
     await fire(audio, 'loadedmetadata');
     expect(session.setPositionState).toHaveBeenLastCalledWith({
       duration: 200,

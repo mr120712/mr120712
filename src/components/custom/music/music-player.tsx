@@ -4,6 +4,7 @@
 import {
   ChevronDown,
   ExternalLink,
+  Gauge,
   ListMusic,
   Music2,
   Pause,
@@ -87,6 +88,13 @@ import {
   rightsVerdictFromReason,
   shouldPrefetchNext,
 } from '@/lib/music/playback-prefetch';
+import {
+  applyElementSpeed,
+  nearestYouTubeRate,
+  PLAYBACK_SPEEDS,
+  setPlaybackSpeed,
+  usePlaybackSpeed,
+} from '@/lib/music/playback-speed';
 import { failureLink, failureMessage, showsFreePlayCounter } from '@/lib/music/player-messages';
 import {
   continuesInRun,
@@ -168,6 +176,8 @@ type MusicPlayerValue = {
   errorMessage: string | null;
   shuffle: boolean;
   repeat: RepeatMode;
+  /** Velocità "slowed / sped up" (0.5–2×); 1 = normale. Cambia tono sugli stream HTML5. */
+  playbackSpeed: number;
   expanded: boolean;
   /** true: Premium, ascolti illimitati; false: Free, 40 ascolti completi al mese; null: verifica in corso. */
   premium: boolean | null;
@@ -195,6 +205,8 @@ type MusicPlayerValue = {
   forgetLocalTracks: (ids: readonly string[] | 'all') => void;
   toggleShuffle: () => void;
   cycleRepeat: () => void;
+  /** Imposta la velocità di riproduzione (ritagliata a 0.5–2×). */
+  setSpeed: (speed: number) => void;
   setExpanded: (expanded: boolean) => void;
   /**
    * Da chiamare come prima istruzione di un tocco che avvierà l'audio dopo un'attesa di rete
@@ -315,6 +327,10 @@ type YouTubeEngine = {
   getPlaylistIndex?: () => number;
   getPlaylist?: () => string[] | null | undefined;
   getVideoData?: () => { video_id?: string } | null | undefined;
+  // Velocità "slowed/sped up": YouTube accetta solo i valori di getAvailablePlaybackRates e tiene
+  // il tono, quindi lì l'effetto è solo di tempo (vedi nearestYouTubeRate).
+  setPlaybackRate?: (rate: number) => void;
+  getAvailablePlaybackRates?: () => number[];
 };
 
 const YT_ENDED = 0;
@@ -638,6 +654,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [shuffle, setShuffle] = useState(false);
   const [repeat, setRepeat] = useState<RepeatMode>('off');
+  // Velocità "slowed / sped up": store per dispositivo (localStorage). Il ref serve ai gestori
+  // imperativi (play, loadedmetadata), lo stato reattivo al render dei pulsanti.
+  const playbackSpeed = usePlaybackSpeed();
+  const playbackSpeedRef = useRef(playbackSpeed);
+  playbackSpeedRef.current = playbackSpeed;
   const [expanded, setExpanded] = useState(false);
   // Latest queue and index for the YouTube engine callbacks (set every render; an in-run move or a
   // followed YouTube advance updates the index at once, before the next render).
@@ -647,6 +668,33 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   queueIndexRef.current = queueIndex;
   const ytHostRef = useRef<HTMLDivElement>(null);
   const ytPlayerRef = useRef<YouTubeEngine | null>(null);
+  // Applica la velocità scelta al player YouTube (velocità discreta, tono invariato lì).
+  const applyYouTubeRate = (player: YouTubeEngine | null) => {
+    if (!player?.setPlaybackRate) return;
+    try {
+      player.setPlaybackRate(
+        nearestYouTubeRate(playbackSpeedRef.current, player.getAvailablePlaybackRates?.()),
+      );
+    } catch {
+      // Player non ancora pronto: lo riproveremo in onReady / onPlaying.
+    }
+  };
+  // La velocità vive su uno store per dispositivo: applicala ai due deck e al player YouTube ogni
+  // volta che cambia, anche mentre un brano suona (onRateChange aggiorna poi la Media Session).
+  useEffect(() => {
+    applyElementSpeed(decks.current, playbackSpeed);
+    applyElementSpeed(decks.spareDeck, playbackSpeed);
+    const player = ytPlayerRef.current;
+    if (player?.setPlaybackRate) {
+      try {
+        player.setPlaybackRate(
+          nearestYouTubeRate(playbackSpeed, player.getAvailablePlaybackRates?.()),
+        );
+      } catch {
+        // Player non pronto.
+      }
+    }
+  }, [playbackSpeed, decks]);
   // YouTube playlist runs (see youtube-runs.ts): the consecutive YouTube items loaded in the official
   // player as one playlist (null: it holds a single video), the queue item the player was sent to
   // (or followed to) and by which play request, and a move asked of it that YouTube has not
@@ -2063,6 +2111,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const handlePlaying = () => {
+    // Il deck attivo (anche dopo uno scambio gapless) riprende la velocità scelta.
+    applyElementSpeed(decks.current, playbackSpeedRef.current);
     setStatus('playing');
     setBuffering(false);
     setSessionPlaybackState('playing');
@@ -2088,6 +2138,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   const handleLoadedMetadata = () => {
     const audio = decks.current;
+    // load() riporta playbackRate a defaultPlaybackRate: riapplica la velocità sulla nuova sorgente.
+    applyElementSpeed(audio, playbackSpeedRef.current);
     if (audio && pendingSeekRef.current !== null && Number.isFinite(audio.duration)) {
       audio.currentTime = Math.min(pendingSeekRef.current, audio.duration);
       pendingSeekRef.current = null;
@@ -2341,6 +2393,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       // Created with the current video: hand YouTube its run, so the next videos are prepared (or
       // load the item the app moved to while the player was starting). Never while hidden.
       const player = ytPlayerRef.current;
+      applyYouTubeRate(player);
       const track = currentTrackRef.current;
       const index = queueIndexRef.current;
       const videoId = track && isYouTubeTrack(track) ? youtubeVideoId(track) : null;
@@ -2362,6 +2415,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       if (playBlock === null) loadYouTubeItem(player, index, videoId);
     },
     onPlaying: () => {
+      applyYouTubeRate(ytPlayerRef.current);
       const followed = followYouTube();
       if (isPageHidden()) {
         // Also a video YouTube advanced to on its own: never audible in the background. The ref,
@@ -3011,6 +3065,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         errorMessage,
         shuffle,
         repeat,
+        playbackSpeed,
         expanded,
         premium,
         previewEnded,
@@ -3026,6 +3081,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         forgetLocalTracks,
         toggleShuffle,
         cycleRepeat,
+        setSpeed: setPlaybackSpeed,
         setExpanded,
         primeAudio,
       }}
@@ -3090,6 +3146,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
               <span className={styles.miniCopy}>
                 <strong>{currentTrack.title}</strong>
                 <span>
+                  {Math.abs(playbackSpeed - 1) > 0.001 ? (
+                    <em className={styles.speedBadge}>{playbackSpeed}×</em>
+                  ) : null}
                   {live ? <em className={styles.liveBadge}>LIVE</em> : null}
                   {[currentTrack.artistName, currentTrack.sourceLabel].filter(Boolean).join(' · ')}
                 </span>
@@ -3371,6 +3430,29 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                       <Repeat aria-hidden="true" />
                     )}
                   </button>
+                </div>
+                <div className={styles.speed}>
+                  <span className={styles.speedLabel}>
+                    <Gauge aria-hidden="true" /> Velocità (slowed / sped up)
+                  </span>
+                  <div className={styles.speedChips}>
+                    {PLAYBACK_SPEEDS.map((value) => (
+                      <button
+                        key={value}
+                        type="button"
+                        className={styles.speedChip}
+                        aria-pressed={Math.abs(playbackSpeed - value) < 0.001}
+                        aria-label={value === 1 ? 'Velocità normale' : `Velocità ${value}×`}
+                        onClick={() => setPlaybackSpeed(value)}
+                        disabled={live}
+                      >
+                        {value === 1 ? '1×' : `${value}×`}
+                      </button>
+                    ))}
+                  </div>
+                  {youtubeActive && Math.abs(playbackSpeed - 1) > 0.001 ? (
+                    <p className={styles.speedHint}>Su YouTube cambia la velocità, non il tono.</p>
+                  ) : null}
                 </div>
               </div>
 

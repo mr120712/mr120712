@@ -433,6 +433,74 @@
   padding: 4px 8px 0;
 }
 
+.speed {
+  display: grid;
+  gap: 8px;
+  padding: 4px 8px 0;
+}
+
+.speedLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--muted-foreground);
+}
+
+.speedLabel svg {
+  width: 15px;
+  height: 15px;
+}
+
+.speedChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.speedChip {
+  min-width: 44px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.speedChip[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--primary) 55%, transparent);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  color: var(--foreground);
+}
+
+.speedChip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.speedHint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+
+.speedBadge {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--primary) 85%, transparent);
+  color: var(--primary-foreground);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+}
+
 .skip {
   width: 52px;
   height: 52px;

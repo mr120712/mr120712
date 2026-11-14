@@ -12,6 +12,14 @@ Accetta solo URL di domini in whitelist (default youtube.com/youtu.be; override 
 TELEGRAM_DL_ALLOWED_DOMAINS, separati da virgola). Un file .txt inviato in chat è letto come
 --urls-file (un URL per riga, '#' = commento), con un tetto di MAX_BATCH link per messaggio.
 
+Comandi effetto (il tono segue la velocità, stile "slowed / sped up", via ffmpeg):
+  /slow <link>            rallentato (x0.85)
+  /reverb <link>          rallentato + eco
+  /fast <link>            accelerato / nightcore (x1.25)
+  /speed <fattore> <link> velocità a scelta (0.5–2)
+I comandi si combinano con /own, es. "/own /slow <link>", e valgono anche nella didascalia di
+un file .txt. Richiede ffprobe (incluso in ffmpeg) per la frequenza di campionamento.
+
 Serve un bot DEDICATO (diverso da quello del sito: getUpdates e webhook non convivono sullo stesso
 token):
   1) crea un bot con @BotFather e copia il token;
@@ -58,6 +66,14 @@ ALLOWED_DOMAINS = {
 }
 # Numero massimo di URL elaborati per messaggio/file (anti-flood locale).
 MAX_BATCH = 30
+
+# Effetto "slowed / sped up": il tono segue la velocità (come la peculiarità del sito). Preset dei
+# comandi e intervallo consentito per /speed <fattore>.
+MIN_SPEED = 0.5
+MAX_SPEED = 2.0
+SLOWED_SPEED = 0.85
+SLOWED_REVERB_SPEED = 0.82
+SPEDUP_SPEED = 1.25
 
 
 def api(method: str, params: dict | None = None, timeout: int = 70) -> dict:
@@ -160,7 +176,7 @@ def read_document_urls(document: dict) -> list[str] | None:
 
 
 def deliver(chat_id: int | str, path: Path) -> None:
-    send(chat_id, f"✅ Scaricato in locale: {path.name}")
+    send(chat_id, f"✅ Pronto in locale: {path.name}")
     if path.stat().st_size <= MAX_UPLOAD:
         try:
             send_audio(chat_id, path)
@@ -170,7 +186,123 @@ def deliver(chat_id: int | str, path: Path) -> None:
         send(chat_id, "(oltre ~50MB: non lo invio su Telegram, è nella cartella locale)")
 
 
-def process_urls(chat_id: int | str, urls: list[str], own: bool) -> None:
+def clamp_speed(value: float) -> float:
+    return max(MIN_SPEED, min(MAX_SPEED, value))
+
+
+def probe_sample_rate(path: Path) -> int | None:
+    """Frequenza di campionamento del file (ffprobe); None se non disponibile."""
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "a:0",
+                "-show_entries",
+                "stream=sample_rate",
+                "-of",
+                "default=nokey=1:noprint_wrappers=1",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        value = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
+        return int(value) if value.isdigit() else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def speed_tag(speed: float, reverb: bool) -> str:
+    if reverb and speed < 1:
+        return "slowed+reverb"
+    if reverb:
+        return "reverb"
+    return "slowed" if speed < 1 else "spedup"
+
+
+def apply_speed(src: Path, speed: float, reverb: bool) -> Path:
+    """Crea una versione slowed/sped-up con ffmpeg: il tono segue la velocità, come sul sito.
+
+    asetrate reinterpreta la frequenza di campionamento → cambia tempo E tono (effetto "giradischi");
+    aresample riporta a una frequenza standard per l'encoder. Con reverb aggiunge un'eco leggera.
+    In caso di errore ritorna il file originale (invariato).
+    """
+    sample_rate = probe_sample_rate(src) or 44100
+    new_rate = max(8000, int(sample_rate * clamp_speed(speed)))
+    chain = [f"asetrate={new_rate}", f"aresample={sample_rate}"]
+    if reverb:
+        chain.append("aecho=0.8:0.85:60:0.35")
+    out = src.with_name(f"{src.stem} [{speed_tag(speed, reverb)} {speed:g}x]{src.suffix}")
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", str(src), "-filter:a", ",".join(chain), "-b:a", "192k", str(out)],
+        check=False,
+    )
+    return out if out.exists() else src
+
+
+def transform_and_deliver(chat_id: int | str, path: Path, speed: float, reverb: bool) -> None:
+    """Consegna il file; se è richiesto un effetto, prima crea la versione slowed/sped-up."""
+    if abs(speed - 1.0) < 1e-6 and not reverb:
+        deliver(chat_id, path)
+        return
+    send(chat_id, f"🎚️ Applico «{speed_tag(speed, reverb)}» (x{speed:g})…")
+    out = apply_speed(path, speed, reverb)
+    if out == path or not out.exists():
+        send(chat_id, "Non sono riuscito a creare la versione modificata: invio l'originale.")
+        deliver(chat_id, path)
+        return
+    deliver(chat_id, out)
+
+
+def parse_command(text: str) -> tuple[bool, float, bool, str]:
+    """Legge i comandi iniziali (/own, /slow, /fast, /reverb, /speed <n>) e ritorna il resto.
+
+    Ritorna (own, speed, reverb, resto_del_testo). I comandi possono combinarsi, es. «/own /slow <url>».
+    """
+    own = False
+    speed = 1.0
+    reverb = False
+    tokens = text.split()
+    index = 0
+    while index < len(tokens) and tokens[index].startswith("/"):
+        cmd = tokens[index].split("@", 1)[0].lower()
+        if cmd == "/own":
+            own = True
+            index += 1
+        elif cmd in ("/slow", "/slowed", "/rallenta"):
+            speed = SLOWED_SPEED
+            index += 1
+        elif cmd in ("/slowreverb", "/slowedreverb", "/reverb"):
+            speed = SLOWED_REVERB_SPEED
+            reverb = True
+            index += 1
+        elif cmd in ("/fast", "/speedup", "/nightcore", "/accelera"):
+            speed = SPEDUP_SPEED
+            index += 1
+        elif cmd in ("/speed", "/velocita"):
+            index += 1
+            if index < len(tokens):
+                try:
+                    speed = clamp_speed(float(tokens[index].lower().replace("x", "").replace(",", ".")))
+                    index += 1
+                except ValueError:
+                    pass
+        else:
+            break
+    return own, speed, reverb, " ".join(tokens[index:])
+
+
+def process_urls(
+    chat_id: int | str,
+    urls: list[str],
+    own: bool,
+    speed: float = 1.0,
+    reverb: bool = False,
+) -> None:
     allowed = [u for u in urls if host_allowed(u)]
     for bad in (u for u in urls if u not in allowed):
         host = urllib.parse.urlparse(bad).hostname or bad
@@ -196,7 +328,7 @@ def process_urls(chat_id: int | str, urls: list[str], own: bool) -> None:
             )
             continue
         for path in files:
-            deliver(chat_id, path)
+            transform_and_deliver(chat_id, path, speed, reverb)
 
 
 def handle(update: dict) -> None:
@@ -216,9 +348,11 @@ def handle(update: dict) -> None:
         )
         return
 
-    # File .txt inviato al bot: equivalente di --urls-file (un URL per riga).
+    # File .txt inviato al bot: equivalente di --urls-file (un URL per riga). La didascalia può
+    # portare i comandi (es. «/slow» o «/own») da applicare a tutto il file.
     document = message.get("document")
     if document:
+        own, speed, reverb, _rest = parse_command((message.get("caption") or "").strip())
         urls = read_document_urls(document)
         if urls is None:
             send(chat_id, "Non riesco a leggere il file.")
@@ -226,7 +360,7 @@ def handle(update: dict) -> None:
         if not urls:
             send(chat_id, "Il file non contiene URL.")
             return
-        process_urls(chat_id, urls, own=False)
+        process_urls(chat_id, urls, own, speed, reverb)
         return
 
     text = (message.get("text") or "").strip()
@@ -234,20 +368,24 @@ def handle(update: dict) -> None:
         send(
             chat_id,
             "Mandami uno o più link (anche uno per riga), oppure un file .txt di URL: scarico "
-            "l'audio in MP3 SOLO se ha licenza Creative Commons.\n"
-            "Usa «/own <link>» per un contenuto TUO (toglie il filtro CC; devi averne i diritti).\n"
+            "l'audio in MP3 SOLO se ha licenza Creative Commons.\n\n"
+            "Effetti (il tono segue la velocità, stile «slowed/sped up»):\n"
+            "• /slow <link> — rallentato (x0.85)\n"
+            "• /reverb <link> — rallentato + eco\n"
+            "• /fast <link> — accelerato / nightcore (x1.25)\n"
+            "• /speed <fattore> <link> — velocità a scelta (0.5–2, es. /speed 1.1)\n\n"
+            "Usa «/own <link>» per un contenuto TUO (toglie il filtro CC; devi averne i diritti); "
+            "puoi combinarlo, es. «/own /slow <link>».\n"
             f"Domini consentiti: {', '.join(sorted(ALLOWED_DOMAINS))}.",
         )
         return
 
-    own = text.startswith("/own")
-    if own:
-        text = text[len("/own") :].strip()
-    urls = extract_urls(text)
+    own, speed, reverb, rest = parse_command(text)
+    urls = extract_urls(rest)
     if not urls:
         send(chat_id, "Mandami uno o più URL http(s), o un file .txt. /help per le istruzioni.")
         return
-    process_urls(chat_id, urls, own)
+    process_urls(chat_id, urls, own, speed, reverb)
 
 
 def main() -> int:
