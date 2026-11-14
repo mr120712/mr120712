@@ -1,7 +1,7 @@
 // @polsia:user-owned — pagina pubblica di una playlist condivisa (/playlist/<id>): chiunque abbia
-// il link vede nome, prima parola del nome del proprietario e brani, e li ascolta nel player Solco
-// (stesse regole di ascolto della Libreria, verificate dalle route di stream). Chi ha un account
-// può salvarne una copia nella propria Libreria.
+// il link vede copertina a mosaico, nome, descrizione, prima parola del nome del proprietario e
+// brani, e li ascolta nel player Solco (stesse regole di ascolto della Libreria, verificate dalle
+// route di stream). Chi ha un account può salvarne una copia nella propria Libreria.
 'use client';
 
 import { Check, ListMusic, LogIn, Pause, Play, Plus, RotateCcw, Shuffle } from 'lucide-react';
@@ -19,6 +19,7 @@ import {
 } from '@/components/custom/music/collection-tracks';
 import { FallbackArt } from '@/components/custom/music/fallback-art';
 import { useMusicPlayer } from '@/components/custom/music/music-player';
+import { PlaylistMosaic } from '@/components/custom/music/playlist-mosaic';
 import { ShareButton } from '@/components/custom/share-button';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
@@ -30,7 +31,6 @@ import {
   type SharedPlaylistItem,
   SharedPlaylistSchema,
 } from '@/lib/contracts/shared-playlist';
-import { artInitial } from '@/lib/music/art-initial';
 import {
   isolateName,
   isShareId,
@@ -107,32 +107,6 @@ function unavailableReason(item: SharedPlaylistItem) {
   if (item.source === 'audius')
     return 'Audius non ha confermato i dati completi: il brano non parte.';
   return 'Questo brano non può essere avviato.';
-}
-
-function Mosaic({ playlist }: { playlist: SharedPlaylist }) {
-  const covers = [
-    ...new Set(playlist.items.flatMap((item) => (item.artworkUrl ? [item.artworkUrl] : []))),
-  ];
-  const shown = covers.length >= 4 ? covers.slice(0, 4) : covers.slice(0, 1);
-  if (shown.length === 0) {
-    return (
-      <div className={`${styles.mosaic} ${styles.mosaicFallback}`} aria-hidden="true">
-        {artInitial(playlist.name)}
-      </div>
-    );
-  }
-  return (
-    <div className={styles.mosaic} data-count={shown.length} aria-hidden="true">
-      {shown.map((src) => (
-        <FallbackArt
-          key={src}
-          src={src}
-          label={playlist.name}
-          size={shown.length === 4 ? 160 : 320}
-        />
-      ))}
-    </div>
-  );
 }
 
 function LoadingSkeleton() {
@@ -303,12 +277,22 @@ export function SharedPlaylistView({ shareId }: { shareId: string }) {
   return (
     <main className={styles.page}>
       <header className={styles.hero}>
-        <Mosaic playlist={playlist} />
+        {/* Le copertine dei brani stessi, nell'ordine della playlist (come prima). */}
+        <div className={styles.heroCover}>
+          <PlaylistMosaic name={playlist.name} items={playlist.items} />
+        </div>
         <div className={styles.heroCopy}>
           <p className={styles.eyebrow}>Playlist condivisa</p>
           <h1 ref={headingRef} tabIndex={-1}>
             {playlist.name}
           </h1>
+          {playlist.description ? (
+            // Testo semplice del proprietario: React lo scappa (mai HTML), il CSS conserva gli a
+            // capo. dir="auto" fa leggere nel verso giusto una descrizione da destra a sinistra.
+            <p className={styles.description} dir="auto">
+              {playlist.description}
+            </p>
+          ) : null}
           <p className={styles.byline}>
             <span>
               di{' '}

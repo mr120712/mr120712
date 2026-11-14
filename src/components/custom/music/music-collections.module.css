@@ -1,0 +1,129 @@
+/* @polsia:user-owned — Libreria: intestazione delle raccolte (copertina a mosaico, nome, conteggio)
+   e descrizione delle playlist con il suo editor in linea. */
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+}
+
+.identity {
+  display: flex;
+  flex: 1 1 18rem;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.cover {
+  --mosaic-radius: 10px;
+  flex: 0 0 auto;
+  width: 72px;
+}
+
+.titleBlock {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+/* Un nome di 50 caratteri senza spazi va a capo, non esce dal riquadro a 390px. */
+.titleBlock h2 {
+  min-width: 0;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+
+.descriptionBlock {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+}
+
+/* Testo semplice del proprietario: a capo conservati, le parole lunghe vanno a capo. */
+.description {
+  max-width: 70ch;
+  margin: 0;
+  color: color-mix(in srgb, var(--foreground) 85%, var(--muted-foreground));
+  font-size: 14px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.descriptionForm {
+  display: grid;
+  gap: 10px;
+  width: min(100%, 36rem);
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.descriptionField {
+  display: grid;
+  gap: 6px;
+}
+
+.descriptionField > * {
+  margin: 0;
+}
+
+.textarea {
+  min-height: 84px;
+  resize: vertical;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.descriptionMeta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.descriptionHint {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.counter {
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.counter[data-near-limit="true"] {
+  color: var(--foreground);
+  font-weight: 650;
+}
+
+.descriptionActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 560px) {
+  .cover {
+    width: 60px;
+  }
+
+  .descriptionForm {
+    width: 100%;
+  }
+}

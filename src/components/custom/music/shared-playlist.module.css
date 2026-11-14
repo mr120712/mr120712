@@ -27,43 +27,11 @@
     linear-gradient(160deg, color-mix(in srgb, var(--primary) 8%, var(--card)) 0%, var(--card) 70%);
 }
 
-.mosaic {
-  display: grid;
-  aspect-ratio: 1;
+.heroCover {
+  --mosaic-radius: calc(var(--radius) * 1.5);
   width: 100%;
-  overflow: hidden;
-  border-radius: calc(var(--radius) * 1.5);
-  background: var(--muted);
+  border-radius: var(--mosaic-radius);
   box-shadow: 0 24px 60px color-mix(in srgb, var(--foreground) 16%, transparent);
-}
-
-.mosaic[data-count="4"] {
-  grid-template-columns: repeat(2, 1fr);
-  grid-template-rows: repeat(2, 1fr);
-}
-
-.mosaic > span,
-.mosaic img {
-  display: grid;
-  width: 100%;
-  height: 100%;
-  place-items: center;
-  object-fit: cover;
-}
-
-.mosaicFallback {
-  display: grid;
-  place-items: center;
-  background: linear-gradient(
-    145deg,
-    var(--primary) 0%,
-    color-mix(in srgb, var(--primary) 45%, var(--foreground)) 100%
-  );
-  color: var(--primary-foreground);
-  font-family: var(--font-display, inherit);
-  font-size: clamp(4rem, 12vw, 6.5rem);
-  font-weight: 700;
-  letter-spacing: -0.05em;
 }
 
 .heroCopy {
@@ -90,6 +58,17 @@
   letter-spacing: -0.045em;
   line-height: 1.02;
   overflow-wrap: anywhere;
+}
+
+/* Descrizione del proprietario: testo semplice, a capo conservati, parole lunghe a capo. */
+.description {
+  max-width: 60ch;
+  margin: 0;
+  color: color-mix(in srgb, var(--foreground) 82%, var(--muted-foreground));
+  font-size: 0.98rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
 }
 
 .byline {
@@ -436,7 +415,8 @@
     align-items: start;
   }
 
-  .mosaic {
+  .heroCover,
+  .skeletonCover {
     width: min(100%, 220px);
   }
 

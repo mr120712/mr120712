@@ -20,6 +20,11 @@ model UserMusicCollection {
   /// bloccherebbe `prisma db push` sul deploy; l'unicità per (userId, spotifySource) la garantisce
   /// il codice.
   spotifySource String?
+  /// Descrizione scritta dal proprietario (solo playlist, mai i Preferiti): testo semplice, già
+  /// ripulito dal server (max 300 caratteri, niente caratteri di controllo, al massimo una riga
+  /// vuota di seguito). null = nessuna descrizione. Colonna facoltativa: `prisma db push` la
+  /// aggiunge senza toccare le righe esistenti.
+  description String?
   createdAt DateTime                  @default(now())
   updatedAt DateTime                  @updatedAt
   items     UserMusicCollectionItem[]

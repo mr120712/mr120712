@@ -60,14 +60,17 @@ export default function PrivacyPage() {
                 <strong>Playlist condivise:</strong> se scegli «Condividi» su una playlist (serve un
                 indirizzo email verificato), Solco ti mostra prima cosa vedrà chi apre il link e poi
                 crea un link casuale. Chiunque abbia il link può vedere il nome della playlist, la
-                prima parola del nome del tuo account (mai l’email) e i brani che contiene, e
-                salvarne una copia, finché non scegli «Smetti di condividere» o elimini la playlist.
-                Da quel momento il link si disattiva, ma per qualche minuto può ancora rispondere
-                perché pagina e anteprima restano brevemente nella cache. Le copie già salvate da
-                altri restano nelle loro Librerie, e le anteprime già comparse in chat o social
-                restano conservate da quelle app. L’anteprima usa solo copertine Audius, mai
-                miniature di YouTube. Le pagine delle playlist condivise non vengono indicizzate dai
-                motori di ricerca. I Preferiti restano sempre privati.
+                sua descrizione se ne hai scritta una, la prima parola del nome del tuo account (mai
+                l’email) e i brani che contiene, e salvarne una copia, finché non scegli «Smetti di
+                condividere» o elimini la playlist. Da quel momento il link si disattiva, ma per
+                qualche minuto può ancora rispondere perché pagina e anteprima restano brevemente
+                nella cache. Le copie già salvate da altri restano nelle loro Librerie, e le
+                anteprime già comparse in chat o social restano conservate da quelle app. La
+                descrizione compare anche nell’anteprima del link nelle chat e sui social; se la
+                modifichi o la togli, le anteprime già mostrate restano come le hanno conservate
+                quelle app. L’anteprima usa solo copertine Audius, mai miniature di YouTube. Le
+                pagine delle playlist condivise non vengono indicizzate dai motori di ricerca. I
+                Preferiti restano sempre privati.
               </li>
               <li>
                 <strong>Profili e community:</strong> nome, ruolo fan o artista e relazioni di

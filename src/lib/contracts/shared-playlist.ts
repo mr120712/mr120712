@@ -3,7 +3,11 @@
 // dei suoi elementi.
 import { z } from 'zod';
 import { MusicCollectionItemSchema } from '@/lib/contracts/music';
-import { SHARE_ID_PATTERN, SHARED_PLAYLIST_OWNER_MAX_LENGTH } from '@/lib/music/playlist-share';
+import {
+  PLAYLIST_DESCRIPTION_MAX_LENGTH,
+  SHARE_ID_PATTERN,
+  SHARED_PLAYLIST_OWNER_MAX_LENGTH,
+} from '@/lib/music/playlist-share';
 
 export const ShareIdSchema = z.string().regex(SHARE_ID_PATTERN);
 
@@ -26,6 +30,11 @@ export const SharedPlaylistSchema = z.object({
   name: z.string().min(1),
   /** Prima parola del nome dell'account (max 30 unità UTF-16) o un'etichetta generica. */
   owner: z.string().min(1).max(SHARED_PLAYLIST_OWNER_MAX_LENGTH),
+  /**
+   * Descrizione del proprietario, testo semplice già ripulito (null = nessuna). Facoltativa: una
+   * risposta di un server precedente (o già nella cache CDN) non la contiene.
+   */
+  description: z.string().min(1).max(PLAYLIST_DESCRIPTION_MAX_LENGTH).nullable().optional(),
   itemCount: z.number().int().nonnegative(),
   items: z.array(SharedPlaylistItemSchema),
   updatedAt: z.string().datetime(),

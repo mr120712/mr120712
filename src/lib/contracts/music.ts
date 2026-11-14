@@ -1,6 +1,11 @@
 // @polsia:user-owned
 import { z } from 'zod';
-import { SHARE_ID_PATTERN } from '@/lib/music/playlist-share';
+import {
+  normalizePlaylistDescription,
+  PLAYLIST_DESCRIPTION_MAX_LENGTH,
+  PLAYLIST_DESCRIPTION_RAW_MAX_LENGTH,
+  SHARE_ID_PATTERN,
+} from '@/lib/music/playlist-share';
 
 const audiusId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 const videoId = z.string().regex(/^[A-Za-z0-9_-]{11}$/);
@@ -260,9 +265,32 @@ export const MusicCollectionSchema = z.object({
   /** Link pubblico /playlist/<shareId> (solo playlist condivise; null = privata). */
   shareId: z.string().regex(SHARE_ID_PATTERN).nullable().optional(),
   sharedAt: z.string().datetime().nullable().optional(),
+  /**
+   * Descrizione scritta dal proprietario (solo playlist; null = nessuna). Facoltativa: le risposte
+   * dei server precedenti non la contengono.
+   */
+  description: z.string().min(1).nullable().optional(),
   createdAt: z.string().datetime(),
   items: z.array(MusicCollectionItemSchema),
 });
+
+export const PLAYLIST_DESCRIPTION_TOO_LONG = `La descrizione può avere al massimo ${PLAYLIST_DESCRIPTION_MAX_LENGTH} caratteri.`;
+
+/**
+ * Descrizione inviata dal proprietario: testo grezzo (limitato) oppure null per toglierla. La
+ * trasformazione la ripulisce come la salva il server (normalizePlaylistDescription): un testo
+ * vuoto o fatto solo di spazi diventa null. Il limite di 300 vale sul testo ripulito.
+ */
+export const PlaylistDescriptionInputSchema = z
+  .union([
+    z.string().max(PLAYLIST_DESCRIPTION_RAW_MAX_LENGTH, PLAYLIST_DESCRIPTION_TOO_LONG),
+    z.null(),
+  ])
+  .transform((value) => normalizePlaylistDescription(value))
+  .refine(
+    (value) => value === null || value.length <= PLAYLIST_DESCRIPTION_MAX_LENGTH,
+    PLAYLIST_DESCRIPTION_TOO_LONG,
+  );
 
 export const MusicCollectionsSchema = z.object({ collections: z.array(MusicCollectionSchema) });
 
@@ -288,6 +316,12 @@ export const CollectionMutationSchema = z.discriminatedUnion('action', [
   // Link pubblico di una playlist (mai dei Preferiti): share è idempotente, unshare lo invalida.
   z.object({ action: z.literal('share'), collectionId: z.string().min(1) }),
   z.object({ action: z.literal('unshare'), collectionId: z.string().min(1) }),
+  // Descrizione di una playlist (mai dei Preferiti): null o testo vuoto la tolgono.
+  z.object({
+    action: z.literal('update_playlist'),
+    collectionId: z.string().min(1),
+    description: PlaylistDescriptionInputSchema,
+  }),
 ]);
 
 export const CollectionMutationResponseSchema = z.object({
@@ -367,6 +401,7 @@ export type MusicCollectionItem = z.infer<typeof MusicCollectionItemSchema>;
 export type MusicCollection = z.infer<typeof MusicCollectionSchema>;
 export type MusicCollections = z.infer<typeof MusicCollectionsSchema>;
 export type CollectionShareResponse = z.infer<typeof CollectionShareResponseSchema>;
+export type CollectionMutation = z.input<typeof CollectionMutationSchema>;
 export type YouTubeVideoEligibility = z.infer<typeof YouTubeVideoEligibilitySchema>;
 export type ListeningEntry = z.infer<typeof ListeningEntrySchema>;
 export type ListeningUsage = z.infer<typeof ListeningUsageSchema>;

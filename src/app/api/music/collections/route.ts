@@ -8,6 +8,7 @@ import {
   CollectionMutationSchema,
   CollectionShareResponseSchema,
   MusicCollectionsSchema,
+  PLAYLIST_DESCRIPTION_TOO_LONG,
 } from '@/lib/contracts/music';
 import { prisma } from '@/lib/db';
 import {
@@ -40,6 +41,16 @@ async function signedIn(request: Request): Promise<{ user: SessionUser } | { res
 
 const SHARE_REQUIRES_VERIFIED_EMAIL =
   'Per condividere una playlist con un link devi prima verificare il tuo indirizzo email: apri il link che ti abbiamo inviato oppure richiedine uno nuovo dalla Libreria.';
+
+/**
+ * Il messaggio per una descrizione rifiutata: quello del contratto (troppo lunga) oppure uno
+ * generico per un valore del tipo sbagliato (un client vecchio o fatto a mano).
+ */
+function descriptionMessage(message: string) {
+  return message === PLAYLIST_DESCRIPTION_TOO_LONG
+    ? message
+    : 'Scrivi la descrizione come testo semplice, oppure lasciala vuota per toglierla.';
+}
 
 function isUniqueViolation(error: unknown) {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
@@ -113,8 +124,15 @@ export async function POST(request: Request) {
   if (!payload.ok) return limitedJsonError(payload);
   const body = CollectionMutationSchema.safeParse(payload.value);
   if (!body.success) {
+    // Una descrizione rifiutata torna sul campo del modulo (applyServerErrors); ogni altro errore
+    // è una richiesta malformata.
+    const descriptionIssue = body.error.issues.find((issue) => issue.path[0] === 'description');
     return NextResponse.json(
-      { errors: { body: 'Controlla i dati della raccolta.' } },
+      {
+        errors: descriptionIssue
+          ? { description: descriptionMessage(descriptionIssue.message) }
+          : { body: 'Controlla i dati della raccolta.' },
+      },
       { status: 400, headers: privateHeaders },
     );
   }
@@ -196,6 +214,15 @@ export async function POST(request: Request) {
       const updated = await prisma.userMusicCollection.updateMany({
         where: { id: action.collectionId, userId, kind: 'playlist' },
         data: { shareId: null, sharedAt: null },
+      });
+      if (updated.count === 0)
+        return NextResponse.json({ error: 'not_found' }, { status: 404, headers: privateHeaders });
+    } else if (action.action === 'update_playlist') {
+      // Solo le playlist del proprietario, mai i Preferiti: tutto il resto è "non trovato". La
+      // descrizione arriva già ripulita dal contratto (null la toglie).
+      const updated = await prisma.userMusicCollection.updateMany({
+        where: { id: action.collectionId, userId, kind: 'playlist' },
+        data: { description: action.description },
       });
       if (updated.count === 0)
         return NextResponse.json({ error: 'not_found' }, { status: 404, headers: privateHeaders });

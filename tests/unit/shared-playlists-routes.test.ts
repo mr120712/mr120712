@@ -10,6 +10,7 @@ type CollectionRow = {
   folderId: string | null;
   shareId: string | null;
   sharedAt: Date | null;
+  description?: string | null;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -45,6 +46,8 @@ const mocks = vi.hoisted(() => ({
   findUnique: vi.fn(),
   // Byte buffers to return from randomBytes before falling back to real randomness.
   forcedRandom: [] as Buffer[],
+  /** Ogni chiamata a userMusicCollection.updateMany, per controllare where e data esatti. */
+  collectionUpdates: [] as Array<{ where: Record<string, unknown>; data: Record<string, unknown> }>,
 }));
 
 vi.mock('node:crypto', async (importOriginal) => {
@@ -117,6 +120,7 @@ vi.mock('@/lib/db', () => ({
           where: Record<string, unknown>;
           data: Partial<CollectionRow>;
         }) => {
+          mocks.collectionUpdates.push({ where, data });
           const rows = memory.collections.filter((row) => matches(row, where));
           for (const row of rows) Object.assign(row, data, { updatedAt: new Date() });
           return { count: rows.length };
@@ -196,8 +200,10 @@ import {
 } from '@/lib/music/playlist-share';
 import {
   generateShareId,
+  getSharedPlaylistMetaDescription,
   isShareableCoverUrl,
   sharedPlaylistCovers,
+  sharedPlaylistMetaDescription,
 } from '@/lib/music/shared-playlists.server';
 import { publicSiteUrl } from '@/lib/public-links';
 
@@ -308,6 +314,7 @@ function seedPlaylist() {
 
 beforeEach(() => {
   mocks.forcedRandom.length = 0;
+  mocks.collectionUpdates.length = 0;
   memory.userId = 'owner';
   memory.emailVerified = true;
   memory.phoneNumberVerified = null;
@@ -496,7 +503,16 @@ describe('lettura pubblica di una playlist condivisa', () => {
     expect(mocks.enforceRateLimit).toHaveBeenCalledWith('music.catalog', 'ip:203.0.113.7');
     expect(SharedPlaylistSchema.parse(body)).toEqual(body);
     expect(body).toMatchObject({ name: 'Viaggio notturno', owner: 'Giulia', itemCount: 3 });
-    expect(Object.keys(body).sort()).toEqual(['itemCount', 'items', 'name', 'owner', 'updatedAt']);
+    expect(Object.keys(body).sort()).toEqual([
+      'description',
+      'itemCount',
+      'items',
+      'name',
+      'owner',
+      'updatedAt',
+    ]);
+    // Nessuna descrizione ancora: un null esplicito, mai i campi privati intorno.
+    expect(body.description).toBeNull();
     const serialized = JSON.stringify(body);
     for (const secret of ['"userId"', 'giulia@example.test', 'Bianchi', 'Rossi', playlist.id]) {
       expect(serialized).not.toContain(secret);
@@ -766,5 +782,260 @@ describe('aiuti delle playlist condivise', () => {
         { source: 'audius', artworkUrl: audius('e') },
       ]),
     ).toEqual([audius('a'), audius('b'), audius('c'), audius('d')]);
+  });
+});
+
+/** Caratteri invisibili e di controllo, scritti per code point: il sorgente resta leggibile. */
+const NUL = String.fromCodePoint(0x0);
+const BEL = String.fromCodePoint(0x7);
+const RLO = String.fromCodePoint(0x202e);
+const PDF = String.fromCodePoint(0x202c);
+const LRI = String.fromCodePoint(0x2066);
+const PDI = String.fromCodePoint(0x2069);
+const ZWSP = String.fromCodePoint(0x200b);
+const LINE_SEPARATOR = String.fromCodePoint(0x2028);
+const ZWJ = String.fromCodePoint(0x200d);
+
+function updateDescription(collectionId: string, description: unknown) {
+  return collectionsRequest({ action: 'update_playlist', collectionId, description });
+}
+
+describe('descrizione di una playlist (azione update_playlist)', () => {
+  it('salva il testo ripulito con un solo updateMany limitato a playlist e proprietario', async () => {
+    const playlist = seedPlaylist();
+    const response = await updateDescription(
+      playlist.id,
+      '  Brani lenti  \r\nper le sere d’inverno\t ',
+    );
+    const body = await response.json();
+    expect(response.status, JSON.stringify(body)).toBe(200);
+    expect(response.headers.get('cache-control')).toContain('no-store');
+    expect(mocks.collectionUpdates).toEqual([
+      {
+        where: { id: playlist.id, userId: 'owner', kind: 'playlist' },
+        data: { description: 'Brani lenti\nper le sere d’inverno' },
+      },
+    ]);
+    expect(playlist.description).toBe('Brani lenti\nper le sere d’inverno');
+    const listed = body.collections.find((item: { id: string }) => item.id === playlist.id);
+    expect(listed.description).toBe('Brani lenti\nper le sere d’inverno');
+    // Anche questa azione passa dal limite di scrittura della Libreria.
+    expect(mocks.enforceRateLimit).toHaveBeenCalledWith('library.write', 'user:owner');
+  });
+
+  it('toglie caratteri di controllo e override bidi e lascia al massimo una riga vuota', async () => {
+    const playlist = seedPlaylist();
+    const raw = `${RLO}Notte${PDF} ${LRI}fonda${PDI}${NUL}${BEL}${ZWSP}\n\n\n\n\nseconda${LINE_SEPARATOR}terza 👨${ZWJ}👩`;
+    const response = await updateDescription(playlist.id, raw);
+    expect(response.status).toBe(200);
+    expect(playlist.description).toBe(`Notte fonda\n\nseconda\nterza 👨${ZWJ}👩`);
+  });
+
+  it('un testo vuoto o di soli spazi (e null) toglie la descrizione', async () => {
+    const playlist = seedPlaylist();
+    playlist.description = 'Vecchia descrizione';
+    for (const empty of ['', '   \n\n  ', `${ZWSP}${RLO}`, null]) {
+      playlist.description = 'Vecchia descrizione';
+      const response = await updateDescription(playlist.id, empty);
+      expect(response.status, JSON.stringify(empty)).toBe(200);
+      expect(playlist.description).toBeNull();
+      const listed = (await response.json()).collections.find(
+        (item: { id: string }) => item.id === playlist.id,
+      );
+      expect(listed.description).toBeNull();
+    }
+  });
+
+  it('oltre 300 caratteri risponde 400 con l’errore sul campo, senza scrivere', async () => {
+    const playlist = seedPlaylist();
+    // 300 caratteri esatti vanno bene, anche con spazi finali che vengono tolti.
+    const fits = await updateDescription(playlist.id, `${'a'.repeat(300)}   `);
+    expect(fits.status).toBe(200);
+    expect(playlist.description).toHaveLength(300);
+    mocks.collectionUpdates.length = 0;
+
+    // 1001 caratteri grezzi: rifiutati prima della pulizia (il contratto limita anche il grezzo).
+    for (const tooLong of ['a'.repeat(301), 'b'.repeat(1001)]) {
+      const response = await updateDescription(playlist.id, tooLong);
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({
+        errors: { description: 'La descrizione può avere al massimo 300 caratteri.' },
+      });
+    }
+    // Un corpo oltre 4 KB non arriva mai al contratto.
+    expect((await updateDescription(playlist.id, 'c'.repeat(5000))).status).toBe(413);
+    // Anche un valore del tipo sbagliato è un errore del campo (applyServerErrors lo porta sul modulo).
+    const wrongType = await updateDescription(playlist.id, 42);
+    expect(wrongType.status).toBe(400);
+    expect(Object.keys((await wrongType.json()).errors)).toEqual(['description']);
+    expect(mocks.collectionUpdates).toHaveLength(0);
+    expect(playlist.description).toHaveLength(300);
+  });
+
+  it('senza il campo description o senza collectionId la richiesta è malformata', async () => {
+    const playlist = seedPlaylist();
+    const missing = await collectionsRequest({
+      action: 'update_playlist',
+      collectionId: playlist.id,
+    });
+    expect(missing.status).toBe(400);
+    expect(Object.keys((await missing.json()).errors)).toEqual(['description']);
+    const noId = await collectionsRequest({ action: 'update_playlist', description: 'Ciao' });
+    expect(noId.status).toBe(400);
+    expect((await noId.json()).errors).toEqual({ body: 'Controlla i dati della raccolta.' });
+    expect(mocks.collectionUpdates).toHaveLength(0);
+  });
+
+  it('risponde 404 per le playlist di un altro account e per i Preferiti', async () => {
+    const playlist = seedPlaylist();
+    memory.userId = 'friend';
+    const stranger = await updateDescription(playlist.id, 'Non è mia');
+    expect(stranger.status).toBe(404);
+    expect((await stranger.json()).error).toBe('not_found');
+    expect(playlist.description).toBeUndefined();
+
+    memory.userId = 'owner';
+    const favorites = addCollection({ userId: 'owner', name: 'Preferiti', kind: 'favorites' });
+    const refused = await updateDescription(favorites.id, 'I miei preferiti');
+    expect(refused.status).toBe(404);
+    expect(favorites.description).toBeUndefined();
+    expect(mocks.collectionUpdates.at(-1)?.where).toEqual({
+      id: favorites.id,
+      userId: 'owner',
+      kind: 'playlist',
+    });
+  });
+
+  it('richiede same-origin e un account', async () => {
+    const playlist = seedPlaylist();
+    memory.sameOrigin = false;
+    const crossSite = await updateDescription(playlist.id, 'Da un altro sito');
+    expect(crossSite.status).toBe(403);
+    memory.sameOrigin = true;
+    memory.userId = null;
+    expect((await updateDescription(playlist.id, 'Senza accesso')).status).toBe(401);
+    expect(mocks.collectionUpdates).toHaveLength(0);
+    expect(playlist.description).toBeUndefined();
+  });
+});
+
+describe('descrizione nella lettura pubblica e nell’anteprima dei link', () => {
+  function sharedWithDescription(description: string | null) {
+    const playlist = seedPlaylist();
+    playlist.shareId = generateShareId();
+    playlist.sharedAt = new Date();
+    playlist.description = description;
+    return playlist;
+  }
+
+  it('la lettura pubblica include la descrizione come testo semplice', async () => {
+    const playlist = sharedWithDescription('Per correre\n\nall’alba <b>forte</b>');
+    const response = await readShared(playlist.shareId as string);
+    const body = await response.json();
+    expect(response.status, JSON.stringify(body)).toBe(200);
+    expect(SharedPlaylistSchema.parse(body).description).toBe(
+      'Per correre\n\nall’alba <b>forte</b>',
+    );
+  });
+
+  it('una risposta senza descrizione (server precedente o cache CDN) resta valida', () => {
+    const old = {
+      name: 'Viaggio notturno',
+      owner: 'Giulia',
+      itemCount: 0,
+      items: [],
+      updatedAt: '2026-11-10T12:00:00.000Z',
+    };
+    expect(SharedPlaylistSchema.parse(old).description).toBeUndefined();
+    expect(SharedPlaylistSchema.parse({ ...old, description: null }).description).toBeNull();
+  });
+
+  it('l’anteprima usa la descrizione senza indirizzi web, su una riga e al massimo di 160 caratteri', async () => {
+    const playlist = sharedWithDescription(
+      'Ascoltala qui https://evil.example/x?y=1 oppure www.spam.example\n\nbuon viaggio',
+    );
+    const description = await getSharedPlaylistMetaDescription(playlist.shareId as string);
+    expect(description).toBe('Ascoltala qui oppure buon viaggio');
+
+    const long = sharedWithDescription(`${'parola '.repeat(60)}fine`);
+    const clipped = await getSharedPlaylistMetaDescription(long.shareId as string);
+    expect(clipped?.length).toBeLessThanOrEqual(160);
+    expect(clipped?.endsWith('…')).toBe(true);
+  });
+
+  it('nessuna descrizione per l’anteprima se non c’è, la playlist non è condivisa o il proprietario non è disponibile', async () => {
+    expect(await getSharedPlaylistMetaDescription('non-valido')).toBeNull();
+    expect(await getSharedPlaylistMetaDescription(generateShareId())).toBeNull();
+    const empty = sharedWithDescription(null);
+    expect(await getSharedPlaylistMetaDescription(empty.shareId as string)).toBeNull();
+    const onlyLinks = sharedWithDescription('https://evil.example www.spam.example');
+    expect(await getSharedPlaylistMetaDescription(onlyLinks.shareId as string)).toBeNull();
+    const notShared = sharedWithDescription('Privata');
+    notShared.sharedAt = null;
+    expect(await getSharedPlaylistMetaDescription(notShared.shareId as string)).toBeNull();
+    const favorites = sharedWithDescription('Preferiti');
+    favorites.kind = 'favorites';
+    expect(await getSharedPlaylistMetaDescription(favorites.shareId as string)).toBeNull();
+    memory.users = memory.users.map((user) =>
+      user.id === 'owner' ? { ...user, banned: true } : user,
+    );
+    const banned = sharedWithDescription('Bannato');
+    expect(await getSharedPlaylistMetaDescription(banned.shareId as string)).toBeNull();
+  });
+
+  it('ricorda la risposta per un minuto, poi rilegge', async () => {
+    const playlist = sharedWithDescription('Prima versione');
+    const shareId = playlist.shareId as string;
+    const start = Date.now();
+    expect(await getSharedPlaylistMetaDescription(shareId, start)).toBe('Prima versione');
+    playlist.description = 'Seconda versione';
+    expect(await getSharedPlaylistMetaDescription(shareId, start + 30_000)).toBe('Prima versione');
+    expect(await getSharedPlaylistMetaDescription(shareId, start + 61_000)).toBe(
+      'Seconda versione',
+    );
+  });
+
+  it('sharedPlaylistMetaDescription ripulisce anche il testo grezzo', () => {
+    expect(sharedPlaylistMetaDescription(null)).toBeNull();
+    expect(sharedPlaylistMetaDescription(`${RLO}Ciao${NUL}\n\nmondo  http://x.example`)).toBe(
+      'Ciao mondo',
+    );
+    const emoji = sharedPlaylistMetaDescription('🎸'.repeat(100)) ?? '';
+    expect(emoji.length).toBeLessThanOrEqual(160);
+    // Mai mezza emoji prima dei puntini.
+    expect(emoji).toBe(`${'🎸'.repeat(79)}…`);
+  });
+
+  it('sharedPlaylistMetaDescription toglie anche domini nudi, email, IP e indirizzi a larghezza piena', () => {
+    expect(
+      sharedPlaylistMetaDescription(
+        'Avviso Solco: Premium scaduto, rinnova su solco-premium.it/rinnovo o bit.ly/abc entro 24h',
+      ),
+    ).toBe('Avviso Solco: Premium scaduto, rinnova su o entro 24h');
+    expect(sharedPlaylistMetaDescription('Scrivi a mario.rossi@evil.com subito')).toBe(
+      'Scrivi a subito',
+    );
+    expect(sharedPlaylistMetaDescription('Server 203.0.113.5:8080/x qui')).toBe('Server qui');
+    expect(sharedPlaylistMetaDescription('Vedi EVIL.COM e xn--80ak6aa92e.com?x=1 ora')).toBe(
+      'Vedi e ora',
+    );
+    // Punto ideografico e lettere a larghezza piena: i browser li leggono come indirizzi.
+    expect(sharedPlaylistMetaDescription('Vai su evil。com ora')).toBe('Vai su ora');
+    expect(sharedPlaylistMetaDescription('ｈｔｔｐｓ：／／ｅｖｉｌ．ｃｏｍ')).toBeNull();
+    expect(sharedPlaylistMetaDescription('ｅｖｉｌ．ｃｏｍ／ｘ e basta')).toBe('e basta');
+    expect(sharedPlaylistMetaDescription('bit.ly/x')).toBeNull();
+  });
+
+  it('sharedPlaylistMetaDescription lascia il testo normale con punti e numeri', () => {
+    for (const text of [
+      'Vol. 2, ore 10.30, 3.5 stelle, a.k.a. il re e poi... fine.',
+      'Brani lenti. Poi veloci!',
+      '楽しい。音楽',
+      'Versione 2.0 (2024)',
+    ]) {
+      expect(sharedPlaylistMetaDescription(text)).toBe(text);
+    }
+    // NFKC: i puntini di sospensione diventano tre punti, e il testo resta.
+    expect(sharedPlaylistMetaDescription('Il re…e poi')).toBe('Il re...e poi');
   });
 });

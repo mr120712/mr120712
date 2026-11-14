@@ -6,14 +6,25 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 
 const mocks = vi.hoisted(() => ({
   getSharedPlaylist: vi.fn(),
+  /** La lettura leggera dei metadati (solo la descrizione) e il controllo del proprietario. */
+  findCollection: vi.fn(),
+  findUser: vi.fn(),
   consumeRateLimit: vi.fn(),
   /** How many of the next drawings fail (next/og throws), to exercise the fallbacks. */
   failDraws: 0,
+  /** Intestazioni della richiesta della pagina, lette dai metadati (IP per il limite share.og). */
+  requestHeaders: {} as Record<string, string>,
 }));
 
 vi.mock('server-only', () => ({}));
-vi.mock('@/lib/db', () => ({ prisma: {} }));
+vi.mock('@/lib/db', () => ({
+  prisma: {
+    userMusicCollection: { findFirst: mocks.findCollection },
+    user: { findUnique: mocks.findUser },
+  },
+}));
 vi.mock('@/lib/site', () => ({ siteUrl: 'https://solco.test' }));
+vi.mock('next/headers', () => ({ headers: async () => new Headers(mocks.requestHeaders) }));
 vi.mock('next/link', () => ({
   default: ({ href, children }: { href: string; children: React.ReactNode }) => (
     <a href={href}>{children}</a>
@@ -158,8 +169,11 @@ beforeAll(async () => {
 
 beforeEach(() => {
   mocks.getSharedPlaylist.mockReset().mockResolvedValue(playlist);
+  mocks.findCollection.mockReset().mockResolvedValue(null);
+  mocks.findUser.mockReset().mockResolvedValue({ name: 'Giulia', banned: null });
   mocks.consumeRateLimit.mockReset().mockResolvedValue({ allowed: true });
   mocks.failDraws = 0;
+  mocks.requestHeaders = { 'x-real-ip': '198.51.100.20' };
   fetched = [];
   useCovers(() => new Response(null, { status: 404 }));
 });
@@ -201,6 +215,191 @@ describe('pagina /playlist/[shareId]', () => {
     const metadata = await generateMetadata({ params: Promise.resolve({ shareId: 'x' }) });
     expect(metadata.robots).toEqual({ index: false, follow: false });
     expect(JSON.stringify(metadata)).not.toContain('anteprima');
+    // Un id malformato non arriva mai al database, nemmeno per la descrizione.
+    expect(mocks.findCollection).not.toHaveBeenCalled();
+    expect(metadata.description).toBe(GENERIC_DESCRIPTION);
+  });
+});
+
+const GENERIC_DESCRIPTION =
+  'Una playlist condivisa su Solco: ascoltala gratis e salvala nella tua Libreria.';
+
+let shareCounter = 0;
+/** Un id valido nuovo per ogni test: la lettura della descrizione ricorda ogni id per un minuto. */
+function freshShareId() {
+  shareCounter += 1;
+  return `Descr${String(shareCounter).padStart(17, '0')}`;
+}
+
+function sharedRow(description: string | null, extra: Record<string, unknown> = {}) {
+  return {
+    description,
+    kind: 'playlist',
+    sharedAt: new Date('2026-11-10T12:00:00.000Z'),
+    userId: 'owner',
+    ...extra,
+  };
+}
+
+async function metadataFor(shareId: string) {
+  const metadata = await generateMetadata({ params: Promise.resolve({ shareId }) });
+  const og = metadata.openGraph as { title?: string; description?: string };
+  const twitter = metadata.twitter as { title?: string; description?: string };
+  return { metadata, og, twitter };
+}
+
+describe('descrizione della playlist nei metadati della pagina', () => {
+  it('usa la descrizione del proprietario per description, og:description e twitter', async () => {
+    const shareId = freshShareId();
+    mocks.findCollection.mockResolvedValue(sharedRow('Brani lenti\nper le sere d’inverno'));
+    const { metadata, og, twitter } = await metadataFor(shareId);
+    expect(mocks.findCollection).toHaveBeenCalledWith({
+      where: { shareId },
+      select: { description: true, kind: true, sharedAt: true, userId: true },
+    });
+    // Su una riga nell'anteprima; il titolo resta generico.
+    expect(metadata.description).toBe('Brani lenti per le sere d’inverno');
+    expect(og.description).toBe(metadata.description);
+    expect(twitter.description).toBe(metadata.description);
+    expect(metadata.title).toBe('Playlist condivisa');
+    expect(og.title).toBe('Playlist condivisa');
+  });
+
+  it('toglie gli indirizzi web e accorcia a 160 caratteri', async () => {
+    mocks.findCollection.mockResolvedValue(
+      sharedRow('Iscriviti su https://spam.example/promo e www.altro.example per altri brani'),
+    );
+    const { metadata, og } = await metadataFor(freshShareId());
+    expect(metadata.description).toBe('Iscriviti su e per altri brani');
+    expect(JSON.stringify(og)).not.toContain('spam.example');
+    expect(JSON.stringify(og)).not.toContain('altro.example');
+
+    mocks.findCollection.mockResolvedValue(sharedRow('lungo '.repeat(80)));
+    const long = await metadataFor(freshShareId());
+    expect(long.metadata.description?.length).toBeLessThanOrEqual(160);
+    expect(long.metadata.description?.endsWith('…')).toBe(true);
+  });
+
+  it('senza descrizione resta la descrizione generica, uguale all’anteprima in modalità attacco', async () => {
+    const shareId = freshShareId();
+    mocks.findCollection.mockResolvedValue(sharedRow(null));
+    const { metadata, og } = await metadataFor(shareId);
+    const base = 'https://www.solcomusic.online';
+    const preview = linkPreviewFor(new URL(`/playlist/${shareId}`, base), base);
+    expect(metadata.description).toBe(GENERIC_DESCRIPTION);
+    expect(og.description).toBe(preview.description);
+  });
+
+  it('playlist non condivisa, dei Preferiti o di un proprietario bannato: descrizione generica', async () => {
+    mocks.findCollection.mockResolvedValue(sharedRow('Privata', { sharedAt: null }));
+    expect((await metadataFor(freshShareId())).metadata.description).toBe(GENERIC_DESCRIPTION);
+    mocks.findCollection.mockResolvedValue(sharedRow('Preferiti', { kind: 'favorites' }));
+    expect((await metadataFor(freshShareId())).metadata.description).toBe(GENERIC_DESCRIPTION);
+    mocks.findCollection.mockResolvedValue(sharedRow('Bannato'));
+    mocks.findUser.mockResolvedValue({ name: 'Giulia', banned: true });
+    expect((await metadataFor(freshShareId())).metadata.description).toBe(GENERIC_DESCRIPTION);
+  });
+
+  it('toglie anche gli indirizzi senza schema e quelli a larghezza piena', async () => {
+    mocks.findCollection.mockResolvedValue(
+      sharedRow(
+        'Avviso Solco: Premium scaduto, rinnova su solco-premium.it/rinnovo o bit.ly/abc entro 24h',
+      ),
+    );
+    const { metadata, og } = await metadataFor(freshShareId());
+    expect(metadata.description).toBe('Avviso Solco: Premium scaduto, rinnova su o entro 24h');
+    expect(JSON.stringify(og)).not.toMatch(/solco-premium|bit\.ly/);
+
+    mocks.findCollection.mockResolvedValue(
+      sharedRow('Vai su ｈｔｔｐｓ：／／ｅｖｉｌ．ｃｏｍ ora'),
+    );
+    expect((await metadataFor(freshShareId())).metadata.description).toBe('Vai su ora');
+  });
+
+  it('ogni lettura consuma il budget per IP delle anteprime (share.og)', async () => {
+    mocks.findCollection.mockResolvedValue(sharedRow('Per correre'));
+    const shareId = freshShareId();
+    expect((await metadataFor(shareId)).metadata.description).toBe('Per correre');
+    expect(mocks.consumeRateLimit).toHaveBeenCalledTimes(1);
+    expect(mocks.consumeRateLimit).toHaveBeenCalledWith('share.og', 'ip:198.51.100.20');
+
+    // La stessa pagina entro un minuto arriva dalla memoria: niente database, niente budget.
+    expect((await metadataFor(shareId)).metadata.description).toBe('Per correre');
+    expect(mocks.consumeRateLimit).toHaveBeenCalledTimes(1);
+    expect(mocks.findCollection).toHaveBeenCalledTimes(1);
+  });
+
+  it('limite raggiunto, limitatore che non risponde o IP sconosciuto: generica, senza leggere', async () => {
+    mocks.findCollection.mockResolvedValue(sharedRow('Per correre'));
+    mocks.consumeRateLimit.mockResolvedValue({
+      allowed: false,
+      status: 429,
+      retryAfterSeconds: 30,
+      error: 'rate_limited',
+      message: 'Troppe richieste.',
+    });
+    expect((await metadataFor(freshShareId())).metadata.description).toBe(GENERIC_DESCRIPTION);
+
+    mocks.consumeRateLimit.mockRejectedValue(new Error('database down'));
+    expect((await metadataFor(freshShareId())).metadata.description).toBe(GENERIC_DESCRIPTION);
+    expect(mocks.findCollection).not.toHaveBeenCalled();
+
+    // Senza IP affidabile il limitatore risponde 503 (come il vero consumeRateLimit con null).
+    mocks.requestHeaders = {};
+    mocks.consumeRateLimit.mockReset().mockImplementation(async (_action, identity) =>
+      identity
+        ? { allowed: true }
+        : {
+            allowed: false,
+            status: 503,
+            retryAfterSeconds: 60,
+            error: 'rate_limit_identity_unavailable',
+            message: 'Non disponibile.',
+          },
+    );
+    expect((await metadataFor(freshShareId())).metadata.description).toBe(GENERIC_DESCRIPTION);
+    expect(mocks.consumeRateLimit).toHaveBeenCalledWith('share.og', null);
+    expect(mocks.findCollection).not.toHaveBeenCalled();
+
+    // Un rifiuto non resta in memoria: con il budget di nuovo disponibile la descrizione torna.
+    mocks.requestHeaders = { 'x-real-ip': '198.51.100.20' };
+    const shareId = freshShareId();
+    mocks.consumeRateLimit.mockResolvedValueOnce({
+      allowed: false,
+      status: 429,
+      retryAfterSeconds: 30,
+      error: 'rate_limited',
+      message: 'Troppe richieste.',
+    });
+    expect((await metadataFor(shareId)).metadata.description).toBe(GENERIC_DESCRIPTION);
+    expect((await metadataFor(shareId)).metadata.description).toBe('Per correre');
+  });
+
+  it('un id che non esiste non resta in memoria (non spinge fuori le playlist vere)', async () => {
+    const shareId = freshShareId();
+    mocks.findCollection.mockResolvedValue(null);
+    expect((await metadataFor(shareId)).metadata.description).toBe(GENERIC_DESCRIPTION);
+    // Se poi esiste (o è stato un caso), la lettura successiva va di nuovo al database.
+    mocks.findCollection.mockResolvedValue(sharedRow('Adesso c’è'));
+    expect((await metadataFor(shareId)).metadata.description).toBe('Adesso c’è');
+    expect(mocks.findCollection).toHaveBeenCalledTimes(2);
+  });
+
+  it('se il database non risponde o è lento i metadati usano la descrizione generica', async () => {
+    mocks.findCollection.mockRejectedValue(new Error('database down'));
+    expect((await metadataFor(freshShareId())).metadata.description).toBe(GENERIC_DESCRIPTION);
+    // La lettura è stata tentata davvero (il budget c'era): è il database a non rispondere.
+    expect(mocks.findCollection).toHaveBeenCalledTimes(1);
+
+    vi.useFakeTimers();
+    try {
+      mocks.findCollection.mockImplementation(() => new Promise(() => undefined));
+      const pending = metadataFor(freshShareId());
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect((await pending).metadata.description).toBe(GENERIC_DESCRIPTION);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -388,5 +587,9 @@ describe('informativa privacy', () => {
     expect(html).toContain('email verificato');
     expect(html).toContain('restano nelle loro Librerie');
     expect(html).toContain('per qualche minuto');
+    // La descrizione è pubblica e finisce anche nelle anteprime che le app conservano.
+    expect(html).toContain('la sua descrizione se ne hai scritta una');
+    expect(html).toContain('La descrizione compare anche nell’anteprima del link');
+    expect(html).toContain('le anteprime già mostrate restano come le hanno conservate quelle app');
   });
 });

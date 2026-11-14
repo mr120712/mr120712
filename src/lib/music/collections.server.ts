@@ -9,6 +9,7 @@ import {
 import { createAudiusApiClient } from '@/lib/music/audius-api.server';
 import { getAudiusActivation } from '@/lib/music/audius-source.server';
 import { readYouTubeApiKey } from '@/lib/music/music-api.server';
+import { normalizePlaylistDescription } from '@/lib/music/playlist-share';
 import { noteYouTubeQuotaExceeded, takeYouTubeUnits } from '@/lib/music/youtube-budget.server';
 import { getYouTubeVideoDetails } from '@/lib/music/youtube-search.server';
 
@@ -93,6 +94,9 @@ export async function getUserMusicCollections(userId: string) {
     folderId: collection.folderId,
     shareId: collection.shareId,
     sharedAt: collection.sharedAt?.toISOString() ?? null,
+    // Solo le playlist hanno una descrizione; ripulita anche in lettura, come la pagina pubblica.
+    description:
+      collection.kind === 'playlist' ? normalizePlaylistDescription(collection.description) : null,
     createdAt: collection.createdAt.toISOString(),
     items: collection.items.map((item) => ({
       id: item.id,

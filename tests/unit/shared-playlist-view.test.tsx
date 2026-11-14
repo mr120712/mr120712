@@ -406,3 +406,58 @@ describe('pagina pubblica di una playlist condivisa', () => {
     expect(container.textContent).toContain('Salva nella mia libreria');
   });
 });
+
+describe('copertina e descrizione nella pagina pubblica', () => {
+  function withPlaylist(extra: Record<string, unknown>) {
+    mocks.apiFetch.mockImplementation(async (path: string) =>
+      path === SHARED_PATH ? { ...playlist, ...extra } : null,
+    );
+  }
+
+  it('mostra la descrizione sotto il nome come testo semplice, con le sue righe', async () => {
+    const description =
+      'Per le sere lunghe.\n\n<img src=x onerror="alert(1)"> <b>non grassetto</b>';
+    withPlaylist({ description });
+    const container = await mount();
+    const heading = container.querySelector('h1');
+    const shown = heading?.nextElementSibling;
+    expect(shown?.tagName).toBe('P');
+    expect(shown?.getAttribute('dir')).toBe('auto');
+    // React lo scappa: il markup è testo visibile, mai elementi.
+    expect(shown?.textContent).toBe(description);
+    expect(shown?.querySelector('img, b')).toBeNull();
+    expect(container.querySelector('img[src="x"]')).toBeNull();
+  });
+
+  it('senza descrizione (anche da una risposta precedente) non mostra nulla in più', async () => {
+    for (const extra of [{ description: null }, {}]) {
+      withPlaylist(extra);
+      const container = await mount();
+      expect(container.querySelector('h1')?.nextElementSibling?.textContent).toContain('di Giulia');
+    }
+  });
+
+  it('la copertina è il mosaico automatico delle copertine dei brani', async () => {
+    const container = await mount();
+    const mosaic = container.querySelector<HTMLElement>('header [data-layout]');
+    // Due copertine diverse nei dati di prova: una copertina intera, decorativa.
+    expect(mosaic?.dataset.layout).toBe('single');
+    expect(mosaic?.getAttribute('aria-hidden')).toBe('true');
+    const image = mosaic?.querySelector('img');
+    expect(image?.getAttribute('src')).toBe('https://audius.co/content/abc/480x480.jpg');
+    expect(image?.getAttribute('alt')).toBe('');
+    expect(image?.getAttribute('loading')).toBe('lazy');
+
+    withPlaylist({
+      items: ['a', 'b', 'c', 'd'].map((letter) => ({
+        ...playlist.items[0],
+        sourceId: `track-${letter}`,
+        artworkUrl: `https://audius.co/content/${letter}/480x480.jpg`,
+      })),
+      itemCount: 4,
+    });
+    const grid = await mount();
+    const tiles = grid.querySelectorAll('header [data-layout="grid"] img');
+    expect(tiles).toHaveLength(4);
+  });
+});
