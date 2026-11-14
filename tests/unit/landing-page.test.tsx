@@ -35,6 +35,12 @@ beforeEach(async () => {
   ({ LandingPage } = await import('@/components/custom/landing-page'));
   vi.resetAllMocks();
   languages.mockReturnValue(['it-IT']);
+  // Contatore iscritti: richiesta sempre in attesa (scheletro); i suoi casi sono in
+  // public-signups-card.test.tsx.
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => new Promise(() => {})),
+  );
   window.localStorage.clear();
   window.history.replaceState(null, '', '/');
   document.documentElement.setAttribute('lang', 'it');
@@ -42,6 +48,7 @@ beforeEach(async () => {
 afterEach(() => {
   for (const root of roots.splice(0)) act(() => root.unmount());
   container?.remove();
+  vi.unstubAllGlobals();
 });
 
 function select() {

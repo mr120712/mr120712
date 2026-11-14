@@ -1,14 +1,18 @@
 // @polsia:user-owned — landing pubblica mostrata su "/" a chi NON è loggato (il muro di login
 // reindirizza le altre rotte). Compatta: titolo, accesso ben visibile e piani subito sotto, senza
 // video. In alto il menu "Lingua" (italiano, inglese, spagnolo, francese, tedesco, portoghese).
+// Sotto i pulsanti, il contatore pubblico degli iscritti (GET /api/public/iscritti).
 'use client';
 
 import { Globe } from 'lucide-react';
 import Link from 'next/link';
 import { type ChangeEvent, useEffect, useState } from 'react';
+import { apiFetch } from '@/lib/api-client';
 import { getSolcoProPricing } from '@/lib/business/solco-pro-pricing';
+import { PUBLIC_SIGNUPS_PATH, PublicSignupsSchema } from '@/lib/contracts/public-signups';
 import {
   DEFAULT_LANDING_LOCALE,
+  formatLandingNumber,
   formatLandingPrice,
   isLandingLocale,
   LANDING_LOCALE_STORAGE_KEY,
@@ -16,12 +20,138 @@ import {
   LANDING_MESSAGES,
   type LandingLocale,
   type LandingPlanId,
+  landingSignupsText,
   resolveLandingLocale,
 } from '@/lib/i18n/landing';
 import styles from './landing-page.module.css';
 
 /** Il piano consigliato (evidenziato). */
 const FEATURED_PLAN: LandingPlanId = 'premium';
+
+/** Durata del conteggio animato del numero di iscritti (solo senza movimento ridotto). */
+const COUNT_UP_MS = 900;
+
+type SignupsState =
+  | { status: 'loading' }
+  | { status: 'ready'; total: number; last7Days: number }
+  | { status: 'hidden' };
+
+/** true solo se il sistema dichiara "nessuna preferenza" sul movimento (e il browser sa animare). */
+function motionAllowed(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    typeof window.requestAnimationFrame === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: no-preference)').matches
+  );
+}
+
+/** Valore mostrato mentre il numero sale da 0 a `target`; con movimento ridotto subito `target`. */
+function useCountUp(target: number): number {
+  const [value, setValue] = useState(() => (motionAllowed() ? 0 : target));
+  useEffect(() => {
+    if (!motionAllowed()) {
+      setValue(target);
+      return;
+    }
+    let frame = 0;
+    let start: number | null = null;
+    const step = (time: number) => {
+      start ??= time;
+      const progress = Math.min(1, (time - start) / COUNT_UP_MS);
+      setValue(Math.round(target * (1 - (1 - progress) ** 3)));
+      if (progress < 1) frame = window.requestAnimationFrame(step);
+    };
+    frame = window.requestAnimationFrame(step);
+    return () => window.cancelAnimationFrame(frame);
+  }, [target]);
+  return value;
+}
+
+/**
+ * Numero e testi del contatore. Per i lettori di schermo una sola frase col numero finale (testo
+ * nascosto alla vista); la parte visibile, che durante il conteggio cambia, è nascosta a loro.
+ */
+function SignupsFigure({
+  total,
+  last7Days,
+  locale,
+}: {
+  total: number;
+  last7Days: number;
+  locale: LandingLocale;
+}) {
+  const shown = useCountUp(total);
+  const text = landingSignupsText({ total, last7Days }, locale);
+  return (
+    <>
+      <span className={styles.srOnly}>{text.phrase}</span>
+      <span className={styles.signupsMain} aria-hidden="true">
+        <strong className={styles.signupsNumber}>
+          {/* Il valore finale, invisibile, tiene ferma la larghezza mentre le cifre salgono. */}
+          <span className={styles.signupsNumberGhost}>{text.count}</span>
+          <span className={styles.signupsNumberValue}>{formatLandingNumber(shown, locale)}</span>
+        </strong>
+        <span className={styles.signupsLabel}>{text.label}</span>
+      </span>
+      {text.recent ? (
+        <span className={styles.signupsRecent} aria-hidden="true">
+          {text.recent}
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * Contatore pubblico degli iscritti. Chiede i numeri dopo il montaggio; finché non arrivano mostra
+ * uno scheletro della stessa misura (nessuno spostamento della pagina). Se la richiesta fallisce o
+ * il totale è 0 non mostra nulla: mai un numero inventato o di riempimento. Lo spazio dello
+ * scheletro però resta, vuoto e invisibile: toglierlo farebbe salire tutto ciò che sta sotto
+ * (striscia, note legali, piani) un istante dopo il caricamento. Nessuna regione aria-live: il
+ * numero si legge quando ci si arriva, non viene annunciato.
+ */
+function SignupsStat({ locale }: { locale: LandingLocale }) {
+  const [state, setState] = useState<SignupsState>({ status: 'loading' });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    apiFetch(PUBLIC_SIGNUPS_PATH, { schema: PublicSignupsSchema, signal: controller.signal })
+      .then(({ total, last7Days }) => {
+        if (controller.signal.aborted) return;
+        setState(total > 0 ? { status: 'ready', total, last7Days } : { status: 'hidden' });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setState({ status: 'hidden' });
+      });
+    return () => controller.abort();
+  }, []);
+
+  const { status } = state;
+  const variant =
+    status === 'loading' ? styles.signupsLoading : status === 'hidden' ? styles.signupsEmpty : '';
+  // Stesso elemento <p> per scheletro, dati e spazio vuoto: l'entrata animata dell'hero non
+  // riparte e l'altezza minima resta quella dello scheletro.
+  return (
+    <p
+      className={variant ? `${styles.signups} ${variant}` : styles.signups}
+      aria-hidden={status === 'ready' ? undefined : true}
+      data-state={status}
+    >
+      {status === 'ready' ? (
+        <SignupsFigure total={state.total} last7Days={state.last7Days} locale={locale} />
+      ) : status === 'loading' ? (
+        <>
+          <span className={styles.signupsMain}>
+            <span className={`${styles.signupsBone} ${styles.signupsBoneNumber}`} />
+            <span className={`${styles.signupsBone} ${styles.signupsBoneLabel}`} />
+          </span>
+          <span className={`${styles.signupsBone} ${styles.signupsBoneRecent}`} />
+        </>
+      ) : null}
+    </p>
+  );
+}
 
 function readStoredLocale(): string | null {
   try {
@@ -132,6 +262,7 @@ export function LandingPage() {
                 {t.ctaLogin}
               </Link>
             </div>
+            <SignupsStat locale={locale} />
             <div className={styles.marquee} aria-hidden="true">
               <div className={styles.marqueeTrack}>
                 {[0, 1].flatMap((set) =>

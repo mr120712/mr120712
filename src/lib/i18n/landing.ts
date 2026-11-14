@@ -20,6 +20,19 @@ export const LANDING_LOCALE_STORAGE_KEY = 'solco:lang';
 /** Piani mostrati sulla landing (gli id di solco-pro-pricing). */
 export type LandingPlanId = 'free' | 'premium' | 'premium-plus' | 'family';
 
+/** Regione usata per i numeri e i prezzi di ogni lingua (separatori delle migliaia, valuta). */
+const LANDING_NUMBER_LOCALES: Record<LandingLocale, string> = {
+  it: 'it-IT',
+  en: 'en-IE',
+  es: 'es-ES',
+  fr: 'fr-FR',
+  de: 'de-DE',
+  pt: 'pt-BR',
+};
+
+/** Forma singolare ("one") e plurale ("other") di un testo, scelta con Intl.PluralRules. */
+export type LandingPlural = { one: string; other: string };
+
 export type LandingMessages = {
   languageLabel: string;
   login: string;
@@ -43,6 +56,11 @@ export type LandingMessages = {
   note: { before: string; strong: string; after: string };
   /** Avviso che l'app (dopo l'accesso) è in italiano; vuoto per l'italiano. */
   appLanguageNote: string;
+  /**
+   * Contatore pubblico degli iscritti sotto i pulsanti. `label` segue il numero grande ("12.345
+   * iscritti a Solco"); `recent` sono i nuovi negli ultimi 7 giorni, `{n}` è il numero formattato.
+   */
+  signups: { label: LandingPlural; recent: LandingPlural };
   plans: Record<LandingPlanId, { tagline: string; perks: string[] }>;
 };
 
@@ -86,6 +104,10 @@ const it: LandingMessages = {
     after: '. Puoi disdire quando vuoi.',
   },
   appLanguageNote: '',
+  signups: {
+    label: { one: 'iscritto a Solco', other: 'iscritti a Solco' },
+    recent: { one: '+{n} nuovo negli ultimi 7 giorni', other: '+{n} nuovi negli ultimi 7 giorni' },
+  },
   plans: {
     free: {
       tagline: 'Per iniziare',
@@ -138,6 +160,10 @@ const en: LandingMessages = {
     after: '. Cancel anytime.',
   },
   appLanguageNote: 'The app itself is in Italian for now.',
+  signups: {
+    label: { one: 'person on Solco', other: 'people on Solco' },
+    recent: { one: '+{n} new in the last 7 days', other: '+{n} new in the last 7 days' },
+  },
   plans: {
     free: {
       tagline: 'To get started',
@@ -198,6 +224,10 @@ const es: LandingMessages = {
     after: '. Puedes cancelar cuando quieras.',
   },
   appLanguageNote: 'Por ahora, la app está en italiano.',
+  signups: {
+    label: { one: 'persona en Solco', other: 'personas en Solco' },
+    recent: { one: '+{n} en los últimos 7 días', other: '+{n} en los últimos 7 días' },
+  },
   plans: {
     free: {
       tagline: 'Para empezar',
@@ -258,6 +288,13 @@ const fr: LandingMessages = {
     after: '. Résiliable à tout moment.',
   },
   appLanguageNote: 'Pour l’instant, l’application est en italien.',
+  signups: {
+    label: { one: 'inscrit sur Solco', other: 'inscrits sur Solco' },
+    recent: {
+      one: '+{n} nouveau ces 7 derniers jours',
+      other: '+{n} nouveaux ces 7 derniers jours',
+    },
+  },
   plans: {
     free: {
       tagline: 'Pour commencer',
@@ -310,6 +347,10 @@ const de: LandingMessages = {
     after: '. Jederzeit kündbar.',
   },
   appLanguageNote: 'Die App selbst ist vorerst auf Italienisch.',
+  signups: {
+    label: { one: 'Mitglied bei Solco', other: 'Mitglieder bei Solco' },
+    recent: { one: '+{n} neues in den letzten 7 Tagen', other: '+{n} neue in den letzten 7 Tagen' },
+  },
   plans: {
     free: {
       tagline: 'Zum Einstieg',
@@ -374,6 +415,10 @@ const pt: LandingMessages = {
     after: '. Cancele quando quiser.',
   },
   appLanguageNote: 'Por enquanto, o app está em italiano.',
+  signups: {
+    label: { one: 'pessoa no Solco', other: 'pessoas no Solco' },
+    recent: { one: '+{n} nos últimos 7 dias', other: '+{n} nos últimos 7 dias' },
+  },
   plans: {
     free: {
       tagline: 'Para começar',
@@ -427,15 +472,53 @@ export function resolveLandingLocale(input: {
 /** Prezzo in euro nel formato della lingua (es. "4,99 €", "€4.99"); 0 = "Gratis"/"Free"… */
 export function formatLandingPrice(cents: number, locale: LandingLocale): string {
   if (cents === 0) return LANDING_MESSAGES[locale].free;
-  const region: Record<LandingLocale, string> = {
-    it: 'it-IT',
-    en: 'en-IE',
-    es: 'es-ES',
-    fr: 'fr-FR',
-    de: 'de-DE',
-    pt: 'pt-BR',
-  };
-  return new Intl.NumberFormat(region[locale], { style: 'currency', currency: 'EUR' }).format(
-    cents / 100,
+  return new Intl.NumberFormat(LANDING_NUMBER_LOCALES[locale], {
+    style: 'currency',
+    currency: 'EUR',
+  }).format(cents / 100);
+}
+
+/** Numero intero nel formato della lingua (es. "12.345", "12,345", "12 345"). */
+export function formatLandingNumber(value: number, locale: LandingLocale): string {
+  return new Intl.NumberFormat(LANDING_NUMBER_LOCALES[locale], { maximumFractionDigits: 0 }).format(
+    value,
   );
+}
+
+/** Singolare o plurale secondo le regole della lingua (categoria "one" → singolare). */
+export function pickLandingPlural(forms: LandingPlural, count: number, locale: LandingLocale) {
+  return new Intl.PluralRules(LANDING_NUMBER_LOCALES[locale]).select(count) === 'one'
+    ? forms.one
+    : forms.other;
+}
+
+/** Testi del contatore iscritti: numero, etichetta, nuovi (null se 0) e frase unica per i lettori. */
+export type LandingSignupsText = {
+  count: string;
+  label: string;
+  recent: string | null;
+  /** Numero ed etichetta (più i nuovi) in un'unica frase, letta così dai lettori di schermo. */
+  phrase: string;
+};
+
+export function landingSignupsText(
+  stats: { total: number; last7Days: number },
+  locale: LandingLocale,
+): LandingSignupsText {
+  const { label, recent } = LANDING_MESSAGES[locale].signups;
+  const count = formatLandingNumber(stats.total, locale);
+  const labelText = pickLandingPlural(label, stats.total, locale);
+  const recentText =
+    stats.last7Days > 0
+      ? pickLandingPlural(recent, stats.last7Days, locale).replace('{n}', () =>
+          formatLandingNumber(stats.last7Days, locale),
+        )
+      : null;
+  const base = `${count} ${labelText}`;
+  return {
+    count,
+    label: labelText,
+    recent: recentText,
+    phrase: recentText ? `${base}, ${recentText}` : base,
+  };
 }

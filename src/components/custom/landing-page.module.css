@@ -239,6 +239,13 @@
 .copy > *:nth-child(5) {
   animation-delay: 0.58s;
 }
+/* Con il contatore iscritti (5°) la striscia e le note legali scalano di un posto. */
+.copy > *:nth-child(6) {
+  animation-delay: 0.66s;
+}
+.copy > *:nth-child(7) {
+  animation-delay: 0.74s;
+}
 
 /* Etichetta sopra il titolo, stile "vetro". */
 .kicker {
@@ -423,6 +430,146 @@
   text-decoration: underline;
 }
 
+/* Contatore pubblico degli iscritti sotto i pulsanti: riquadro "vetro" compatto, numero grande col
+   gradiente brand. Scheletro e dati hanno la stessa altezza minima: nessuno spostamento all'arrivo
+   dei numeri, anche quando manca la riga dei nuovi. */
+.signups {
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  box-sizing: border-box;
+  max-width: 100%;
+  min-height: 76px;
+  margin: 0;
+  padding: 10px 18px 10px 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: #fff;
+}
+
+.signupsMain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 9px;
+  row-gap: 2px;
+  min-width: 0;
+}
+
+.signupsNumber {
+  display: inline-grid;
+  font-size: 1.75rem;
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Valore animato e valore finale (invisibile) nella stessa cella: larghezza sempre quella finale. */
+.signupsNumber > span {
+  grid-area: 1 / 1;
+  text-align: end;
+}
+
+.signupsNumberGhost {
+  visibility: hidden;
+}
+
+.signupsNumberValue {
+  background: linear-gradient(100deg, #a78bfa 0%, #f472b6 48%, #fbbf24 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.signupsLabel {
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: rgba(255, 255, 255, 0.94);
+}
+
+.signupsRecent {
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: #f9a8d4;
+}
+
+/* Richiesta fallita o 0 iscritti: nessun contenuto, ma resta l'altezza dello scheletro (niente
+   salto di ciò che sta sotto). Invisibili anche bordo e sfondo. */
+.signupsEmpty {
+  visibility: hidden;
+}
+
+/* Scheletro: stesse proporzioni di numero, etichetta e riga dei nuovi; pulsa solo mentre carica. */
+.signupsLoading {
+  pointer-events: none;
+}
+
+.signupsBone {
+  display: block;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.signupsLoading .signupsBone {
+  animation: signupsPulse 1.4s ease-in-out infinite;
+}
+
+.signupsBoneNumber {
+  width: 5.2rem;
+  height: 1.6rem;
+  border-radius: 10px;
+}
+
+.signupsBoneLabel {
+  width: 8.5rem;
+  height: 0.9rem;
+}
+
+.signupsBoneRecent {
+  width: 11rem;
+  max-width: 100%;
+  height: 0.75rem;
+  margin-top: 4px;
+}
+
+@keyframes signupsPulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Telefoni stretti: il numero si rimpicciolisce con lo schermo, così numero ed etichetta restano
+   sulla stessa riga (altezza dello scheletro, niente salto) in tutte le lingue fino a 7 cifre già
+   da 320 px; prima il tedesco con 1.234.567 andava a capo e il riquadro cresceva di 12 px. Sotto
+   i 320 px, o con 8 cifre, l'etichetta può ancora scendere sotto il numero. */
+@media (max-width: 399px) {
+  .signups {
+    padding: 10px 14px;
+  }
+  .signupsNumber {
+    font-size: clamp(1.25rem, 7vw, 1.5rem);
+  }
+  .signupsLabel {
+    font-size: 0.88rem;
+  }
+  .signupsBoneNumber {
+    width: 4.5rem;
+    height: 1.4rem;
+  }
+}
+
 @media (min-width: 820px) {
   .copy {
     max-width: 760px;
@@ -440,6 +587,10 @@
   .copy > * {
     opacity: 1;
     transform: none;
+  }
+  /* Scheletro del contatore iscritti fermo (niente pulsazione). */
+  .signupsLoading .signupsBone {
+    animation: none;
   }
 }
 
