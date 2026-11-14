@@ -2,6 +2,7 @@
 // Home: file audio che l'amministratore mette DIRETTAMENTE nello store Vercel Blob (dal pannello),
 // elencati e riprodotti in Home. Non passano dal flusso di upload degli utenti (/pubblica).
 import { z } from 'zod';
+import { ARTIST_SLUG_MAX_LENGTH, ARTIST_SLUG_PATTERN } from '@/lib/music/featured-artists';
 
 /** Prefisso del proxy same-origin che serve i brani in evidenza PRIVATI (lettura lato server). */
 export const HOME_TRACK_STREAM_PREFIX = '/api/music/home-tracks/stream';
@@ -46,6 +47,16 @@ const homeTrackArtworkUrl = z
     { message: 'URL della copertina non valido.' },
   );
 
+/**
+ * Slug della pagina /artista/<slug> (vedi featured-artists.ts): minuscole e cifre separate da un
+ * trattino, al massimo 80 caratteri.
+ */
+export const FeaturedArtistSlugSchema = z
+  .string()
+  .min(1)
+  .max(ARTIST_SLUG_MAX_LENGTH)
+  .regex(ARTIST_SLUG_PATTERN);
+
 /** Un brano in evidenza letto dallo store Blob. durationSeconds 0 = sconosciuta (la legge il player). */
 export const HomeTrackSchema = z.object({
   // Il pathname dell'oggetto su Blob: stabile e unico nello store. I pathname di Vercel Blob
@@ -58,6 +69,12 @@ export const HomeTrackSchema = z.object({
   durationSeconds: z.number().int().nonnegative().max(86_400),
   /** Copertina del brano (stesso nome del file, copertina della cartella o incorporata). */
   artworkUrl: homeTrackArtworkUrl.nullable().default(null),
+  /**
+   * Pagina dell'artista principale (/artista/<slug>), SOLO se ha almeno un brano con i diritti
+   * dichiarati in diritti.json: nessun link porta a una pagina vuota. null o assente = nessun link
+   * (anche dai server meno recenti, che non lo mandano).
+   */
+  artistSlug: FeaturedArtistSlugSchema.nullable().optional(),
 });
 export type HomeTrack = z.infer<typeof HomeTrackSchema>;
 

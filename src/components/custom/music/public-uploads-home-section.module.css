@@ -1,4 +1,4 @@
-/* @polsia:user-owned — anteprima libreria pubblica in Home. */
+/* @polsia:user-owned — anteprima in Home della classifica della community. */
 
 .section {
   margin: 0.5rem 0 1.25rem;
@@ -23,16 +23,17 @@
 .title {
   margin: 0.1rem 0 0;
   font-size: 1.2rem;
+  /* Titolo lungo su schermi stretti: va a capo invece di spingere fuori "Vedi tutti". */
+  overflow-wrap: anywhere;
 }
 
+/* Link testuale (Button variant="link"): stesso aspetto di prima, senza il riquadro del bottone. */
 .link {
   flex: none;
+  height: auto;
+  padding: 0.25rem 0;
   font-size: 0.85rem;
+  font-weight: 500;
   color: var(--primary);
-  text-decoration: none;
   white-space: nowrap;
-}
-
-.link:hover {
-  text-decoration: underline;
 }

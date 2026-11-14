@@ -16,10 +16,14 @@ const mocks = vi.hoisted(() => ({
   uploadDelete: vi.fn(),
   reportCreate: vi.fn(),
   reportCount: vi.fn(),
+  transaction: vi.fn(),
+  playCreateMany: vi.fn(),
 }));
 
 vi.mock('@vercel/blob', () => ({ head: mocks.head, del: mocks.del }));
-vi.mock('@/lib/env', () => ({ env: { BLOB_READ_WRITE_TOKEN: 'tok_test' } }));
+vi.mock('@/lib/env', () => ({
+  env: { BLOB_READ_WRITE_TOKEN: 'tok_test', BETTER_AUTH_SECRET: 'segreto-di-prova' },
+}));
 vi.mock('@/lib/db', () => ({
   prisma: {
     publicUpload: {
@@ -32,6 +36,8 @@ vi.mock('@/lib/db', () => ({
       delete: mocks.uploadDelete,
     },
     publicUploadReport: { create: mocks.reportCreate, count: mocks.reportCount },
+    publicUploadPlay: { createMany: mocks.playCreateMany },
+    $transaction: mocks.transaction,
   },
 }));
 
@@ -248,9 +254,25 @@ describe('deletePublicUpload', () => {
 });
 
 describe('recordPublicUploadPlay', () => {
+  // Una transazione interattiva: la callback riceve il client della transazione.
+  beforeEach(() => {
+    mocks.transaction.mockImplementation(async (run: (tx: unknown) => Promise<unknown>) =>
+      run({
+        publicUploadPlay: { createMany: mocks.playCreateMany },
+        publicUpload: { update: mocks.uploadUpdate },
+      }),
+    );
+    mocks.playCreateMany.mockResolvedValue({ count: 1 });
+  });
+
   it('conta l’ascolto di un ascoltatore diverso dal proprietario', async () => {
     mocks.uploadFindUnique.mockResolvedValue({ uploaderUserId: 'owner' });
-    await recordPublicUploadPlay('c'.repeat(25), 'listener');
+    expect(
+      await recordPublicUploadPlay('c'.repeat(25), {
+        userId: 'listener',
+        network: 'ip:203.0.113.7',
+      }),
+    ).toBe(true);
     expect(mocks.uploadUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ data: { playCount: { increment: 1 } } }),
     );
@@ -258,13 +280,17 @@ describe('recordPublicUploadPlay', () => {
 
   it('NON conta l’ascolto del proprietario (niente auto-gonfiaggio)', async () => {
     mocks.uploadFindUnique.mockResolvedValue({ uploaderUserId: 'owner' });
-    await recordPublicUploadPlay('c'.repeat(25), 'owner');
+    expect(await recordPublicUploadPlay('c'.repeat(25), { userId: 'owner', network: null })).toBe(
+      false,
+    );
     expect(mocks.uploadUpdate).not.toHaveBeenCalled();
   });
 
-  it('conta gli ascolti anonimi', async () => {
+  it('conta gli ascolti anonimi (per rete, una volta al giorno)', async () => {
     mocks.uploadFindUnique.mockResolvedValue({ uploaderUserId: 'owner' });
-    await recordPublicUploadPlay('c'.repeat(25), null);
+    expect(
+      await recordPublicUploadPlay('c'.repeat(25), { userId: null, network: 'ip:203.0.113.7' }),
+    ).toBe(true);
     expect(mocks.uploadUpdate).toHaveBeenCalled();
   });
 });

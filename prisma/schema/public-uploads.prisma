@@ -27,6 +27,9 @@ model PublicUpload {
   lyricsRightsConfirmed Boolean  @default(false)
 
   reports PublicUploadReport[]
+  // Solo relazione (nessuna colonna): gli ascolti contati per la classifica, uno al giorno per
+  // ascoltatore.
+  plays   PublicUploadPlay[]
 
   @@index([published, playCount])
   @@index([uploaderUserId, createdAt])
@@ -44,4 +47,26 @@ model PublicUploadReport {
 
   @@unique([uploadId, reporterUserId])
   @@index([uploadId])
+}
+
+// Un ascolto CONTATO nella classifica «Brani più ascoltati dalla community»: al massimo uno per
+// ascoltatore, per brano, per giorno di calendario in Italia (Europe/Rome), così ripetere la
+// richiesta non gonfia playCount. listenerKey è un HMAC-SHA256 (esadecimale, chiave derivata da un
+// segreto del server) di "<giorno>|<id brano>|u:<id utente>" (o, senza accesso, "net:<rete>"):
+// pseudonima e diversa per ogni brano e giorno, così le righe di una persona non si collegano tra
+// loro; in questa tabella non finiscono MAI l'IP o l'id utente in chiaro. La pulizia giornaliera
+// cancella le righe più vecchie di circa 35 giorni. Tabella NUOVA: compatibile con `prisma db push`.
+model PublicUploadPlay {
+  id          String   @id @default(cuid())
+  uploadId    String
+  listenerKey String
+  // Giorno dell'ascolto a Roma, "YYYY-MM-DD".
+  day         String
+  createdAt   DateTime @default(now())
+
+  upload PublicUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+
+  // L'indice unico (che inizia da uploadId) serve anche alla cancellazione a cascata.
+  @@unique([uploadId, listenerKey, day])
+  @@index([createdAt])
 }

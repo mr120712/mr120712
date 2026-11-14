@@ -56,10 +56,22 @@
 // Lo stesso indice dice anche quali brani possono mostrare il TESTO nel player (voci con
 // "testo": true, vedi featured-lyrics.server.ts): stessa lettura dello store e del manifest, quindi
 // stessi tempi di revoca (~5 minuti).
+//
+// E raggruppa i brani dichiarati per ARTISTA (pagina /artista/<slug>, regole in
+// featured-artists.ts): ogni brano dell'indice porta `artistSlug` (il suo artista principale), una
+// pagina elenca SOLO brani dichiarati e un artista senza brani dichiarati non ha pagina (né link).
+// Stessa costruzione e stessa cache: nessun elenco dello store in più.
 import 'server-only';
+import { FEATURED_ARTIST_TRACK_LIMIT, type FeaturedArtist } from '@/lib/contracts/featured-artists';
 import type { HomeTrack } from '@/lib/contracts/home-tracks';
 import { UNIFIED_FEATURED_LIMIT } from '@/lib/contracts/unified-search';
 import { env } from '@/lib/env';
+import {
+  type FeaturedArtistGroup,
+  groupFeaturedArtists,
+  isArtistSlug,
+  primaryArtistSlug,
+} from '@/lib/music/featured-artists';
 import {
   declaredTrackEntries,
   lyricsDeclared,
@@ -99,11 +111,19 @@ export type FeaturedLyricsSource = {
 export type FeaturedIndex = {
   /** false = Blob non configurato o non leggibile: la fonte è "unavailable", non "vuota". */
   available: boolean;
-  /** Solo i brani con diritti dichiarati, dal più recente. */
+  /** Solo i brani con diritti dichiarati, dal più recente (con `artistSlug` del principale). */
   tracks: HomeTrack[];
   /** Solo i brani dichiarati con "testo": true, per pathname. */
   lyrics: ReadonlyMap<string, FeaturedLyricsSource>;
+  /** Gli artisti (principali e ospiti) dei SOLI brani dichiarati, per slug: mai un gruppo vuoto. */
+  artists: ReadonlyMap<string, FeaturedArtistGroup<HomeTrack>>;
 };
+
+/** Esito della pagina d'artista. */
+export type FeaturedArtistLookup =
+  | { outcome: 'found'; artist: FeaturedArtist; tracks: HomeTrack[] }
+  /** not_found: nessun brano dichiarato; unavailable: Blob non configurato o non leggibile. */
+  | { outcome: 'not_found' | 'unavailable' };
 
 export type FeaturedSearchResult = {
   outcome: 'results' | 'no_results' | 'unavailable';
@@ -123,7 +143,13 @@ export function clearFeaturedSearchCacheForTests() {
 }
 
 const NO_LYRICS: ReadonlyMap<string, FeaturedLyricsSource> = new Map();
-const UNAVAILABLE: FeaturedIndex = { available: false, tracks: [], lyrics: NO_LYRICS };
+const NO_ARTISTS: ReadonlyMap<string, FeaturedArtistGroup<HomeTrack>> = new Map();
+const UNAVAILABLE: FeaturedIndex = {
+  available: false,
+  tracks: [],
+  lyrics: NO_LYRICS,
+  artists: NO_ARTISTS,
+};
 
 async function buildIndex(token: string): Promise<{ index: FeaturedIndex; ttl: number }> {
   // UN solo elenco dello store per brani, copertine e manifest.
@@ -145,7 +171,7 @@ async function buildIndex(token: string): Promise<{ index: FeaturedIndex; ttl: n
     // stati stabili (si ricontrolla dopo ~5 minuti); solo la lettura fallita si riprova presto.
     const transient = rights.status === 'unavailable';
     return {
-      index: { available: !transient, tracks: [], lyrics: NO_LYRICS },
+      index: { available: !transient, tracks: [], lyrics: NO_LYRICS, artists: NO_ARTISTS },
       ttl: transient ? FAILURE_TTL_MS : HIT_TTL_MS,
     };
   }
@@ -160,7 +186,12 @@ async function buildIndex(token: string): Promise<{ index: FeaturedIndex; ttl: n
       `[solco] ${RIGHTS_MANIFEST_PATHNAME}: ${ignored} voci ignorate (formato, licenza o file non valido o inesistente)`,
     );
   }
-  const tracks = catalog.tracks.filter((track) => declared.has(track.id));
+  // Ogni brano dichiarato ha la pagina del suo artista principale (il brano stesso la riempie).
+  const tracks = catalog.tracks
+    .filter((track) => declared.has(track.id))
+    .map((track) => ({ ...track, artistSlug: primaryArtistSlug(track.artist) }));
+  // Artisti: SOLO dai brani dichiarati (mai dall'elenco completo dello store).
+  const artists = groupFeaturedArtists(tracks);
   // Testi: solo le voci valide con "testo": true di file che esistono davvero nello store.
   const sidecarsFor = lyricsSidecarMatcher(catalog.sidecars);
   const lyrics = new Map<string, FeaturedLyricsSource>();
@@ -177,7 +208,7 @@ async function buildIndex(token: string): Promise<{ index: FeaturedIndex; ttl: n
   // Elenco parziale (oltre il tetto di pagine o scaduto) ma manifest trovato: si usa quanto trovato
   // (al più MENO brani ricercabili, mai di più) per la finestra normale. Uno store sempre oltre il
   // tetto non rifà così 20 elenchi ogni minuto.
-  return { index: { available: true, tracks, lyrics }, ttl: HIT_TTL_MS };
+  return { index: { available: true, tracks, lyrics, artists }, ttl: HIT_TTL_MS };
 }
 
 /** L'indice dalla cache, oppure ricostruito una sola volta anche con più ricerche in parallelo. */
@@ -240,6 +271,52 @@ export async function searchFeaturedTracks(
     return { outcome: index.available ? 'no_results' : 'unavailable', tracks: [] };
   } catch {
     return { outcome: 'unavailable', tracks: [] };
+  }
+}
+
+/**
+ * Pagina d'artista: i brani DICHIARATI in cui l'artista `slug` è principale o ospite (dal più
+ * recente, al massimo `limit`) con la grafia più frequente del nome. Un brano non dichiarato dello
+ * stesso artista non compare mai (l'indice contiene solo brani dichiarati). Stesso indice della
+ * ricerca. Mai throw: Blob non configurato o non leggibile → 'unavailable'; nessun brano
+ * dichiarato (o slug non valido) → 'not_found'.
+ */
+export async function getFeaturedArtist(
+  slug: string,
+  limit = FEATURED_ARTIST_TRACK_LIMIT,
+): Promise<FeaturedArtistLookup> {
+  if (!isArtistSlug(slug)) return { outcome: 'not_found' };
+  const token = env.BLOB_READ_WRITE_TOKEN;
+  if (!token) return { outcome: 'unavailable' };
+  try {
+    const index = await loadIndex(token);
+    const group = index.artists.get(slug);
+    if (group && group.tracks.length > 0) {
+      return {
+        outcome: 'found',
+        artist: { name: group.name, slug: group.slug },
+        tracks: group.tracks.slice(0, limit),
+      };
+    }
+    return { outcome: index.available ? 'not_found' : 'unavailable' };
+  } catch {
+    return { outcome: 'unavailable' };
+  }
+}
+
+/**
+ * Gli slug degli artisti con ALMENO un brano dichiarato (stesso indice in cache della ricerca),
+ * per mettere il link all'artista in Home solo dove la pagina non è vuota. null se l'indice non è
+ * disponibile (Blob non configurato o non leggibile): nessun link. Mai throw.
+ */
+export async function loadFeaturedArtistSlugs(): Promise<ReadonlySet<string> | null> {
+  const token = env.BLOB_READ_WRITE_TOKEN;
+  if (!token) return null;
+  try {
+    const index = await loadIndex(token);
+    return index.available ? new Set(index.artists.keys()) : null;
+  } catch {
+    return null;
   }
 }
 

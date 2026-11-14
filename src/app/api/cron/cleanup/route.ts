@@ -5,8 +5,9 @@
 // fa, metadati delle raccolte che scadono entro la prossima pulizia, voci YouTube della
 // cronologia di ascolto i cui dati sono arrivati da YouTube oltre 28 giorni fa (o senza data).
 // Poi contatori della quota dei giorni passati, contatori dei limiti per azione (account o IP
-// con hash) fermi da 2 giorni, piani AI scaduti ed esiti dei controlli automatici oltre 30
-// giorni. A fine lavoro salva il battito 'cleanup', letto dal controllo "Pulizia giornaliera".
+// con hash) fermi da 2 giorni, piani AI scaduti, esiti dei controlli automatici oltre 30
+// giorni e ascolti contati della classifica della community (chiavi HMAC) oltre 35 giorni.
+// A fine lavoro salva il battito 'cleanup', letto dal controllo "Pulizia giornaliera".
 // Vercel invia "Authorization: Bearer <CRON_SECRET>"; senza segreto valido risponde 401.
 import 'server-only';
 import { NextResponse } from 'next/server';
@@ -35,48 +36,66 @@ const MONITOR_RUN_MAX_AGE_MS = 30 * DAY_MS;
 const RATE_LIMIT_ROW_MAX_AGE_MS = 2 * DAY_MS;
 /** The cleanup runs once a day: metadata expiring before the next run goes now. */
 const NEXT_RUN_MS = DAY_MS;
+/**
+ * Ascolti contati della classifica della community (una riga per ascoltatore, brano e giorno):
+ * per non contare due volte basta il giorno corrente; si tengono circa 35 giorni, poi si cancellano.
+ */
+const PUBLIC_UPLOAD_PLAY_MAX_AGE_MS = 35 * DAY_MS;
 
 export async function GET(request: Request) {
   if (!cronAuthorized(request)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
   const now = new Date();
-  const [collections, resolutions, searches, history, quotaDays, rateLimits, plans, monitorRuns] =
-    await Promise.all([
-      expireYouTubeCollectionMetadata(new Date(now.getTime() + NEXT_RUN_MS)),
-      // createdAt is when YouTube sent the data: rows written with the older 29-day expiry
-      // would otherwise stay until about 30 days.
-      prisma.songResolution.deleteMany({
-        where: {
-          OR: [
-            { expiresAt: { lte: now } },
-            { createdAt: { lt: new Date(now.getTime() - FOUND_TTL_MS) } },
-          ],
-        },
-      }),
-      prisma.youTubeSearchCache.deleteMany({
-        where: {
-          OR: [
-            { createdAt: { lt: new Date(now.getTime() - YOUTUBE_STORE_MAX_AGE_MS) } },
-            // A chart is never shown 24 h after YouTube sent it: no reason to keep it.
-            {
-              key: { startsWith: YOUTUBE_CHART_KEY_PREFIX },
-              createdAt: { lt: new Date(now.getTime() - YOUTUBE_CHART_STALE_MS) },
-            },
-          ],
-        },
-      }),
-      // Aged by when YouTube sent the data (YouTubeHistoryFetch), never by the last play.
-      deleteExpiredYouTubeHistory(now),
-      deleteOldYouTubeQuotaUsage(now),
-      prisma.actionRateLimit.deleteMany({
-        where: { updatedAt: { lt: new Date(now.getTime() - RATE_LIMIT_ROW_MAX_AGE_MS) } },
-      }),
-      prisma.aiMusicSearchCache.deleteMany({ where: { expiresAt: { lte: now } } }),
-      prisma.monitorRun.deleteMany({
-        where: { startedAt: { lt: new Date(now.getTime() - MONITOR_RUN_MAX_AGE_MS) } },
-      }),
-    ]);
+  const [
+    collections,
+    resolutions,
+    searches,
+    history,
+    quotaDays,
+    rateLimits,
+    plans,
+    monitorRuns,
+    communityPlays,
+  ] = await Promise.all([
+    expireYouTubeCollectionMetadata(new Date(now.getTime() + NEXT_RUN_MS)),
+    // createdAt is when YouTube sent the data: rows written with the older 29-day expiry
+    // would otherwise stay until about 30 days.
+    prisma.songResolution.deleteMany({
+      where: {
+        OR: [
+          { expiresAt: { lte: now } },
+          { createdAt: { lt: new Date(now.getTime() - FOUND_TTL_MS) } },
+        ],
+      },
+    }),
+    prisma.youTubeSearchCache.deleteMany({
+      where: {
+        OR: [
+          { createdAt: { lt: new Date(now.getTime() - YOUTUBE_STORE_MAX_AGE_MS) } },
+          // A chart is never shown 24 h after YouTube sent it: no reason to keep it.
+          {
+            key: { startsWith: YOUTUBE_CHART_KEY_PREFIX },
+            createdAt: { lt: new Date(now.getTime() - YOUTUBE_CHART_STALE_MS) },
+          },
+        ],
+      },
+    }),
+    // Aged by when YouTube sent the data (YouTubeHistoryFetch), never by the last play.
+    deleteExpiredYouTubeHistory(now),
+    deleteOldYouTubeQuotaUsage(now),
+    prisma.actionRateLimit.deleteMany({
+      where: { updatedAt: { lt: new Date(now.getTime() - RATE_LIMIT_ROW_MAX_AGE_MS) } },
+    }),
+    prisma.aiMusicSearchCache.deleteMany({ where: { expiresAt: { lte: now } } }),
+    prisma.monitorRun.deleteMany({
+      where: { startedAt: { lt: new Date(now.getTime() - MONITOR_RUN_MAX_AGE_MS) } },
+    }),
+    // Solo le righe più vecchie del limite (indice su createdAt): idempotente, nessun altro dato.
+    prisma.publicUploadPlay.deleteMany({
+      where: { createdAt: { lt: new Date(now.getTime() - PUBLIC_UPLOAD_PLAY_MAX_AGE_MS) } },
+    }),
+  ]);
   const removed = {
     youtubeCollectionItems: collections.count,
     songResolutions: resolutions.count,
@@ -86,12 +105,14 @@ export async function GET(request: Request) {
     rateLimitRows: rateLimits.count,
     aiPlans: plans.count,
     monitorRuns: monitorRuns.count,
+    communityPlays: communityPlays.count,
   };
   await recordHeartbeat(
     CLEANUP_HEARTBEAT,
     `Rimossi: ${removed.youtubeCollectionItems} dati YouTube, ${removed.songResolutions} brani risolti, ` +
       `${removed.youtubeSearches} ricerche salvate, ${removed.youtubeHistory} ascolti YouTube vecchi, ` +
-      `${removed.aiPlans} piani AI, ${removed.monitorRuns} controlli vecchi`,
+      `${removed.aiPlans} piani AI, ${removed.monitorRuns} controlli vecchi, ` +
+      `${removed.communityPlays} ascolti della community vecchi`,
   );
   return NextResponse.json(removed, { headers: { 'Cache-Control': 'no-store' } });
 }

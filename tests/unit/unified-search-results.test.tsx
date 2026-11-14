@@ -646,6 +646,49 @@ describe('Cerca unificata: brani in evidenza', () => {
     expect(mocks.playTrack).not.toHaveBeenCalled();
   });
 
+  it('il nome dell’artista porta alla sua pagina SOLO con artistSlug', async () => {
+    const linked = { ...featuredTrack, artistSlug: 'lucio-dalla' };
+    const response = {
+      ...withFeatured,
+      results: [
+        { ...withFeatured.results[0], track: linked },
+        // Server meno recente (nessun artistSlug) e brano senza artista: nessun link.
+        withFeatured.results[1],
+        radioEntry,
+        podcastEntry,
+      ],
+      sources: {
+        ...withFeatured.sources,
+        featured: { status: 'results', tracks: [linked, featuredTrack2] },
+      },
+    };
+    respondWith(response, response);
+    const container = await mount('caruso');
+    const rowsWithKind = container.querySelectorAll('li[data-kind="featured"]');
+    const artistLinks = [...(rowsWithKind[0]?.querySelectorAll<HTMLAnchorElement>('a') ?? [])];
+    expect(artistLinks.map((link) => [link.textContent, link.getAttribute('href')])).toEqual([
+      ['Lucio Dalla', '/artista/lucio-dalla'],
+    ]);
+    expect(rowsWithKind[1]?.querySelector('a')).toBeNull();
+    expect(rowsWithKind[1]?.textContent).toContain('Solco');
+
+    // Stesso brano con artistSlug null: testo, nessun link.
+    respondWith(
+      {
+        ...response,
+        results: [{ ...withFeatured.results[0], track: { ...linked, artistSlug: null } }],
+      },
+      {
+        ...response,
+        results: [{ ...withFeatured.results[0], track: { ...linked, artistSlug: null } }],
+      },
+    );
+    const other = await mount('lucio');
+    const row = other.querySelector('li[data-kind="featured"]');
+    expect(row?.querySelector('a')).toBeNull();
+    expect(row?.textContent).toContain('Lucio Dalla');
+  });
+
   it('il video dello stesso brano resta come «Ascolta su YouTube», senza una riga a sé', async () => {
     respondWith(withFeatured, withFeatured);
     const container = await mount('caruso');

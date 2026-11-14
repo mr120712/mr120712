@@ -45,8 +45,12 @@
   scrollbar-width: thin;
 }
 
+/* Pulsante (copertina + titolo) e, sotto, il nome dell'artista (link alla sua pagina, se c'è). */
 .card {
+  display: grid;
   min-width: 0;
+  align-content: start;
+  gap: 6px;
   scroll-snap-align: start;
 }
 
@@ -135,6 +139,25 @@
   font-size: 0.8rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Il nome come link alla pagina d'artista: largo quanto il testo, sottolineato al passaggio. */
+.artistLink {
+  justify-self: start;
+  max-width: 100%;
+  border-radius: 4px;
+  text-decoration: none;
+}
+
+.artistLink:hover {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.artistLink:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {

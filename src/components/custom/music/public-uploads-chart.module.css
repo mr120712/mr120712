@@ -1,4 +1,4 @@
-/* @polsia:user-owned — classifica/libreria pubblica dei brani caricati. */
+/* @polsia:user-owned — classifica «Brani più ascoltati dalla community» (brani caricati). */
 
 .state {
   color: var(--muted-foreground);
@@ -34,6 +34,20 @@
   font-variant-numeric: tabular-nums;
   color: var(--muted-foreground);
   font-size: 0.85rem;
+}
+
+/* Podio (prime 3 posizioni): solo colore e peso del numero. La larghezza resta fissa e la
+   dimensione del testo non cambia, quindi nessuno spostamento del layout. */
+.row[data-podium="true"] .rank {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+/* Cuore decorativo accanto al titolo della classifica (aria-hidden nel markup). */
+.heart {
+  display: inline-block;
+  font-size: 0.9em;
+  line-height: 1;
 }
 
 .playButton {

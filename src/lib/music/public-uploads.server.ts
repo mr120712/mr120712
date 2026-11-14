@@ -1,12 +1,17 @@
 // @polsia:user-owned — logica server della libreria PUBBLICA di brani caricati (Vercel Blob).
 // Il file audio è un oggetto PUBBLICO su Blob (URL CDN): qui si registrano i metadati, si elenca
 // la classifica pubblica, si moderano le segnalazioni e si rimuovono (anche l'oggetto su Blob).
+// Gli ascolti della classifica si contano al massimo una volta al giorno per ascoltatore, con una
+// chiave pseudonima (HMAC, diversa per ogni brano e giorno) al posto dell'id utente o della rete.
 //
 // TESTO dei brani: un upload è per definizione un brano dell'utente (lo attesta al caricamento),
 // e il testo si mostra nel player solo se l'autore conferma di averne i diritti
 // (lyricsRightsConfirmed) e il brano è pubblicato. L'autore può aggiungerlo, cambiarlo o toglierlo.
 import 'server-only';
+import { createHmac } from 'node:crypto';
+import { isIP } from 'node:net';
 import { del, head } from '@vercel/blob';
+import { romeDay } from '@/lib/business/rewards';
 import { LYRICS_CREDIT_UPLOAD, type Lyrics } from '@/lib/contracts/lyrics';
 import {
   PUBLIC_UPLOAD_MAX_PER_USER,
@@ -267,27 +272,98 @@ export async function readPublishedUploadLyrics(uploadId: string): Promise<Lyric
 }
 
 /**
- * Registra un ascolto (playCount) per la classifica. Non conta gli ascolti dell'autore stesso
- * (niente auto-gonfiaggio della propria posizione). Non fa mai throw bloccante per il player.
+ * Chi ascolta, per la classifica: l'utente con l'accesso oppure, senza accesso, la sua RETE come
+ * la restituisce networkIdentity() (stessa fonte dei limiti, x-real-ip dell'ingress): "ip:<IPv4>"
+ * o "ip6:<prefisso>::/64", perché un cliente IPv6 riceve di solito un intero /64 e potrebbe
+ * cambiare indirizzo a ogni richiesta. La route conta solo chi può davvero ascoltare il brano
+ * (oggi un account Premium), quindi in pratica la chiave nasce dall'account.
+ */
+export type PublicUploadListener = { userId: string | null; network: string | null };
+
+/** Contesto della sottochiave HMAC: separa queste chiavi dagli altri usi dello stesso segreto. */
+const PLAY_KEY_CONTEXT = 'solco-public-upload-plays-v1';
+/** Rete IPv6 come la scrive networkIdentity(): i primi 4 gruppi, cioè il /64. */
+const IPV6_NETWORK = /^ip6:[0-9a-f]{1,4}(?::[0-9a-f]{1,4}){3}::\/64$/;
+
+/** "u:<id utente>" o "net:<rete>"; null senza un'identità valida (un IPv6 intero non vale). */
+function listenerSource(listener: PublicUploadListener): string | null {
+  const userId = listener.userId?.trim();
+  if (userId) return `u:${userId}`;
+  const network = listener.network?.trim().toLowerCase();
+  if (!network) return null;
+  const ipv4 = network.startsWith('ip:') && isIP(network.slice(3)) === 4;
+  return ipv4 || IPV6_NETWORK.test(network) ? `net:${network}` : null;
+}
+
+/**
+ * Chiave PSEUDONIMA dell'ascoltatore: HMAC-SHA256 (esadecimale) di "<giorno>|<id brano>|<fonte>"
+ * (fonte "u:<id utente>" o "net:<rete>"), con una sottochiave derivata da BETTER_AUTH_SECRET. Né
+ * l'IP né l'id utente finiscono in chiaro nel database; e poiché giorno e brano entrano nella
+ * chiave, le righe dello stesso ascoltatore su brani o giorni diversi non si possono collegare
+ * tra loro (per non contare due volte basta l'unicità per brano e giorno). Chi ha il segreto può
+ * comunque verificare un'ipotesi: per questo è pseudonima, non anonima. null se non c'è alcuna
+ * identità valida (o manca il segreto): in quel caso l'ascolto non si conta.
+ */
+export function publicUploadListenerKey(
+  listener: PublicUploadListener,
+  uploadId: string,
+  day: string,
+): string | null {
+  const source = listenerSource(listener);
+  if (!source) return null;
+  const secret = env.BETTER_AUTH_SECRET;
+  if (!secret) return null;
+  const subkey = createHmac('sha256', secret).update(PLAY_KEY_CONTEXT).digest();
+  return createHmac('sha256', subkey).update(`${day}|${uploadId}|${source}`).digest('hex');
+}
+
+/** Giorno di calendario in Italia ("YYYY-MM-DD"): un ascolto al giorno per ascoltatore. */
+export function publicUploadPlayDay(now: Date): string {
+  return romeDay(now);
+}
+
+/**
+ * Registra un ascolto per la classifica «Brani più ascoltati dalla community». Conta al massimo
+ * UN ascolto per ascoltatore, per brano, per giorno (Europe/Rome): la riga PublicUploadPlay e
+ * l'incremento di playCount avvengono nella stessa transazione, e l'incremento parte solo se la
+ * riga è stata davvero inserita (già presente oggi → nessun punto). Non conta gli ascolti
+ * dell'autore stesso (niente auto-gonfiaggio) né le richieste senza alcuna identità. Ritorna
+ * true se l'ascolto è stato contato; non fa mai throw verso il player.
  */
 export async function recordPublicUploadPlay(
   uploadId: string,
-  viewerUserId: string | null,
-): Promise<void> {
+  listener: PublicUploadListener,
+  now: Date = new Date(),
+): Promise<boolean> {
   try {
+    const day = publicUploadPlayDay(now);
+    const listenerKey = publicUploadListenerKey(listener, uploadId, day);
+    if (!listenerKey) return false;
     const row = await prisma.publicUpload.findUnique({
       where: { id: uploadId },
       select: { uploaderUserId: true },
     });
-    if (!row) return;
+    if (!row) return false;
     // Il proprietario non fa punti sulla propria classifica.
-    if (viewerUserId && row.uploaderUserId === viewerUserId) return;
-    await prisma.publicUpload.update({
-      where: { id: uploadId },
-      data: { playCount: { increment: 1 } },
+    if (listener.userId && row.uploaderUserId === listener.userId) return false;
+    return await prisma.$transaction(async (tx) => {
+      // ON CONFLICT DO NOTHING: un secondo ascolto oggi non inserisce nulla (count 0), anche con
+      // richieste concorrenti, senza errori di unicità da gestire.
+      const inserted = await tx.publicUploadPlay.createMany({
+        data: [{ uploadId, listenerKey, day }],
+        skipDuplicates: true,
+      });
+      if (inserted.count !== 1) return false;
+      await tx.publicUpload.update({
+        where: { id: uploadId },
+        data: { playCount: { increment: 1 } },
+      });
+      return true;
     });
   } catch {
-    // Brano rimosso o non trovato: ignora.
+    // Già contato oggi (violazione di unicità), brano rimosso nel frattempo o database non
+    // raggiungibile: l'ascolto non si conta, il player continua.
+    return false;
   }
 }
 

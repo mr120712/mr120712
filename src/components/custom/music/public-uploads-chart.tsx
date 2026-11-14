@@ -1,5 +1,6 @@
-// @polsia:user-owned — classifica/libreria PUBBLICA dei brani caricati dagli utenti. Chiunque
-// ascolta; chi è loggato può segnalare un brano (moderazione) e rimuovere i propri.
+// @polsia:user-owned — classifica «Brani più ascoltati dalla community»: i brani caricati dagli
+// utenti, i più ascoltati prima (il server conta al massimo un ascolto al giorno per persona). Chi
+// è loggato può segnalare un brano (moderazione) e rimuovere i propri.
 'use client';
 
 import { Flag, Lock, Pause, Play, Trash2 } from 'lucide-react';
@@ -11,6 +12,36 @@ import { apiFetch } from '@/lib/api-client';
 import { type PublicUpload, PublicUploadListResponseSchema } from '@/lib/contracts/public-uploads';
 import { formatClock } from '@/lib/music/format-duration';
 import styles from './public-uploads-chart.module.css';
+
+/** Titolo della classifica della community (le parole lette dai lettori di schermo). */
+export const COMMUNITY_CHART_TITLE = 'Brani più ascoltati dalla community';
+/**
+ * Le prime posizioni messe in risalto (solo colore e peso: nessuno spostamento del layout), ma solo
+ * se hanno almeno un ascolto: in una classifica giovane un brano a "0 ascolti" non va sul podio.
+ */
+const PODIUM_SIZE = 3;
+
+const playCountFormat = new Intl.NumberFormat('it-IT');
+
+/**
+ * Contenuto del titolo: il cuore è decorativo, nascosto ai lettori di schermo. Lo spazio prima è
+ * indivisibile, così su schermi stretti il cuore non va a capo da solo.
+ */
+export function CommunityChartTitle() {
+  return (
+    <>
+      {COMMUNITY_CHART_TITLE}
+      {' '}
+      <span className={styles.heart} aria-hidden="true">
+        ❤️
+      </span>
+    </>
+  );
+}
+
+function playCountLabel(count: number): string {
+  return count === 1 ? '1 ascolto' : `${playCountFormat.format(count)} ascolti`;
+}
 
 export function PublicUploadsChart({
   reloadKey = 0,
@@ -106,15 +137,15 @@ export function PublicUploadsChart({
   };
 
   if (state === 'loading') {
-    return <p className={styles.state}>Carico i brani…</p>;
+    return <p className={styles.state}>Carico la classifica…</p>;
   }
   if (state === 'error') {
-    return <p className={styles.state}>Libreria non disponibile in questo momento.</p>;
+    return <p className={styles.state}>Classifica non disponibile in questo momento.</p>;
   }
   if (items.length === 0) {
     return (
       <p className={styles.state}>
-        Ancora nessun brano pubblico. Carica il primo: sarà ascoltabile da tutti.
+        La classifica della community è ancora vuota. Pubblica il primo brano e falla partire.
       </p>
     );
   }
@@ -126,7 +157,12 @@ export function PublicUploadsChart({
         const playing =
           player.currentTrack?.qualifiedId === qualifiedId && player.status === 'playing';
         return (
-          <li key={upload.id} className={styles.row}>
+          <li
+            key={upload.id}
+            className={styles.row}
+            data-podium={index < PODIUM_SIZE && upload.playCount > 0 ? 'true' : undefined}
+          >
+            {/* La posizione la annuncia già l'elenco numerato (<ol>): il numero è solo visivo. */}
             <span className={styles.rank} aria-hidden="true">
               {index + 1}
             </span>
@@ -157,8 +193,7 @@ export function PublicUploadsChart({
               </strong>
               <span className={styles.meta}>
                 {upload.artist ? `${upload.artist} · ` : ''}
-                {formatClock(upload.durationSeconds)} ·{' '}
-                {upload.playCount === 1 ? '1 ascolto' : `${upload.playCount} ascolti`}
+                {formatClock(upload.durationSeconds)} · {playCountLabel(upload.playCount)}
                 {upload.canPlay ? null : <span className={styles.premiumTag}>Premium</span>}
               </span>
             </div>

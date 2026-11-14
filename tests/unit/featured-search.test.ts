@@ -113,7 +113,8 @@ describe('searchFeaturedTracks: cancello dei diritti', () => {
     const inHome = home.sections
       .flatMap((section) => section.items)
       .find((item) => item.id === found?.id);
-    expect(found).toEqual(inHome);
+    // Identico alla Home più il link alla pagina dell'artista (brano dichiarato).
+    expect(found).toEqual({ ...inHome, artistSlug: 'lucio-dalla' });
     expect(found).toMatchObject({
       title: 'Caruso',
       artist: 'Lucio Dalla',

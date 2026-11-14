@@ -1,0 +1,390 @@
+/* @polsia:user-owned — pagina d'artista dei brani in evidenza (/artista/<slug>): copertina a mosaico,
+   nome, azioni e l'elenco dei brani. Stesso linguaggio visivo della playlist condivisa. */
+.page {
+  display: grid;
+  width: min(100% - 32px, 980px);
+  gap: clamp(1.25rem, 4vw, 2rem);
+  margin: 0 auto;
+  padding: clamp(1rem, 3vw, 2rem) 0 6rem;
+  color: var(--foreground);
+}
+
+.back {
+  justify-self: start;
+  margin-left: -0.5rem;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(170px, 240px) minmax(0, 1fr);
+  align-items: end;
+  gap: clamp(1.25rem, 4vw, 2.5rem);
+  overflow: hidden;
+  padding: clamp(1.25rem, 4vw, 2rem);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 2);
+  background:
+    radial-gradient(
+      120% 140% at 100% 0%,
+      color-mix(in srgb, var(--primary) 20%, transparent) 0%,
+      transparent 60%
+    ),
+    linear-gradient(160deg, color-mix(in srgb, var(--primary) 7%, var(--card)) 0%, var(--card) 70%);
+}
+
+.heroCover {
+  --mosaic-radius: 999px;
+  width: 100%;
+  border-radius: 999px;
+  box-shadow: 0 24px 60px color-mix(in srgb, var(--foreground) 16%, transparent);
+}
+
+.heroCopy {
+  display: grid;
+  justify-items: start;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.heroCopy h1 {
+  max-width: 100%;
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: clamp(2rem, 6vw, 3.9rem);
+  letter-spacing: -0.045em;
+  line-height: 1.02;
+  overflow-wrap: anywhere;
+}
+
+.heroCopy h1:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+}
+
+.count {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.95rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.3rem;
+}
+
+.listSection {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.listHeading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.6rem;
+}
+
+.listHeading h2 {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: 1.35rem;
+  letter-spacing: -0.03em;
+}
+
+.listHeading p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.78rem;
+}
+
+.tracks {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  min-width: 0;
+}
+
+/* Tutta la riga è il pulsante: un tocco suona il brano (o lo mette in pausa se è in corso). */
+.rowButton {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: 2rem 52px minmax(0, 1fr) 2.25rem;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.55rem 0.65rem;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 160ms ease;
+}
+
+.rowButton:hover,
+.row[data-current="true"] .rowButton {
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+}
+
+.rowButton:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.index {
+  display: grid;
+  place-items: center end;
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.cover {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  overflow: hidden;
+  place-items: center;
+  border-radius: calc(var(--radius) * 0.75);
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-weight: 700;
+}
+
+.cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.copy {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.copy strong {
+  overflow: hidden;
+  font-size: 0.95rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row[data-current="true"] .copy strong {
+  color: var(--primary);
+}
+
+.trackArtist {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 0.83rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playIcon {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--primary);
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.rowButton:hover .playIcon,
+.rowButton:focus-visible .playIcon,
+.row[data-current="true"] .playIcon {
+  opacity: 1;
+}
+
+.playIcon svg {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+/* Brano in corso: tre barre che si muovono mentre suona (ferme in pausa o con meno movimento). */
+.bars {
+  display: inline-flex;
+  height: 14px;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.bars span {
+  width: 3px;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--primary);
+  transform-origin: bottom;
+  transform: scaleY(0.45);
+}
+
+.bars span:nth-child(2) {
+  transform: scaleY(0.8);
+}
+
+.bars span:nth-child(3) {
+  transform: scaleY(0.6);
+}
+
+.bars[data-playing="true"] span {
+  animation: bar 0.9s ease-in-out infinite alternate;
+}
+
+.bars[data-playing="true"] span:nth-child(2) {
+  animation-delay: -0.3s;
+}
+
+.bars[data-playing="true"] span:nth-child(3) {
+  animation-delay: -0.6s;
+}
+
+@keyframes bar {
+  from {
+    transform: scaleY(0.3);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+.state {
+  display: grid;
+  justify-items: center;
+  gap: 0.85rem;
+  padding: clamp(2rem, 8vw, 4rem) 1.25rem;
+  border: 1px dashed var(--border);
+  border-radius: calc(var(--radius) * 2);
+  text-align: center;
+}
+
+.state svg {
+  width: 2.25rem;
+  height: 2.25rem;
+  color: var(--primary);
+}
+
+.state h1 {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: clamp(1.5rem, 4vw, 2.1rem);
+  letter-spacing: -0.03em;
+}
+
+.state h1:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+}
+
+.state p {
+  max-width: 34rem;
+  margin: 0;
+  color: var(--muted-foreground);
+  line-height: 1.6;
+}
+
+/* Caricamento */
+.skeleton {
+  border-radius: var(--radius);
+  background: linear-gradient(
+    90deg,
+    var(--muted) 0%,
+    color-mix(in srgb, var(--muted) 55%, var(--background)) 50%,
+    var(--muted) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.skeletonCover {
+  aspect-ratio: 1;
+  width: 100%;
+  border-radius: 999px;
+}
+
+.skeletonLine {
+  width: min(100%, 10rem);
+  height: 1rem;
+}
+
+.skeletonTitle {
+  width: min(100%, 22rem);
+  height: 2.6rem;
+}
+
+.skeletonRow {
+  height: 3.6rem;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton,
+  .bars[data-playing="true"] span {
+    animation: none;
+  }
+
+  .rowButton,
+  .playIcon {
+    transition: none;
+  }
+}
+
+/* Su telefono la copertina va sopra al nome e i tocchi restano ampi. */
+@media (max-width: 640px) {
+  .hero {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .heroCover,
+  .skeletonCover {
+    width: min(100%, 200px);
+  }
+
+  .rowButton {
+    grid-template-columns: 1.5rem 48px minmax(0, 1fr) 2rem;
+    gap: 0.65rem;
+    padding: 0.5rem 0.4rem;
+  }
+
+  .cover {
+    width: 48px;
+    height: 48px;
+  }
+
+  /* Nessun hover sul telefono: l'icona resta visibile per dire che la riga si tocca. */
+  .playIcon {
+    opacity: 1;
+  }
+}

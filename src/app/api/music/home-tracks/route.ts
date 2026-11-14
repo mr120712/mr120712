@@ -1,11 +1,33 @@
 // @polsia:user-owned — elenco pubblico dei "brani in evidenza" della Home: i file audio messi
 // dall'amministratore direttamente nello store Vercel Blob. Sola lettura, nessun login.
+// Ogni brano porta `artistSlug` (link alla pagina /artista/<slug>) SOLO se il suo artista
+// principale ha almeno un brano con i diritti dichiarati in diritti.json: lo dice l'indice in
+// cache della ricerca (featured-search.server, ~5 minuti), mai un elenco in più a ogni richiesta.
+// Per il resto la Home resta com'è (stessi brani, sezioni e ordine).
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { enforceRateLimit, getRateLimitIdentity } from '@/lib/business/rate-limit.server';
+import { linkDeclaredArtists } from '@/lib/music/featured-artists';
+import { loadFeaturedArtistSlugs } from '@/lib/music/featured-search.server';
 import { listHomeTrackSections } from '@/lib/music/home-tracks.server';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * Attesa massima dell'indice degli artisti DOPO che l'elenco della Home è pronto. L'indice parte
+ * insieme all'elenco ed è quasi sempre già in cache; se va ricostruito e tarda, la Home risponde
+ * senza link (la ricostruzione prosegue e serve le richieste successive) invece di rallentare.
+ */
+const ARTIST_INDEX_GRACE_MS = 1500;
+
+/** Il valore della promessa se arriva entro `ms`, altrimenti null. */
+function withinGrace<T>(promise: Promise<T | null>, ms: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), ms);
+  });
+  return Promise.race([promise.catch(() => null), deadline]).finally(() => clearTimeout(timer));
+}
 
 export async function GET(request: Request) {
   // Ogni richiesta interroga l'API (a consumo) di Vercel Blob: come le altre letture di catalogo
@@ -18,9 +40,19 @@ export async function GET(request: Request) {
   // listHomeTracks non fa mai throw (ritorna [] su qualsiasi problema), ma per sicurezza la Home
   // non deve mai rompersi per questa sezione.
   try {
+    // Parte subito, in parallelo all'elenco: loadFeaturedArtistSlugs non fa mai throw.
+    const declaredArtists = loadFeaturedArtistSlugs();
     const { items, sections } = await listHomeTrackSections();
+    const declared =
+      items.length > 0 ? await withinGrace(declaredArtists, ARTIST_INDEX_GRACE_MS) : null;
     return NextResponse.json(
-      { items, sections },
+      {
+        items: linkDeclaredArtists(items, declared),
+        sections: sections.map((section) => ({
+          ...section,
+          items: linkDeclaredArtists(section.items, declared),
+        })),
+      },
       {
         headers: {
           // Cache breve sulla CDN: un file aggiunto nel pannello Blob compare entro ~1 minuto.

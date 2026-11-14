@@ -40,6 +40,7 @@ import {
   type UnifiedSearchResponse,
   UnifiedSearchResponseSchema,
 } from '@/lib/contracts/unified-search';
+import { featuredArtistPath } from '@/lib/music/featured-artists';
 import { genreCatalog } from '@/lib/music/genre-catalog';
 import discover from './discover.module.css';
 import styles from './unified-search-results.module.css';
@@ -592,7 +593,19 @@ function ResultRow({
               {track.title}
             </strong>
           </div>
-          <span className={styles.sub}>{byline}</span>
+          {/* Il nome porta alla pagina dell'artista solo se il server manda artistSlug (artista con
+              almeno un brano dichiarato): mai un link a una pagina vuota. */}
+          {track.artistSlug ? (
+            <Link
+              href={featuredArtistPath(track.artistSlug)}
+              className={`${styles.sub} ${styles.artistLink}`}
+              title={`Pagina di ${byline}`}
+            >
+              {byline}
+            </Link>
+          ) : (
+            <span className={styles.sub}>{byline}</span>
+          )}
           {youtubeAlternative ? (
             <YouTubeAlternative
               video={youtubeAlternative}

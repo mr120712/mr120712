@@ -111,7 +111,11 @@ export default function PrivacyPage() {
                 più mostrata 28 giorni dopo che YouTube ha inviato quei dati e la pulizia
                 giornaliera la cancella entro il giorno successivo, anche se nel frattempo riascolti
                 il brano. Se Solco non può stabilire quando YouTube li ha inviati (per esempio un
-                brano rimasto a lungo nella coda del player), la voce non viene mostrata.
+                brano rimasto a lungo nella coda del player), la voce non viene mostrata. Per la
+                classifica «Brani più ascoltati dalla community» contano solo gli ascolti degli
+                account Premium (non quelli dell’autore), al massimo uno al giorno per brano: Solco
+                salva solo una chiave pseudonima ricavata dall’account, diversa per ogni brano e
+                giorno, e la cancella dopo circa 35 giorni.
               </li>
               <li>
                 <strong>Assistenza automatizzata:</strong> la domanda inviata alla chat di supporto

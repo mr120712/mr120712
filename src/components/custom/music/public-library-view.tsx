@@ -1,6 +1,6 @@
 // @polsia:user-owned — pagina della libreria PUBBLICA: form di caricamento (per i loggati, fino a
 // 3 brani) + gestione dei propri brani (rimozione per liberare un posto, testo del brano) +
-// classifica pubblica.
+// classifica «Brani più ascoltati dalla community».
 'use client';
 
 import { Download, Loader2, Trash2 } from 'lucide-react';
@@ -8,7 +8,10 @@ import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useLibrary } from '@/components/custom/music/library-context';
 import { PublicUploadForm } from '@/components/custom/music/public-upload-form';
-import { PublicUploadsChart } from '@/components/custom/music/public-uploads-chart';
+import {
+  CommunityChartTitle,
+  PublicUploadsChart,
+} from '@/components/custom/music/public-uploads-chart';
 import { UploadLyricsEditor } from '@/components/custom/music/upload-lyrics';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
@@ -148,9 +151,13 @@ export function PublicLibraryView() {
       ) : null}
 
       <section className={styles.section} aria-labelledby="public-chart-heading">
+        <p className={styles.sectionEyebrow}>CLASSIFICA DELLA COMMUNITY</p>
         <h2 id="public-chart-heading" className={styles.sectionTitle}>
-          Brani della community
+          <CommunityChartTitle />
         </h2>
+        <p className={styles.sectionNote}>
+          Ogni persona conta al massimo un ascolto al giorno per brano: la classifica resta onesta.
+        </p>
         <PublicUploadsChart reloadKey={reloadKey} />
       </section>
     </main>

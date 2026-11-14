@@ -185,6 +185,8 @@ describe('GET /api/music/search-all: brani in evidenza', () => {
       streamUrl: `/api/music/home-tracks/stream?p=${encodeURIComponent(DECLARED)}`,
       durationSeconds: 0,
       artworkUrl: `/api/music/home-tracks/cover?p=${encodeURIComponent(DECLARED)}`,
+      // Link alla pagina dell'artista: il brano è dichiarato, quindi la pagina non è vuota.
+      artistSlug: 'lucio-dalla',
     });
   });
 

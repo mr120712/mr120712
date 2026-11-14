@@ -151,6 +151,47 @@ describe('HomeTracksSection: sezioni e copertine', () => {
     expect((queue as Array<{ title: string }>).map((entry) => entry.title)).toEqual(['Uno', 'Due']);
   });
 
+  it('il nome dell’artista è un link alla sua pagina SOLO con artistSlug', async () => {
+    const items = [
+      { ...item('a.mp3', 'Caruso'), artist: 'Lucio Dalla', artistSlug: 'lucio-dalla' },
+      { ...item('b.mp3', 'Hit'), artist: 'Artista Commerciale', artistSlug: null },
+      { ...item('c.mp3', 'Vecchio'), artist: 'Server meno recente' },
+      { ...item('d.mp3', 'Senza artista') },
+    ];
+    mocks.apiFetch.mockResolvedValue({
+      items,
+      sections: [{ id: '', title: 'In evidenza', items }],
+    });
+    render();
+    await flush();
+    const links = [...container.querySelectorAll<HTMLAnchorElement>('a')];
+    expect(links.map((link) => [link.textContent, link.getAttribute('href')])).toEqual([
+      ['Lucio Dalla', '/artista/lucio-dalla'],
+    ]);
+    // Il link sta fuori dal pulsante di riproduzione (niente link dentro un pulsante).
+    expect(links[0]?.closest('button')).toBeNull();
+    // Gli altri nomi restano testo DENTRO il pulsante: il tocco sul nome fa partire il brano.
+    for (const name of ['Artista Commerciale', 'Server meno recente', 'Solco']) {
+      const byline = [...container.querySelectorAll('span')].find(
+        (span) => span.textContent === name,
+      );
+      expect(byline?.closest('button')).not.toBeNull();
+    }
+    const commercial = [...container.querySelectorAll('span')].find(
+      (span) => span.textContent === 'Artista Commerciale',
+    );
+    act(() => commercial?.click());
+    expect(mocks.playTrack).toHaveBeenCalledTimes(1);
+    mocks.playTrack.mockClear();
+    // Il tocco sulla copertina suona ancora il brano.
+    act(() =>
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Riproduci Caruso di Lucio Dalla"]')
+        ?.click(),
+    );
+    expect(mocks.playTrack).toHaveBeenCalledTimes(1);
+  });
+
   it('risposta senza sezioni (server meno recente): una sola sezione "In evidenza"', async () => {
     mocks.apiFetch.mockResolvedValue({ items: [item('a.mp3', 'Primo')] });
     render();

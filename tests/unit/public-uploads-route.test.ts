@@ -215,11 +215,18 @@ describe('POST /api/music/public-uploads/[id]/play', () => {
       method: 'POST',
     });
   }
-  it('conta l’ascolto (200) passando il viewer (per escludere il proprietario)', async () => {
+  it('conta l’ascolto (200) di un Premium passando il viewer (per escludere il proprietario)', async () => {
+    mocks.premium.mockResolvedValue(true);
     mocks.play.mockResolvedValue(undefined);
     const res = await PLAY(req(), { params });
     expect(res.status).toBe(200);
-    expect(mocks.play).toHaveBeenCalledWith(id, 'user-1');
+    // L'identità di rete simulata ("ip") passa così com'è: decide il server se è valida.
+    expect(mocks.play).toHaveBeenCalledWith(id, { userId: 'user-1', network: 'ip' });
+  });
+  it('account non Premium: 200 ma l’ascolto non si conta (non può ascoltare il brano)', async () => {
+    const res = await PLAY(req(), { params });
+    expect(res.status).toBe(200);
+    expect(mocks.play).not.toHaveBeenCalled();
   });
   it('403 se origine diversa', async () => {
     mocks.sameOrigin.mockReturnValue(false);

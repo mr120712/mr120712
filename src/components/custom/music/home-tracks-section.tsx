@@ -1,10 +1,13 @@
 // @polsia:user-owned — "In evidenza" in Home: i file audio messi dall'amministratore direttamente
 // nello store Vercel Blob (dal pannello), divisi in sezioni (una per cartella) e mostrati con la
 // loro copertina. Riproducibili con il player; la coda è la sezione toccata. Si nasconde del tutto
-// se non ce ne sono (nessun ingombro in Home).
+// se non ce ne sono (nessun ingombro in Home). Il nome dell'artista porta alla sua pagina
+// (/artista/<slug>) solo quando il server manda `artistSlug`, cioè se l'artista ha almeno un brano
+// con i diritti dichiarati: nessun link a una pagina vuota.
 'use client';
 
 import { Pause, Play } from 'lucide-react';
+import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FallbackArt } from '@/components/custom/music/fallback-art';
 import { playHomeTrack } from '@/components/custom/music/live-tracks';
@@ -16,6 +19,7 @@ import {
   type HomeTrackSection,
   HomeTracksResponseSchema,
 } from '@/lib/contracts/home-tracks';
+import { featuredArtistPath } from '@/lib/music/featured-artists';
 import styles from './home-tracks-section.module.css';
 
 /** Intervallo minimo tra due aggiornamenti automatici (anti-martellamento). */
@@ -141,8 +145,21 @@ export function HomeTracksSection() {
                       <strong className={styles.cardTitle} title={item.title}>
                         {item.title}
                       </strong>
-                      <span className={styles.meta}>{byline}</span>
+                      {/* Senza pagina d'artista il nome resta DENTRO il pulsante, come prima: anche
+                          un tocco sul nome fa partire il brano (area di tocco intera su mobile). */}
+                      {item.artistSlug ? null : <span className={styles.meta}>{byline}</span>}
                     </button>
+                    {/* Con la pagina d'artista il nome è un link, quindi fuori dal pulsante (un link
+                        non va dentro un pulsante). */}
+                    {item.artistSlug ? (
+                      <Link
+                        href={featuredArtistPath(item.artistSlug)}
+                        className={`${styles.meta} ${styles.artistLink}`}
+                        title={`Pagina di ${byline}`}
+                      >
+                        {byline}
+                      </Link>
+                    ) : null}
                   </li>
                 );
               })}

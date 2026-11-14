@@ -65,6 +65,25 @@ a.title:hover {
   white-space: nowrap;
 }
 
+/* Nome dell'artista di un brano in evidenza come link alla sua pagina (largo quanto il testo). */
+.artistLink {
+  justify-self: start;
+  max-width: 100%;
+  border-radius: 4px;
+  text-decoration: none;
+}
+
+.artistLink:hover {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.artistLink:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
 /* Distintivo della fonte (In evidenza / Audius / YouTube / Radio / Podcast). */
 .badge {
   flex: none;

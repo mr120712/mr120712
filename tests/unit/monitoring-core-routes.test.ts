@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   historyFetchDelete: vi.fn(),
   quotaUsageDelete: vi.fn(),
   rateLimitDelete: vi.fn(),
+  communityPlayDelete: vi.fn(),
 }));
 
 vi.mock('server-only', () => ({}));
@@ -37,6 +38,7 @@ vi.mock('@/lib/db', () => ({
     actionRateLimit: { deleteMany: mocks.rateLimitDelete },
     aiMusicSearchCache: { deleteMany: mocks.aiCacheDelete },
     monitorRun: { deleteMany: mocks.monitorRunDelete },
+    publicUploadPlay: { deleteMany: mocks.communityPlayDelete },
   },
 }));
 vi.mock('@/lib/music/collections.server', () => ({
@@ -263,6 +265,7 @@ describe('GET /api/cron/cleanup', () => {
     mocks.historyFetchDelete.mockResolvedValue({ count: 8 });
     mocks.quotaUsageDelete.mockResolvedValue({ count: 7 });
     mocks.rateLimitDelete.mockResolvedValue({ count: 9 });
+    mocks.communityPlayDelete.mockResolvedValue({ count: 10 });
   });
 
   it('refuses requests without the cron secret', async () => {
@@ -287,6 +290,7 @@ describe('GET /api/cron/cleanup', () => {
       rateLimitRows: 9,
       aiPlans: 4,
       monitorRuns: 5,
+      communityPlays: 10,
     });
     const cutoff = (
       mocks.monitorRunDelete.mock.calls[0] as [{ where: { startedAt: { lt: Date } } }]
