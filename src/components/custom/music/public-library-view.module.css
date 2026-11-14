@@ -65,6 +65,13 @@
   min-width: 0;
 }
 
+.mineActions {
+  display: flex;
+  flex: none;
+  gap: 0.35rem;
+  align-items: center;
+}
+
 .mineTitle {
   font-weight: 600;
   white-space: nowrap;

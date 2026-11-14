@@ -177,6 +177,21 @@ export async function listPublicUploads(
   return rows.map((row) => toPublicUpload(row, viewerUserId, viewerPremium));
 }
 
+/**
+ * Un brano caricato DALL'UTENTE stesso, pronto per lo scaricamento (solo il proprietario): URL
+ * dell'oggetto, chiave (per l'estensione), titolo e tipo. null se non è suo o non esiste. È
+ * contenuto dell'utente: scaricarlo è legittimo (nessun ripping da fonti di terzi).
+ */
+export async function getOwnUploadForDownload(
+  userId: string,
+  uploadId: string,
+): Promise<{ blobUrl: string; blobPathname: string; title: string; mimeType: string } | null> {
+  return prisma.publicUpload.findFirst({
+    where: { id: uploadId, uploaderUserId: userId },
+    select: { blobUrl: true, blobPathname: true, title: true, mimeType: true },
+  });
+}
+
 /** I brani caricati dall'utente (anche ritirati dalla moderazione), per gestirli. */
 export async function listMyPublicUploads(userId: string): Promise<PublicUpload[]> {
   const rows = await prisma.publicUpload.findMany({

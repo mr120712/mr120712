@@ -2,7 +2,7 @@
 // 3 brani) + gestione dei propri brani (rimozione per liberare un posto) + classifica pubblica.
 'use client';
 
-import { Loader2, Trash2 } from 'lucide-react';
+import { Download, Loader2, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useLibrary } from '@/components/custom/music/library-context';
@@ -103,21 +103,33 @@ export function PublicLibraryView() {
                     ) : null}
                   </span>
                 </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => void remove(upload.id)}
-                  disabled={removingId === upload.id}
-                  aria-label={`Rimuovi ${upload.title}`}
-                >
-                  {removingId === upload.id ? (
-                    <Loader2 aria-hidden="true" className={styles.spin} />
-                  ) : (
-                    <Trash2 aria-hidden="true" />
-                  )}
-                  Rimuovi
-                </Button>
+                <div className={styles.mineActions}>
+                  <Button asChild variant="ghost" size="sm">
+                    <a
+                      href={`/api/music/public-uploads/${upload.id}/download`}
+                      download
+                      aria-label={`Scarica ${upload.title}`}
+                    >
+                      <Download aria-hidden="true" />
+                      Scarica
+                    </a>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void remove(upload.id)}
+                    disabled={removingId === upload.id}
+                    aria-label={`Rimuovi ${upload.title}`}
+                  >
+                    {removingId === upload.id ? (
+                      <Loader2 aria-hidden="true" className={styles.spin} />
+                    ) : (
+                      <Trash2 aria-hidden="true" />
+                    )}
+                    Rimuovi
+                  </Button>
+                </div>
               </li>
             ))}
           </ul>
