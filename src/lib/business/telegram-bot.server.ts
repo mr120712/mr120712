@@ -389,6 +389,42 @@ export async function sendTelegramMessage(
   }
 }
 
+/**
+ * Invia un file audio da un URL pubblico: Telegram lo scarica dall'URL e lo consegna in chat (nessun
+ * download lato nostro). Limite di Telegram per l'invio da URL: ~20 MB. Ritorna true solo se Telegram
+ * conferma `ok:true`; su file troppo grande o URL non raggiungibile ritorna false (il chiamante fa
+ * da fallback con un link). Non lancia mai.
+ */
+export async function sendTelegramAudio(
+  chatId: string,
+  audioUrl: string,
+  options: { title?: string; caption?: string } = {},
+): Promise<boolean> {
+  const token = env.TELEGRAM_BOT_TOKEN;
+  if (!token) return false;
+  const signal =
+    typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+      ? AbortSignal.timeout(45000)
+      : undefined;
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendAudio`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        audio: audioUrl,
+        ...(options.title ? { title: options.title } : {}),
+        ...(options.caption ? { caption: options.caption, parse_mode: 'HTML' } : {}),
+      }),
+      signal,
+    });
+    const data = (await res.json().catch(() => null)) as { ok?: boolean } | null;
+    return Boolean(data?.ok);
+  } catch {
+    return false;
+  }
+}
+
 /** Escapa il testo per parse_mode HTML (solo & < >, come da documentazione Telegram). */
 export function escapeTelegramHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -431,9 +467,41 @@ export function searchKeyboard(query: string, chatType: string | null) {
   return { inline_keyboard: [[open]] };
 }
 
+/**
+ * Menu in chat (/menu): tastiera inline con i pulsanti principali. "Apri Solco" apre la Mini App;
+ * gli altri sono pulsanti callback che il webhook traduce nel comando testuale corrispondente
+ * (TELEGRAM_MENU_CALLBACKS), così riusano la stessa logica (compresa la guardia chat-privata di /scarica).
+ */
+export function menuKeyboard(chatType: string | null) {
+  return {
+    inline_keyboard: [
+      [openSolcoButton(chatType)],
+      [
+        { text: '🔎 Cerca musica', callback_data: 'menu:cerca' },
+        { text: '⬇️ I miei brani', callback_data: 'menu:scarica' },
+      ],
+      [{ text: '🎁 Codice invito', callback_data: 'menu:codice' }],
+    ],
+  };
+}
+
+/** callback_data del menu → comando testuale equivalente (il webhook lo passa a handleUpdate). */
+export const TELEGRAM_MENU_CALLBACKS: Record<string, string> = {
+  'menu:cerca': '/cerca',
+  'menu:scarica': '/scarica',
+  'menu:codice': '/codice',
+};
+
+/** Chiude lo spinner di un pulsante inline (answerCallbackQuery). Best-effort, non lancia mai. */
+export async function answerTelegramCallback(callbackQueryId: string): Promise<void> {
+  await telegramApi('answerCallbackQuery', { callback_query_id: callbackQueryId });
+}
+
 /** Comandi del bot mostrati nel menu "/" di Telegram (setMyCommands). */
 export const TELEGRAM_BOT_COMMANDS = [
+  { command: 'menu', description: 'Apri il menu di Solco' },
   { command: 'cerca', description: 'Cerca musica Creative Commons' },
+  { command: 'scarica', description: 'Scarica i tuoi brani caricati su Solco' },
   { command: 'codice', description: 'Ricevi il tuo codice di invito' },
   { command: 'invito', description: 'Ricevi il tuo link di invito' },
   { command: 'app', description: 'Apri Solco (Mini App)' },

@@ -11,28 +11,35 @@ import { enforceRateLimit } from '@/lib/business/rate-limit.server';
 import { readJsonLimited } from '@/lib/business/request-body.server';
 import { ensureReferralCode } from '@/lib/business/rewards.server';
 import {
+  answerTelegramCallback,
   escapeTelegramHtml,
   inviteKeyboard,
   inviteLinkForCode,
   isTelegramBotConfigured,
+  menuKeyboard,
   miniAppKeyboard,
   searchKeyboard,
+  sendTelegramAudio,
   sendTelegramMessage,
+  TELEGRAM_MENU_CALLBACKS,
 } from '@/lib/business/telegram-bot.server';
 import { verifyTelegramLinkToken } from '@/lib/business/telegram-link';
 import { prisma } from '@/lib/db';
 import { env } from '@/lib/env';
 import { botSearch } from '@/lib/music/bot-search.server';
+import { getOwnUploadForDownload, listMyPublicUploads } from '@/lib/music/public-uploads.server';
 
 export const dynamic = 'force-dynamic';
-/** /cerca interroga più fonti: lascia margine oltre la fonte più lenta (tempo massimo in botSearch). */
-export const maxDuration = 20;
+/** /cerca e /scarica fanno lavoro di rete (ricerca, invio file): margine ampio oltre il default. */
+export const maxDuration = 60;
 
 const CONNECT_HINT =
   'Per ricevere il tuo codice di invito, collega il tuo account: apri Solco → Premi → «Ricevi il codice su Telegram».';
 
 const HELP_TEXT =
-  '<b>Solco Music</b> 🎧\n\nEcco cosa posso fare:\n• /cerca parole — trova musica Creative Commons\n• /codice — il tuo codice di invito\n• /invito — il tuo link di invito\n• /app — apri Solco (Mini App)\n\nTocca <b>Apri Solco</b> per aprire l’app qui dentro, come Mini App.';
+  '<b>Solco Music</b> 🎧\n\nEcco cosa posso fare:\n• /menu — il menu con i pulsanti\n• /cerca parole — trova musica Creative Commons\n• /scarica — scarica i TUOI brani caricati su Solco\n• /codice — il tuo codice di invito\n• /invito — il tuo link di invito\n• /app — apri Solco (Mini App)\n\nTocca <b>Apri Solco</b> per aprire l’app qui dentro, come Mini App.';
+
+const MENU_TEXT = '<b>Menu Solco</b> 🎧\nScegli cosa fare:';
 
 /** Titolo/artista troncati: i campi Audius non hanno limite di lunghezza nello schema, e 5 righe
  *  intere potrebbero sforare il tetto di 4096 caratteri di sendMessage (→ 400, risposta persa). */
@@ -85,6 +92,16 @@ async function handleUpdate(
   // /start <token> → collega l'account al deep-link.
   const start = /^\/start(?:@\w+)?\s+(\S+)/.exec(text);
   if (start?.[1]) {
+    // Collega SOLO in chat privata: in un gruppo la chat (telegramChatId) finirebbe legata
+    // all'account e poi /scarica mostrerebbe i brani del titolare a tutto il gruppo. Rifiuta.
+    if (chatType !== 'private') {
+      await sendTelegramMessage(
+        chatId,
+        'Per collegare il tuo account scrivimi in privato (apri la chat col bot), non in un gruppo.',
+        { replyMarkup: miniAppKeyboard(chatType) },
+      );
+      return;
+    }
     const userId = verifyTelegramLinkToken(start[1]);
     if (!userId) {
       await sendTelegramMessage(
@@ -112,6 +129,15 @@ async function handleUpdate(
     await sendTelegramMessage(chatId, HELP_TEXT, {
       parseMode: 'HTML',
       replyMarkup: miniAppKeyboard(chatType),
+    });
+    return;
+  }
+
+  // /menu → il menu in chat (tastiera inline con i pulsanti principali).
+  if (/^\/menu(@\w+)?$/.test(text)) {
+    await sendTelegramMessage(chatId, MENU_TEXT, {
+      parseMode: 'HTML',
+      replyMarkup: menuKeyboard(chatType),
     });
     return;
   }
@@ -150,6 +176,77 @@ async function handleUpdate(
     await sendTelegramMessage(chatId, 'Apri Solco qui dentro, come Mini App 👇', {
       replyMarkup: miniAppKeyboard(chatType),
     });
+    return;
+  }
+
+  // /scarica → i TUOI brani caricati su Solco (solo per l'utente collegato). /scarica <n> ne invia uno.
+  // Niente contenuti di terzi: solo materiale dell'utente, filtrato per proprietario lato server.
+  const download = /^\/(?:scarica|download)(?:@\w+)?(?:\s+(\d+))?$/.exec(text);
+  if (download) {
+    // SOLO in chat privata: i brani e i link dell'oggetto su Blob sono materiale privato del titolare.
+    // In un gruppo (anche se la chat risultasse collegata) non si espongono a terzi. Una chat privata
+    // è 1:1 con l'utente Telegram, quindi basta questo controllo.
+    if (chatType !== 'private') {
+      await sendTelegramMessage(
+        chatId,
+        'Scrivimi in privato per scaricare i tuoi brani: /scarica funziona solo nella chat col bot.',
+        { replyMarkup: miniAppKeyboard(chatType) },
+      );
+      return;
+    }
+    const account = await prisma.telegramAccountLink.findUnique({
+      where: { telegramChatId: chatId },
+    });
+    if (!account) {
+      await sendTelegramMessage(chatId, CONNECT_HINT, { replyMarkup: miniAppKeyboard(chatType) });
+      return;
+    }
+    const uploads = await listMyPublicUploads(account.userId);
+    if (uploads.length === 0) {
+      await sendTelegramMessage(
+        chatId,
+        'Non hai ancora caricato brani su Solco. Caricali da Solco → Pubblica, poi torna con /scarica.',
+        { replyMarkup: miniAppKeyboard(chatType) },
+      );
+      return;
+    }
+    const index = download[1] ? Number(download[1]) : 0;
+    if (index === 0) {
+      const lines = uploads
+        .slice(0, 20)
+        .map((upload, i) => `${i + 1}. ${escapeTelegramHtml(upload.title)}`);
+      await sendTelegramMessage(
+        chatId,
+        `I tuoi brani su Solco:\n\n${lines.join('\n')}\n\nScrivi <b>/scarica numero</b> per riceverlo (es. /scarica 1).`,
+        { parseMode: 'HTML' },
+      );
+      return;
+    }
+    const chosen = uploads[index - 1];
+    if (!chosen) {
+      await sendTelegramMessage(
+        chatId,
+        `Numero fuori elenco (1–${uploads.length}). Scrivi /scarica per rivedere i tuoi brani.`,
+      );
+      return;
+    }
+    const file = await getOwnUploadForDownload(account.userId, chosen.id);
+    if (!file) {
+      await sendTelegramMessage(chatId, 'Brano non disponibile.');
+      return;
+    }
+    const sent = await sendTelegramAudio(chatId, file.blobUrl, {
+      title: file.title,
+      caption: `🎵 <b>${escapeTelegramHtml(file.title)}</b> · il tuo upload su Solco`,
+    });
+    if (!sent) {
+      // Telegram non ha potuto prendere il file dall'URL (oltre ~20MB o non raggiungibile): link diretto.
+      await sendTelegramMessage(
+        chatId,
+        `Non riesco a inviarlo qui (forse oltre 20MB). Scaricalo da questo link:\n${escapeTelegramHtml(file.blobUrl)}`,
+        { disableWebPagePreview: true },
+      );
+    }
     return;
   }
 
@@ -199,7 +296,42 @@ export async function POST(request: Request) {
       chat?: { id?: unknown; type?: unknown };
       from?: { username?: unknown };
     };
+    callback_query?: {
+      id?: unknown;
+      data?: unknown;
+      from?: { username?: unknown };
+      message?: { chat?: { id?: unknown; type?: unknown } };
+    };
   } | null;
+
+  // Pulsante del menu toccato (callback_query): lo traduciamo nel comando testuale equivalente e lo
+  // facciamo passare dalla STESSA logica (handleUpdate) — così vale anche la guardia chat-privata di
+  // /scarica. Il tipo di chat è quello del messaggio del menu, quindi in un gruppo /scarica rifiuta.
+  const callback = update?.callback_query;
+  if (callback) {
+    const rawChatId = callback.message?.chat?.id;
+    const callbackId = typeof callback.id === 'string' ? callback.id : null;
+    if ((typeof rawChatId !== 'number' && typeof rawChatId !== 'string') || !callbackId) {
+      return NextResponse.json({ ok: true });
+    }
+    const chatId = String(rawChatId);
+    const chatType =
+      typeof callback.message?.chat?.type === 'string' ? callback.message.chat.type : null;
+    const username = typeof callback.from?.username === 'string' ? callback.from.username : null;
+    const data = typeof callback.data === 'string' ? callback.data : '';
+    try {
+      const limited = await enforceRateLimit('telegram.webhook', `tg:${chatId}`);
+      if (!limited) {
+        await answerTelegramCallback(callbackId);
+        const command = TELEGRAM_MENU_CALLBACKS[data];
+        if (command) await handleUpdate(chatId, command, username, chatType);
+      }
+    } catch {
+      // Mai propagare verso Telegram.
+    }
+    return NextResponse.json({ ok: true });
+  }
+
   const message = update?.message;
   const rawChatId = message?.chat?.id;
   if (typeof rawChatId !== 'number' && typeof rawChatId !== 'string') {

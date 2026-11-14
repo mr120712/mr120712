@@ -526,6 +526,14 @@ export function createAudiusApiClient(input: {
     async getTrack(trackId: string) {
       return get(`tracks/${encodeURIComponent(trackId)}`, new URLSearchParams(), false);
     },
+    /**
+     * Risolve un URL pubblico audius.co (brano/artista/playlist) nell'entità Audius via /v1/resolve.
+     * Serve a "Scarica da URL": da un link incollato ricaviamo l'id del brano, poi lo riverifichiamo
+     * (is_downloadable + licenza) con resolveAudiusDownload. Non in cache (è legato all'URL esatto).
+     */
+    async resolve(audiusUrl: string) {
+      return get('resolve', new URLSearchParams({ url: audiusUrl }), false);
+    },
     async streamTrack(trackId: string, range: string | null = null) {
       const params = new URLSearchParams({ api_key: input.apiKey, app_name: AUDIUS_APP_NAME });
       const headers = new Headers({ Accept: 'audio/mpeg, audio/*;q=0.9' });

@@ -16,19 +16,38 @@ const mocks = vi.hoisted(() => ({
   findUnique: vi.fn(),
   enforceRateLimit: vi.fn(),
   botSearch: vi.fn(async (_query?: string) => [] as unknown[]),
+  sendAudio: vi.fn(async (_chatId?: string, _url?: string, _opts?: unknown) => true),
+  listUploads: vi.fn(async (_userId?: string) => [] as Array<{ id: string; title: string }>),
+  getUpload: vi.fn(
+    async (_userId?: string, _id?: string) =>
+      null as { blobUrl: string; title: string; mimeType: string } | null,
+  ),
+  answerCallback: vi.fn(async (_id?: string) => undefined),
 }));
 
 vi.mock('@/lib/env', () => ({ env: mocks.env }));
 vi.mock('@/lib/business/rate-limit.server', () => ({ enforceRateLimit: mocks.enforceRateLimit }));
 vi.mock('@/lib/music/bot-search.server', () => ({ botSearch: mocks.botSearch }));
+vi.mock('@/lib/music/public-uploads.server', () => ({
+  listMyPublicUploads: mocks.listUploads,
+  getOwnUploadForDownload: mocks.getUpload,
+}));
 vi.mock('@/lib/business/telegram-bot.server', () => ({
   sendTelegramMessage: mocks.send,
+  sendTelegramAudio: mocks.sendAudio,
   isTelegramBotConfigured: () => mocks.configured,
   inviteLinkForCode: (code: string) => `https://solco.test/invito/${code}`,
   escapeTelegramHtml: (s: string) => s,
   inviteKeyboard: () => ({ kind: 'invite' }),
   miniAppKeyboard: () => ({ kind: 'mini' }),
   searchKeyboard: () => ({ kind: 'search' }),
+  menuKeyboard: () => ({ kind: 'menu' }),
+  answerTelegramCallback: mocks.answerCallback,
+  TELEGRAM_MENU_CALLBACKS: {
+    'menu:cerca': '/cerca',
+    'menu:scarica': '/scarica',
+    'menu:codice': '/codice',
+  },
 }));
 vi.mock('@/lib/business/rewards.server', () => ({ ensureReferralCode: mocks.ensureCode }));
 vi.mock('@/lib/business/telegram-link', () => ({ verifyTelegramLinkToken: mocks.verify }));
@@ -58,6 +77,17 @@ function req(update: unknown, secretHeader: string | null = 'sec') {
 const msg = (text: string) => ({
   message: { text, chat: { id: 123, type: 'private' }, from: { username: 'u' } },
 });
+const groupMsg = (text: string) => ({
+  message: { text, chat: { id: 123, type: 'supergroup' }, from: { username: 'u' } },
+});
+const callbackUpdate = (data: string, type: 'private' | 'supergroup' = 'private') => ({
+  callback_query: {
+    id: 'cb-1',
+    data,
+    from: { username: 'u' },
+    message: { chat: { id: 123, type } },
+  },
+});
 
 function lastSend() {
   const call = mocks.send.mock.calls[0];
@@ -77,6 +107,10 @@ beforeEach(() => {
   mocks.verify.mockReturnValue(null);
   mocks.enforceRateLimit.mockResolvedValue(null);
   mocks.botSearch.mockResolvedValue([]);
+  mocks.sendAudio.mockResolvedValue(true);
+  mocks.listUploads.mockResolvedValue([]);
+  mocks.getUpload.mockResolvedValue(null);
+  mocks.answerCallback.mockResolvedValue(undefined);
 });
 
 describe('POST /api/telegram/webhook (bot)', () => {
@@ -197,11 +231,147 @@ describe('POST /api/telegram/webhook (bot)', () => {
     expect(lastSend().text).toContain('Nessun brano');
   });
 
+  it('/menu: mostra il menu con la tastiera dei pulsanti', async () => {
+    await POST(req(msg('/menu')));
+    const { text, options } = lastSend();
+    expect(text).toContain('Menu');
+    expect(options.parseMode).toBe('HTML');
+    expect(options.replyMarkup).toEqual({ kind: 'menu' });
+  });
+
+  it('callback menu:codice (utente collegato): chiude lo spinner e invia il codice', async () => {
+    mocks.findUnique.mockResolvedValue({ userId: 'user-1' });
+    const res = await POST(req(callbackUpdate('menu:codice')));
+    expect(res.status).toBe(200);
+    expect(mocks.answerCallback).toHaveBeenCalledWith('cb-1');
+    expect(mocks.ensureCode).toHaveBeenCalledWith('user-1');
+    expect(lastSend().text).toContain('ABC123');
+  });
+
+  it('callback menu:scarica in un gruppo: la guardia chat-privata rifiuta (niente brani)', async () => {
+    mocks.findUnique.mockResolvedValue({ userId: 'user-1' });
+    mocks.listUploads.mockResolvedValue([{ id: 'a', title: 'Primo' }]);
+    await POST(req(callbackUpdate('menu:scarica', 'supergroup')));
+    expect(mocks.answerCallback).toHaveBeenCalledWith('cb-1');
+    expect(mocks.listUploads).not.toHaveBeenCalled();
+    expect(mocks.sendAudio).not.toHaveBeenCalled();
+    expect(lastSend().text).toContain('in privato');
+  });
+
+  it('callback con data sconosciuta: chiude lo spinner e non fa altro', async () => {
+    const res = await POST(req(callbackUpdate('menu:boh')));
+    expect(res.status).toBe(200);
+    expect(mocks.answerCallback).toHaveBeenCalledWith('cb-1');
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it('callback oltre il rate-limit: scartato, nessun answerCallback né elaborazione', async () => {
+    mocks.enforceRateLimit.mockResolvedValue(new Response('slow', { status: 429 }));
+    const res = await POST(req(callbackUpdate('menu:codice')));
+    expect(res.status).toBe(200);
+    expect(mocks.answerCallback).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
   it('/app: invita ad aprire la Mini App', async () => {
     await POST(req(msg('/app')));
     const { text, options } = lastSend();
     expect(text).toContain('Mini App');
     expect(options.replyMarkup).toEqual({ kind: 'mini' });
     expect(mocks.botSearch).not.toHaveBeenCalled();
+  });
+
+  it('/scarica da chat NON collegata: invita a collegarsi, non tocca gli upload', async () => {
+    mocks.findUnique.mockResolvedValue(null);
+    await POST(req(msg('/scarica')));
+    expect(mocks.listUploads).not.toHaveBeenCalled();
+    const { text, options } = lastSend();
+    expect(text).toContain('collega il tuo account');
+    expect(options.replyMarkup).toEqual({ kind: 'mini' });
+  });
+
+  it('/scarica collegato senza upload: lo dice, non invia audio', async () => {
+    mocks.findUnique.mockResolvedValue({ userId: 'user-1' });
+    mocks.listUploads.mockResolvedValue([]);
+    await POST(req(msg('/scarica')));
+    expect(mocks.listUploads).toHaveBeenCalledWith('user-1');
+    expect(lastSend().text).toContain('Non hai ancora caricato');
+    expect(mocks.sendAudio).not.toHaveBeenCalled();
+  });
+
+  it('/scarica collegato con upload: elenca i brani numerati, non invia audio', async () => {
+    mocks.findUnique.mockResolvedValue({ userId: 'user-1' });
+    mocks.listUploads.mockResolvedValue([
+      { id: 'a', title: 'Primo' },
+      { id: 'b', title: 'Secondo' },
+    ]);
+    await POST(req(msg('/scarica')));
+    const { text } = lastSend();
+    expect(text).toContain('1. Primo');
+    expect(text).toContain('2. Secondo');
+    expect(mocks.sendAudio).not.toHaveBeenCalled();
+    expect(mocks.getUpload).not.toHaveBeenCalled();
+  });
+
+  it('/scarica <n>: invia il brano scelto come audio (proprietario verificato lato server)', async () => {
+    mocks.findUnique.mockResolvedValue({ userId: 'user-1' });
+    mocks.listUploads.mockResolvedValue([
+      { id: 'a', title: 'Primo' },
+      { id: 'b', title: 'Secondo' },
+    ]);
+    mocks.getUpload.mockResolvedValue({
+      blobUrl: 'https://blob.example/secondo.mp3',
+      title: 'Secondo',
+      mimeType: 'audio/mpeg',
+    });
+    await POST(req(msg('/scarica 2')));
+    expect(mocks.getUpload).toHaveBeenCalledWith('user-1', 'b');
+    expect(mocks.sendAudio).toHaveBeenCalled();
+    const audioCall = mocks.sendAudio.mock.calls[0];
+    expect(audioCall?.[0]).toBe('123');
+    expect(audioCall?.[1]).toBe('https://blob.example/secondo.mp3');
+  });
+
+  it('/scarica <n> fuori elenco: avvisa, non cerca il file', async () => {
+    mocks.findUnique.mockResolvedValue({ userId: 'user-1' });
+    mocks.listUploads.mockResolvedValue([{ id: 'a', title: 'Primo' }]);
+    await POST(req(msg('/scarica 9')));
+    expect(mocks.getUpload).not.toHaveBeenCalled();
+    expect(lastSend().text).toContain('fuori elenco');
+    expect(mocks.sendAudio).not.toHaveBeenCalled();
+  });
+
+  it('/scarica in un gruppo: rifiuta e NON mostra né invia nulla di privato', async () => {
+    mocks.findUnique.mockResolvedValue({ userId: 'user-1' });
+    mocks.listUploads.mockResolvedValue([{ id: 'a', title: 'Primo' }]);
+    await POST(req(groupMsg('/scarica')));
+    expect(mocks.listUploads).not.toHaveBeenCalled();
+    expect(mocks.getUpload).not.toHaveBeenCalled();
+    expect(mocks.sendAudio).not.toHaveBeenCalled();
+    expect(lastSend().text).toContain('in privato');
+  });
+
+  it('/start <token> in un gruppo: NON collega l’account (niente upsert)', async () => {
+    mocks.verify.mockReturnValue('user-9');
+    await POST(req(groupMsg('/start tok123')));
+    expect(mocks.upsert).not.toHaveBeenCalled();
+    expect(mocks.deleteMany).not.toHaveBeenCalled();
+    expect(mocks.verify).not.toHaveBeenCalled();
+    expect(lastSend().text).toContain('in privato');
+  });
+
+  it('/scarica <n> quando l’invio audio fallisce: ripiega sul link diretto', async () => {
+    mocks.findUnique.mockResolvedValue({ userId: 'user-1' });
+    mocks.listUploads.mockResolvedValue([{ id: 'a', title: 'Primo' }]);
+    mocks.getUpload.mockResolvedValue({
+      blobUrl: 'https://blob.example/primo.mp3',
+      title: 'Primo',
+      mimeType: 'audio/mpeg',
+    });
+    mocks.sendAudio.mockResolvedValue(false);
+    await POST(req(msg('/scarica 1')));
+    expect(mocks.sendAudio).toHaveBeenCalled();
+    const lastText = String(mocks.send.mock.calls.at(-1)?.[1] ?? '');
+    expect(lastText).toContain('https://blob.example/primo.mp3');
   });
 });

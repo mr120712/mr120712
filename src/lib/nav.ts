@@ -48,6 +48,7 @@ export const navItems: NavItem[] = [
   { label: 'Stato', href: '/stato', group: 'footer', order: 2 },
   { label: 'Privacy', href: '/privacy', group: 'footer', order: 0 },
   { label: 'Termini', href: '/terms', group: 'footer', order: 1 },
+  { label: 'Scarica da URL', href: '/scarica', group: 'footer', requiresAuth: true, order: 3 },
 ];
 
 /** Schede della barra in basso (mobile), nello stile delle app di streaming. */
