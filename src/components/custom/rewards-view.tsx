@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { TelegramLinkButton } from '@/components/custom/telegram-link-button';
+import { TelegramMiniAppButton } from '@/components/custom/telegram-mini-app-button';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
 import { useSession } from '@/lib/auth-client';
@@ -219,8 +220,11 @@ export function RewardsView() {
                 <Copy aria-hidden="true" /> Copia
               </Button>
             </div>
-            {/* Ricevi/condividi il tuo codice tramite il bot Telegram (compare se il bot è attivo). */}
-            <TelegramLinkButton />
+            {/* Telegram: ricevi il codice dal bot, oppure apri Solco come Mini App (se il bot è attivo). */}
+            <div className={styles.telegramActions}>
+              <TelegramLinkButton />
+              <TelegramMiniAppButton startParam="premi" />
+            </div>
             <p className={styles.muted}>
               Amici registrati: {summary.friends.joined} · abbonati: {qualified} · premio totale:{' '}
               {progress.totalDays / 30} {progress.totalDays === 30 ? 'mese' : 'mesi'}

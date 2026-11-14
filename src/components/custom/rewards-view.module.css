@@ -190,3 +190,9 @@
 .tierTable tr[aria-current="true"] td {
   font-weight: 700;
 }
+
+.telegramActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
