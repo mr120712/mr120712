@@ -13,7 +13,12 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/env', () => ({ env: mocks.env }));
 vi.mock('@/lib/site', () => ({ siteUrl: 'https://solco.test' }));
 
-import { telegramBotDiagnostics } from '@/lib/business/telegram-bot.server';
+import {
+  inviteLinkForCode,
+  telegramBotDiagnostics,
+  telegramMenuUrl,
+  telegramWebhookUrl,
+} from '@/lib/business/telegram-bot.server';
 
 function jsonRes(body: unknown) {
   return new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
@@ -37,6 +42,14 @@ beforeEach(() => {
   mocks.env = { TELEGRAM_BOT_TOKEN: 'tok', TELEGRAM_CHANNEL_CHAT_ID: '9250292282' };
 });
 afterEach(() => vi.unstubAllGlobals());
+
+describe('il bot è collegato a solcomusic.online (non al canonical del sito)', () => {
+  it('webhook, link di invito e menu usano solcomusic.online', () => {
+    expect(telegramWebhookUrl()).toBe('https://solcomusic.online/api/telegram/webhook');
+    expect(inviteLinkForCode('ABC123')).toBe('https://solcomusic.online/invito/ABC123');
+    expect(telegramMenuUrl()).toBe('https://solcomusic.online');
+  });
+});
 
 describe('telegramBotDiagnostics — avvisi di configurazione', () => {
   it('avvisa quando TELEGRAM_CHANNEL_CHAT_ID coincide con l’id del bot (e il bot non può postare)', async () => {

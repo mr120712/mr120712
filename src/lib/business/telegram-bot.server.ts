@@ -2,7 +2,17 @@
 // utilità del link invito.
 import 'server-only';
 import { env } from '@/lib/env';
-import { siteUrl } from '@/lib/site';
+
+/**
+ * Dominio pubblico a cui è COLLEGATO il bot: webhook, link di invito e pulsanti dei messaggi usano
+ * QUESTO, non il canonical del sito (siteUrl / NEXT_PUBLIC_APP_URL). Così il bot resta puntato sul
+ * deploy funzionante (solcomusic.online) anche se il canonical del sito è un altro dominio.
+ * Override con la variabile d'ambiente TELEGRAM_PUBLIC_URL se un giorno cambia.
+ */
+const BOT_PUBLIC_URL = (process.env.TELEGRAM_PUBLIC_URL ?? 'https://solcomusic.online').replace(
+  /\/+$/,
+  '',
+);
 
 /** Chiamata all'API Bot di Telegram (POST JSON, timeout 8s). Non lancia: ritorna la risposta o null. */
 async function telegramApi(
@@ -39,7 +49,7 @@ export function isTelegramBotConfigured(): boolean {
 
 /** Link di invito pubblico per un codice referral (imposta il cookie e porta alla registrazione). */
 export function inviteLinkForCode(code: string): string {
-  return `${siteUrl}/invito/${code}`;
+  return `${BOT_PUBLIC_URL}/invito/${code}`;
 }
 
 /** Esito della diagnostica del bot: nessun dato sensibile (mai il token). */
@@ -170,7 +180,7 @@ export async function telegramBotDiagnostics(): Promise<TelegramDiagnostics> {
 
 /** URL su cui Telegram deve inviare gli aggiornamenti del bot (webhook). */
 export function telegramWebhookUrl(): string {
-  return `${siteUrl}/api/telegram/webhook`;
+  return `${BOT_PUBLIC_URL}/api/telegram/webhook`;
 }
 
 export type TelegramWebhookStatus = {
@@ -255,7 +265,7 @@ export const TELEGRAM_MENU_BUTTON_TEXT = 'Apri Solco';
 
 /** URL che il pulsante del bot (Mini App) apre. */
 export function telegramMenuUrl(): string {
-  return siteUrl;
+  return BOT_PUBLIC_URL;
 }
 
 export type TelegramMenuStatus = {
@@ -389,7 +399,7 @@ export function escapeTelegramHtml(text: string): string {
 function openSolcoButton(chatType: string | null) {
   return chatType === 'private'
     ? { text: '🎧 Apri Solco', web_app: { url: telegramMenuUrl() } }
-    : { text: '🎧 Apri Solco', url: siteUrl };
+    : { text: '🎧 Apri Solco', url: BOT_PUBLIC_URL };
 }
 
 /** Tastiera inline per il messaggio con il codice: apri l'app, condividi l'invito, vai ai premi. */
@@ -400,7 +410,7 @@ export function inviteKeyboard(inviteLink: string, chatType: string | null) {
       [openSolcoButton(chatType)],
       [
         { text: '📲 Condividi l’invito', url: shareUrl },
-        { text: '🎁 I tuoi premi', url: `${siteUrl}/premi` },
+        { text: '🎁 I tuoi premi', url: `${BOT_PUBLIC_URL}/premi` },
       ],
     ],
   };
