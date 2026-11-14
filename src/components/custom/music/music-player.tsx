@@ -682,7 +682,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   // La velocità vive su uno store per dispositivo: applicala ai due deck e al player YouTube ogni
   // volta che cambia, anche mentre un brano suona (onRateChange aggiorna poi la Media Session).
   useEffect(() => {
-    applyElementSpeed(decks.current, playbackSpeed);
+    // La diretta radio ignora la velocità (il tono e la sincronia col live edge vanno preservati):
+    // il deck attivo torna sempre a 1× se il brano corrente è live. La riserva precarica solo brani
+    // on-demand (mai radio), quindi riceve la velocità reale.
+    const liveNow = isLiveTrack(currentTrackRef.current);
+    applyElementSpeed(decks.current, liveNow ? 1 : playbackSpeed);
     applyElementSpeed(decks.spareDeck, playbackSpeed);
     const player = ytPlayerRef.current;
     if (player?.setPlaybackRate) {
@@ -2111,8 +2115,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const handlePlaying = () => {
-    // Il deck attivo (anche dopo uno scambio gapless) riprende la velocità scelta.
-    applyElementSpeed(decks.current, playbackSpeedRef.current);
+    // Il deck attivo (anche dopo uno scambio gapless) riprende la velocità scelta; la diretta radio
+    // resta a 1× (vedi l'effetto sulla velocità).
+    applyElementSpeed(
+      decks.current,
+      isLiveTrack(currentTrackRef.current) ? 1 : playbackSpeedRef.current,
+    );
     setStatus('playing');
     setBuffering(false);
     setSessionPlaybackState('playing');
@@ -2138,8 +2146,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   const handleLoadedMetadata = () => {
     const audio = decks.current;
-    // load() riporta playbackRate a defaultPlaybackRate: riapplica la velocità sulla nuova sorgente.
-    applyElementSpeed(audio, playbackSpeedRef.current);
+    // load() riporta playbackRate a defaultPlaybackRate: riapplica la velocità sulla nuova sorgente
+    // (la diretta radio resta a 1×).
+    applyElementSpeed(audio, isLiveTrack(currentTrackRef.current) ? 1 : playbackSpeedRef.current);
     if (audio && pendingSeekRef.current !== null && Number.isFinite(audio.duration)) {
       audio.currentTime = Math.min(pendingSeekRef.current, audio.duration);
       pendingSeekRef.current = null;
@@ -3146,7 +3155,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
               <span className={styles.miniCopy}>
                 <strong>{currentTrack.title}</strong>
                 <span>
-                  {Math.abs(playbackSpeed - 1) > 0.001 ? (
+                  {!live && Math.abs(playbackSpeed - 1) > 0.001 ? (
                     <em className={styles.speedBadge}>{playbackSpeed}×</em>
                   ) : null}
                   {live ? <em className={styles.liveBadge}>LIVE</em> : null}

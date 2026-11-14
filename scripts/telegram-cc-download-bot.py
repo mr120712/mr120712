@@ -12,6 +12,12 @@ Accetta solo URL di domini in whitelist (default youtube.com/youtu.be; override 
 TELEGRAM_DL_ALLOWED_DOMAINS, separati da virgola). Un file .txt inviato in chat è letto come
 --urls-file (un URL per riga, '#' = commento), con un tetto di MAX_BATCH link per messaggio.
 
+Ricerca e pool di link:
+  /cerca <parole>  cerca brani Creative Commons (yt-dlp ytsearch) e AGGIORNA il pool della chat
+  /pool            mostra il pool corrente;  /pool clear  lo svuota
+  /dl <n>          scarica il brano n del pool (effetti combinabili: /dl 2 /slow)
+Il pool è in memoria, per chat (il bot è a processo singolo), e viene rimpiazzato a ogni /cerca.
+
 Comandi effetto (il tono segue la velocità, stile "slowed / sped up", via ffmpeg):
   /slow <link>            rallentato (x0.85)
   /reverb <link>          rallentato + eco
@@ -74,6 +80,14 @@ MAX_SPEED = 2.0
 SLOWED_SPEED = 0.85
 SLOWED_REVERB_SPEED = 0.82
 SPEDUP_SPEED = 1.25
+
+# Ricerca musica: quanti risultati cercare/mostrare (solo Creative Commons). I titoli vengono
+# accorciati per non superare il limite di un messaggio Telegram.
+SEARCH_COUNT = 12
+TITLE_MAX = 80
+# Pool di link PER CHAT, in memoria: /cerca lo aggiorna, /pool lo mostra, /dl <n> ci scarica. Il bot
+# è a processo singolo (long-polling), quindi un semplice dict basta e non serve alcun lock.
+POOLS: dict[str, list[str]] = {}
 
 
 def api(method: str, params: dict | None = None, timeout: int = 70) -> dict:
@@ -296,6 +310,94 @@ def parse_command(text: str) -> tuple[bool, float, bool, str]:
     return own, speed, reverb, " ".join(tokens[index:])
 
 
+def search_music(query: str, count: int = SEARCH_COUNT) -> list[tuple[str, str]]:
+    """Cerca su YouTube e tiene SOLO i risultati con licenza Creative Commons (lo impone yt-dlp).
+
+    Niente --flat-playlist: serve l'estrazione completa perché il campo `license` esista e il
+    match-filter possa scartare i non-CC. Ritorna [(titolo, url)] dai soli domini in whitelist.
+    """
+    cmd = [
+        "yt-dlp",
+        f"ytsearch{count}:{query}",
+        "--match-filter",
+        CC_MATCH_FILTER,
+        "--no-download",
+        "--ignore-errors",
+        "--no-warnings",
+        "--print",
+        "%(title)s\t%(webpage_url)s",
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=180, check=False)
+    except Exception as error:  # noqa: BLE001
+        print("ricerca fallita:", error)
+        return []
+    results: list[tuple[str, str]] = []
+    for line in result.stdout.splitlines():
+        if "\t" not in line:
+            continue
+        title, url = line.split("\t", 1)
+        url = url.strip()
+        if url.startswith(("http://", "https://")) and host_allowed(url):
+            results.append((title.strip(), url))
+    return results
+
+
+def handle_search(chat_id: int | str, query: str) -> None:
+    if not query:
+        send(chat_id, "Uso: /cerca <parole>. Es.: /cerca lofi creative commons")
+        return
+    send(chat_id, f"🔎 Cerco «{query}» (solo Creative Commons)…")
+    results = search_music(query)
+    if not results:
+        send(chat_id, "Nessun risultato Creative Commons. Prova altre parole.")
+        return
+    POOLS[str(chat_id)] = [url for _title, url in results]
+    lines = []
+    for i, (title, url) in enumerate(results, start=1):
+        short = title if len(title) <= TITLE_MAX else title[: TITLE_MAX - 1] + "…"
+        lines.append(f"{i}. {short}\n{url}")
+    send(
+        chat_id,
+        "Pool aggiornato con questi brani Creative Commons:\n\n"
+        + "\n\n".join(lines)
+        + "\n\nScarica con «/dl <n>» (aggiungi /slow, /fast, /reverb o /speed <n>). "
+        "«/pool» per rivederli, «/pool clear» per svuotarlo.",
+    )
+
+
+def handle_pool(chat_id: int | str, text: str) -> None:
+    parts = text.split()
+    if len(parts) > 1 and parts[1].lower() in ("clear", "reset", "svuota"):
+        POOLS.pop(str(chat_id), None)
+        send(chat_id, "Pool svuotato.")
+        return
+    pool = POOLS.get(str(chat_id), [])
+    if not pool:
+        send(chat_id, "Pool vuoto. Usa «/cerca <parole>» per riempirlo.")
+        return
+    lines = [f"{i}. {url}" for i, url in enumerate(pool, start=1)]
+    send(chat_id, "Pool attuale:\n\n" + "\n".join(lines) + "\n\n«/dl <n>» per scaricare.")
+
+
+def handle_pool_download(chat_id: int | str, text: str) -> None:
+    tokens = text.split()[1:]  # salta /dl
+    if not tokens or not tokens[0].isdigit():
+        send(chat_id, "Uso: /dl <numero> [/slow | /fast | /reverb | /speed <n>]")
+        return
+    pool = POOLS.get(str(chat_id), [])
+    index = int(tokens[0])
+    if index < 1 or index > len(pool):
+        send(chat_id, f"Numero fuori dal pool (1–{len(pool)}). «/pool» per vederlo.")
+        return
+    # Effetto opzionale dal resto: accetta sia «/slow» sia «slow», e «speed 1.1» o «/speed 1.1».
+    rest = tokens[1:]
+    if rest and not rest[0].startswith("/"):
+        rest[0] = "/" + rest[0]
+    own, speed, reverb, _rest = parse_command(" ".join(rest))
+    process_urls(chat_id, [pool[index - 1]], own, speed, reverb)
+
+
 def process_urls(
     chat_id: int | str,
     urls: list[str],
@@ -360,6 +462,13 @@ def handle(update: dict) -> None:
         if not urls:
             send(chat_id, "Il file non contiene URL.")
             return
+        if own:
+            # /own disattiva il filtro CC: esplicito, mai silenzioso, per un intero file.
+            send(
+                chat_id,
+                "⚠️ /own nella didascalia: filtro Creative Commons DISATTIVATO per tutto il file. "
+                "Scarica solo contenuti di cui hai i diritti.",
+            )
         process_urls(chat_id, urls, own, speed, reverb)
         return
 
@@ -369,6 +478,10 @@ def handle(update: dict) -> None:
             chat_id,
             "Mandami uno o più link (anche uno per riga), oppure un file .txt di URL: scarico "
             "l'audio in MP3 SOLO se ha licenza Creative Commons.\n\n"
+            "Cerca e pool di link:\n"
+            "• /cerca <parole> — cerca brani Creative Commons e aggiorna il pool\n"
+            "• /pool — mostra il pool  ·  /pool clear — svuotalo\n"
+            "• /dl <n> — scarica il brano n del pool (aggiungi /slow, /fast, /reverb, /speed <n>)\n\n"
             "Effetti (il tono segue la velocità, stile «slowed/sped up»):\n"
             "• /slow <link> — rallentato (x0.85)\n"
             "• /reverb <link> — rallentato + eco\n"
@@ -380,10 +493,26 @@ def handle(update: dict) -> None:
         )
         return
 
+    command = text.split(None, 1)[0].split("@", 1)[0].lower()
+    argument = text.split(None, 1)[1].strip() if len(text.split(None, 1)) > 1 else ""
+    if command in ("/cerca", "/search", "/trova"):
+        handle_search(chat_id, argument)
+        return
+    if command in ("/pool", "/lista"):
+        handle_pool(chat_id, text)
+        return
+    if command in ("/dl", "/scarica"):
+        handle_pool_download(chat_id, text)
+        return
+
     own, speed, reverb, rest = parse_command(text)
     urls = extract_urls(rest)
     if not urls:
-        send(chat_id, "Mandami uno o più URL http(s), o un file .txt. /help per le istruzioni.")
+        send(
+            chat_id,
+            "Mandami uno o più URL http(s), un file .txt, oppure cerca con «/cerca <parole>». "
+            "/help per le istruzioni.",
+        )
         return
     process_urls(chat_id, urls, own, speed, reverb)
 

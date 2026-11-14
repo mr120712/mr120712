@@ -61,3 +61,6 @@ lerna-debug.log*
 # Python bytecode cache (dagli script locali in scripts/)
 __pycache__/
 *.pyc
+
+# Binario compilato dello strumento Go locale (scripts/solco-cc-dl)
+/scripts/solco-cc-dl/solco-cc-dl

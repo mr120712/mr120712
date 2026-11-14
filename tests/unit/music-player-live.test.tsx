@@ -13,6 +13,7 @@ import {
   trackStreamPath,
   useMusicPlayer,
 } from '@/components/custom/music/music-player';
+import { setPlaybackSpeed } from '@/lib/music/playback-speed';
 
 const station: MusicPlayerTrack = {
   qualifiedId: 'radio:station-1',
@@ -97,6 +98,11 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await act(async () => root.unmount());
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  try {
+    window.localStorage.clear();
+  } catch {
+    // ignora
+  }
 });
 
 describe('player: radio e podcast', () => {
@@ -120,6 +126,25 @@ describe('player: radio e podcast', () => {
     expect(container.textContent).toContain('LIVE');
     expect(container.textContent).toContain('In diretta');
     expect(container.querySelector<HTMLInputElement>('input[type="range"]')?.disabled).toBe(true);
+  });
+
+  it('la diretta radio resta a 1× anche con una velocità "slowed" memorizzata', async () => {
+    setPlaybackSpeed(0.8);
+    const container = await mount();
+    await act(async () => {
+      button(container, 'Avvia radio').click();
+      await Promise.resolve();
+    });
+    const audio = container.querySelector('audio');
+    if (!audio) throw new Error('Elemento audio non trovato.');
+    // load() ripristina la velocità: la radio in diretta deve tornare a 1× (tono e live edge intatti).
+    await act(async () => {
+      audio.dispatchEvent(new Event('loadedmetadata'));
+    });
+    expect(audio.playbackRate).toBe(1);
+    // In diretta i controlli di velocità sono disattivati (l'effetto non si applica alla radio).
+    expect(button(container, '0.8×').disabled).toBe(true);
+    expect(button(container, '1×').disabled).toBe(true);
   });
 
   it('apre e chiude il player a schermo intero e gestisce casuale e ripeti', async () => {
