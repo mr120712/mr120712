@@ -1,0 +1,12 @@
+// @polsia:user-owned — utilizzi del «Bot Solco» (ricerca musicale sul sito) per gli account free.
+// Limite mensile: 30 ricerche; i Premium sono illimitati e non scrivono righe. Stessa forma di
+// MusicPlay (conteggio per mese di calendario italiano).
+model BotUse {
+  id        String   @id @default(cuid())
+  userId    String
+  /// Mese di calendario in Italia, "YYYY-MM".
+  month     String
+  createdAt DateTime @default(now())
+
+  @@index([userId, month])
+}

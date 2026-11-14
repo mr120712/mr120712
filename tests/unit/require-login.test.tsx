@@ -56,7 +56,15 @@ afterEach(() => {
 
 describe('isPublicRoute', () => {
   it('pubbliche: login, signup, legali, link condivisi', () => {
-    for (const p of ['/login', '/signup', '/privacy', '/terms', '/playlist/abc', '/login/x']) {
+    for (const p of [
+      '/login',
+      '/signup',
+      '/privacy',
+      '/terms',
+      '/playlist/abc',
+      '/login/x',
+      '/bot',
+    ]) {
       expect(isPublicRoute(p)).toBe(true);
     }
   });

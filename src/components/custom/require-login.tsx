@@ -1,8 +1,9 @@
 // @polsia:user-owned — muro di login: senza una sessione non si accede a nessuna funzionalità.
 // Avvolge l'intera app (montato come wrapper più esterno in AppProviders): se non sei loggato e la
 // rotta non è pubblica, NON si monta nulla (né nav, né player, né pagina) e si viene reindirizzati
-// a /login. Pubbliche senza login: accesso/registrazione, pagine legali e i link CONDIVISI delle
-// playlist (così chi riceve un link lo può aprire). L'enforcement vero dei dati resta lato API.
+// a /login. Pubbliche senza login: accesso/registrazione, pagine legali, i link CONDIVISI delle
+// playlist (così chi riceve un link lo può aprire) e la vetrina del Bot Solco (che invita all'accesso;
+// la ricerca e il limite restano imposti dall'API). L'enforcement vero dei dati resta lato API.
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
@@ -13,7 +14,7 @@ import { isSafeAuthDestination } from '@/lib/business/auth-form';
 import styles from './require-login.module.css';
 
 /** Rotte raggiungibili SENZA essere loggati (voluto dal prodotto: solo queste). */
-const PUBLIC_EXACT = new Set(['/login', '/signup', '/privacy', '/terms', '/stato']);
+const PUBLIC_EXACT = new Set(['/login', '/signup', '/privacy', '/terms', '/stato', '/bot']);
 const PUBLIC_PREFIXES = [
   '/login/',
   '/signup/',
