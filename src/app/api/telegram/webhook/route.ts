@@ -34,6 +34,12 @@ const CONNECT_HINT =
 const HELP_TEXT =
   '<b>Solco Music</b> 🎧\n\nEcco cosa posso fare:\n• /cerca parole — trova musica Creative Commons\n• /codice — il tuo codice di invito\n• /invito — il tuo link di invito\n• /app — apri Solco (Mini App)\n\nTocca <b>Apri Solco</b> per aprire l’app qui dentro, come Mini App.';
 
+/** Titolo/artista troncati: i campi Audius non hanno limite di lunghezza nello schema, e 5 righe
+ *  intere potrebbero sforare il tetto di 4096 caratteri di sendMessage (→ 400, risposta persa). */
+function clip(text: string, max = 60): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+}
+
 /** Risultati del bot formattati per Telegram (HTML). Tutti Creative Commons, riproducibili su Solco. */
 function formatSearchResults(
   query: string,
@@ -42,13 +48,13 @@ function formatSearchResults(
   const lines = results.slice(0, 5).map((result, index) => {
     const n = index + 1;
     if (result.kind === 'audius') {
-      return `${n}. 🎵 <b>${escapeTelegramHtml(result.track.title)}</b> — ${escapeTelegramHtml(result.track.artistName)}`;
+      return `${n}. 🎵 <b>${escapeTelegramHtml(clip(result.track.title))}</b> — ${escapeTelegramHtml(clip(result.track.artistName))}`;
     }
     if (result.kind === 'radio') {
-      return `${n}. 📻 <b>${escapeTelegramHtml(result.station.name)}</b> · radio`;
+      return `${n}. 📻 <b>${escapeTelegramHtml(clip(result.station.name))}</b> · radio`;
     }
     if (result.kind === 'podcast') {
-      return `${n}. 🎙️ <b>${escapeTelegramHtml(result.podcast.title)}</b> · podcast`;
+      return `${n}. 🎙️ <b>${escapeTelegramHtml(clip(result.podcast.title))}</b> · podcast`;
     }
     return `${n}. …`;
   });

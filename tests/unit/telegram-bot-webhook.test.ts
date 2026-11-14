@@ -166,6 +166,24 @@ describe('POST /api/telegram/webhook (bot)', () => {
     expect(options.replyMarkup).toEqual({ kind: 'search' });
   });
 
+  it('/cerca: tronca titoli lunghi (resta sotto il limite di 4096 di Telegram)', async () => {
+    const longTitle = 'A'.repeat(400);
+    mocks.botSearch.mockResolvedValue([
+      {
+        kind: 'audius',
+        key: 'audius:1',
+        score: 100,
+        track: { title: longTitle, artistName: 'X' },
+        youtubeAlternative: null,
+      },
+    ]);
+    await POST(req(msg('/cerca test')));
+    const { text } = lastSend();
+    expect(text).not.toContain(longTitle);
+    expect(text).toContain('…');
+    expect(text.length).toBeLessThan(4096);
+  });
+
   it('/cerca senza parole: mostra l’uso, non cerca', async () => {
     await POST(req(msg('/cerca')));
     expect(mocks.botSearch).not.toHaveBeenCalled();
