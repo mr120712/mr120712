@@ -306,7 +306,10 @@ export async function telegramMenuStatus(): Promise<TelegramMenuStatus> {
   };
 }
 
-/** Imposta il pulsante-menu del bot su una Mini App che apre Solco. */
+/**
+ * Prepara l'aspetto moderno del bot: pulsante-menu Mini App che apre Solco + comandi nel menu "/"
+ * + descrizione del bot. Il risultato segue il pulsante (il resto è best-effort e non lo blocca).
+ */
 export async function setTelegramMenuButton(): Promise<{ ok: boolean; message: string }> {
   if (!isTelegramBotConfigured()) {
     return { ok: false, message: 'TELEGRAM_BOT_TOKEN non impostato: imposta il token su Vercel.' };
@@ -318,8 +321,15 @@ export async function setTelegramMenuButton(): Promise<{ ok: boolean; message: s
       web_app: { url: telegramMenuUrl() },
     },
   });
+  // Comandi + descrizione: migliorano la presentazione ma non devono far fallire l'operazione.
+  const commandsOk = await setTelegramCommands();
+  const descriptionsOk = await setTelegramDescriptions();
   if (res?.ok) {
-    return { ok: true, message: `Pulsante «${TELEGRAM_MENU_BUTTON_TEXT}» impostato nel bot.` };
+    const extras = [commandsOk ? 'comandi' : null, descriptionsOk ? 'descrizione' : null].filter(
+      Boolean,
+    );
+    const suffix = extras.length ? ` (impostati anche ${extras.join(' e ')})` : '';
+    return { ok: true, message: `Pulsante «${TELEGRAM_MENU_BUTTON_TEXT}» impostato${suffix}.` };
   }
   return {
     ok: false,
@@ -329,8 +339,21 @@ export async function setTelegramMenuButton(): Promise<{ ok: boolean; message: s
   };
 }
 
-/** Invia un messaggio di testo a una chat. Non lancia mai: ritorna solo esito. */
-export async function sendTelegramMessage(chatId: string, text: string): Promise<boolean> {
+export type SendMessageOptions = {
+  /** Formattazione del testo (HTML consigliato: ricordati di escapare il contenuto dinamico). */
+  parseMode?: 'HTML' | 'MarkdownV2';
+  /** reply_markup di Telegram (es. una tastiera inline da buildInlineKeyboard). */
+  replyMarkup?: unknown;
+  /** Nasconde l'anteprima del link (utile quando il messaggio contiene un URL). */
+  disableWebPagePreview?: boolean;
+};
+
+/** Invia un messaggio a una chat, con formattazione e tastiera opzionali. Non lancia mai. */
+export async function sendTelegramMessage(
+  chatId: string,
+  text: string,
+  options: SendMessageOptions = {},
+): Promise<boolean> {
   const token = env.TELEGRAM_BOT_TOKEN;
   if (!token) return false;
   const signal =
@@ -341,11 +364,74 @@ export async function sendTelegramMessage(chatId: string, text: string): Promise
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: false }),
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        disable_web_page_preview: options.disableWebPagePreview ?? false,
+        ...(options.parseMode ? { parse_mode: options.parseMode } : {}),
+        ...(options.replyMarkup ? { reply_markup: options.replyMarkup } : {}),
+      }),
       signal,
     });
     return res.ok;
   } catch {
     return false;
   }
+}
+
+/** Escapa il testo per parse_mode HTML (solo & < >, come da documentazione Telegram). */
+export function escapeTelegramHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** Pulsante "Apri Solco": Mini App (web_app) in chat privata, link normale altrove (dove web_app
+ *  non è ammesso nelle tastiere inline). */
+function openSolcoButton(chatType: string | null) {
+  return chatType === 'private'
+    ? { text: '🎧 Apri Solco', web_app: { url: telegramMenuUrl() } }
+    : { text: '🎧 Apri Solco', url: siteUrl };
+}
+
+/** Tastiera inline per il messaggio con il codice: apri l'app, condividi l'invito, vai ai premi. */
+export function inviteKeyboard(inviteLink: string, chatType: string | null) {
+  const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(inviteLink)}&text=${encodeURIComponent('Ascolta musica su Solco 🎧')}`;
+  return {
+    inline_keyboard: [
+      [openSolcoButton(chatType)],
+      [
+        { text: '📲 Condividi l’invito', url: shareUrl },
+        { text: '🎁 I tuoi premi', url: `${siteUrl}/premi` },
+      ],
+    ],
+  };
+}
+
+/** Tastiera inline essenziale: solo "Apri Solco" (benvenuto / help / fallback). */
+export function miniAppKeyboard(chatType: string | null) {
+  return { inline_keyboard: [[openSolcoButton(chatType)]] };
+}
+
+/** Comandi del bot mostrati nel menu "/" di Telegram (setMyCommands). */
+export const TELEGRAM_BOT_COMMANDS = [
+  { command: 'codice', description: 'Ricevi il tuo codice di invito' },
+  { command: 'invito', description: 'Ricevi il tuo link di invito' },
+  { command: 'help', description: 'Cosa può fare questo bot' },
+] as const;
+
+/** Registra i comandi del bot (menu "/"). Best-effort: ritorna solo l'esito. */
+export async function setTelegramCommands(): Promise<boolean> {
+  const res = await telegramApi('setMyCommands', { commands: TELEGRAM_BOT_COMMANDS });
+  return Boolean(res?.ok);
+}
+
+/** Imposta descrizione breve (schermata chat vuota) e lunga (profilo) del bot. Best-effort. */
+export async function setTelegramDescriptions(): Promise<boolean> {
+  const short = await telegramApi('setMyShortDescription', {
+    short_description: 'Solco Music — la musica lascia il segno. 🎧',
+  });
+  const long = await telegramApi('setMyDescription', {
+    description:
+      'Apri Solco come Mini App 🎧, ricevi il tuo codice di invito e scopri i premi. Scrivi /codice o tocca il pulsante qui sotto.',
+  });
+  return Boolean(short?.ok && long?.ok);
 }
