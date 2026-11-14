@@ -20,7 +20,9 @@ export function TelegramMiniAppButton({
   const href = telegramMiniAppLink(startParam);
   if (!href) return null;
   return (
-    <Button asChild variant="outline" className={className}>
+    // data-telegram-open: nascosto via CSS quando Solco è GIÀ aperta dentro Telegram (vedi
+    // custom-style.css, html[data-telegram-mini-app]) — lì il pulsante sarebbe ridondante.
+    <Button asChild variant="outline" className={className} data-telegram-open>
       <a href={href} target="_blank" rel="noopener noreferrer">
         <Send aria-hidden="true" />
         {label}

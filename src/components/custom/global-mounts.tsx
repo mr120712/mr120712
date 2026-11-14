@@ -11,6 +11,7 @@ import { MotionKitProvider } from '@/components/custom/motion-kit/motion-kit-pro
 import { ServiceWorkerRegistration } from '@/components/custom/service-worker-registration';
 import { Snowfall } from '@/components/custom/snowfall';
 import { SolcoSupportChat } from '@/components/custom/solco-support-chat';
+import { TelegramMiniApp } from '@/components/custom/telegram-mini-app';
 
 export function GlobalMounts() {
   return (
@@ -20,6 +21,7 @@ export function GlobalMounts() {
       <AppTabBar />
       <Snowfall />
       <ServiceWorkerRegistration />
+      <TelegramMiniApp />
     </MotionKitProvider>
   );
 }

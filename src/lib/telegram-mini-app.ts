@@ -28,3 +28,48 @@ export function telegramMiniAppLink(startParam?: string): string | null {
   const param = startParam && START_PARAM_RE.test(startParam) ? `=${startParam}` : '';
   return `https://t.me/${bot}?startapp${param}`;
 }
+
+/** SDK ufficiale della Mini App (postMessage col client Telegram: nessuna chiamata di rete). */
+export const TELEGRAM_WEBAPP_SDK_URL = 'https://telegram.org/js/telegram-web-app.js';
+
+/**
+ * Superficie minima dell'SDK Telegram WebApp che usiamo. Tutto opzionale: client diversi espongono
+ * metodi diversi e fuori da Telegram l'oggetto non esiste.
+ */
+export type TelegramWebApp = {
+  initData?: string;
+  platform?: string;
+  colorScheme?: 'light' | 'dark';
+  viewportHeight?: number;
+  viewportStableHeight?: number;
+  ready?: () => void;
+  expand?: () => void;
+  disableVerticalSwipes?: () => void;
+  setHeaderColor?: (color: string) => void;
+  setBackgroundColor?: (color: string) => void;
+  onEvent?: (event: string, handler: () => void) => void;
+  offEvent?: (event: string, handler: () => void) => void;
+  BackButton?: {
+    show?: () => void;
+    hide?: () => void;
+    onClick?: (handler: () => void) => void;
+    offClick?: (handler: () => void) => void;
+  };
+};
+
+declare global {
+  interface Window {
+    Telegram?: { WebApp?: TelegramWebApp };
+  }
+}
+
+/**
+ * Siamo DENTRO Telegram? Vero se l'SDK è già presente con dati di init (o una piattaforma nota),
+ * oppure se l'URL di avvio porta i parametri della Mini App nel fragment (Telegram li mette lì prima
+ * che l'SDK li consumi). Funzione pura, testabile senza un browser.
+ */
+export function isTelegramLaunch(hash: string, webApp: TelegramWebApp | undefined): boolean {
+  if (webApp?.initData) return true;
+  if (webApp?.platform && webApp.platform !== 'unknown') return true;
+  return hash.includes('tgWebAppData') || hash.includes('tgWebAppPlatform');
+}

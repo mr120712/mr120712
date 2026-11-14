@@ -518,3 +518,17 @@ section[data-solco-player] {
   background-attachment: fixed;
   background-repeat: no-repeat;
 }
+
+/* === Telegram Mini App ===
+   Attivo quando Solco è aperta DENTRO Telegram (il componente custom/telegram-mini-app imposta
+   html[data-telegram-mini-app]). Telegram fornisce la sua chrome, quindi togliamo i doppioni e
+   rispettiamo le safe-area; la variabile --tg-viewport-stable-height segue la finestra di Telegram. */
+html[data-telegram-mini-app] [data-telegram-open] {
+  /* Già dentro Telegram: il pulsante "Apri su Telegram" sarebbe ridondante. */
+  display: none;
+}
+
+html[data-telegram-mini-app] body {
+  /* Lascia respiro per la tacca/area di sistema in cima alla webview di Telegram. */
+  padding-top: env(safe-area-inset-top);
+}
