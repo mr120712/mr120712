@@ -6,13 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const mocks = vi.hoisted(() => ({ apiFetch: vi.fn() }));
+const mocks = vi.hoisted(() => ({ apiFetch: vi.fn(), playTrack: vi.fn() }));
 vi.mock('@/lib/api-client', () => ({ apiFetch: mocks.apiFetch }));
 vi.mock('@/components/custom/music/music-player', () => ({
   useMusicPlayer: () => ({
     currentTrack: null,
     status: 'idle',
-    playTrack: vi.fn(),
+    playTrack: mocks.playTrack,
     togglePlayback: vi.fn(),
   }),
 }));
@@ -106,5 +106,57 @@ describe('HomeTracksSection auto-refresh', () => {
       await Promise.resolve();
     });
     expect(searchCalls().length).toBe(before);
+  });
+});
+
+describe('HomeTracksSection: sezioni e copertine', () => {
+  it('una sezione per cartella, con copertina, artista e coda della sola sezione', async () => {
+    const rock = [
+      {
+        ...item('Rock/Vasco - Uno.mp3', 'Uno'),
+        artist: 'Vasco',
+        artworkUrl: 'https://store.public.blob.vercel-storage.com/Rock/cover.jpg',
+      },
+      { ...item('Rock/Due.mp3', 'Due'), artworkUrl: null },
+    ];
+    const root = [{ ...item('radice.mp3', 'Radice'), artworkUrl: null }];
+    mocks.apiFetch.mockResolvedValue({
+      items: [...rock, ...root],
+      sections: [
+        { id: '', title: 'In evidenza', items: root },
+        { id: 'Rock', title: 'Rock', items: rock },
+      ],
+    });
+    render();
+    await flush();
+    const headings = [...container.querySelectorAll('h2')].map((h) => h.textContent);
+    expect(headings).toEqual(['Ascolta ora', 'Rock']);
+    expect(container.querySelector('#in-evidenza')).not.toBeNull();
+    const cover = container.querySelector<HTMLImageElement>('img');
+    expect(cover?.getAttribute('src')).toBe(
+      'https://store.public.blob.vercel-storage.com/Rock/cover.jpg',
+    );
+    const play = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Riproduci Uno di Vasco"]',
+    );
+    expect(play).not.toBeNull();
+    act(() => play?.click());
+    expect(mocks.playTrack).toHaveBeenCalledTimes(1);
+    const [track, , queue] = mocks.playTrack.mock.calls[0] ?? [];
+    expect(track).toMatchObject({
+      title: 'Uno',
+      artistName: 'Vasco',
+      artworkUrl: 'https://store.public.blob.vercel-storage.com/Rock/cover.jpg',
+    });
+    expect((queue as Array<{ title: string }>).map((entry) => entry.title)).toEqual(['Uno', 'Due']);
+  });
+
+  it('risposta senza sezioni (server meno recente): una sola sezione "In evidenza"', async () => {
+    mocks.apiFetch.mockResolvedValue({ items: [item('a.mp3', 'Primo')] });
+    render();
+    await flush();
+    expect([...container.querySelectorAll('h2')].map((h) => h.textContent)).toEqual([
+      'Ascolta ora',
+    ]);
   });
 });

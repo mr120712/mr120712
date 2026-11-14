@@ -31,7 +31,9 @@ export type BackgroundListenOutcome =
   /** Every search answered and none has this song in a background-capable version. */
   | { status: 'not_found' }
   /** No match, and a search failed (offline, rate limit, catalogue down): worth a retry. */
-  | { status: 'error' };
+  | { status: 'error' }
+  /** The track changed while searching (the video ended, another song started): nothing done. */
+  | { status: 'stale' };
 
 /** A match, no match (`null`), or a search that did not answer (`'error'`). */
 type SearchResult = { track: MusicPlayerTrack; path: string } | null | 'error';
@@ -73,25 +75,39 @@ async function findJamendo(video: BackgroundVideo, query: string): Promise<Searc
   return path ? { track, path } : null;
 }
 
-// One check per page load: is at least one background-capable catalogue configured?
-let availability: Promise<boolean> | null = null;
-function backgroundSourcesAvailable() {
+type Availability = 'yes' | 'no' | 'unknown';
+
+// One check per page load: is at least one background-capable catalogue configured? A check that
+// fails (offline, 5xx) is 'unknown', is not kept, and is tried again by the next control.
+let availability: Promise<Availability> | null = null;
+function backgroundSourcesAvailable(): Promise<Availability> {
+  const check = (url: string, configured: (body: unknown) => boolean): Promise<Availability> =>
+    fetch(url, { credentials: 'same-origin' })
+      .then((response) => (response.ok ? response.json() : Promise.reject(response.status)))
+      .then(
+        (body: unknown) => (configured(body) ? 'yes' : 'no'),
+        () => 'unknown' as const,
+      );
   availability ??= Promise.all([
-    fetch('/api/music/source-status', { credentials: 'same-origin' })
-      .then((response) => (response.ok ? response.json() : null))
-      .then(
-        (body: { sources?: { id?: string; active?: boolean }[] } | null) =>
-          body?.sources?.some((source) => source.id === 'audius' && source.active) === true,
-      )
-      .catch(() => false),
-    fetch('/api/music/jamendo?q=test', { credentials: 'same-origin' })
-      .then((response) => (response.ok ? response.json() : null))
-      .then(
-        (body: { outcome?: string } | null) =>
-          Boolean(body?.outcome) && body?.outcome !== 'not_configured',
-      )
-      .catch(() => false),
-  ]).then(([audius, jamendo]) => audius || jamendo);
+    check(
+      '/api/music/source-status',
+      (body) =>
+        (body as { sources?: { id?: string; active?: boolean }[] } | null)?.sources?.some(
+          (source) => source.id === 'audius' && source.active,
+        ) === true,
+    ),
+    check('/api/music/jamendo?q=test', (body) => {
+      const outcome = (body as { outcome?: string } | null)?.outcome;
+      return Boolean(outcome) && outcome !== 'not_configured';
+    }),
+  ]).then(([audius, jamendo]): Availability => {
+    if (audius === 'yes' || jamendo === 'yes') return 'yes';
+    if (audius === 'unknown' || jamendo === 'unknown') {
+      availability = null;
+      return 'unknown';
+    }
+    return 'no';
+  });
   return availability;
 }
 
@@ -128,11 +144,13 @@ export function useBackgroundListen(video: BackgroundVideo) {
     () => inFlight.has(videoId),
     () => false,
   );
-  const [available, setAvailable] = useState(false);
+  // 'unknown' finché il controllo dei cataloghi non ha risposto.
+  const [availability, setAvailability] = useState<'unknown' | 'yes' | 'no'>('unknown');
+  const available = availability === 'yes';
 
   useEffect(() => {
     let cancelled = false;
-    void backgroundSourcesAvailable().then((value) => !cancelled && setAvailable(value));
+    void backgroundSourcesAvailable().then((value) => !cancelled && setAvailability(value));
     return () => {
       cancelled = true;
     };
@@ -148,8 +166,14 @@ export function useBackgroundListen(video: BackgroundVideo) {
       const query = backgroundSearchQuery(video.title, video.channelTitle);
       const audius = await findAudius(video, query);
       const found = audius && audius !== 'error' ? audius : await findJamendo(video, query);
+      // Read now, not from the tap's render: the listener may have moved on while we searched.
+      if (player.isCurrentTrack && !player.isCurrentTrack(`youtube:${videoId}`)) {
+        return { status: 'stale' };
+      }
       if (found && found !== 'error') {
-        await player.playTrack(found.track, found.path, [found.track]);
+        // Al posto del video, nello stesso punto della coda: il resto della coda resta.
+        if (player.replaceCurrentTrack) await player.replaceCurrentTrack(found.track, found.path);
+        else await player.playTrack(found.track, found.path, [found.track]);
         return { status: 'playing', track: found.track };
       }
       // "Not found" only when every search answered: a failed one may still have the song.
@@ -166,7 +190,7 @@ export function useBackgroundListen(video: BackgroundVideo) {
     return promise;
   };
 
-  return { available, searching, start };
+  return { available, availability, searching, start };
 }
 
 export function BackgroundListenButton({
@@ -191,6 +215,7 @@ export function BackgroundListenButton({
   const listen = () => {
     start().then(
       (outcome) => {
+        if (outcome.status === 'stale') return;
         if (outcome.status === 'error') {
           toast(SEARCH_ERROR_TEXT);
           return;

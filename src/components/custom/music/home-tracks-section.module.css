@@ -1,11 +1,17 @@
-/* @polsia:user-owned — sezione "In evidenza" in Home (file audio dallo store Blob). */
+/* @polsia:user-owned — sezioni "In evidenza" in Home (file audio dallo store Blob, una sezione per
+   cartella), a schede con copertina in una fila scorrevole. */
 
 .section {
-  margin: 0.5rem 0 1.25rem;
+  /* Dentro la griglia della Home: senza min-width 0 la fila di copertine allargherebbe la pagina
+     (scorrimento orizzontale dell'intera Home invece che della sola fila). */
+  min-width: 0;
+  /* Stessa larghezza e margini delle altre sezioni della Home (vedi .feed in home.module.css). */
+  width: min(calc(100% - 48px), 1200px);
+  margin: 0 auto;
 }
 
 .head {
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.6rem;
 }
 
 .eyebrow {
@@ -19,65 +25,124 @@
 .title {
   margin: 0.1rem 0 0;
   font-size: 1.2rem;
+  overflow-wrap: anywhere;
 }
 
-.list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem;
-  border-radius: calc(var(--radius) * 0.75);
-}
-
-.row:hover {
-  background: var(--muted);
-}
-
-.playButton {
-  flex: none;
+/* Fila orizzontale di copertine quadrate (come le altre file della Home). */
+.rail {
   display: grid;
-  place-items: center;
-  width: 2.5rem;
-  height: 2.5rem;
-  border: none;
-  border-radius: 999px;
-  background: var(--primary);
-  color: var(--primary-foreground);
+  min-width: 0;
+  max-width: 100%;
+  grid-auto-columns: 150px;
+  grid-auto-flow: column;
+  gap: 14px;
+  margin: 0;
+  padding: 0 0 6px;
+  list-style: none;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+}
+
+.card {
+  min-width: 0;
+  scroll-snap-align: start;
+}
+
+.cardButton {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  align-content: start;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
 }
 
-.playButton svg {
-  width: 1.15rem;
-  height: 1.15rem;
+.cardButton:focus-visible {
+  border-radius: 12px;
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
 }
 
-.copy {
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.title2 {
+.art {
+  position: relative;
+  display: grid;
+  width: 100%;
+  aspect-ratio: 1;
+  place-items: center;
   overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: linear-gradient(140deg, var(--secondary), var(--muted));
+  color: var(--primary);
+  font-family: var(--font-display), sans-serif;
+  font-size: 34px;
+  font-weight: 700;
+}
+
+.art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.playBadge {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--primary);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 30%);
+  color: var(--primary-foreground);
+  font-size: 0;
+  transition: transform 0.15s ease;
+}
+
+.playBadge svg {
+  width: 18px;
+  height: 18px;
+}
+
+.cardButton:hover .playBadge {
+  transform: scale(1.06);
+}
+
+.card[data-current] .art {
+  border-color: var(--primary);
+}
+
+.cardTitle {
+  overflow: hidden;
+  font-size: 0.92rem;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.95rem;
 }
 
 .meta {
+  overflow: hidden;
   color: var(--muted-foreground);
   font-size: 0.8rem;
-  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .playBadge {
+    transition: none;
+  }
+
+  .cardButton:hover .playBadge {
+    transform: none;
+  }
 }

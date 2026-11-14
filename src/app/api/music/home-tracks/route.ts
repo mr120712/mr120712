@@ -3,7 +3,7 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { enforceRateLimit, getRateLimitIdentity } from '@/lib/business/rate-limit.server';
-import { listHomeTracks } from '@/lib/music/home-tracks.server';
+import { listHomeTrackSections } from '@/lib/music/home-tracks.server';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,9 +18,9 @@ export async function GET(request: Request) {
   // listHomeTracks non fa mai throw (ritorna [] su qualsiasi problema), ma per sicurezza la Home
   // non deve mai rompersi per questa sezione.
   try {
-    const items = await listHomeTracks();
+    const { items, sections } = await listHomeTrackSections();
     return NextResponse.json(
-      { items },
+      { items, sections },
       {
         headers: {
           // Cache breve sulla CDN: un file aggiunto nel pannello Blob compare entro ~1 minuto.
@@ -29,6 +29,6 @@ export async function GET(request: Request) {
       },
     );
   } catch {
-    return NextResponse.json({ items: [] });
+    return NextResponse.json({ items: [], sections: [] });
   }
 }

@@ -20,6 +20,13 @@ export const ACTION_RATE_LIMITS = {
     { requests: 60, windowMs: 60_000 },
     { requests: 1500, windowMs: 86_400_000 },
   ],
+  // Copertine dei brani in evidenza (lettura dello store + riduzione a 512 px), per IP. Separato da
+  // music.catalog: una Home piena di copertine non deve far rispondere 429 a radio e podcast. La
+  // CDN tiene in cache le risposte, quindi qui arrivano solo le copertine non ancora viste.
+  'music.cover': [
+    { requests: 240, windowMs: 60_000 },
+    { requests: 5000, windowMs: 86_400_000 },
+  ],
   // Social preview image of a shared playlist (DB read + Audius covers + PNG drawing), per IP.
   // Generous: link-preview crawlers fetch from few addresses; the CDN absorbs repeated hits.
   'share.og': [
@@ -408,6 +415,7 @@ export async function releaseRateLimit(
 const actionLabels: Record<RateLimitAction, string> = {
   'music.search': 'le ricerche musicali',
   'music.catalog': 'le richieste al catalogo',
+  'music.cover': 'le copertine',
   'share.og': 'le anteprime delle playlist condivise',
   'auth.verification_email': 'le email di verifica',
   'auth.verification_email.global': 'le email di verifica di oggi',

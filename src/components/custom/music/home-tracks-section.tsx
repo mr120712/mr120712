@@ -1,14 +1,21 @@
-// @polsia:user-owned — sezione "In evidenza" in Home: i file audio messi dall'amministratore
-// direttamente nello store Vercel Blob (dal pannello), riproducibili con il player. Si nasconde
-// del tutto se non ce ne sono (nessun ingombro in Home).
+// @polsia:user-owned — "In evidenza" in Home: i file audio messi dall'amministratore direttamente
+// nello store Vercel Blob (dal pannello), divisi in sezioni (una per cartella) e mostrati con la
+// loro copertina. Riproducibili con il player; la coda è la sezione toccata. Si nasconde del tutto
+// se non ce ne sono (nessun ingombro in Home).
 'use client';
 
 import { Pause, Play } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { FallbackArt } from '@/components/custom/music/fallback-art';
 import { homeTrackToTrack } from '@/components/custom/music/live-tracks';
 import { useMusicPlayer } from '@/components/custom/music/music-player';
 import { apiFetch } from '@/lib/api-client';
-import { type HomeTrack, HomeTracksResponseSchema } from '@/lib/contracts/home-tracks';
+import {
+  HOME_TRACKS_DEFAULT_SECTION,
+  type HomeTrack,
+  type HomeTrackSection,
+  HomeTracksResponseSchema,
+} from '@/lib/contracts/home-tracks';
 import styles from './home-tracks-section.module.css';
 
 /** Intervallo minimo tra due aggiornamenti automatici (anti-martellamento). */
@@ -16,9 +23,21 @@ const REFRESH_THROTTLE_MS = 15_000;
 /** Backstop: ricontrolla lo store Blob ogni tanto mentre la scheda è aperta e visibile. */
 const BACKGROUND_REFRESH_MS = 60_000;
 
+/** Sezioni dalla risposta; un server meno recente manda solo `items`: una sezione unica. */
+function sectionsFrom(response: {
+  items: HomeTrack[];
+  sections?: HomeTrackSection[];
+}): HomeTrackSection[] {
+  const withItems = (response.sections ?? []).filter((section) => section.items.length > 0);
+  if (withItems.length > 0) return withItems;
+  return response.items.length > 0
+    ? [{ id: '', title: HOME_TRACKS_DEFAULT_SECTION, items: response.items }]
+    : [];
+}
+
 export function HomeTracksSection() {
   const player = useMusicPlayer();
-  const [items, setItems] = useState<HomeTrack[]>([]);
+  const [sections, setSections] = useState<HomeTrackSection[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const lastLoadRef = useRef(0);
 
@@ -32,8 +51,8 @@ export function HomeTracksSection() {
     lastLoadRef.current = Date.now();
     try {
       const url = fresh ? `/api/music/home-tracks?t=${Date.now()}` : '/api/music/home-tracks';
-      const { items: list } = await apiFetch(url, { schema: HomeTracksResponseSchema });
-      setItems(list);
+      const response = await apiFetch(url, { schema: HomeTracksResponseSchema });
+      setSections(sectionsFrom(response as { items: HomeTrack[]; sections?: HomeTrackSection[] }));
       setState('ready');
     } catch {
       setState((current) => (current === 'loading' ? 'error' : current));
@@ -67,52 +86,76 @@ export function HomeTracksSection() {
     };
   }, [load]);
 
-  const play = (item: HomeTrack) => {
+  const play = (item: HomeTrack, section: HomeTrackSection) => {
     const track = homeTrackToTrack(item);
     if (player.currentTrack?.qualifiedId === track.qualifiedId) {
       void player.togglePlayback();
       return;
     }
-    const queue = items.map(homeTrackToTrack);
+    // La coda è la sezione: si ascolta la cartella, dal brano toccato in poi.
+    const queue = section.items.map(homeTrackToTrack);
     void player.playTrack(track, track.streamUrl ?? '', queue);
   };
 
   // Si nasconde finché carica, in errore o se vuota: nessun ingombro in Home.
-  if (state !== 'ready' || items.length === 0) return null;
+  if (state !== 'ready' || sections.length === 0) return null;
 
   return (
-    <section id="in-evidenza" className={styles.section} aria-labelledby="in-evidenza-heading">
-      <div className={styles.head}>
-        <p className={styles.eyebrow}>IN EVIDENZA</p>
-        <h2 id="in-evidenza-heading" className={styles.title}>
-          Ascolta ora
-        </h2>
-      </div>
-      <ul className={styles.list}>
-        {items.map((item) => {
-          const qualifiedId = `upload:${item.id}`;
-          const playing =
-            player.currentTrack?.qualifiedId === qualifiedId && player.status === 'playing';
-          return (
-            <li key={item.id} className={styles.row}>
-              <button
-                type="button"
-                className={styles.playButton}
-                onClick={() => play(item)}
-                aria-label={playing ? `Metti in pausa ${item.title}` : `Riproduci ${item.title}`}
-              >
-                {playing ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
-              </button>
-              <div className={styles.copy}>
-                <strong className={styles.title2} title={item.title}>
-                  {item.title}
-                </strong>
-                <span className={styles.meta}>{item.artist ?? 'Solco'}</span>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-    </section>
+    <>
+      {sections.map((section, index) => {
+        const headingId = index === 0 ? 'in-evidenza-heading' : `in-evidenza-heading-${index}`;
+        // La radice dello store (id ''), non un titolo: una cartella chiamata "In evidenza" resta sé.
+        const isDefault = section.id === '';
+        return (
+          <section
+            key={section.id || '__root'}
+            id={index === 0 ? 'in-evidenza' : undefined}
+            className={styles.section}
+            aria-labelledby={headingId}
+          >
+            <div className={styles.head}>
+              <p className={styles.eyebrow}>{isDefault ? 'IN EVIDENZA' : 'IN EVIDENZA · SOLCO'}</p>
+              <h2 id={headingId} className={styles.title}>
+                {isDefault ? 'Ascolta ora' : section.title}
+              </h2>
+            </div>
+            <ul className={styles.rail}>
+              {section.items.map((item) => {
+                const qualifiedId = `upload:${item.id}`;
+                const isCurrent = player.currentTrack?.qualifiedId === qualifiedId;
+                const playing = isCurrent && player.status === 'playing';
+                const byline = item.artist ?? 'Solco';
+                return (
+                  <li key={item.id} className={styles.card} data-current={isCurrent || undefined}>
+                    <button
+                      type="button"
+                      className={styles.cardButton}
+                      onClick={() => play(item, section)}
+                      aria-label={
+                        playing
+                          ? `Metti in pausa ${item.title} di ${byline}`
+                          : `Riproduci ${item.title} di ${byline}`
+                      }
+                      aria-pressed={isCurrent ? playing : undefined}
+                    >
+                      <span className={styles.art}>
+                        <FallbackArt src={item.artworkUrl} label={item.title} size={160} />
+                        <span className={styles.playBadge} aria-hidden="true">
+                          {playing ? <Pause /> : <Play />}
+                        </span>
+                      </span>
+                      <strong className={styles.cardTitle} title={item.title}>
+                        {item.title}
+                      </strong>
+                      <span className={styles.meta}>{byline}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        );
+      })}
+    </>
   );
 }

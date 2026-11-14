@@ -20,7 +20,8 @@ export function homeTrackToTrack(track: HomeTrack): MusicPlayerTrack {
     qualifiedId: `upload:${track.id}`,
     title: track.title,
     artistName: track.artist ?? 'Solco',
-    artworkUrl: null,
+    // Copertina (stesso nome, cartella o incorporata): anche nel player e sulla schermata di blocco.
+    artworkUrl: track.artworkUrl ?? null,
     sourceLabel: 'In evidenza',
     sourceUrl: null,
     durationSeconds: track.durationSeconds > 0 ? track.durationSeconds : null,

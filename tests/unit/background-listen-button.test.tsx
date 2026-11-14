@@ -5,13 +5,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   playTrack: vi.fn(),
+  replaceCurrentTrack: vi.fn(),
   primeAudio: vi.fn(),
+  current: 'youtube:abcdefghijk' as string | null,
   toast: vi.fn(),
   success: vi.fn(),
 }));
 vi.mock('sonner', () => ({ toast: Object.assign(mocks.toast, { success: mocks.success }) }));
 vi.mock('@/components/custom/music/music-player', () => ({
-  useMusicPlayer: () => ({ playTrack: mocks.playTrack, primeAudio: mocks.primeAudio }),
+  useMusicPlayer: () => ({
+    playTrack: mocks.playTrack,
+    primeAudio: mocks.primeAudio,
+    isCurrentTrack: (id: string) => mocks.current === id,
+    replaceCurrentTrack: mocks.replaceCurrentTrack,
+  }),
   trackStreamPath: (track: { qualifiedId: string }) =>
     `/api/music/jamendo/${track.qualifiedId.split(':')[1]}/stream`,
 }));
@@ -104,6 +111,8 @@ async function click(container: HTMLElement) {
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   mocks.playTrack.mockReset();
+  mocks.replaceCurrentTrack.mockReset();
+  mocks.current = 'youtube:abcdefghijk';
   mocks.toast.mockReset();
   mocks.success.mockReset();
 });
@@ -114,14 +123,14 @@ afterEach(async () => {
 });
 
 describe('pulsante Ascolta in background', () => {
-  it('avvia lo stesso brano da Audius nel player audio', async () => {
+  it('avvia lo stesso brano da Audius al posto del video, senza buttare la coda', async () => {
     const container = await mount([audiusTrack]);
     await click(container);
-    expect(mocks.playTrack).toHaveBeenCalledWith(
+    expect(mocks.replaceCurrentTrack).toHaveBeenCalledWith(
       expect.objectContaining({ qualifiedId: 'audius:a1', playbackMode: 'audius' }),
       '/api/music/audius/tracks/a1/stream',
-      expect.any(Array),
     );
+    expect(mocks.playTrack).not.toHaveBeenCalled();
   });
 
   it('avvisa quando il brano non esiste in una versione ascoltabile in background', async () => {
@@ -142,5 +151,49 @@ describe('pulsante Ascolta in background', () => {
     expect(mocks.toast).toHaveBeenCalledWith(
       'Non riesco a cercare il brano adesso. Riprova tra poco.',
     );
+  });
+
+  it('se intanto il video è cambiato, non avvia nulla e non dice nulla', async () => {
+    const container = await mount([audiusTrack]);
+    mocks.current = 'youtube:zzzzzzzzzzz';
+    await click(container);
+    expect(mocks.playTrack).not.toHaveBeenCalled();
+    expect(mocks.replaceCurrentTrack).not.toHaveBeenCalled();
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(mocks.success).not.toHaveBeenCalled();
+  });
+
+  it('un controllo dei cataloghi fallito non resta in memoria: il controllo successivo riprova', async () => {
+    vi.resetModules();
+    let failing = true;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (failing && String(url).includes('source-status')) throw new TypeError('offline');
+        return new Response(JSON.stringify(respond(String(url), [audiusTrack])));
+      }),
+    );
+    const { BackgroundListenButton } = await import(
+      '@/components/custom/music/background-listen-button'
+    );
+    const first = document.createElement('div');
+    const firstRoot = createRoot(first);
+    roots.push(firstRoot);
+    await act(async () => firstRoot.render(<BackgroundListenButton video={video} />));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    // Disponibilità sconosciuta: il pulsante resta nascosto, ma non è "nessun catalogo".
+    expect(first.querySelector('button')).toBeNull();
+
+    failing = false;
+    const second = document.createElement('div');
+    const secondRoot = createRoot(second);
+    roots.push(secondRoot);
+    await act(async () => secondRoot.render(<BackgroundListenButton video={video} />));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(second.querySelector('button')).not.toBeNull();
   });
 });

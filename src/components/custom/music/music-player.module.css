@@ -762,6 +762,88 @@
   white-space: nowrap;
 }
 
+/* Il titolo prende lo spazio libero; "Rimuovi video" e la X restano sempre visibili. */
+.videoBarTitle {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* "Rimuovi video" nella barra del video (player compatto). */
+.videoRemove {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.videoRemove:hover {
+  background: color-mix(in srgb, var(--foreground) 12%, transparent);
+}
+
+/* Dentro la barra (il dock ha overflow: hidden) l'anello di focus sta all'interno del pulsante. */
+.videoRemove:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+.removeVideo:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.videoRemove svg {
+  width: 14px;
+  height: 14px;
+}
+
+.videoRemove span {
+  overflow: visible;
+}
+
+/* "Rimuovi video" nel player a schermo intero. */
+.removeVideo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  margin-top: 8px;
+  padding: 0 16px;
+  border: 1px solid color-mix(in srgb, var(--foreground) 22%, transparent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.removeVideo:hover {
+  background: color-mix(in srgb, var(--foreground) 10%, transparent);
+}
+
+.removeVideo svg {
+  width: 16px;
+  height: 16px;
+}
+
+.videoRemove[aria-busy="true"],
+.removeVideo[aria-busy="true"] {
+  cursor: progress;
+  opacity: 0.85;
+}
+
 .videoClose {
   display: inline-grid;
   flex: none;

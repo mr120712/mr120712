@@ -34,6 +34,7 @@ import { ShareMenu } from '@/components/custom/share-menu';
 import { apiFetch } from '@/lib/api-client';
 import { useSession } from '@/lib/auth-client';
 import { songShareText, songShareUrl } from '@/lib/business/social-share';
+import { HOME_TRACK_COVER_PREFIX } from '@/lib/contracts/home-tracks';
 import {
   AudiusPlaybackCheckSchema,
   type AudiusTrackSearchResult,
@@ -136,6 +137,7 @@ import {
   restoreLocalItems,
 } from './local-tracks';
 import styles from './music-player.module.css';
+import { RemoveVideoButton } from './remove-video-button';
 import { loadYouTubeIframeApi } from './youtube-queue-player';
 
 export type MusicPlaybackMode =
@@ -179,6 +181,32 @@ export type RepeatMode = 'off' | 'all' | 'one';
 
 type ActiveTrack = MusicPlayerTrack & { streamPath: string };
 type PlaybackStatus = 'idle' | 'loading' | 'playing' | 'paused' | 'ended' | 'error';
+
+/** Copertine servite da Solco già provate in questa pagina: true = c'è, false = non c'è. */
+const coverChecks = new Map<string, boolean | 'pending'>();
+
+/**
+ * Una copertina dei brani in evidenza (proxy di Solco) può non esistere: un URL che risponde 404
+ * lascerebbe la schermata di blocco senza immagine. Restituisce l'URL solo se già confermato;
+ * altrimenti null (icona di Solco) e, se nuovo, lo prova e chiama `onReady` quando è confermato.
+ */
+function verifiedCover(url: string | null | undefined, onReady: () => void): string | null {
+  if (!url) return null;
+  if (!url.startsWith(`${HOME_TRACK_COVER_PREFIX}?`)) return url;
+  const state = coverChecks.get(url);
+  if (state === true) return url;
+  if (state === undefined && typeof window !== 'undefined' && typeof window.Image === 'function') {
+    coverChecks.set(url, 'pending');
+    const probe = new window.Image();
+    probe.onload = () => {
+      coverChecks.set(url, true);
+      onReady();
+    };
+    probe.onerror = () => coverChecks.set(url, false);
+    probe.src = url;
+  }
+  return null;
+}
 
 type MusicPlayerValue = {
   currentTrack: ActiveTrack | null;
@@ -232,6 +260,16 @@ type MusicPlayerValue = {
    * audio 'playback' viene dichiarata solo subito prima di play(), mai mentre suona un video YouTube.
    */
   primeAudio: () => void;
+  /**
+   * true se `qualifiedId` è ancora il brano corrente, letto al momento (non dall'ultimo render):
+   * chi aspetta la rete (es. "Rimuovi video") non agisce su un brano cambiato nel frattempo.
+   */
+  isCurrentTrack: (qualifiedId: string) => boolean;
+  /**
+   * Sostituisce il brano corrente con `track` nello stesso punto della coda e lo avvia: il resto
+   * della coda resta (es. la versione solo audio al posto di un video YouTube).
+   */
+  replaceCurrentTrack: (track: MusicPlayerTrack, streamPath: string) => Promise<void>;
 };
 
 const MusicPlayerContext = createContext<MusicPlayerValue | null>(null);
@@ -667,8 +705,19 @@ function Artwork({
   /** The cover to show (a local file's comes from the player's own object URL). */
   url?: string | null;
 }) {
-  if (url) {
-    return <Image src={url} alt="" width={size} height={size} unoptimized />;
+  // A cover that does not load (e.g. a featured file without embedded artwork) shows the icon.
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  if (url && failedUrl !== url) {
+    return (
+      <Image
+        src={url}
+        alt=""
+        width={size}
+        height={size}
+        unoptimized
+        onError={() => setFailedUrl(url)}
+      />
+    );
   }
   return track.playbackMode === 'radio' ? (
     <Radio aria-hidden="true" />
@@ -908,6 +957,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   );
 
   // Lock screen, Control Center and Android notification: metadata set once per item.
+  const showNowPlayingRef = useRef<(track: ActiveTrack | null) => void>(() => undefined);
   const showNowPlaying = useCallback((track: ActiveTrack | null) => {
     const session = mediaSessionOrNull();
     if (!session) return;
@@ -925,7 +975,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         : null
       : track.artworkUrl;
     const album = local ? track.album || track.sourceLabel : track.sourceLabel;
-    const key = `${track.qualifiedId}|${track.title}|${artwork ?? ''}|${album}`;
+    // Copertina servita da Solco (brani in evidenza): può non esistere (file senza copertina).
+    // Finché non è confermata, sulla schermata di blocco va l'icona di Solco, poi la copertina.
+    const shownArtwork = local
+      ? artwork
+      : verifiedCover(artwork, () => {
+          const current = currentTrackRef.current;
+          if (current?.qualifiedId === track.qualifiedId) showNowPlayingRef.current(current);
+        });
+    const key = `${track.qualifiedId}|${track.title}|${shownArtwork ?? ''}|${album}`;
     if (nowPlayingRef.current === key) return;
     nowPlayingRef.current = key;
     try {
@@ -933,12 +991,13 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         title: track.title,
         artist: track.artistName,
         album,
-        artwork: mediaArtwork(artwork),
+        artwork: mediaArtwork(shownArtwork),
       });
     } catch {
       session.metadata = null;
     }
   }, []);
+  showNowPlayingRef.current = showNowPlaying;
 
   // Increases on every play request; a slow lookup for an older request is ignored.
   const playRequestRef = useRef(0);
@@ -1343,6 +1402,28 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   // First statement of a tap that will start audio after a network wait (see MusicPlayerValue).
   // Only unlocks the element: the 'playback' session is declared right before play(), so a search
   // that finds nothing leaves it untouched while the YouTube video goes on.
+  const isCurrentTrack = useCallback(
+    (qualifiedId: string) => currentTrackRef.current?.qualifiedId === qualifiedId,
+    [],
+  );
+
+  const replaceCurrentTrack = useCallback(
+    (track: MusicPlayerTrack, streamPath: string) => {
+      const items = queueRef.current;
+      const index = queueIndexRef.current;
+      // Il brano trovato prende il posto di quello corrente; altre sue copie nella coda (rare)
+      // si tolgono, così playTrack lo ritrova proprio in questo punto.
+      const nextQueue =
+        index >= 0 && index < items.length
+          ? items.flatMap((item, at) =>
+              at === index ? [track] : item.qualifiedId === track.qualifiedId ? [] : [item],
+            )
+          : [track];
+      return playTrack(track, streamPath, nextQueue);
+    },
+    [playTrack],
+  );
+
   const primeAudio = useCallback(() => {
     primeMediaElement(decks.current);
     // The spare deck too: on iOS each element is unlocked by its own load() inside a tap.
@@ -3134,6 +3215,20 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       !isYouTubeTrack(currentTrack);
   }, [currentTrack, decks, repeat]);
 
+  // "Rimuovi video" senza una versione solo audio: il video (e la sua musica, YouTube non consente
+  // l'audio senza video) se ne va. Si passa al brano successivo della coda, altrimenti si chiude.
+  // Se nel frattempo il brano è cambiato (il video è finito, l'utente ne ha scelto un altro), nulla.
+  const removeVideoWithoutAudio = (videoId: string): 'next' | 'stopped' | 'stale' => {
+    if (currentTrackRef.current?.qualifiedId !== `youtube:${videoId}`) return 'stale';
+    const index = followingIndex(repeat === 'all');
+    if (index !== null && index !== queueIndex) {
+      void playQueueIndex(index);
+      return 'next';
+    }
+    stopPlayback();
+    return 'stopped';
+  };
+
   // The YouTube video on screen, offered as the same song on Audius ("Ascolta in background").
   const backgroundVideo =
     currentTrack && currentVideoId && youtubeActive
@@ -3246,6 +3341,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         setSpeed: setPlaybackSpeed,
         setExpanded,
         primeAudio,
+        isCurrentTrack,
+        replaceCurrentTrack,
       }}
     >
       {children}
@@ -3260,7 +3357,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             >
               {showFull ? null : (
                 <div className={styles.videoBar}>
-                  <span>{currentTrack.title}</span>
+                  <span className={styles.videoBarTitle}>{currentTrack.title}</span>
+                  {backgroundVideo ? (
+                    <RemoveVideoButton
+                      compact
+                      video={backgroundVideo}
+                      onRemoveWithoutAudio={removeVideoWithoutAudio}
+                      className={styles.videoRemove}
+                    />
+                  ) : null}
                   <button
                     type="button"
                     className={styles.videoClose}
@@ -3464,6 +3569,13 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                     compact={false}
                     video={backgroundVideo}
                     hint="continua con lo schermo bloccato"
+                  />
+                ) : null}
+                {backgroundVideo ? (
+                  <RemoveVideoButton
+                    video={backgroundVideo}
+                    onRemoveWithoutAudio={removeVideoWithoutAudio}
+                    className={styles.removeVideo}
                   />
                 ) : null}
                 {youtubeActive ? (

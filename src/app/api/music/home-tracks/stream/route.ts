@@ -6,7 +6,7 @@ import 'server-only';
 import { get } from '@vercel/blob';
 import { NextResponse } from 'next/server';
 import { env } from '@/lib/env';
-import { isHomeAudioBlob } from '@/lib/music/home-tracks.server';
+import { encodeBlobPathname, isHomeAudioBlob } from '@/lib/music/home-tracks.server';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,7 +25,8 @@ export async function GET(request: Request) {
 
   let result: Awaited<ReturnType<typeof get>>;
   try {
-    result = await get(pathname, {
+    // Ogni cartella codificata: "?" o "#" in un nome non diventano query o frammento dell'URL.
+    result = await get(encodeBlobPathname(pathname), {
       access: 'private',
       token,
       abortSignal:

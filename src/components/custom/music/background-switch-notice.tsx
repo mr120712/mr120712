@@ -179,7 +179,8 @@ export function BackgroundSwitchNotice({
       .then(
         (outcome) => {
           if (!mountedRef.current) return;
-          if (outcome.status === 'playing') {
+          // Playing the audio version, or the video is no longer current: the notice is done.
+          if (outcome.status === 'playing' || outcome.status === 'stale') {
             close();
             return;
           }
