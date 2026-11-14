@@ -60,8 +60,27 @@ export function featuredRelevance(
   const credited = track.artist?.trim() || FEATURED_DEFAULT_ARTIST;
   return Math.max(
     relevanceScore([track.title, track.artist ?? ''], query),
-    relevanceScore([withoutSeparators(`${credited} ${track.title}`)], withoutSeparators(query)),
+    artistTitleScore(credited, track.title, query),
   );
+}
+
+/**
+ * Come featuredRelevance ma SENZA artista predefinito, per i brani salvati nella Libreria: titolo e
+ * artista, più "Artista Titolo" (anche "Artista - Titolo"), la query dei link di condivisione di un
+ * brano (songShareUrl). Senza artista conta solo il titolo.
+ */
+export function trackRelevance(
+  track: { title: string; artist: string | null },
+  query: string,
+): number {
+  const byFields = relevanceScore([track.title, track.artist ?? ''], query);
+  const artist = track.artist?.trim();
+  return artist ? Math.max(byFields, artistTitleScore(artist, track.title, query)) : byFields;
+}
+
+/** La forma "Artista Titolo" valutata da sola, così le parti non si mescolano. */
+function artistTitleScore(artist: string, title: string, query: string): number {
+  return relevanceScore([withoutSeparators(`${artist} ${title}`)], withoutSeparators(query));
 }
 
 // Parole di contorno nei titoli YouTube: non contano per decidere se è lo stesso brano.

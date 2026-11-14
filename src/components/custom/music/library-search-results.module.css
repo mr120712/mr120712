@@ -1,0 +1,196 @@
+/* @polsia:user-owned — sezione «Le tue playlist» della ricerca: schede delle raccolte (mosaico,
+   nome, conteggio, descrizione) e righe «Nei tuoi brani» (riusano .list/.row di discover). Prima
+   il telefono: una colonna di schede compatte; due o tre colonne quando c'è spazio. */
+.section {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--primary) 5%, transparent);
+}
+
+.header {
+  display: grid;
+  gap: 2px;
+}
+
+.header h3 {
+  margin: 0;
+  font-family: var(--font-display), sans-serif;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.note {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.subheading {
+  margin: 4px 0 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (min-width: 640px) {
+  .cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .cards {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Tutta la scheda è cliccabile tramite il link sul nome (::after), un'unica destinazione. */
+.card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 72px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--background);
+  transition: background-color 120ms ease;
+}
+
+.card:hover {
+  background: color-mix(in srgb, var(--foreground) 5%, var(--background));
+}
+
+.cover {
+  --mosaic-radius: 8px;
+  width: 56px;
+}
+
+.cardCopy {
+  display: grid;
+  justify-items: start;
+  min-width: 0;
+  gap: 2px;
+}
+
+.cardLink {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 650;
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardLink::after {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  content: "";
+}
+
+.cardLink:focus-visible {
+  outline: none;
+}
+
+.cardLink:focus-visible::after {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 12px;
+}
+
+.card:hover .cardLink {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.meta {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.description {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* «in <playlist>» nella riga di un brano: porta alla raccolta nella Libreria. */
+.inlineLink {
+  border-radius: 4px;
+  color: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 0.2em;
+}
+
+.inlineLink:hover {
+  color: var(--foreground);
+  text-decoration-color: currentColor;
+}
+
+.inlineLink:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Telefono: il distintivo «La tua playlist» (non si restringe) lascerebbe al titolo pochi caratteri.
+   Sale sopra il titolo, che prende tutta la riga; il sottotitolo «artista · in <playlist> e in
+   altre N raccolte» va a capo su due righe invece di essere tagliato. Meno margine nella sezione.
+   Due classi: vincono su .title/.sub della ricerca qualunque sia l'ordine dei fogli di stile. */
+@media (max-width: 479px) {
+  .section {
+    padding: 8px;
+  }
+
+  .trackTitleLine {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+
+  .section .trackTitle {
+    flex: 1 0 100%;
+  }
+
+  .section .trackSub {
+    display: -webkit-box;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card {
+    transition: none;
+  }
+}

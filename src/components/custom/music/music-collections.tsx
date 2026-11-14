@@ -584,13 +584,27 @@ type MusicCollectionsProps = {
   playlistActions?: (collection: MusicCollection) => ReactNode;
   /** Change it to re-fetch (e.g. after importing a playlist). */
   reloadKey?: number;
+  /**
+   * Raccolta aperta da un link diretto (/library?playlist=<id>, dalla ricerca): dopo il
+   * caricamento viene portata in vista, messa in risalto e il suo titolo riceve il focus.
+   */
+  focusCollectionId?: string | null;
 };
+
+/** Scorrimento verso la raccolta del link diretto: istantaneo con «riduci movimento». */
+function scrollBehavior(): ScrollBehavior {
+  const reduce =
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  return reduce ? 'auto' : 'smooth';
+}
 
 export function MusicCollections({
   embedded = false,
   folderId,
   playlistActions,
   reloadKey = 0,
+  focusCollectionId = null,
 }: MusicCollectionsProps = {}) {
   const player = useMusicPlayer();
   const [collections, setCollections] = useState<MusicCollection[]>([]);
@@ -620,6 +634,11 @@ export function MusicCollections({
   const [verifyHintFor, setVerifyHintFor] = useState<string | null>(null);
   const [verifyHintRequest, setVerifyHintRequest] = useState(0);
   const verifyHintRef = useRef<HTMLDivElement>(null);
+  const sectionId = (collectionId: string) => `${idPrefix}-collection-${collectionId}`;
+  /** La raccolta del link diretto, in risalto dopo averla raggiunta. */
+  const [deepLinkedId, setDeepLinkedId] = useState<string | null>(null);
+  /** Il link diretto già gestito: un ricaricamento delle raccolte non riporta la pagina lì. */
+  const handledDeepLink = useRef<string | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -652,6 +671,29 @@ export function MusicCollections({
   useEffect(() => {
     if (verifyHintRequest > 0) verifyHintRef.current?.focus();
   }, [verifyHintRequest]);
+
+  // Link diretto dalla ricerca: a raccolte caricate, una volta sola per id. Una raccolta che non è
+  // (più) di questo account lo dice con un avviso, senza spostare la pagina.
+  useEffect(() => {
+    if (!focusCollectionId || loading || message) return;
+    if (handledDeepLink.current === focusCollectionId) return;
+    handledDeepLink.current = focusCollectionId;
+    if (!collections.some((collection) => collection.id === focusCollectionId)) {
+      toast.error('Questa raccolta non è più nella tua Libreria.');
+      return;
+    }
+    setDeepLinkedId(focusCollectionId);
+  }, [focusCollectionId, loading, message, collections]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: gli id derivano da useId (stabile).
+  useEffect(() => {
+    if (!deepLinkedId) return;
+    document
+      .getElementById(sectionId(deepLinkedId))
+      ?.scrollIntoView?.({ block: 'start', behavior: scrollBehavior() });
+    // Il titolo (tabIndex -1) annuncia la raccolta raggiunta; lo scorrimento l'ha già fatto sopra.
+    document.getElementById(headingId(deepLinkedId))?.focus({ preventScroll: true });
+  }, [deepLinkedId]);
 
   const visibleCollections =
     folderId === undefined
@@ -846,8 +888,15 @@ export function MusicCollections({
             const busy = busyId === collection.id;
             const showVerifyHintHere = verifyHintFor === collection.id && Boolean(session?.user);
 
+            const deepLinked = deepLinkedId === collection.id;
+
             return (
-              <section key={collection.id} className={styles.collectionSection}>
+              <section
+                key={collection.id}
+                id={sectionId(collection.id)}
+                className={`${styles.collectionSection}${deepLinked ? ` ${collectionStyles.deepLinked}` : ''}`}
+                data-deep-linked={deepLinked || undefined}
+              >
                 <div className={collectionStyles.header}>
                   <div className={collectionStyles.identity}>
                     {/* Decorativa: la playlist la descrive il nome accanto. */}

@@ -111,6 +111,13 @@ a.title:hover {
   color: var(--primary-foreground);
 }
 
+/* «La tua playlist» / «Preferiti»: risultati dalla Libreria dell'ascoltatore (solo per lui). */
+.badge[data-source="mine"],
+.badge[data-source="favorites"] {
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+  color: var(--foreground);
+}
+
 .badge[data-source="audius"] {
   color: var(--primary);
   border-color: color-mix(in srgb, var(--primary) 40%, var(--border));

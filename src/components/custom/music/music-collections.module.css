@@ -127,3 +127,12 @@
     width: 100%;
   }
 }
+
+/* Raccolta aperta da un link diretto della ricerca (/library?playlist=<id>): si ferma sotto la
+   barra in alto (56px) ed è messa in risalto finché si resta sulla pagina. */
+.deepLinked {
+  scroll-margin-top: 72px;
+  border-radius: 14px;
+  outline: 2px solid color-mix(in srgb, var(--primary) 55%, transparent);
+  outline-offset: 10px;
+}

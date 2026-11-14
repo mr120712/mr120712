@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
 import { YouTubePlaylistImportResponseSchema } from '@/lib/contracts/library';
 import type { MusicCollection } from '@/lib/contracts/music';
+import { LIBRARY_PLAYLIST_PARAM } from '@/lib/music/library-links';
 import styles from './discover.module.css';
 
 const tabs = [
@@ -65,7 +66,12 @@ function importError(error: unknown) {
   return typeof cause?.message === 'string' ? cause.message : 'Importazione non riuscita.';
 }
 
-function PlaylistsTab() {
+/**
+ * `focusCollectionId`: la raccolta chiesta dal link diretto /library?playlist=<id> (ricerca «Le tue
+ * playlist»). Il filtro delle cartelle parte da «Tutte», quindi la raccolta è sempre fra quelle
+ * mostrate: MusicCollections la porta in vista e le dà il focus.
+ */
+function PlaylistsTab({ focusCollectionId }: { focusCollectionId: string | null }) {
   const library = useLibrary();
   const { folders } = library.library;
   const [folderId, setFolderId] = useState<string | null | undefined>(undefined);
@@ -241,6 +247,7 @@ function PlaylistsTab() {
         folderId={folderId}
         playlistActions={folders.length > 0 ? moveControl : undefined}
         reloadKey={reloadKey}
+        focusCollectionId={focusCollectionId}
       />
     </div>
   );
@@ -372,6 +379,8 @@ export function LibraryView() {
   const searchParams = useSearchParams();
   const requested = searchParams.get('tab');
   const active: TabId = isTab(requested) ? requested : 'playlist';
+  // Link diretto a una raccolta (dalla ricerca): apre la scheda Playlist su quella raccolta.
+  const focusPlaylist = searchParams.get(LIBRARY_PLAYLIST_PARAM);
   const online = useOnline();
 
   return (
@@ -426,7 +435,7 @@ export function LibraryView() {
             ))}
           </div>
           <div role="tabpanel">
-            {active === 'playlist' ? <PlaylistsTab /> : null}
+            {active === 'playlist' ? <PlaylistsTab focusCollectionId={focusPlaylist} /> : null}
             {active === 'radio' ? <RadioTab /> : null}
             {active === 'podcast' ? <PodcastTab /> : null}
             {active === 'cronologia' ? <HistoryTab /> : null}

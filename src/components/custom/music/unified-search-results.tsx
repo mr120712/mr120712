@@ -6,8 +6,10 @@
 // evidenza» esattamente come in Home, con playHomeTrack, più il loro «Condividi» con link diretto
 // quando il server manda shareId, cioè solo per i brani dichiarati). Quando la quota YouTube è finita resta
 // l'avviso con i risultati salvati e il link «Cerca su YouTube» (riusa youtube-search-notice).
-// Chip-filtro opzionali (Tutto / Brani / Radio / Podcast) restringono lo stesso elenco. Consuma
-// UnifiedSearchResponseSchema via apiFetch.
+// Chip-filtro opzionali (Tutto / Le tue / Brani / Radio / Podcast) restringono lo stesso elenco.
+// Consuma UnifiedSearchResponseSchema via apiFetch. Per chi ha fatto l'accesso, in parallelo e da un
+// endpoint PRIVATO (/api/music/library/search, mai dentro search-all che è in cache condivisa), la
+// sezione «Le tue playlist» in cima: le sue raccolte e i brani salvati che corrispondono.
 'use client';
 
 import { ListMusic, Pause, Play, Search } from 'lucide-react';
@@ -18,6 +20,11 @@ import { AiMusicSearch } from '@/components/custom/music/ai-music-search';
 import { AudiusLicenseNotice } from '@/components/custom/music/audius-license-notice';
 import { FallbackArt } from '@/components/custom/music/fallback-art';
 import { FeaturedShareButton } from '@/components/custom/music/featured-share-button';
+import { useLibrary } from '@/components/custom/music/library-context';
+import {
+  LibrarySearchResults,
+  librarySearchCount,
+} from '@/components/custom/music/library-search-results';
 import { ListenInSolco } from '@/components/custom/music/listen-in-solco';
 import { playHomeTrack, stationToTrack, videoToTrack } from '@/components/custom/music/live-tracks';
 import {
@@ -35,6 +42,10 @@ import {
 } from '@/components/custom/music/youtube-search-notice';
 import { apiFetch } from '@/lib/api-client';
 import type { HomeTrack } from '@/lib/contracts/home-tracks';
+import {
+  type LibrarySearchResponse,
+  LibrarySearchResponseSchema,
+} from '@/lib/contracts/library-search';
 import type { AudiusTrackSearchResult, YouTubeVideoSearchResult } from '@/lib/contracts/music';
 import {
   UNIFIED_FEATURED_PARAM,
@@ -48,7 +59,8 @@ import discover from './discover.module.css';
 import styles from './unified-search-results.module.css';
 
 type SearchError = { text: string; retryAfterMs: number };
-type Filter = 'all' | 'tracks' | 'radio' | 'podcast';
+/** `mine`: «Le tue», solo la sezione delle raccolte e dei brani della Libreria (chi ha l'accesso). */
+type Filter = 'all' | 'mine' | 'tracks' | 'radio' | 'podcast';
 
 const DEBOUNCE_MS = 350;
 /** «Condividi» di un brano in evidenza: tondo come gli altri pulsanti della riga (36 px). */
@@ -141,6 +153,8 @@ function isTrackResult(result: UnifiedResult): boolean {
 
 function matchesFilter(result: UnifiedResult, filter: Filter): boolean {
   if (filter === 'all') return true;
+  // «Le tue» mostra solo la sezione della Libreria, nessuna voce dell'elenco misto.
+  if (filter === 'mine') return false;
   if (filter === 'tracks') return isTrackResult(result);
   return result.kind === filter;
 }
@@ -155,6 +169,8 @@ export function UnifiedSearchResults({
   const player = useMusicPlayer();
   const router = useRouter();
   const pathname = usePathname();
+  // Fuori dal provider (o senza sessione) è false: nessuna richiesta alla Libreria.
+  const { signedIn } = useLibrary();
 
   const [draft, setDraft] = useState(initialQuery);
   const [query, setQuery] = useState(initialQuery.trim());
@@ -166,6 +182,8 @@ export function UnifiedSearchResults({
   const [filter, setFilter] = useState<Filter>('all');
   // Aumentato da «Riprova» per rieseguire la stessa ricerca.
   const [attempt, setAttempt] = useState(0);
+  // «Le tue playlist»: raccolte e brani della Libreria di chi ha l'accesso (null = sezione nascosta).
+  const [library, setLibrary] = useState<LibrarySearchResponse | null>(null);
 
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastInitial = useRef<string | null>(null);
@@ -224,6 +242,30 @@ export function UnifiedSearchResults({
     };
   }, [query, youtubeRequested, attempt]);
 
+  // «Le tue playlist»: SOLO per chi ha fatto l'accesso, in parallelo a search-all (che resta
+  // pubblico e in cache CDN: i dati di un account arrivano solo da questo endpoint privato). Una
+  // query nuova annulla la richiesta in volo; un errore (anche un 429) nasconde la sezione in
+  // silenzio. L'invio con YouTube non cambia i risultati della Libreria: nessuna richiesta in più.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: attempt è un trigger di «Riprova».
+  useEffect(() => {
+    if (!signedIn || !query) {
+      setLibrary(null);
+      return;
+    }
+    const controller = new AbortController();
+    apiFetch(`/api/music/library/search?${new URLSearchParams({ q: query }).toString()}`, {
+      schema: LibrarySearchResponseSchema,
+      signal: controller.signal,
+    })
+      .then((value) => {
+        if (!controller.signal.aborted) setLibrary(value);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setLibrary(null);
+      });
+    return () => controller.abort();
+  }, [query, signedIn, attempt]);
+
   useEffect(
     () => () => {
       if (debounce.current) clearTimeout(debounce.current);
@@ -272,14 +314,20 @@ export function UnifiedSearchResults({
   };
 
   const results = response?.results ?? [];
+  // Solo la risposta della query ATTUALE: mentre la Libreria cerca la query nuova, quella vecchia
+  // (già arrivata) non resta a schermo né nei conteggi. La risposta porta la query ripulita.
+  const currentLibrary = library && library.query === query ? library : null;
+  const libraryCount = librarySearchCount(currentLibrary);
   const counts = useMemo(
     () => ({
-      all: results.length,
+      // «Tutto» conta anche la sezione della Libreria, che compare in cima.
+      all: results.length + libraryCount,
+      mine: libraryCount,
       tracks: results.filter(isTrackResult).length,
       radio: results.filter((r) => r.kind === 'radio').length,
       podcast: results.filter((r) => r.kind === 'podcast').length,
     }),
-    [results],
+    [results, libraryCount],
   );
   // Se il filtro scelto è vuoto dopo una nuova risposta, mostra «Tutto» (niente lista vuota).
   const activeFilter: Filter = counts[filter] > 0 ? filter : 'all';
@@ -287,6 +335,11 @@ export function UnifiedSearchResults({
     () => results.filter((result) => matchesFilter(result, activeFilter)),
     [results, activeFilter],
   );
+  // La sezione «Le tue playlist» compare sotto «Tutto» e «Le tue», mai negli altri chip.
+  const showLibrary = libraryCount > 0 && (activeFilter === 'all' || activeFilter === 'mine');
+  const visibleCount = visible.length + (showLibrary ? libraryCount : 0);
+  const librarySection =
+    showLibrary && currentLibrary ? <LibrarySearchResults result={currentLibrary} /> : null;
 
   // Code del player per sorgente, così «brano successivo» resta nell'elenco mostrato.
   const featuredItems = useMemo(
@@ -350,7 +403,7 @@ export function UnifiedSearchResults({
       return youtubeRequested ? `Cerco “${query}” anche su YouTube…` : `Aggiorno “${query}”…`;
     }
     if (!response) return '';
-    const n = visible.length;
+    const n = visibleCount;
     let line = `${n} ${n === 1 ? 'risultato' : 'risultati'} per “${response.query}”.`;
     if (yt && (yt.kind === 'saved' || yt.kind === 'blocked')) {
       line += ` ${youtubeStatusText(yt, youtubeVideoCount)}`;
@@ -360,6 +413,7 @@ export function UnifiedSearchResults({
 
   const filters: Array<{ value: Filter; label: string }> = [
     { value: 'all', label: 'Tutto' },
+    { value: 'mine', label: 'Le tue' },
     { value: 'tracks', label: 'Brani' },
     { value: 'radio', label: 'Radio' },
     { value: 'podcast', label: 'Podcast' },
@@ -396,6 +450,7 @@ export function UnifiedSearchResults({
       <p className={styles.hint}>
         Mentre scrivi cerchiamo fra i brani in evidenza, su Audius, radio e podcast. Premi Invio o
         «Cerca» per includere anche YouTube (la query raggiunge Google).{' '}
+        {signedIn ? 'Trovi anche le tue playlist e i brani salvati: li vedi solo tu. ' : null}
         <Link href="/privacy">Privacy</Link>
       </p>
 
@@ -427,7 +482,7 @@ export function UnifiedSearchResults({
             </h2>
             {response && !pending ? (
               <span className={styles.count}>
-                {visible.length} {visible.length === 1 ? 'risultato' : 'risultati'}
+                {visibleCount} {visibleCount === 1 ? 'risultato' : 'risultati'}
               </span>
             ) : null}
           </div>
@@ -437,8 +492,11 @@ export function UnifiedSearchResults({
             {statusLine}
           </output>
 
+          {/* «Le tue playlist» non aspetta search-all: compare appena la Libreria risponde, anche
+              mentre le altre fonti cercano o se la ricerca unificata non riesce. */}
           {error ? (
             <>
+              {librarySection}
               <p className={discover.state}>{error.text}</p>
               <YouTubeLinkOut query={query} />
               <button
@@ -451,7 +509,10 @@ export function UnifiedSearchResults({
               </button>
             </>
           ) : !response && pending ? (
-            <p className={discover.state}>Cerco “{query}”…</p>
+            <>
+              {librarySection}
+              <p className={discover.state}>Cerco “{query}”…</p>
+            </>
           ) : response ? (
             <>
               {showNotice && yt ? (
@@ -484,12 +545,21 @@ export function UnifiedSearchResults({
                 </fieldset>
               ) : null}
 
+              {librarySection}
+
               {visible.length === 0 ? (
-                <p className={discover.state}>
-                  {counts.all === 0
-                    ? `Nessun risultato per “${response.query}”.`
-                    : 'Nessun risultato in questa categoria.'}
-                </p>
+                showLibrary ? (
+                  // Solo la sezione della Libreria: sotto «Tutto» si dice che altrove non c'è altro.
+                  activeFilter === 'all' ? (
+                    <p className={discover.state}>Nessun altro risultato per “{response.query}”.</p>
+                  ) : null
+                ) : (
+                  <p className={discover.state}>
+                    {counts.all === 0
+                      ? `Nessun risultato per “${response.query}”.`
+                      : 'Nessun risultato in questa categoria.'}
+                  </p>
+                )
               ) : (
                 <ol className={discover.list}>
                   {visible.map((result) => (
