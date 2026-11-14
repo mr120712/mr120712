@@ -48,6 +48,8 @@ export type TelegramDiagnostics = {
   bot?: { id: number; username: string | null; name: string };
   channel: { configured: boolean; id?: string; title?: string; type?: string };
   membership?: { status: string; canPost: boolean | null };
+  /** Avvisi di configurazione in italiano (non errori di comunicazione): cosa sistemare e come. */
+  warnings: string[];
   errors: string[];
 };
 
@@ -68,6 +70,7 @@ export async function telegramBotDiagnostics(): Promise<TelegramDiagnostics> {
     return {
       configured: false,
       channel: { configured: Boolean(channelId) },
+      warnings: [],
       errors: ['TELEGRAM_BOT_TOKEN non impostato: il bot è disattivato.'],
     };
   }
@@ -95,9 +98,11 @@ export async function telegramBotDiagnostics(): Promise<TelegramDiagnostics> {
     }
   };
 
+  const warnings: string[] = [];
   const out: TelegramDiagnostics = {
     configured: true,
     channel: { configured: Boolean(channelId) },
+    warnings,
     errors,
   };
 
@@ -136,6 +141,27 @@ export async function telegramBotDiagnostics(): Promise<TelegramDiagnostics> {
       } else {
         errors.push(`getChatMember: ${redactToken(mem?.description ?? 'nessuna risposta', token)}`);
       }
+    }
+
+    // Avvisi di configurazione, a parole: i casi tipici di canale impostato male, così non si devono
+    // dedurre dagli id.
+    if (out.bot && out.channel.id && out.channel.id === String(out.bot.id)) {
+      warnings.push(
+        'TELEGRAM_CHANNEL_CHAT_ID coincide con l’id del bot: punta al bot stesso, non a un canale. Impostalo sull’id del canale degli annunci (di solito inizia con -100…).',
+      );
+    } else if (
+      out.channel.type &&
+      out.channel.type !== 'channel' &&
+      out.channel.type !== 'supergroup'
+    ) {
+      warnings.push(
+        `TELEGRAM_CHANNEL_CHAT_ID non è un canale (tipo rilevato: ${out.channel.type}). Gli annunci richiedono un canale Telegram.`,
+      );
+    }
+    if (out.membership && out.membership.canPost !== true) {
+      warnings.push(
+        `Il bot non può pubblicare nel canale (stato: ${out.membership.status}). Rendilo amministratore del canale con il permesso di pubblicare messaggi.`,
+      );
     }
   }
 
