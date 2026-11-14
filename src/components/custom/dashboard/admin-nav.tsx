@@ -1,7 +1,15 @@
 // @polsia:user-owned
 'use client';
 
-import { Activity, AudioLines, Bot, Clapperboard, LayoutDashboard, Users } from 'lucide-react';
+import {
+  Activity,
+  AudioLines,
+  Bot,
+  Clapperboard,
+  FileCheck2,
+  LayoutDashboard,
+  Users,
+} from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
@@ -12,6 +20,7 @@ const navItems = [
   { href: '/admin/iscritti', label: 'Iscritti', icon: Users },
   { href: '/admin/assistente', label: 'Assistente IA', icon: Bot },
   { href: '/admin/music-rights', label: 'Diritti musicali', icon: AudioLines },
+  { href: '/admin/diritti-testi', label: 'Diritti e testi', icon: FileCheck2 },
   { href: '/admin/tiktok', label: 'Video TikTok', icon: Clapperboard },
   { href: '/admin/monitoraggio', label: 'Monitoraggio', icon: Activity },
 ];

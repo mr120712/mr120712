@@ -12,6 +12,12 @@
 // Cache in memoria: ~10 minuti se il testo c'è, ~2 minuti se manca o la lettura fallisce. Il
 // permesso ("testo": true) si ricontrolla a ogni richiesta sull'indice della ricerca (al massimo ~5
 // minuti di ritardo per una revoca). Scadenza complessiva breve. Non fa mai throw.
+//
+// La pagina admin «Diritti e testi» usa getFeaturedLyricsAvailability: STESSA ricerca e STESSA
+// cache, ma esce solo se il testo c'è, da dove viene (.lrc, .txt, incorporato), il tipo e quante
+// righe ha. Mai il testo, nemmeno una riga. Ogni esito finisce anche in una seconda cache SENZA
+// testo (solo fonte, tipo e righe), grande quanto i brani della pagina admin: così la diagnosi
+// non dipende dai 200 testi del player e i suoi controlli non si ripetono a ogni «Aggiorna».
 import 'server-only';
 import { get } from '@vercel/blob';
 import { parseBuffer } from 'music-metadata';
@@ -28,7 +34,7 @@ import {
   type HomeStoreFile,
   isPublicBlobUrl,
 } from '@/lib/music/home-tracks.server';
-import { type ParsedLyrics, parseLyrics } from '@/lib/music/lyrics';
+import { type LyricsKind, type ParsedLyrics, parseLyrics } from '@/lib/music/lyrics';
 
 /** Dimensione massima di un file .lrc/.txt: oltre si ignora. */
 export const LYRICS_SIDECAR_MAX_BYTES = 64 * 1024;
@@ -40,16 +46,32 @@ const MISS_TTL_MS = 2 * 60_000;
 const DEADLINE_MS = 8000;
 /** Testi tenuti in memoria al massimo (i più vecchi escono per primi). */
 const MAX_CACHE_ENTRIES = 200;
+/**
+ * Esiti SENZA testo tenuti in memoria al massimo per la pagina admin (quanti i brani che mostra,
+ * FEATURED_RIGHTS_MAX_TRACKS): pochi byte l'uno.
+ */
+const MAX_AVAILABILITY_ENTRIES = 5000;
 
-type CacheEntry = { value: ParsedLyrics | null; expiresAt: number };
+/** Da dove viene il testo trovato. */
+export type FeaturedLyricsOrigin = 'lrc' | 'txt' | 'embedded';
+type FoundLyrics = { lyrics: ParsedLyrics; origin: FeaturedLyricsOrigin };
+/** Esito di una ricerca del testo: `failed` = una lettura è andata in errore o oltre la scadenza. */
+type LyricsLookup = { found: FoundLyrics | null; failed: boolean };
+type CacheEntry = { value: LyricsLookup; expiresAt: number };
 
 const cache = new Map<string, CacheEntry>();
-const pending = new Map<string, Promise<ParsedLyrics | null>>();
+/** Stessa chiave e stessa scadenza di `cache`, ma solo la disponibilità: MAI il testo. */
+const availabilityCache = new Map<
+  string,
+  { value: FeaturedLyricsAvailability; expiresAt: number }
+>();
+const pending = new Map<string, Promise<LyricsLookup>>();
 let generation = 0;
 
 /** Svuota la cache dei testi (solo per i test). */
 export function clearFeaturedLyricsCacheForTests() {
   cache.clear();
+  availabilityCache.clear();
   pending.clear();
   generation += 1;
 }
@@ -119,36 +141,66 @@ async function readEmbedded(
   return lyricsFromMetadata(metadata);
 }
 
-/** Primo testo trovato: i file accanto (.lrc poi .txt), poi quello incorporato. Mai throw. */
-async function findLyrics(
-  token: string,
-  source: FeaturedLyricsSource,
-): Promise<ParsedLyrics | null> {
+/** .lrc o .txt, dall'estensione del file accanto al brano (maiuscole indifferenti). */
+function sidecarOrigin(pathname: string): FeaturedLyricsOrigin {
+  return pathname.toLowerCase().endsWith('.lrc') ? 'lrc' : 'txt';
+}
+
+/**
+ * Primo testo trovato: i file accanto (.lrc poi .txt), poi quello incorporato. Mai throw: una
+ * lettura in errore passa alla fonte successiva e, se nessuna dà un testo, l'esito è `failed`.
+ */
+async function findLyrics(token: string, source: FeaturedLyricsSource): Promise<LyricsLookup> {
+  let failed = false;
+  const onError = () => {
+    failed = true;
+    return null;
+  };
   for (const file of source.sidecars) {
-    const parsed = await readSidecar(token, file).catch(() => null);
-    if (parsed) return parsed;
+    const parsed = await readSidecar(token, file).catch(onError);
+    if (parsed) return { found: { lyrics: parsed, origin: sidecarOrigin(file.pathname) }, failed };
   }
-  return readEmbedded(token, source).catch(() => null);
+  const embedded = await readEmbedded(token, source).catch(onError);
+  return { found: embedded ? { lyrics: embedded, origin: 'embedded' } : null, failed };
 }
 
-function remember(key: string, value: ParsedLyrics | null) {
-  cache.delete(key);
-  cache.set(key, { value, expiresAt: Date.now() + (value ? HIT_TTL_MS : MISS_TTL_MS) });
-  while (cache.size > MAX_CACHE_ENTRIES) {
-    const oldest = cache.keys().next().value;
+/** Inserisce in una cache a capienza fissa: i più vecchi escono per primi. */
+function putCapped<V>(map: Map<string, V>, key: string, value: V, max: number) {
+  map.delete(key);
+  map.set(key, value);
+  while (map.size > max) {
+    const oldest = map.keys().next().value;
     if (oldest === undefined) break;
-    cache.delete(oldest);
+    map.delete(oldest);
   }
 }
 
-/** Il testo di un brano autorizzato, dalla cache o letto una sola volta (richieste concorrenti). */
+function remember(key: string, value: LyricsLookup) {
+  const expiresAt = Date.now() + (value.found ? HIT_TTL_MS : MISS_TTL_MS);
+  putCapped(cache, key, { value, expiresAt }, MAX_CACHE_ENTRIES);
+  putCapped(
+    availabilityCache,
+    key,
+    { value: availabilityOf(value), expiresAt },
+    MAX_AVAILABILITY_ENTRIES,
+  );
+}
+
+const LOOKUP_FAILED: LyricsLookup = { found: null, failed: true };
+
+/**
+ * Il testo di un brano autorizzato, dalla cache o letto una sola volta (richieste concorrenti).
+ * `retryFailed` (solo la diagnosi admin): un esito "lettura fallita" in cache non vale, si rilegge.
+ */
 async function cachedLyrics(
   token: string,
   source: FeaturedLyricsSource,
-): Promise<ParsedLyrics | null> {
+  retryFailed = false,
+): Promise<LyricsLookup> {
   const key = cacheKey(source);
   const hit = cache.get(key);
-  if (hit && hit.expiresAt > Date.now()) return hit.value;
+  const stale = retryFailed && hit !== undefined && hit.value.failed && !hit.value.found;
+  if (hit && hit.expiresAt > Date.now() && !stale) return hit.value;
   const running = pending.get(key);
   if (running) return running;
 
@@ -159,11 +211,11 @@ async function cachedLyrics(
   });
   const work = Promise.race([findLyrics(token, source), deadline])
     .then((value) => {
-      const parsed = value === 'timeout' ? null : value;
-      if (started === generation) remember(key, parsed);
-      return parsed;
+      const lookup = value === 'timeout' ? LOOKUP_FAILED : value;
+      if (started === generation) remember(key, lookup);
+      return lookup;
     })
-    .catch(() => null)
+    .catch(() => LOOKUP_FAILED)
     .finally(() => {
       clearTimeout(timer);
       if (pending.get(key) === work) pending.delete(key);
@@ -183,7 +235,7 @@ export async function readFeaturedLyrics(pathname: string): Promise<Lyrics | nul
   try {
     const source = await getFeaturedLyricsSource(pathname);
     if (!source) return null;
-    const parsed = await cachedLyrics(token, source);
+    const parsed = (await cachedLyrics(token, source)).found?.lyrics;
     if (!parsed) return null;
     return {
       kind: parsed.kind,
@@ -193,5 +245,67 @@ export async function readFeaturedLyrics(pathname: string): Promise<Lyrics | nul
     };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Disponibilità del testo per la diagnosi dell'amministratore: da dove viene, tipo e numero di
+ * righe. NESSUN campo con il testo: il tipo stesso non lo prevede. 'none' = nessuna fonte ha un
+ * testo; 'error' = nessun testo e almeno una lettura è fallita o è scaduta. `sidecarError` = il
+ * testo viene da una fonte successiva perché la LETTURA di un file accanto è fallita (errore di
+ * rete o tempo scaduto, non un file inutilizzabile).
+ */
+export type FeaturedLyricsAvailability =
+  | { status: FeaturedLyricsOrigin; kind: LyricsKind; lineCount: number; sidecarError?: true }
+  | { status: 'none' | 'error' };
+
+function availabilityOf(lookup: LyricsLookup): FeaturedLyricsAvailability {
+  if (lookup.found) {
+    return {
+      status: lookup.found.origin,
+      kind: lookup.found.lyrics.kind,
+      lineCount: lookup.found.lyrics.lines.length,
+      // Con un testo trovato, `failed` può venire solo da un file accanto letto prima (findLyrics).
+      ...(lookup.failed ? { sidecarError: true as const } : {}),
+    };
+  }
+  return { status: lookup.failed ? 'error' : 'none' };
+}
+
+function cachedAvailability(key: string): FeaturedLyricsAvailability | undefined {
+  const hit = availabilityCache.get(key);
+  return hit && hit.expiresAt > Date.now() ? hit.value : undefined;
+}
+
+/**
+ * Solo dalla cache, senza leggere nulla: la disponibilità se il brano è già stato controllato
+ * (dal player o dalla pagina admin) e non è scaduta, altrimenti undefined. 'error' compreso: chi
+ * chiama decide se ricontrollarlo (getFeaturedLyricsAvailability lo rilegge).
+ */
+export function peekFeaturedLyricsAvailability(
+  source: FeaturedLyricsSource,
+): FeaturedLyricsAvailability | undefined {
+  return cachedAvailability(cacheKey(source));
+}
+
+/**
+ * Se un brano in evidenza ha un testo e da dove viene, con la STESSA ricerca e la STESSA cache del
+ * player (un controllo dall'admin scalda la cache per il player e viceversa). Mai il testo.
+ * `source` deve venire da un brano dichiarato con "testo": true: il permesso lo controlla chi
+ * chiama (la pagina admin costruisce le fonti dallo stesso elenco dello store e dalla stessa
+ * diagnosi di diritti.json). Un esito "lettura fallita" in cache si rilegge subito (il player
+ * invece lo tiene ~2 minuti). Non fa mai throw.
+ */
+export async function getFeaturedLyricsAvailability(
+  source: FeaturedLyricsSource,
+): Promise<FeaturedLyricsAvailability> {
+  const token = env.BLOB_READ_WRITE_TOKEN;
+  if (!token) return { status: 'error' };
+  try {
+    const known = cachedAvailability(cacheKey(source));
+    if (known && known.status !== 'error') return known;
+    return availabilityOf(await cachedLyrics(token, source, true));
+  } catch {
+    return { status: 'error' };
   }
 }
