@@ -1,6 +1,8 @@
-// @polsia:user-owned — pagina /admin/iscritti: caricamento, schede dei numeri, grafico degli
-// ultimi 30 giorni con tabella accessibile, errore con "Riprova", stato vuoto, "Aggiorna", voce
-// "Iscritti" nel menu amministrazione e scheda nella panoramica /admin.
+// @polsia:user-owned — pagina /admin/iscritti: caricamento, schede dei numeri, Free e Pro con i
+// Pro per fonte e la nota sui dati salvati (o l'avviso quando Free e Pro non sono disponibili),
+// quote che sommano al 100% anche agli estremi, grafico degli ultimi 30 giorni con tabella
+// accessibile, errore con "Riprova", stato vuoto, "Aggiorna", voce "Iscritti" nel menu
+// amministrazione e scheda nella panoramica /admin.
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -17,7 +19,11 @@ import AdminPage from '@/app/(dashboard)/admin/page';
 import { SignupsDashboard } from '@/components/custom/admin/signups-dashboard';
 import { AdminNav } from '@/components/custom/dashboard/admin-nav';
 import { signupDayKeys } from '@/lib/admin/signups';
-import { type AdminSignups, AdminSignupsSchema } from '@/lib/contracts/admin-signups';
+import {
+  type AdminPlans,
+  type AdminSignups,
+  AdminSignupsSchema,
+} from '@/lib/contracts/admin-signups';
 
 // 14:30 UTC = 15:30 a Roma (ora solare a novembre).
 const NOW = new Date('2026-11-14T14:30:00.000Z');
@@ -38,6 +44,12 @@ function stats(
       verified: 8000,
       banned: 0,
       admins: 1,
+    },
+    plans: {
+      free: 12000,
+      pro: 345,
+      proShare: 2.8,
+      proBySource: { stripe: 200, paypal: 60, inApp: 70, solcoPro: 10, rewards: 30 },
     },
     daily: signupDayKeys(NOW).map((day) => ({ day, count: counts[day] ?? 0 })),
     ...extra,
@@ -98,6 +110,24 @@ function tile(container: HTMLElement, label: string) {
     value: card.querySelector('dd')?.textContent,
     detail: card.querySelector('.app-ui-metric-detail')?.textContent,
   };
+}
+
+function plansPanel(container: HTMLElement) {
+  const heading = [...container.querySelectorAll('h2')].find(
+    (element) => element.textContent === 'Free e Pro',
+  );
+  const panel = heading?.closest('.app-ui-panel');
+  if (!panel) throw new Error('Riquadro "Free e Pro" non trovato.');
+  return panel as HTMLElement;
+}
+
+function sourceRows(container: HTMLElement) {
+  return [...plansPanel(container).querySelectorAll('[data-source]')].map((item) => ({
+    source: item.getAttribute('data-source'),
+    name: item.querySelector('dt span')?.textContent,
+    count: item.querySelector('dd')?.textContent,
+    bar: item.querySelector<HTMLElement>('dd [aria-hidden="true"] span')?.style.width,
+  }));
 }
 
 function dayTable(container: HTMLElement) {
@@ -182,6 +212,153 @@ describe('pagina iscritti: dati', () => {
     expect(updated?.textContent).toBe('15:30');
     expect(updated?.getAttribute('datetime')).toBe(NOW.toISOString());
     expect(container.textContent).toContain('Aggiornato alle 15:30');
+  });
+
+  it('divide gli utenti attivi in Free e Pro con la quota degli utenti attivi', async () => {
+    mocks.apiFetch.mockImplementation(respond(stats()));
+    const container = await mount();
+    const panel = plansPanel(container);
+    expect(panel.textContent).toContain('Utenti attivi = account non bloccati.');
+    expect(panel.querySelector('section[aria-label="Utenti Free e Pro"]')).not.toBeNull();
+    expect(tile(panel, 'Free')).toEqual({ value: '12.000', detail: '97,2% degli utenti attivi' });
+    expect(tile(panel, 'Pro attivi')).toEqual({
+      value: '345',
+      detail: '2,8% degli utenti attivi',
+    });
+  });
+
+  it('mostra i Pro per fonte con la nota sulle fonti multiple e sui dati salvati', async () => {
+    mocks.apiFetch.mockImplementation(respond(stats()));
+    const container = await mount();
+    const panel = plansPanel(container);
+
+    const heading = panel.querySelector('h3');
+    expect(heading?.textContent).toBe('Pro per fonte');
+    const section = heading?.closest('section');
+    expect(section?.getAttribute('aria-labelledby')).toBe(heading?.id);
+    expect(section?.textContent).toContain(
+      'Un utente può comparire in più di una fonte: la somma può superare i Pro attivi.',
+    );
+    expect(sourceRows(container)).toEqual([
+      { source: 'stripe', name: 'Stripe', count: '200', bar: `${(200 / 345) * 100}%` },
+      { source: 'paypal', name: 'PayPal', count: '60', bar: `${(60 / 345) * 100}%` },
+      { source: 'inApp', name: 'App Store', count: '70', bar: `${(70 / 345) * 100}%` },
+      { source: 'solcoPro', name: 'Solco Pro', count: '10', bar: `${(10 / 345) * 100}%` },
+      { source: 'rewards', name: 'Premi', count: '30', bar: `${(30 / 345) * 100}%` },
+    ]);
+    // Le barre sono decorative: il numero è nel testo della definizione.
+    for (const bar of panel.querySelectorAll('dd [aria-hidden="true"]')) {
+      expect(bar.textContent).toBe('');
+    }
+    expect(panel.querySelector('dl > div[data-source="inApp"] dt')?.textContent).toContain(
+      'Google Play',
+    );
+    expect(panel.textContent).toContain(
+      'Calcolato dai dati salvati, senza verificare in tempo reale con Stripe/PayPal/Apple.',
+    );
+  });
+
+  it('non arrotonda a zero una quota minima e gestisce zero Pro e zero utenti attivi', async () => {
+    const tiny = stats();
+    tiny.plans = {
+      free: 12344,
+      pro: 1,
+      proShare: 0,
+      proBySource: { stripe: 0, paypal: 0, inApp: 0, solcoPro: 0, rewards: 1 },
+    };
+    mocks.apiFetch.mockImplementation(respond(tiny));
+    const container = await mount();
+    expect(tile(plansPanel(container), 'Pro attivi').detail).toBe(
+      'meno dello 0,1% degli utenti attivi',
+    );
+    // Con un Pro i Free non sono il 100%.
+    expect(tile(plansPanel(container), 'Free').detail).toBe('più del 99,9% degli utenti attivi');
+
+    const none = stats();
+    none.totals = { ...none.totals, banned: 12345 };
+    none.plans = {
+      free: 0,
+      pro: 0,
+      proShare: 0,
+      proBySource: { stripe: 0, paypal: 0, inApp: 0, solcoPro: 0, rewards: 0 },
+    };
+    mocks.apiFetch.mockImplementation(respond(none));
+    await click(buttonByText(container, 'Aggiorna'));
+    expect(tile(plansPanel(container), 'Pro attivi')).toEqual({
+      value: '0',
+      detail: 'Nessun utente attivo',
+    });
+    expect(sourceRows(container).map((row) => [row.count, row.bar])).toEqual(
+      Array.from({ length: 5 }, () => ['0', '0%']),
+    );
+  });
+
+  it.each([
+    // [free, pro, proShare del server, quota Free, quota Pro]
+    [1999, 1, 0.1, '99,9%', '0,1%'],
+    [2999, 1, 0, 'più del 99,9%', 'meno dello 0,1%'],
+    [1, 3000, 100, 'meno dello 0,1%', 'più del 99,9%'],
+    // 33,35% / 66,65%: arrotondate entrambe per eccesso farebbero 100,1%.
+    [1333, 667, 33.4, '66,6%', '33,4%'],
+    [0, 5, 100, '0%', '100%'],
+    [5, 0, 0, '100%', '0%'],
+  ])(
+    'Free %i e Pro %i: le quote non mentono agli estremi e sommano al 100%%',
+    async (free, pro, proShare, freeText, proText) => {
+      const data = stats();
+      data.totals = { ...data.totals, total: free + pro };
+      data.plans = {
+        free,
+        pro,
+        proShare,
+        proBySource: { stripe: pro, paypal: 0, inApp: 0, solcoPro: 0, rewards: 0 },
+      };
+      mocks.apiFetch.mockImplementation(respond(data));
+      const container = await mount();
+      expect(tile(plansPanel(container), 'Free').detail).toBe(`${freeText} degli utenti attivi`);
+      expect(tile(plansPanel(container), 'Pro attivi').detail).toBe(
+        `${proText} degli utenti attivi`,
+      );
+    },
+  );
+
+  it('se Free e Pro non sono disponibili lo dice nel riquadro e mostra il resto', async () => {
+    mocks.apiFetch.mockImplementation(respond({ ...stats(), plans: null }));
+    const container = await mount();
+    const panel = plansPanel(container);
+    expect(panel.textContent).toContain('Free e Pro non disponibili in questo momento.');
+    expect(panel.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+    expect(panel.querySelector('dt')).toBeNull();
+    expect(panel.querySelector('[data-source]')).toBeNull();
+    expect(panel.textContent).not.toContain('Calcolato dai dati salvati');
+    // Non è un errore della pagina: nessun avviso e i totali e il grafico restano.
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    expect(tile(container, 'Totale iscritti').value).toBe('12.345');
+    expect(container.querySelectorAll('[data-day]')).toHaveLength(30);
+
+    // Tornano disponibili con "Aggiorna".
+    mocks.apiFetch.mockImplementation(respond(stats()));
+    await click(buttonByText(container, 'Aggiorna'));
+    expect(tile(plansPanel(container), 'Pro attivi').value).toBe('345');
+    expect(plansPanel(container).textContent).not.toContain('non disponibili');
+  });
+
+  it('rifiuta una risposta con id utente o fonti incoerenti', async () => {
+    const leaked = stats() as AdminSignups & { plans: { ids?: string[] } };
+    leaked.plans.ids = ['user-1'];
+    mocks.apiFetch.mockImplementation(respond(leaked));
+    const container = await mount();
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      'La risposta del server non è nel formato atteso.',
+    );
+    expect(container.textContent).not.toContain('user-1');
+
+    const valid = stats().plans as AdminPlans;
+    const inconsistent = {
+      ...stats(),
+      plans: { ...valid, proBySource: { ...valid.proBySource, stripe: 400 } },
+    };
+    expect(AdminSignupsSchema.safeParse(inconsistent).success).toBe(false);
   });
 
   it('disegna 30 barre con oggi a righe e una tabella per i lettori di schermo', async () => {

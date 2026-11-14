@@ -11,7 +11,20 @@ const STRIPE_API = 'https://api.stripe.com/v1';
 const RECHECK_MS = 60 * 60 * 1000;
 /** Abbonamento scaduto (o verifica fallita): al massimo una chiamata a Stripe ogni 5 minuti. */
 const EXPIRED_RECHECK_MS = 5 * 60 * 1000;
-const ACTIVE_STATUSES = new Set(['active', 'trialing', 'past_due']);
+/**
+ * Stati Stripe che danno accesso finché il periodo pagato non è finito ('past_due' = rinnovo non
+ * riuscito, Stripe sta ritentando). Condivisi col conteggio admin dei Pro.
+ */
+export const STRIPE_ACCESS_STATUSES: ReadonlySet<string> = new Set([
+  'active',
+  'trialing',
+  'past_due',
+]);
+/**
+ * L'abbonamento che decide l'accesso è l'ULTIMO creato dall'utente, anche se non è attivo: le righe
+ * più vecchie non vengono più riverificate e possono restare "active" nel database.
+ */
+export const LATEST_STRIPE_SUBSCRIPTION_ORDER = Object.freeze({ createdAt: 'desc' } as const);
 
 export class StripeSubscriptionError extends Error {
   constructor(
@@ -252,7 +265,7 @@ export function isSubscriptionActive(
   row: { status: string; currentPeriodEnd: Date | null } | null,
   now = new Date(),
 ) {
-  if (!row || !ACTIVE_STATUSES.has(row.status)) return false;
+  if (!row || !STRIPE_ACCESS_STATUSES.has(row.status)) return false;
   return !row.currentPeriodEnd || row.currentPeriodEnd.getTime() > now.getTime();
 }
 
@@ -281,7 +294,7 @@ export async function getUserSubscription(
 ) {
   const row = await prisma.solcoSubscription.findFirst({
     where: { userId },
-    orderBy: { createdAt: 'desc' },
+    orderBy: LATEST_STRIPE_SUBSCRIPTION_ORDER,
   });
   if (!row || !subscriptionsEnabled()) return row;
   if (!needsStripeRecheck(row, now)) return row;

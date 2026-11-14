@@ -270,6 +270,28 @@ export function evaluateSolcoProPurchase(input: {
   };
 }
 
+/**
+ * Filtro del database per le registrazioni Solco Pro che possono dare accesso adesso (senza
+ * l'utente). Lo usano findActiveSolcoProEntitlement e il conteggio admin dei Pro
+ * (src/lib/admin/signups.server.ts): una modifica alla regola vale per entrambi. Il giudice
+ * finale resta isActiveSolcoProEntitlement, applicato alla registrazione scelta.
+ */
+export function solcoProEntitlementWhere(now: Date) {
+  return {
+    paymentMode: 'payment',
+    verificationState: 'confirmed',
+    amountEuroCents: SOLCO_PRO_PRICE_EURO_CENTS,
+    currency: 'EUR',
+    durationKey: SOLCO_PRO_ACCESS_DURATION.key,
+    durationKind: SOLCO_PRO_ACCESS_DURATION.kind,
+    validFrom: { lte: now },
+    validUntil: { gt: now },
+  } as const;
+}
+
+/** Tra le registrazioni del filtro decide quella iniziata per ultima (validFrom più recente). */
+export const SOLCO_PRO_ENTITLEMENT_ORDER = Object.freeze({ validFrom: 'desc' } as const);
+
 export function isActiveSolcoProEntitlement(
   value: unknown,
   userId: string,

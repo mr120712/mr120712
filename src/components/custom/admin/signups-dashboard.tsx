@@ -1,10 +1,10 @@
 // @polsia:user-owned — pagina /admin/iscritti: totali degli account, nuovi nelle ultime 24 ore /
-// 7 / 30 giorni, verificati, bloccati e grafico a barre delle iscrizioni degli ultimi 30 giorni
-// (con tabella per i lettori di schermo). Legge solo /api/admin/signups: numeri aggregati, nessun
-// dato personale.
+// 7 / 30 giorni, verificati, bloccati, utenti Free e Pro (con i Pro per fonte) e grafico a barre
+// delle iscrizioni degli ultimi 30 giorni (con tabella per i lettori di schermo). Legge solo
+// /api/admin/signups: numeri aggregati, nessun dato personale.
 'use client';
 
-import { CircleX, RefreshCw, RotateCw, Table2, Users } from 'lucide-react';
+import { CircleAlert, CircleX, RefreshCw, RotateCw, Table2, Users } from 'lucide-react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { ZodError } from 'zod';
 import { AppSurface } from '@/components/custom/app-ui/app-shell';
@@ -16,12 +16,27 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { apiFetch } from '@/lib/api-client';
 import {
+  ADMIN_PREMIUM_SOURCES,
+  type AdminPlans,
+  type AdminPremiumSource,
   type AdminSignupDay,
   type AdminSignups,
   AdminSignupsSchema,
   SIGNUPS_TIME_ZONE,
 } from '@/lib/contracts/admin-signups';
 import styles from './signups-dashboard.module.css';
+
+/** Nome e breve spiegazione di ogni fonte del Premium, nell'ordine del contratto. */
+const SOURCE_TEXT: Record<AdminPremiumSource, { label: string; hint: string }> = {
+  stripe: { label: 'Stripe', hint: 'Abbonamento sul sito' },
+  paypal: { label: 'PayPal', hint: 'Abbonamento sul sito con PayPal' },
+  inApp: { label: 'App Store', hint: 'Acquisto in-app, Google Play compreso' },
+  solcoPro: { label: 'Solco Pro', hint: 'Accesso di un mese' },
+  rewards: { label: 'Premi', hint: 'Premium regalato: inviti, fondatori, ascolto…' },
+};
+
+const STORED_DATA_NOTE =
+  'Calcolato dai dati salvati, senza verificare in tempo reale con Stripe/PayPal/Apple.';
 
 const ENDPOINT = '/api/admin/signups';
 const HOUR_MS = 3_600_000;
@@ -81,6 +96,34 @@ function windowStart(generatedAt: string, hours: number) {
 
 function share(part: number, total: number) {
   return total > 0 ? `${percentFormat.format(part / total)} del totale` : '';
+}
+
+const ZERO_PERCENT = percentFormat.format(0);
+const FULL_PERCENT = percentFormat.format(1);
+
+/**
+ * "12,5% degli utenti attivi". Agli estremi l'arrotondamento non mente: una quota non nulla non
+ * diventa "0%" e una quota che non è tutto non diventa "100%".
+ */
+function activeShare(ratio: number, part: number, active: number) {
+  if (active <= 0) return 'Nessun utente attivo';
+  const text = percentFormat.format(ratio);
+  if (part > 0 && text === ZERO_PERCENT) return 'meno dello 0,1% degli utenti attivi';
+  if (part < active && text === FULL_PERCENT) return 'più del 99,9% degli utenti attivi';
+  return `${text} degli utenti attivi`;
+}
+
+/**
+ * Quote delle due schede. Free = 100 − la quota dei Pro già arrotondata dal server (un decimale),
+ * così le due percentuali mostrate sommano sempre al 100%.
+ */
+function planShares(plans: AdminPlans) {
+  const active = plans.free + plans.pro;
+  const freePercent = Math.round((100 - plans.proShare) * 10) / 10;
+  return {
+    free: activeShare(freePercent / 100, plans.free, active),
+    pro: activeShare(plans.proShare / 100, plans.pro, active),
+  };
 }
 
 function signupsText(count: number) {
@@ -192,6 +235,7 @@ export function SignupsDashboard() {
       {data && data.totals.total > 0 ? (
         <>
           <SignupTiles data={data} />
+          <PlansPanel plans={data.plans} />
           <DailyChart daily={data.daily} />
         </>
       ) : null}
@@ -287,6 +331,72 @@ function SignupTiles({ data }: { data: AdminSignups }) {
         detail={totals.banned === 0 ? 'Nessun blocco in corso' : share(totals.banned, totals.total)}
       />
     </MetricGrid>
+  );
+}
+
+const PLANS_TITLE = 'Free e Pro';
+const PLANS_DESCRIPTION =
+  'Utenti attivi = account non bloccati. Pro = Premium attivo adesso, da almeno una fonte.';
+
+function PlansPanel({ plans }: { plans: AdminPlans | null }) {
+  // Le tabelle del Premium non hanno risposto: totali e grafico restano, qui solo un avviso.
+  if (!plans) {
+    return (
+      <Panel title={PLANS_TITLE} description={PLANS_DESCRIPTION} className={styles.plans}>
+        <p className={styles.unavailable}>
+          <CircleAlert aria-hidden="true" />
+          <span>
+            Free e Pro non disponibili in questo momento. Gli altri numeri sono aggiornati: riprova
+            con «Aggiorna» tra poco.
+          </span>
+        </p>
+      </Panel>
+    );
+  }
+  return <PlansSplit plans={plans} />;
+}
+
+function PlansSplit({ plans }: { plans: AdminPlans }) {
+  const sourcesHeadingId = useId();
+  const shares = planShares(plans);
+  return (
+    <Panel title={PLANS_TITLE} description={PLANS_DESCRIPTION} className={styles.plans}>
+      <div className={styles.planTiles}>
+        <MetricGrid label="Utenti Free e Pro">
+          <MetricCard label="Free" value={formatCount(plans.free)} detail={shares.free} />
+          <MetricCard label="Pro attivi" value={formatCount(plans.pro)} detail={shares.pro} />
+        </MetricGrid>
+      </div>
+      <section aria-labelledby={sourcesHeadingId} className={styles.sources}>
+        <h3 id={sourcesHeadingId} className={styles.sourcesTitle}>
+          Pro per fonte
+        </h3>
+        <p className={styles.muted}>
+          Un utente può comparire in più di una fonte: la somma può superare i Pro attivi.
+        </p>
+        <dl className={styles.sourceList}>
+          {ADMIN_PREMIUM_SOURCES.map((source) => {
+            const count = plans.proBySource[source];
+            const { label, hint } = SOURCE_TEXT[source];
+            return (
+              <div key={source} className={styles.source} data-source={source}>
+                <dt>
+                  <span className={styles.sourceName}>{label}</span>{' '}
+                  <span className={styles.sourceHint}>{hint}</span>
+                </dt>
+                <dd>
+                  <span className={styles.sourceValue}>{formatCount(count)}</span>
+                  <span className={styles.sourceBar} aria-hidden="true">
+                    <span style={{ width: `${plans.pro > 0 ? (count / plans.pro) * 100 : 0}%` }} />
+                  </span>
+                </dd>
+              </div>
+            );
+          })}
+        </dl>
+      </section>
+      <p className={styles.footnote}>{STORED_DATA_NOTE}</p>
+    </Panel>
   );
 }
 

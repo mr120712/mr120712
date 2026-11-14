@@ -30,6 +30,65 @@ export const AdminSignupTotalsSchema = z
   })
   .strict();
 
+/**
+ * Fonti del Premium, nell'ordine della pagina: abbonamenti Stripe e PayPal, acquisti in-app (App
+ * Store e Google Play), accesso Solco Pro di un mese e Premium regalato dai premi.
+ */
+export const ADMIN_PREMIUM_SOURCES = ['stripe', 'paypal', 'inApp', 'solcoPro', 'rewards'] as const;
+export type AdminPremiumSource = (typeof ADMIN_PREMIUM_SOURCES)[number];
+
+/** Utenti Pro per fonte. Un utente può avere più fonti: la somma può superare `pro`. */
+export const AdminProBySourceSchema = z
+  .object({
+    stripe: CountSchema,
+    paypal: CountSchema,
+    inApp: CountSchema,
+    solcoPro: CountSchema,
+    rewards: CountSchema,
+  })
+  .strict();
+
+/**
+ * Utenti attivi (account non bloccati, stessa regola di `totals.banned`) divisi in Free e Pro.
+ * Pro = Premium attivo adesso secondo le stesse regole di hasPremiumAccess, calcolate SOLO sui
+ * dati salvati (nessuna verifica in tempo reale con Stripe, PayPal o gli store).
+ */
+export const AdminPlansSchema = z
+  .object({
+    /** Utenti attivi senza Premium attivo. */
+    free: CountSchema,
+    /** Utenti attivi distinti con Premium attivo da almeno una fonte. */
+    pro: CountSchema,
+    /** Quota dei Pro sugli utenti attivi, in percentuale (0–100, un decimale). */
+    proShare: z.number().min(0).max(100),
+    proBySource: AdminProBySourceSchema,
+  })
+  .strict()
+  .superRefine((plans, context) => {
+    const counts = ADMIN_PREMIUM_SOURCES.map((source) => plans.proBySource[source]);
+    if (counts.some((count) => count > plans.pro)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['proBySource'],
+        message: 'Una fonte non può contare più utenti dei Pro.',
+      });
+    }
+    if (counts.reduce((sum, count) => sum + count, 0) < plans.pro) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['proBySource'],
+        message: 'Ogni utente Pro ha almeno una fonte.',
+      });
+    }
+    if (plans.free + plans.pro === 0 && plans.proShare !== 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['proShare'],
+        message: 'Senza utenti attivi la quota dei Pro è zero.',
+      });
+    }
+  });
+
 export const AdminSignupDaySchema = z
   .object({
     /** Giorno di calendario in ora italiana, `YYYY-MM-DD`. */
@@ -44,11 +103,18 @@ export const AdminSignupsSchema = z
     generatedAt: z.string().datetime(),
     timeZone: z.literal(SIGNUPS_TIME_ZONE),
     totals: AdminSignupTotalsSchema,
+    /**
+     * Utenti attivi divisi in Free e Pro (solo conteggi). null quando le tabelle del Premium non
+     * rispondono: i totali e il grafico arrivano comunque.
+     */
+    plans: AdminPlansSchema.nullable(),
     /** Iscrizioni per giorno, zero compresi, dal più vecchio a oggi (oggi è parziale). */
     daily: z.array(AdminSignupDaySchema).length(SIGNUPS_DAYS),
   })
   .strict();
 
 export type AdminSignupTotals = z.infer<typeof AdminSignupTotalsSchema>;
+export type AdminProBySource = z.infer<typeof AdminProBySourceSchema>;
+export type AdminPlans = z.infer<typeof AdminPlansSchema>;
 export type AdminSignupDay = z.infer<typeof AdminSignupDaySchema>;
 export type AdminSignups = z.infer<typeof AdminSignupsSchema>;

@@ -294,9 +294,16 @@ export async function confirmPayPalSubscription(
   return prisma.payPalSubscription.findUniqueOrThrow({ where: { id: row.id } });
 }
 
+/**
+ * Stati PayPal che danno accesso (APPROVED = pagamento autorizzato, attivazione in corso su
+ * PayPal). Nessuna scadenza: conta lo stato salvato. Condivisi col conteggio admin dei Pro.
+ */
+export const PAYPAL_ACCESS_STATUSES: ReadonlySet<string> = new Set(['ACTIVE', 'APPROVED']);
+/** Come per Stripe, decide l'ULTIMO abbonamento PayPal creato dall'utente. */
+export const LATEST_PAYPAL_SUBSCRIPTION_ORDER = Object.freeze({ createdAt: 'desc' } as const);
+
 export function isPayPalSubscriptionActive(row: { status: string } | null) {
-  // APPROVED = payment authorised, activation in progress on PayPal's side.
-  return row?.status === 'ACTIVE' || row?.status === 'APPROVED';
+  return row != null && PAYPAL_ACCESS_STATUSES.has(row.status);
 }
 
 export async function getUserPayPalSubscription(
@@ -306,7 +313,7 @@ export async function getUserPayPalSubscription(
 ) {
   const row = await prisma.payPalSubscription.findFirst({
     where: { userId },
-    orderBy: { createdAt: 'desc' },
+    orderBy: LATEST_PAYPAL_SUBSCRIPTION_ORDER,
   });
   if (!row || !paypalEnabled()) return row;
   if (now.getTime() - row.checkedAt.getTime() <= RECHECK_MS) return row;

@@ -1,7 +1,12 @@
 // @polsia:user-owned — calcoli puri della scheda Iscritti (nessun accesso al database): giorno di
 // calendario in ora italiana, i 30 giorni del grafico, inizio delle finestre mobili, conversione
-// dei conteggi restituiti da Postgres e riempimento con zero dei giorni senza iscrizioni.
+// dei conteggi restituiti da Postgres, riempimento con zero dei giorni senza iscrizioni e
+// divisione degli utenti attivi in Free e Pro (gli id servono solo a unire le fonti: non escono).
 import {
+  ADMIN_PREMIUM_SOURCES,
+  type AdminPlans,
+  type AdminPremiumSource,
+  type AdminProBySource,
   type AdminSignupDay,
   type AdminSignups,
   SIGNUPS_DAYS,
@@ -89,16 +94,68 @@ export type RawSignupTotals = Record<
 >;
 /** Una riga per giorno con almeno un'iscrizione. */
 export type RawSignupDay = { day: unknown; count: unknown };
+/** Una riga con un solo id utente (mai restituito al client). */
+export type RawUserIdRow = { userId: unknown };
+
+/**
+ * Dati grezzi per Free e Pro: per ogni fonte gli utenti a cui le righe salvate danno Premium
+ * adesso, e gli utenti da non contare (account cancellato o blocco in corso).
+ */
+export type RawPremiumSplit = {
+  sources: Readonly<Record<AdminPremiumSource, Iterable<string>>>;
+  ineligible: readonly RawUserIdRow[];
+};
+
+/** Quota in percentuale con un decimale (0 quando non c'è nessun utente attivo). */
+export function percentShare(part: number, whole: number): number {
+  if (whole <= 0) return 0;
+  return Math.min(100, Math.round((part / whole) * 1000) / 10);
+}
+
+/**
+ * Divide gli utenti attivi in Free e Pro. `activeUsers` = account non bloccati (totale meno
+ * bloccati); i Pro sono l'unione DISTINTA delle fonti, tolti gli utenti non idonei. Le query
+ * partono insieme e non sono una fotografia unica: se nel frattempo nasce un Pro, Free resta a zero
+ * invece di diventare negativo.
+ */
+export function buildPlanSplit(activeUsers: number, raw: RawPremiumSplit): AdminPlans {
+  const ineligible = new Set<string>();
+  for (const row of raw.ineligible) {
+    if (typeof row.userId !== 'string' || !row.userId) throw new TypeError('Utente non valido.');
+    ineligible.add(row.userId);
+  }
+  const pro = new Set<string>();
+  // Tipo del contratto indicizzato con l'elenco delle fonti: una fonte senza campo non compila.
+  const proBySource = {} as AdminProBySource;
+  for (const source of ADMIN_PREMIUM_SOURCES) {
+    const counted = new Set<string>();
+    for (const userId of raw.sources[source]) {
+      if (ineligible.has(userId)) continue;
+      counted.add(userId);
+      pro.add(userId);
+    }
+    proBySource[source] = counted.size;
+  }
+  const free = Math.max(0, activeUsers - pro.size);
+  return {
+    free,
+    pro: pro.size,
+    proShare: percentShare(pro.size, free + pro.size),
+    proBySource,
+  };
+}
 
 /**
  * Compone la risposta copiando SOLO i campi aggregati per nome: qualunque altra colonna presente
- * nelle righe grezze non arriva mai nella risposta.
+ * nelle righe grezze (e qualunque id utente) non arriva mai nella risposta. `premium` null = le
+ * query di Free e Pro non sono riuscite: `plans` resta null, totali e giorni escono comunque.
  */
 export function buildSignupStats(
   now: Date,
   keys: readonly string[],
   totals: RawSignupTotals | undefined,
   daily: readonly RawSignupDay[],
+  premium: RawPremiumSplit | null,
 ): AdminSignups {
   if (!totals) throw new TypeError('Totali mancanti.');
   const rows = daily.map((row) => {
@@ -107,18 +164,20 @@ export function buildSignupStats(
     }
     return { day: row.day, count: toCount(row.count) };
   });
+  const counts = {
+    total: toCount(totals.total),
+    last24h: toCount(totals.last24h),
+    last7d: toCount(totals.last7d),
+    last30d: toCount(totals.last30d),
+    verified: toCount(totals.verified),
+    banned: toCount(totals.banned),
+    admins: toCount(totals.admins),
+  };
   return {
     generatedAt: now.toISOString(),
     timeZone: SIGNUPS_TIME_ZONE,
-    totals: {
-      total: toCount(totals.total),
-      last24h: toCount(totals.last24h),
-      last7d: toCount(totals.last7d),
-      last30d: toCount(totals.last30d),
-      verified: toCount(totals.verified),
-      banned: toCount(totals.banned),
-      admins: toCount(totals.admins),
-    },
+    totals: counts,
+    plans: premium ? buildPlanSplit(Math.max(0, counts.total - counts.banned), premium) : null,
     daily: zeroFillDays(keys, rows),
   };
 }

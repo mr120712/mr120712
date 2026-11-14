@@ -7,6 +7,7 @@ import {
   getSolcoProCheckoutMissingRequirements,
   isActiveSolcoProEntitlement,
   SOLCO_PRO_ACCESS_DURATION,
+  SOLCO_PRO_ENTITLEMENT_ORDER,
   SOLCO_PRO_PRICE_EURO_CENTS,
   SOLCO_PRO_PRODUCT_ID,
   SOLCO_PRO_RUNTIME_READINESS,
@@ -14,6 +15,7 @@ import {
   type SolcoProCheckoutOrder,
   type SolcoProEntitlementRecord,
   type SolcoProStripeReadiness,
+  solcoProEntitlementWhere,
 } from '@/lib/business/solco-pro-purchase-policy';
 import { hasActiveSubscription } from '@/lib/business/stripe-subscriptions.server';
 import { prisma } from '@/lib/db';
@@ -149,19 +151,10 @@ export async function startSolcoProCheckout(input: {
 }
 
 export async function findActiveSolcoProEntitlement(userId: string, now = new Date()) {
+  // Filtro e ordine condivisi col conteggio admin dei Pro (solco-pro-purchase-policy.ts).
   const record = await prisma.solcoProStripeEntitlement.findFirst({
-    where: {
-      userId,
-      paymentMode: 'payment',
-      verificationState: 'confirmed',
-      amountEuroCents: SOLCO_PRO_PRICE_EURO_CENTS,
-      currency: 'EUR',
-      durationKey: SOLCO_PRO_ACCESS_DURATION.key,
-      durationKind: SOLCO_PRO_ACCESS_DURATION.kind,
-      validFrom: { lte: now },
-      validUntil: { gt: now },
-    },
-    orderBy: { validFrom: 'desc' },
+    where: { userId, ...solcoProEntitlementWhere(now) },
+    orderBy: SOLCO_PRO_ENTITLEMENT_ORDER,
   });
   return isActiveSolcoProEntitlement(record, userId, now) ? record : null;
 }

@@ -81,6 +81,19 @@ export function iapGrantsAccess(
   return !row.validUntil || row.validUntil.getTime() > now.getTime();
 }
 
+/**
+ * Lo stesso criterio di iapGrantsAccess come filtro del database: il conteggio admin dei Pro
+ * (src/lib/admin/signups.server.ts) legge solo le righe che possono dare accesso e poi applica
+ * comunque iapGrantsAccess, che resta il giudice finale. Il test di parità
+ * tests/unit/admin-signups-premium.test.ts controlla che filtro e funzione coincidano.
+ */
+export function iapAccessWhere(now: Date) {
+  return {
+    state: { in: [...ACCESS_GRANTING_IAP_STATES] },
+    OR: [{ validUntil: null }, { validUntil: { gt: now } }],
+  };
+}
+
 async function fetchFromStore(
   input: VerifyIapInput,
   now: Date,

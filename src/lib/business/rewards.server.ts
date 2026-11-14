@@ -62,9 +62,17 @@ export async function grantPremium(input: {
   }
 }
 
+/**
+ * Premi Premium in corso adesso: già iniziati e non ancora finiti. Lo usano getActiveGrant (con
+ * l'utente) e il conteggio admin dei Pro (src/lib/admin/signups.server.ts): la regola è una sola.
+ */
+export function activePremiumGrantWhere(now: Date) {
+  return { startsAt: { lte: now }, endsAt: { gt: now } };
+}
+
 export async function getActiveGrant(userId: string, now = new Date()) {
   return prisma.premiumGrant.findFirst({
-    where: { userId, startsAt: { lte: now }, endsAt: { gt: now } },
+    where: { userId, ...activePremiumGrantWhere(now) },
     orderBy: { endsAt: 'desc' },
   });
 }

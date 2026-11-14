@@ -1,6 +1,7 @@
 // @polsia:user-owned — scheda Iscritti dell'amministratore (GET, sola lettura): totale account,
-// nuovi nelle ultime 24 ore / 7 / 30 giorni, verificati, bloccati, amministratori e iscrizioni per
-// giorno degli ultimi 30 giorni (ora italiana). Solo numeri aggregati: nessun dato personale.
+// nuovi nelle ultime 24 ore / 7 / 30 giorni, verificati, bloccati, amministratori, utenti Free e
+// Pro (con i Pro per fonte, dai dati salvati) e iscrizioni per giorno degli ultimi 30 giorni (ora
+// italiana). Solo numeri aggregati: nessun dato personale e nessun id utente.
 // Solo admin con email verificata; il layout /admin protegge la pagina, questa route ricontrolla.
 import 'server-only';
 import { NextResponse } from 'next/server';
