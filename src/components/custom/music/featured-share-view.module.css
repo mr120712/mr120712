@@ -1,0 +1,225 @@
+/* @polsia:user-owned — pagina pubblica del link diretto di un brano in evidenza (/evidenza/<id>):
+   copertina grande, titolo, artista e le azioni. Stesso linguaggio visivo della pagina d'artista. */
+.page {
+  display: grid;
+  width: min(100% - 32px, 980px);
+  gap: clamp(1.25rem, 4vw, 2rem);
+  margin: 0 auto;
+  padding: clamp(1rem, 3vw, 2rem) 0 6rem;
+  color: var(--foreground);
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(180px, 340px) minmax(0, 1fr);
+  align-items: end;
+  gap: clamp(1.25rem, 4vw, 2.5rem);
+  overflow: hidden;
+  padding: clamp(1.25rem, 4vw, 2rem);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 2);
+  background:
+    radial-gradient(
+      120% 140% at 100% 0%,
+      color-mix(in srgb, var(--primary) 20%, transparent) 0%,
+      transparent 60%
+    ),
+    linear-gradient(160deg, color-mix(in srgb, var(--primary) 7%, var(--card)) 0%, var(--card) 70%);
+}
+
+/* Copertina quadrata; senza immagine, l'iniziale del titolo. */
+.cover {
+  display: grid;
+  width: 100%;
+  aspect-ratio: 1;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 2);
+  background: linear-gradient(140deg, var(--secondary), var(--muted));
+  box-shadow: 0 24px 60px color-mix(in srgb, var(--foreground) 16%, transparent);
+  color: var(--primary);
+  font-family: var(--font-display), sans-serif;
+  font-size: clamp(3.5rem, 12vw, 6rem);
+  font-weight: 700;
+}
+
+.cover[data-current="true"] {
+  border-color: var(--primary);
+}
+
+.cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.copy {
+  display: grid;
+  justify-items: start;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.copy h1 {
+  max-width: 100%;
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: clamp(2rem, 6vw, 3.6rem);
+  letter-spacing: -0.045em;
+  line-height: 1.04;
+  overflow-wrap: anywhere;
+}
+
+.copy h1:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+}
+
+.artist {
+  max-width: 100%;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 1.1rem;
+  overflow-wrap: anywhere;
+}
+
+.artistLink {
+  border-radius: 4px;
+  text-decoration: none;
+}
+
+.artistLink:hover {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.artistLink:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+/* «Riproduci» / «Accedi per ascoltare»: l'azione principale, va a capo invece di uscire. */
+.primary {
+  height: auto;
+  min-height: 2.75rem;
+  white-space: normal;
+}
+
+.note {
+  max-width: 32rem;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.state {
+  display: grid;
+  justify-items: center;
+  gap: 0.85rem;
+  padding: clamp(2rem, 8vw, 4rem) 1.25rem;
+  border: 1px dashed var(--border);
+  border-radius: calc(var(--radius) * 2);
+  text-align: center;
+}
+
+.state svg {
+  width: 2.25rem;
+  height: 2.25rem;
+  color: var(--primary);
+}
+
+.state h1 {
+  margin: 0;
+  font-family: var(--font-display, inherit);
+  font-size: clamp(1.5rem, 4vw, 2.1rem);
+  letter-spacing: -0.03em;
+}
+
+.state h1:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+}
+
+.state p {
+  max-width: 34rem;
+  margin: 0;
+  color: var(--muted-foreground);
+  line-height: 1.6;
+}
+
+/* Caricamento */
+.skeleton {
+  border-radius: var(--radius);
+  background: linear-gradient(
+    90deg,
+    var(--muted) 0%,
+    color-mix(in srgb, var(--muted) 55%, var(--background)) 50%,
+    var(--muted) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.skeletonCover {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: calc(var(--radius) * 2);
+}
+
+.skeletonLine {
+  width: min(100%, 10rem);
+  height: 1rem;
+}
+
+.skeletonTitle {
+  width: min(100%, 22rem);
+  height: 2.6rem;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+
+/* Su telefono la copertina va sopra al titolo. */
+@media (max-width: 640px) {
+  .hero {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .cover,
+  .skeletonCover {
+    width: min(100%, 260px);
+  }
+}

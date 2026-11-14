@@ -47,11 +47,22 @@
 
 /* Pulsante (copertina + titolo) e, sotto, il nome dell'artista (link alla sua pagina, se c'è). */
 .card {
+  position: relative;
   display: grid;
   min-width: 0;
   align-content: start;
   gap: 6px;
   scroll-snap-align: start;
+}
+
+/* «Condividi» (solo brani dichiarati) nell'angolo in alto a destra della copertina: è un fratello
+   del pulsante della scheda, quindi un tocco qui non fa partire il brano. */
+.share {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 1;
+  display: inline-flex;
 }
 
 .cardButton {

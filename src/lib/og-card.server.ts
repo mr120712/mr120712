@@ -7,7 +7,8 @@
 //   poi la si ruota secondo l'EXIF, la si ritaglia al riquadro e la si ricodifica in JPEG.
 //   Su richiesta (blur) la si sfoca forte: la scheda del quiz mostra la copertina senza che
 //   si possa leggere il nome dell'artista scritto sopra. Qualsiasi errore: null (la scheda si
-//   disegna senza copertina).
+//   disegna senza copertina). ogCoverFromBytes applica gli stessi limiti a byte già letti dal
+//   server (copertine dei brani in evidenza, lette dallo store).
 // - Scheda: next/og disegna un PNG, che si ricodifica in JPEG (mozjpeg, 4:4:4 perché il testo
 //   resti nitido): con una copertina fotografica il PNG pesava 400–600 KB, oltre ciò che WhatsApp
 //   accetta per l'immagine di anteprima (circa 300 KB).
@@ -137,6 +138,21 @@ export async function loadOgCover(
   } catch {
     return null;
   }
+}
+
+/**
+ * Come loadOgCover, per byte già letti dal server (es. la copertina di un brano in evidenza letta
+ * dallo store con il token): stesso tetto di byte (MAX_OG_COVER_BYTES), stesso limite di pixel e
+ * stessa ricodifica JPEG di `box`×`box`, come data URL per next/og. null per qualsiasi problema.
+ */
+export async function ogCoverFromBytes(
+  data: Uint8Array,
+  box: number,
+  options: { background?: string; blur?: number } = {},
+): Promise<string | null> {
+  if (data.byteLength === 0 || data.byteLength > MAX_OG_COVER_BYTES) return null;
+  const jpeg = await coverJpeg(data, box, options.background ?? '#000000', options.blur);
+  return jpeg ? `data:image/jpeg;base64,${jpeg.toString('base64')}` : null;
 }
 
 /**

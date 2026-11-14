@@ -3,6 +3,7 @@
 // elencati e riprodotti in Home. Non passano dal flusso di upload degli utenti (/pubblica).
 import { z } from 'zod';
 import { ARTIST_SLUG_MAX_LENGTH, ARTIST_SLUG_PATTERN } from '@/lib/music/featured-artists';
+import { FEATURED_SHARE_ID_PATTERN } from '@/lib/music/featured-share';
 
 /** Prefisso del proxy same-origin che serve i brani in evidenza PRIVATI (lettura lato server). */
 export const HOME_TRACK_STREAM_PREFIX = '/api/music/home-tracks/stream';
@@ -57,6 +58,12 @@ export const FeaturedArtistSlugSchema = z
   .max(ARTIST_SLUG_MAX_LENGTH)
   .regex(ARTIST_SLUG_PATTERN);
 
+/**
+ * Id opaco del link diretto /evidenza/<id> (vedi featured-share.ts): 22 caratteri base64url,
+ * calcolato dal server, mai il pathname del file.
+ */
+export const FeaturedShareIdSchema = z.string().regex(FEATURED_SHARE_ID_PATTERN);
+
 /** Un brano in evidenza letto dallo store Blob. durationSeconds 0 = sconosciuta (la legge il player). */
 export const HomeTrackSchema = z.object({
   // Il pathname dell'oggetto su Blob: stabile e unico nello store. I pathname di Vercel Blob
@@ -75,6 +82,12 @@ export const HomeTrackSchema = z.object({
    * (anche dai server meno recenti, che non lo mandano).
    */
   artistSlug: FeaturedArtistSlugSchema.nullable().optional(),
+  /**
+   * Link diretto «Condividi» (/evidenza/<shareId>), SOLO per i brani con i diritti dichiarati in
+   * diritti.json: un brano non dichiarato non ha link (nessun pulsante). null o assente = nessun
+   * link (anche con la condivisione spenta o dai server meno recenti).
+   */
+  shareId: FeaturedShareIdSchema.nullable().optional(),
 });
 export type HomeTrack = z.infer<typeof HomeTrackSchema>;
 

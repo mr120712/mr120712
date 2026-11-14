@@ -4,7 +4,7 @@
 'use client';
 
 import { Copy, ExternalLink, Mail, Share2, Smartphone } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { type PointerEvent, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -30,7 +30,8 @@ export type ShareMenuProps = {
   /** Nome accessibile del pulsante, se diverso dal testo (es. "Condividi la playlist X"). */
   ariaLabel?: string;
   variant?: 'default' | 'outline' | 'secondary' | 'ghost';
-  size?: 'default' | 'sm';
+  /** 'icon': solo l'icona (il nome accessibile è `ariaLabel`, altrimenti `label`). */
+  size?: 'default' | 'sm' | 'icon';
   className?: string;
   /** Classi del menu aperto (es. uno z-index più alto dentro il player a schermo intero). */
   contentClassName?: string;
@@ -39,6 +40,8 @@ export type ShareMenuProps = {
    * menu di condivisione del telefono quando il sistema accetta file (Instagram, WhatsApp…).
    */
   imageUrl?: string;
+  /** Allineamento del menu aperto rispetto al pulsante (es. 'end' per un pulsante a destra). */
+  align?: 'start' | 'end';
 };
 
 const IMAGE_EXTENSIONS: Record<string, string> = {
@@ -92,6 +95,7 @@ export function ShareMenu({
   className,
   contentClassName,
   imageUrl,
+  align = 'start',
 }: ShareMenuProps) {
   // Il menu del sistema esiste solo in alcuni browser: lo si scopre dopo il montaggio, così il
   // markup del server e quello del client coincidono.
@@ -112,6 +116,31 @@ export function ShareMenu({
     void shareableImage(imageUrl).then((file) => {
       entry.file = file;
     });
+  };
+
+  const [open, setOpen] = useState(false);
+  const changeOpen = (next: boolean) => {
+    setOpen(next);
+    prepareImage(next);
+  };
+
+  // Al dito (o alla penna) il menu si apre al TOCCO completo (click), non alla pressione: il
+  // pulsante sta anche dentro liste che si scorrono (Home, ricerca, pagina d'artista) e uno
+  // scorrimento che parte qui non deve aprire il menu (il browser lo annulla con pointercancel,
+  // senza click). Fermare la pressione salta l'apertura di Radix; mouse e tastiera restano come
+  // prima (Radix apre alla pressione del mouse, a Invio/Spazio/Freccia giù).
+  const pointerTypeRef = useRef<string | null>(null);
+  const onPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
+    pointerTypeRef.current = event.pointerType;
+    if (event.pointerType === 'touch' || event.pointerType === 'pen') event.preventDefault();
+  };
+  const onPointerCancel = () => {
+    pointerTypeRef.current = null;
+  };
+  const onClick = () => {
+    const pointerType = pointerTypeRef.current;
+    pointerTypeRef.current = null;
+    if (pointerType === 'touch' || pointerType === 'pen') changeOpen(!open);
   };
 
   const shareNatively = async () => {
@@ -137,20 +166,23 @@ export function ShareMenu({
   };
 
   return (
-    <DropdownMenu onOpenChange={prepareImage}>
+    <DropdownMenu open={open} onOpenChange={changeOpen}>
       <DropdownMenuTrigger asChild>
         <Button
           type="button"
           variant={variant}
           size={size}
           className={cn('gap-1.5', className)}
-          aria-label={ariaLabel}
+          aria-label={size === 'icon' ? (ariaLabel ?? label) : ariaLabel}
+          onPointerDown={onPointerDown}
+          onPointerCancel={onPointerCancel}
+          onClick={onClick}
         >
           <Share2 aria-hidden="true" className="size-4" />
-          {label}
+          {size === 'icon' ? null : label}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className={cn('w-60', contentClassName)}>
+      <DropdownMenuContent align={align} className={cn('w-60', contentClassName)}>
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
           Condividi con i tuoi amici
         </DropdownMenuLabel>

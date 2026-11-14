@@ -7,8 +7,10 @@
 // Nessuno script, nessuno stile, nessun render dell'app: solo testo scappato e URL assoluti. Gira
 // dentro il proxy (src/proxy.ts → uam-gate.ts): niente 'server-only', niente API solo Node, niente
 // React. Le immagini indicate (/opengraph-image, /search/anteprima.*, /playlist/<id>/anteprima.*,
-// /quiz/anteprima.jpg) sono escluse dal gate (isGateablePath in uam.ts), così il bot le può
-// scaricare. Un quiz musicale (/quiz) mostra solo la domanda: mai l'artista, che è la risposta.
+// /quiz/anteprima.jpg, /evidenza/<id>/anteprima.jpg) sono escluse dal gate (isGateablePath in
+// uam.ts), così il bot le può scaricare. Un quiz musicale (/quiz) mostra solo la domanda: mai
+// l'artista, che è la risposta. Un brano in evidenza condiviso (/evidenza/<id>) ha qui un titolo
+// generico (il proxy non legge l'indice dei brani); l'immagine porta comunque titolo e copertina.
 import { siteDescription, siteName } from '@/lib/brand';
 import {
   sharedSongFromParams,
@@ -23,6 +25,13 @@ import {
   quizPreviewImagePath,
   songQuizFromParams,
 } from '@/lib/business/song-quiz';
+import {
+  FEATURED_SHARE_DESCRIPTION,
+  FEATURED_SHARE_GENERIC_TITLE,
+  featuredShareImagePath,
+  featuredSharePath,
+  isFeaturedShareId,
+} from '@/lib/music/featured-share';
 import {
   isShareId,
   SHARED_PLAYLIST_DESCRIPTION,
@@ -55,6 +64,7 @@ const IMAGE_WIDTH = 1200;
 const IMAGE_HEIGHT = 630;
 
 const PLAYLIST_PATH = /^\/playlist\/([^/]+)$/;
+const FEATURED_PATH = /^\/evidenza\/([^/]+)$/;
 const URL_LIKE = /\b(?:https?:\/\/|www\.)\S*/gi;
 
 /**
@@ -179,6 +189,18 @@ export function linkPreviewFor(url: PreviewUrl, base: string): LinkPreview {
       imageAlt: SHARED_PLAYLIST_IMAGE_ALT,
       url: absolute(base, sharedPlaylistPath(shareId)),
       type: 'music.playlist',
+    };
+  }
+
+  const featuredId = FEATURED_PATH.exec(path)?.[1];
+  if (featuredId !== undefined && isFeaturedShareId(featuredId)) {
+    return {
+      title: FEATURED_SHARE_GENERIC_TITLE,
+      description: FEATURED_SHARE_DESCRIPTION,
+      image: absolute(base, featuredShareImagePath(featuredId)),
+      imageAlt: FEATURED_SHARE_GENERIC_TITLE,
+      url: absolute(base, featuredSharePath(featuredId)),
+      type: 'music.song',
     };
   }
 

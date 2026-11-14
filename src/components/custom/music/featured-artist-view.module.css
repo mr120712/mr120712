@@ -122,6 +122,18 @@
   min-width: 0;
 }
 
+/* Riga con «Condividi» (brano dichiarato): il pulsante della riga e, accanto, quello del link. */
+.row[data-shareable="true"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.rowShare {
+  display: inline-flex;
+}
+
 /* Tutta la riga è il pulsante: un tocco suona il brano (o lo mette in pausa se è in corso). */
 .rowButton {
   display: grid;

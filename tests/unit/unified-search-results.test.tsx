@@ -704,4 +704,49 @@ describe('Cerca unificata: brani in evidenza', () => {
       'youtube:alt1111alt1',
     ]);
   });
+
+  it('«Condividi» (link diretto) SOLO sui brani con shareId; non fa partire il brano', async () => {
+    const shareId = 'AbCdEfGhIjKlMnOpQrStUv';
+    const shared = { ...featuredTrack, shareId };
+    const response = {
+      ...withFeatured,
+      results: [
+        { ...withFeatured.results[0], track: shared },
+        // Senza shareId (server meno recente o brano senza link): nessun pulsante.
+        withFeatured.results[1],
+        radioEntry,
+        podcastEntry,
+      ],
+      sources: {
+        ...withFeatured.sources,
+        featured: { status: 'results', tracks: [shared, featuredTrack2] },
+      },
+    };
+    respondWith(response, response);
+    const container = await mount('caruso');
+    const shareButtons = [
+      ...container.querySelectorAll<HTMLButtonElement>('button[aria-label^="Condividi"]'),
+    ];
+    expect(shareButtons.map((b) => b.getAttribute('aria-label'))).toEqual(['Condividi Caruso']);
+    const rowsWithKind = container.querySelectorAll('li[data-kind="featured"]');
+    expect(rowsWithKind[0]?.contains(shareButtons[0] ?? null)).toBe(true);
+    expect(rowsWithKind[1]?.querySelector('button[aria-label^="Condividi"]')).toBeNull();
+
+    const trigger = shareButtons[0];
+    await act(async () => {
+      trigger?.click();
+      // Da tastiera il menu si apre (Enter); nessuna riproduzione.
+      trigger?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    expect(mocks.playTrack).not.toHaveBeenCalled();
+    expect(mocks.togglePlayback).not.toHaveBeenCalled();
+    // Il menu propone il link diretto (mai il pathname del file).
+    expect(document.body.textContent).toContain('Copia link');
+    const links = [...document.querySelectorAll<HTMLAnchorElement>('a[href*="evidenza"]')];
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) {
+      expect(decodeURIComponent(link.href)).toContain(`/evidenza/${shareId}`);
+      expect(decodeURIComponent(link.href)).not.toContain('Cantautori');
+    }
+  });
 });

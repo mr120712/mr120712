@@ -3,7 +3,8 @@
 // chiamata a YouTube) e aggiunge YouTube solo all'invio esplicito (Invio o «Cerca»), senza mai
 // bruciare la quota mentre si scrive. Mostra UN elenco misto, deduplicato e ordinato per rilevanza
 // con un piccolo distintivo di fonte per riga; ogni riga suona nel player Solco (i brani «In
-// evidenza» esattamente come in Home, con playHomeTrack). Quando la quota YouTube è finita resta
+// evidenza» esattamente come in Home, con playHomeTrack, più il loro «Condividi» con link diretto
+// quando il server manda shareId, cioè solo per i brani dichiarati). Quando la quota YouTube è finita resta
 // l'avviso con i risultati salvati e il link «Cerca su YouTube» (riusa youtube-search-notice).
 // Chip-filtro opzionali (Tutto / Brani / Radio / Podcast) restringono lo stesso elenco. Consuma
 // UnifiedSearchResponseSchema via apiFetch.
@@ -16,6 +17,7 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { AiMusicSearch } from '@/components/custom/music/ai-music-search';
 import { AudiusLicenseNotice } from '@/components/custom/music/audius-license-notice';
 import { FallbackArt } from '@/components/custom/music/fallback-art';
+import { FeaturedShareButton } from '@/components/custom/music/featured-share-button';
 import { ListenInSolco } from '@/components/custom/music/listen-in-solco';
 import { playHomeTrack, stationToTrack, videoToTrack } from '@/components/custom/music/live-tracks';
 import {
@@ -49,6 +51,8 @@ type SearchError = { text: string; retryAfterMs: number };
 type Filter = 'all' | 'tracks' | 'radio' | 'podcast';
 
 const DEBOUNCE_MS = 350;
+/** «Condividi» di un brano in evidenza: tondo come gli altri pulsanti della riga (36 px). */
+const SEARCH_SHARE_BUTTON = 'size-9 rounded-full text-muted-foreground hover:text-foreground';
 
 const SOURCE_LABEL: Record<UnifiedResult['kind'], string> = {
   featured: 'In evidenza',
@@ -615,6 +619,12 @@ function ResultRow({
           ) : null}
         </div>
         <div className={discover.rowActions}>
+          {/* Link diretto «Condividi»: solo per i brani dichiarati (il server manda shareId). */}
+          <FeaturedShareButton
+            track={track}
+            className={styles.featuredShare}
+            buttonClassName={SEARCH_SHARE_BUTTON}
+          />
           <PlayButton
             playing={playing}
             label={

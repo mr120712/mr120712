@@ -119,9 +119,14 @@ describe('GET /api/music/home-tracks: link all’artista', () => {
       }
     }
 
-    // Tolto artistSlug, identica all'elenco della Home di sempre (brani, sezioni, ordine).
+    // Tolti artistSlug e shareId (link diretto), identica all'elenco della Home di sempre (brani,
+    // sezioni, ordine).
     const plain = await listHomeTrackSections();
-    const strip = <T extends { artistSlug?: string | null }>({ artistSlug: _, ...rest }: T) => rest;
+    const strip = <T extends { artistSlug?: string | null; shareId?: string | null }>({
+      artistSlug: _,
+      shareId: _share,
+      ...rest
+    }: T) => rest;
     expect(body.items.map(strip)).toEqual(plain.items);
     expect(body.sections.map((s) => ({ ...s, items: s.items.map(strip) }))).toEqual(plain.sections);
   });

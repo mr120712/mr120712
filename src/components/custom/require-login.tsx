@@ -2,7 +2,8 @@
 // Avvolge l'intera app (montato come wrapper più esterno in AppProviders): se non sei loggato e la
 // rotta non è pubblica, NON si monta nulla (né nav, né player, né pagina) e si viene reindirizzati
 // a /login. Pubbliche senza login: accesso/registrazione, pagine legali, i link CONDIVISI delle
-// playlist e dei quiz musicali (così chi riceve un link lo può aprire) e la vetrina del Bot Solco
+// playlist, dei quiz musicali e dei brani in evidenza (/evidenza/<id>: così chi riceve un link lo
+// può aprire) e la vetrina del Bot Solco
 // (che invita all'accesso; la ricerca e il limite restano imposti dall'API). L'enforcement vero
 // dei dati resta lato API.
 'use client';
@@ -57,6 +58,11 @@ const PUBLIC_PREFIXES = [
   // Link PUBBLICI condivisi delle playlist (chi li riceve non ha per forza un account).
   '/playlist/',
   '/quiz/',
+  // Link diretti dei brani in evidenza dichiarati: scheda e guscio visibili senza account. La
+  // pagina propone «Accedi per ascoltare» (l'API del link manda il brano solo con una sessione), ma
+  // è un invito, NON un limite imposto: il proxy dello stream dei brani in evidenza non chiede la
+  // sessione e la Home e la ricerca pubbliche già mostrano lo streamUrl a chiunque.
+  '/evidenza/',
 ];
 
 export function isPublicRoute(pathname: string): boolean {

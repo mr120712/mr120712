@@ -17,6 +17,10 @@ import {
   songQuizUrl,
 } from '@/lib/business/song-quiz';
 import {
+  FEATURED_SHARE_DESCRIPTION,
+  FEATURED_SHARE_GENERIC_TITLE,
+} from '@/lib/music/featured-share';
+import {
   SHARED_PLAYLIST_DESCRIPTION,
   SHARED_PLAYLIST_IMAGE_ALT,
   SHARED_PLAYLIST_TITLE,
@@ -165,6 +169,23 @@ describe('linkPreviewFor', () => {
     expect(previewOf(`/playlist/${SHARE_ID}`).image).toMatch(
       new RegExp(`^${BASE}/playlist/${SHARE_ID}/anteprima\\.(?:png|jpg)$`),
     );
+  });
+
+  it('un brano in evidenza condiviso (/evidenza/<id>): titolo generico, immagine del brano', () => {
+    const id = 'AbCdEfGhIjKlMnOpQrStUv';
+    for (const path of [`/evidenza/${id}`, `/evidenza/${id}/`]) {
+      expect(previewOf(path)).toEqual({
+        title: FEATURED_SHARE_GENERIC_TITLE,
+        description: FEATURED_SHARE_DESCRIPTION,
+        image: `${BASE}/evidenza/${id}/anteprima.jpg`,
+        imageAlt: FEATURED_SHARE_GENERIC_TITLE,
+        url: `${BASE}/evidenza/${id}`,
+        type: 'music.song',
+      });
+    }
+    for (const path of ['/evidenza/corto', `/evidenza/${id}/altro`]) {
+      expect(previewOf(path).type, path).toBe('website');
+    }
   });
 
   it('un id di playlist non valido o un altro percorso: la scheda generica', () => {

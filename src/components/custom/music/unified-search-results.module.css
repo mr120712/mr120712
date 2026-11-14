@@ -84,6 +84,12 @@ a.title:hover {
   outline-offset: 2px;
 }
 
+/* «Condividi» di un brano in evidenza dichiarato, accanto a «Riproduci»: non si restringe mai. */
+.featuredShare {
+  display: inline-flex;
+  flex: none;
+}
+
 /* Distintivo della fonte (In evidenza / Audius / YouTube / Radio / Podcast). */
 .badge {
   flex: none;

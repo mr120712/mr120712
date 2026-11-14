@@ -61,6 +61,14 @@
 // featured-artists.ts): ogni brano dell'indice porta `artistSlug` (il suo artista principale), una
 // pagina elenca SOLO brani dichiarati e un artista senza brani dichiarati non ha pagina (né link).
 // Stessa costruzione e stessa cache: nessun elenco dello store in più.
+//
+// E dà a ogni brano dichiarato il suo link diretto «Condividi» (/evidenza/<shareId>): `shareId` è
+// l'HMAC opaco del pathname (featured-share.server), calcolato qui mentre si costruisce l'indice, e
+// la mappa shareId → brano contiene SOLO i dichiarati. Un brano non dichiarato non ha id e un id
+// sconosciuto non porta a nulla (404). Una revoca vale alla ricostruzione successiva (~5 minuti)
+// per l'API del brano, la pagina e i nuovi disegni; le copie già sulla CDN durano di più: la
+// copertina per id fino a ~1 giorno (+ ~1 ora nei browser), la scheda JPEG fino a ~1 giorno più la
+// finestra stale (fino a una settimana). Nessuna delle due contiene l'audio.
 import 'server-only';
 import { FEATURED_ARTIST_TRACK_LIMIT, type FeaturedArtist } from '@/lib/contracts/featured-artists';
 import type { HomeTrack } from '@/lib/contracts/home-tracks';
@@ -78,6 +86,8 @@ import {
   RIGHTS_MANIFEST_PATHNAME,
   readRightsManifest,
 } from '@/lib/music/featured-rights.server';
+import { isFeaturedShareId } from '@/lib/music/featured-share';
+import { featuredShareId, featuredShareSecret } from '@/lib/music/featured-share.server';
 import {
   type HomeStoreFile,
   listHomeTrackCatalog,
@@ -117,6 +127,23 @@ export type FeaturedIndex = {
   lyrics: ReadonlyMap<string, FeaturedLyricsSource>;
   /** Gli artisti (principali e ospiti) dei SOLI brani dichiarati, per slug: mai un gruppo vuoto. */
   artists: ReadonlyMap<string, FeaturedArtistGroup<HomeTrack>>;
+  /** Link diretti: shareId → brano, SOLO dichiarati (vuota con la condivisione spenta). */
+  shares: ReadonlyMap<string, HomeTrack>;
+};
+
+/** Esito del link diretto /evidenza/<shareId>. */
+export type FeaturedShareLookup =
+  | { outcome: 'found'; track: HomeTrack }
+  /** not_found: id malformato, sconosciuto o di un brano non (più) dichiarato; unavailable: Blob
+   *  non configurato o non leggibile. */
+  | { outcome: 'not_found' | 'unavailable' };
+
+/** Per la Home: gli artisti con brani dichiarati e il link diretto dei brani dichiarati. */
+export type FeaturedHomeLinks = {
+  /** Gli slug degli artisti con ALMENO un brano dichiarato. */
+  artists: ReadonlySet<string>;
+  /** pathname → shareId, solo per i brani dichiarati. */
+  shareIds: ReadonlyMap<string, string>;
 };
 
 /** Esito della pagina d'artista. */
@@ -144,12 +171,40 @@ export function clearFeaturedSearchCacheForTests() {
 
 const NO_LYRICS: ReadonlyMap<string, FeaturedLyricsSource> = new Map();
 const NO_ARTISTS: ReadonlyMap<string, FeaturedArtistGroup<HomeTrack>> = new Map();
+const NO_SHARES: ReadonlyMap<string, HomeTrack> = new Map();
 const UNAVAILABLE: FeaturedIndex = {
   available: false,
   tracks: [],
   lyrics: NO_LYRICS,
   artists: NO_ARTISTS,
+  shares: NO_SHARES,
 };
+
+/**
+ * I brani dichiarati con il loro link diretto (`shareId`) e la mappa shareId → brano. Senza
+ * segreto del server la condivisione è spenta: nessun `shareId` (il campo resta assente) e mappa
+ * vuota. Due pathname con lo stesso id (132 bit: in pratica mai) restano entrambi senza link,
+ * così un link non può mai portare al brano sbagliato.
+ */
+function withShareIds(tracks: HomeTrack[]): {
+  tracks: HomeTrack[];
+  shares: ReadonlyMap<string, HomeTrack>;
+} {
+  const secret = featuredShareSecret();
+  if (!secret) return { tracks, shares: NO_SHARES };
+  const ids = tracks.map((track) => featuredShareId(track.id, secret));
+  const seen = new Map<string, number>();
+  for (const id of ids) seen.set(id, (seen.get(id) ?? 0) + 1);
+  const shares = new Map<string, HomeTrack>();
+  const linked = tracks.map((track, index) => {
+    const shareId = ids[index];
+    if (!shareId || seen.get(shareId) !== 1) return track;
+    const withId = { ...track, shareId };
+    shares.set(shareId, withId);
+    return withId;
+  });
+  return { tracks: linked, shares };
+}
 
 async function buildIndex(token: string): Promise<{ index: FeaturedIndex; ttl: number }> {
   // UN solo elenco dello store per brani, copertine e manifest.
@@ -171,7 +226,13 @@ async function buildIndex(token: string): Promise<{ index: FeaturedIndex; ttl: n
     // stati stabili (si ricontrolla dopo ~5 minuti); solo la lettura fallita si riprova presto.
     const transient = rights.status === 'unavailable';
     return {
-      index: { available: !transient, tracks: [], lyrics: NO_LYRICS, artists: NO_ARTISTS },
+      index: {
+        available: !transient,
+        tracks: [],
+        lyrics: NO_LYRICS,
+        artists: NO_ARTISTS,
+        shares: NO_SHARES,
+      },
       ttl: transient ? FAILURE_TTL_MS : HIT_TTL_MS,
     };
   }
@@ -186,10 +247,13 @@ async function buildIndex(token: string): Promise<{ index: FeaturedIndex; ttl: n
       `[solco] ${RIGHTS_MANIFEST_PATHNAME}: ${ignored} voci ignorate (formato, licenza o file non valido o inesistente)`,
     );
   }
-  // Ogni brano dichiarato ha la pagina del suo artista principale (il brano stesso la riempie).
-  const tracks = catalog.tracks
-    .filter((track) => declared.has(track.id))
-    .map((track) => ({ ...track, artistSlug: primaryArtistSlug(track.artist) }));
+  // Ogni brano dichiarato ha la pagina del suo artista principale (il brano stesso la riempie) e,
+  // con la condivisione accesa, il suo link diretto. SOLO i dichiarati: mai l'elenco completo.
+  const { tracks, shares } = withShareIds(
+    catalog.tracks
+      .filter((track) => declared.has(track.id))
+      .map((track) => ({ ...track, artistSlug: primaryArtistSlug(track.artist) })),
+  );
   // Artisti: SOLO dai brani dichiarati (mai dall'elenco completo dello store).
   const artists = groupFeaturedArtists(tracks);
   // Testi: solo le voci valide con "testo": true di file che esistono davvero nello store.
@@ -208,7 +272,7 @@ async function buildIndex(token: string): Promise<{ index: FeaturedIndex; ttl: n
   // Elenco parziale (oltre il tetto di pagine o scaduto) ma manifest trovato: si usa quanto trovato
   // (al più MENO brani ricercabili, mai di più) per la finestra normale. Uno store sempre oltre il
   // tetto non rifà così 20 elenchi ogni minuto.
-  return { index: { available: true, tracks, lyrics, artists }, ttl: HIT_TTL_MS };
+  return { index: { available: true, tracks, lyrics, artists, shares }, ttl: HIT_TTL_MS };
 }
 
 /** L'indice dalla cache, oppure ricostruito una sola volta anche con più ricerche in parallelo. */
@@ -317,6 +381,45 @@ export async function loadFeaturedArtistSlugs(): Promise<ReadonlySet<string> | n
     return index.available ? new Set(index.artists.keys()) : null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Per la Home (che elenca anche brani NON dichiarati): gli artisti con almeno un brano dichiarato e
+ * il link diretto dei SOLI brani dichiarati, dallo stesso indice in cache. null se l'indice non è
+ * disponibile (Blob non configurato o non leggibile): nessun link. Mai throw.
+ */
+export async function loadFeaturedHomeLinks(): Promise<FeaturedHomeLinks | null> {
+  const token = env.BLOB_READ_WRITE_TOKEN;
+  if (!token) return null;
+  try {
+    const index = await loadIndex(token);
+    if (!index.available) return null;
+    const shareIds = new Map<string, string>();
+    for (const [shareId, track] of index.shares) shareIds.set(track.id, shareId);
+    return { artists: new Set(index.artists.keys()), shareIds };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Il brano DICHIARATO del link diretto /evidenza/<shareId>. Un id malformato non tocca l'indice;
+ * un id sconosciuto, di un brano non dichiarato (o non più) o con la condivisione spenta →
+ * 'not_found' (stessa risposta per tutti). Stesso indice della ricerca. Mai throw: Blob non
+ * configurato o non leggibile → 'unavailable'.
+ */
+export async function getFeaturedShare(shareId: string): Promise<FeaturedShareLookup> {
+  if (!isFeaturedShareId(shareId)) return { outcome: 'not_found' };
+  const token = env.BLOB_READ_WRITE_TOKEN;
+  if (!token) return { outcome: 'unavailable' };
+  try {
+    const index = await loadIndex(token);
+    const track = index.shares.get(shareId);
+    if (track) return { outcome: 'found', track };
+    return { outcome: index.available ? 'not_found' : 'unavailable' };
+  } catch {
+    return { outcome: 'unavailable' };
   }
 }
 

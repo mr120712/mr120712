@@ -4,12 +4,14 @@
 // diritti dichiarati in diritti.json (li filtra il server: GET /api/music/featured/artists/<slug>).
 // La riproduzione è la stessa della Home (playHomeTrack: stesso elemento del player, stesso
 // percorso di streaming, stesse regole). Stati: caricamento, nessun brano, errore con «Riprova».
+// Ogni riga con `shareId` ha accanto il suo «Condividi» (link diretto /evidenza/<id>).
 'use client';
 
 import { ArrowLeft, Mic2, Pause, Play, RotateCcw, Shuffle } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { FallbackArt } from '@/components/custom/music/fallback-art';
+import { FeaturedShareButton } from '@/components/custom/music/featured-share-button';
 import { homeTrackToTrack, playHomeTrack } from '@/components/custom/music/live-tracks';
 import { useMusicPlayer } from '@/components/custom/music/music-player';
 import { PlaylistMosaic } from '@/components/custom/music/playlist-mosaic';
@@ -35,6 +37,9 @@ type LoadState =
 
 /** Quanto serve del player (useMusicPlayer() lo soddisfa): lo stesso di playHomeTrack. */
 type ArtistPlayer = Parameters<typeof playHomeTrack>[0];
+
+/** «Condividi» di una riga: tondo, discreto, grande quanto l'icona di riproduzione. */
+const ROW_SHARE_BUTTON = 'size-9 rounded-full text-muted-foreground hover:text-foreground';
 
 function errorCode(error: unknown) {
   const cause =
@@ -242,7 +247,12 @@ export function FeaturedArtistView({ slug }: { slug: string }) {
                 ? `Riprendi ${track.title} di ${byline}`
                 : `Riproduci ${track.title} di ${byline}`;
             return (
-              <li key={track.id} className={styles.row} data-current={current ? 'true' : undefined}>
+              <li
+                key={track.id}
+                className={styles.row}
+                data-current={current ? 'true' : undefined}
+                data-shareable={track.shareId ? 'true' : undefined}
+              >
                 <button
                   type="button"
                   className={styles.rowButton}
@@ -274,6 +284,13 @@ export function FeaturedArtistView({ slug }: { slug: string }) {
                     {playing ? <Pause /> : <Play />}
                   </span>
                 </button>
+                {/* Link diretto «Condividi» (brani dichiarati): accanto alla riga, mai dentro il
+                    pulsante che la suona. */}
+                <FeaturedShareButton
+                  track={track}
+                  className={styles.rowShare}
+                  buttonClassName={ROW_SHARE_BUTTON}
+                />
               </li>
             );
           })}

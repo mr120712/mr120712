@@ -66,6 +66,8 @@ describe('isPublicRoute', () => {
       '/bot',
       '/quiz',
       '/quiz/',
+      // Link diretto di un brano in evidenza dichiarato: pagina e scheda senza account.
+      '/evidenza/AbCdEfGhIjKlMnOpQrStUv',
     ]) {
       expect(isPublicRoute(p)).toBe(true);
     }
@@ -82,6 +84,9 @@ describe('isPublicRoute', () => {
       '/flashcards',
       '/quizzone',
       '/quiz-segreto',
+      // Solo i link /evidenza/<id> sono pubblici, non un percorso che inizia allo stesso modo.
+      '/evidenza',
+      '/evidenzaX/abc',
     ]) {
       expect(isPublicRoute(p)).toBe(false);
     }

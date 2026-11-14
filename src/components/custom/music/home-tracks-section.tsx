@@ -3,13 +3,16 @@
 // loro copertina. Riproducibili con il player; la coda è la sezione toccata. Si nasconde del tutto
 // se non ce ne sono (nessun ingombro in Home). Il nome dell'artista porta alla sua pagina
 // (/artista/<slug>) solo quando il server manda `artistSlug`, cioè se l'artista ha almeno un brano
-// con i diritti dichiarati: nessun link a una pagina vuota.
+// con i diritti dichiarati: nessun link a una pagina vuota. Un brano DICHIARATO (il server manda
+// `shareId`) ha anche il pulsante «Condividi» (link diretto /evidenza/<id>) sopra la copertina,
+// fuori dal pulsante che lo suona; gli altri nessun pulsante.
 'use client';
 
 import { Pause, Play } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FallbackArt } from '@/components/custom/music/fallback-art';
+import { FeaturedShareButton } from '@/components/custom/music/featured-share-button';
 import { playHomeTrack } from '@/components/custom/music/live-tracks';
 import { useMusicPlayer } from '@/components/custom/music/music-player';
 import { apiFetch } from '@/lib/api-client';
@@ -26,6 +29,9 @@ import styles from './home-tracks-section.module.css';
 const REFRESH_THROTTLE_MS = 15_000;
 /** Backstop: ricontrolla lo store Blob ogni tanto mentre la scheda è aperta e visibile. */
 const BACKGROUND_REFRESH_MS = 60_000;
+/** «Condividi» sopra la copertina: tondo, scuro e leggibile su qualsiasi immagine. */
+const OVERLAY_SHARE_BUTTON =
+  'size-8 rounded-full bg-black/55 text-white shadow-md backdrop-blur-sm hover:bg-black/75 hover:text-white focus-visible:ring-2 focus-visible:ring-white';
 
 /** Sezioni dalla risposta; un server meno recente manda solo `items`: una sezione unica. */
 function sectionsFrom(response: {
@@ -160,6 +166,12 @@ export function HomeTracksSection() {
                         {byline}
                       </Link>
                     ) : null}
+                    {/* Solo per i brani dichiarati: sopra la copertina, ma fuori dal pulsante. */}
+                    <FeaturedShareButton
+                      track={item}
+                      className={styles.share}
+                      buttonClassName={OVERLAY_SHARE_BUTTON}
+                    />
                   </li>
                 );
               })}

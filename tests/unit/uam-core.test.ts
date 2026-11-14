@@ -530,6 +530,11 @@ describe('isGateablePath', () => {
     '/quiz/anteprima.jpg/extra',
     '/quiz/x.jpg',
     '/quizanteprima.jpg',
+    // Un brano in evidenza condiviso: solo la sua immagine JPEG è esente, la pagina passa dal gate.
+    '/evidenza/AbCdEfGhIjKlMnOpQrStUv',
+    '/evidenza/x.jpg',
+    '/evidenza/AbCdEfGhIjKlMnOpQrStUv/anteprima.png',
+    '/evidenza/short/anteprima.jpg',
     '/invito/abc.js',
     '/ios/x.mobileconfig',
     '/fonts',
@@ -595,6 +600,8 @@ describe('isGateablePath', () => {
     '/search/anteprima.png',
     '/search/anteprima.jpg',
     '/quiz/anteprima.jpg',
+    '/evidenza/AbCdEfGhIjKlMnOpQrStUv/anteprima.jpg',
+    '/evidenza/Ab-_EfGhIjKlMnOpQrStUv/anteprima.jpg',
     '/playlist/AbCdEfGhIjKlMnOpQrStUv/anteprima.png',
     '/playlist/Ab-_EfGhIjKlMnOpQrStUv/anteprima.jpg',
   ])('does not gate %s', (pathname) => {
