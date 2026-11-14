@@ -26,11 +26,16 @@ import { unsafeAuthRedirectField } from '@/lib/security/safe-auth-redirect';
 
 import type { BetterAuthOptions, BetterAuthPlugin } from 'better-auth';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
+import { phoneNumber } from 'better-auth/plugins/phone-number';
 import { after } from 'next/server';
 import { getDesignatedAdminUserId } from '@/lib/business/admin-account-identity';
 import { resolveInitialSignupRole } from '@/lib/business/admin-account-policy';
 import { resolveAppleClientSecret } from '@/lib/business/apple-client-secret';
+import { guardAuthRequest } from '@/lib/business/auth-guards.server';
+import { isValidE164, phoneAccountEmail, phoneAccountName } from '@/lib/business/phone-auth';
+import { sendResetPasswordEmail } from '@/lib/business/reset-password-email.server';
 import { appleOAuthCredentials } from '@/lib/business/social-auth';
+import { checkSmsVerification } from '@/lib/business/twilio-verify.server';
 import { sendVerificationEmail } from '@/lib/business/verification-email.server';
 import { prisma } from '@/lib/db';
 
@@ -86,8 +91,56 @@ export const safeAuthRedirects: BetterAuthPlugin = {
   },
 };
 
+/**
+ * Controlli prima degli endpoint (src/lib/business/auth-guards.server.ts): chiude gli endpoint del
+ * plugin telefono non usati, valida i numeri e applica i limiti condivisi a SMS, verifiche del
+ * codice e richieste di recupero password.
+ */
+export const solcoAuthGuards: BetterAuthPlugin = {
+  id: 'solco-auth-guards',
+  hooks: {
+    before: [
+      {
+        matcher: () => true,
+        handler: createAuthMiddleware(async (ctx) => {
+          const rejected = await guardAuthRequest({
+            path: ctx.path,
+            body: ctx.body,
+            headers: ctx.headers ?? ctx.request?.headers,
+          });
+          if (rejected) {
+            throw new APIError(rejected.status, {
+              message: rejected.message,
+              ...(rejected.code ? { code: rejected.code } : {}),
+            });
+          }
+        }),
+      },
+    ],
+  },
+};
+
+/**
+ * Accesso e registrazione col numero di telefono: codice via SMS con Twilio Verify (Twilio genera,
+ * fa scadere e limita i tentativi; Solco non conserva il codice). Al primo accesso con un numero
+ * nuovo si crea l'account, con un'email provvisoria non consegnabile e un nome generico (mai il
+ * numero, che finirebbe in profili e community).
+ */
+const phoneLogin = phoneNumber({
+  // L'SMS parte già in solcoAuthGuards (guardAuthRequest), che aspetta l'esito di Twilio per dire
+  // subito all'utente se l'invio non è riuscito. Qui better-auth lo farebbe in background, senza
+  // poter segnalare errori. Il codice generato da better-auth è ignorato: lo genera e verifica Twilio.
+  sendOTP: () => undefined,
+  verifyOTP: async ({ phoneNumber: phone, code }) => checkSmsVerification(phone, code),
+  phoneNumberValidator: (phone) => isValidE164(phone),
+  signUpOnVerification: {
+    getTempEmail: (phone) => phoneAccountEmail(phone),
+    getTempName: () => phoneAccountName(),
+  },
+});
+
 export const authConfig: BetterAuthOptions = {
-  plugins: [safeAuthRedirects],
+  plugins: [safeAuthRedirects, solcoAuthGuards, phoneLogin],
   // Apple posts back from https://appleid.apple.com: that origin is listed in
   // BETTER_AUTH_TRUSTED_ORIGINS (the framework owns trustedOrigins).
   ...(appleCredentials ? { socialProviders: { apple: appleCredentials } } : {}),
@@ -98,6 +151,13 @@ export const authConfig: BetterAuthOptions = {
   },
   emailAndPassword: {
     enabled: true,
+    // Password dimenticata: link via email, valido 1 ora e usabile una sola volta. Dopo il cambio
+    // tutte le sessioni aperte vengono chiuse (se qualcuno era entrato con la vecchia password).
+    sendResetPassword: async ({ user, url }) => {
+      await sendResetPasswordEmail({ user, url });
+    },
+    resetPasswordTokenExpiresIn: 60 * 60,
+    revokeSessionsOnPasswordReset: true,
   },
   emailVerification: {
     sendOnSignUp: true,

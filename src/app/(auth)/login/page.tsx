@@ -3,9 +3,11 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { AuthPageGate } from '@/components/custom/auth-page-gate';
+import { PhoneSignIn } from '@/components/custom/phone-sign-in';
 import { SignInForm } from '@/components/custom/sign-in-form';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { isSafeAuthDestination } from '@/lib/business/auth-form';
+import { isPhoneLoginConfigured } from '@/lib/business/twilio-verify.server';
 import styles from '../signup/auth.module.css';
 
 export const metadata: Metadata = {
@@ -28,6 +30,8 @@ export default async function LoginPage({
   const signupHref = callbackURL
     ? `/signup?callbackURL=${encodeURIComponent(callbackURL)}`
     : '/signup';
+  // Solo un sì/no calcolato sul server: nessuna credenziale Twilio arriva al browser.
+  const phoneLogin = isPhoneLoginConfigured();
 
   return (
     <AuthPageGate>
@@ -51,6 +55,10 @@ export default async function LoginPage({
             </CardHeader>
             <CardContent className={styles.cardContent}>
               <SignInForm />
+              <p className={styles.switchLink}>
+                <Link href="/password-dimenticata">Password dimenticata?</Link>
+              </p>
+              {phoneLogin ? <PhoneSignIn mode="login" /> : null}
               <p className={styles.switchLink}>
                 Non hai ancora un account? <Link href={signupHref}>Registrati</Link>
               </p>

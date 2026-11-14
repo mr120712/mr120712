@@ -78,6 +78,8 @@ export function hidesTabBar(pathname: string) {
     pathname === '/dashboard' ||
     pathname.startsWith('/dashboard/') ||
     pathname === '/login' ||
-    pathname === '/signup'
+    pathname === '/signup' ||
+    pathname === '/password-dimenticata' ||
+    pathname === '/reimposta-password'
   );
 }

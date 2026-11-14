@@ -156,7 +156,11 @@ export async function POST(request: Request) {
       // A shared link is a public, Solco-branded page with free text (the playlist name): only
       // confirmed accounts may publish one, never a throwaway sign-up. Existing links, the
       // public read and "Smetti di condividere" stay as they are.
-      if (auth.user.emailVerified !== true) {
+      // Account confermato = email verificata oppure numero di telefono verificato via SMS (gli
+      // account creati col telefono hanno un'email provvisoria che non si può verificare).
+      const phoneVerified =
+        (auth.user as { phoneNumberVerified?: boolean | null }).phoneNumberVerified === true;
+      if (auth.user.emailVerified !== true && !phoneVerified) {
         return NextResponse.json(
           {
             error: 'email_not_verified',

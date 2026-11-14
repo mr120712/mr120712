@@ -38,6 +38,7 @@ import { Button, buttonVariants } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
 import { useSession } from '@/lib/auth-client';
 import { apiErrorMessage } from '@/lib/business/api-error-message';
+import { hasVerifiedContact } from '@/lib/business/phone-auth';
 import {
   CollectionMutationResponseSchema,
   CollectionShareResponseSchema,
@@ -313,9 +314,10 @@ export function MusicCollections({
   const [busyId, setBusyId] = useState<string | null>(null);
   /** Links returned by the server in this visit (the canonical site address). */
   const [shareUrls, setShareUrls] = useState<Record<string, string>>({});
-  // Sharing publishes a public page: the server only allows it with a verified email.
+  // Sharing publishes a public page: the server only allows it with a verified email or a phone
+  // number confirmed by SMS.
   const { data: session } = useSession();
-  const needsVerification = session?.user ? session.user.emailVerified !== true : false;
+  const needsVerification = session?.user ? !hasVerifiedContact(session.user) : false;
   /** The label the public page shows for the owner, computed the same way as the server. */
   const ownerLabel = sharedPlaylistOwnerName(session?.user?.name);
   const idPrefix = useId();

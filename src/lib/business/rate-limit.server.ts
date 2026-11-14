@@ -32,6 +32,31 @@ export const ACTION_RATE_LIMITS = {
     { requests: 5, windowMs: 86_400_000 },
   ],
   'auth.verification_email.global': [{ requests: 300, windowMs: 86_400_000 }],
+  // Recupero password: email per destinatario e per l'intera app, richieste per IP.
+  'auth.reset_email': [
+    { requests: 3, windowMs: 3_600_000 },
+    { requests: 5, windowMs: 86_400_000 },
+  ],
+  'auth.reset_email.global': [{ requests: 300, windowMs: 86_400_000 }],
+  'auth.reset_request.ip': [
+    { requests: 10, windowMs: 3_600_000 },
+    { requests: 30, windowMs: 86_400_000 },
+  ],
+  // Accesso col telefono: ogni SMS costa (e tutti i paesi sono ammessi): limiti per numero, per IP
+  // e un tetto giornaliero per l'intera app contro l'"SMS pumping". Più i tentativi di verifica.
+  'auth.phone_otp': [
+    { requests: 3, windowMs: 600_000 },
+    { requests: 10, windowMs: 86_400_000 },
+  ],
+  'auth.phone_otp.ip': [
+    { requests: 5, windowMs: 3_600_000 },
+    { requests: 20, windowMs: 86_400_000 },
+  ],
+  'auth.phone_otp.global': [{ requests: 300, windowMs: 86_400_000 }],
+  'auth.phone_verify.ip': [
+    { requests: 20, windowMs: 600_000 },
+    { requests: 100, windowMs: 86_400_000 },
+  ],
   // Calls to Stripe/PayPal to confirm or open a subscription or the billing portal.
   'subscriptions.sync': [
     { requests: 10, windowMs: 60_000 },
@@ -386,6 +411,13 @@ const actionLabels: Record<RateLimitAction, string> = {
   'share.og': 'le anteprime delle playlist condivise',
   'auth.verification_email': 'le email di verifica',
   'auth.verification_email.global': 'le email di verifica di oggi',
+  'auth.reset_email': 'le email di recupero password',
+  'auth.reset_email.global': 'le email di recupero password di oggi',
+  'auth.reset_request.ip': 'le richieste di recupero password',
+  'auth.phone_otp': 'i codici SMS a questo numero',
+  'auth.phone_otp.ip': 'i codici SMS richiesti',
+  'auth.phone_otp.global': 'i codici SMS di oggi',
+  'auth.phone_verify.ip': 'i tentativi di verifica del codice',
   'subscriptions.sync': 'le verifiche dell’abbonamento',
   'product.check.global': 'i controlli prodotto di oggi',
   'youtube.search.global': 'le ricerche YouTube di oggi',

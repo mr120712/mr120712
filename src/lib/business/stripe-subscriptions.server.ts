@@ -2,6 +2,7 @@
 // (chiave STRIPE_SECRET_KEY). Nessun webhook: lo stato si legge da Stripe alla conferma
 // del checkout e si riverifica periodicamente.
 import 'server-only';
+import { isPhoneAccountEmail } from '@/lib/business/phone-auth';
 import { getSolcoProPricing } from '@/lib/business/solco-pro-pricing';
 import type { BillingPeriod, PaidPlanId } from '@/lib/contracts/subscriptions';
 import { prisma } from '@/lib/db';
@@ -148,7 +149,8 @@ export async function createSubscriptionCheckout(
   // No payment_method_types: Stripe shows every method enabled in the Dashboard
   // (cards, PayPal, Apple Pay, Google Pay…).
   if (input.customerId) params.customer = input.customerId;
-  else params.customer_email = input.email;
+  // Account col telefono: l'email è provvisoria (.invalid); Stripe chiede quella vera.
+  else if (!isPhoneAccountEmail(input.email)) params.customer_email = input.email;
   const session = await stripeRequest('POST', '/checkout/sessions', params, fetcher);
   if (typeof session.url !== 'string') {
     throw new StripeSubscriptionError('stripe_error', 'Stripe non ha restituito il checkout.');

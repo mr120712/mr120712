@@ -23,10 +23,20 @@ model User {
   banExpires    DateTime?
   createdAt     DateTime
   updatedAt     DateTime
+  // Plugin phoneNumber di better-auth (accesso col telefono + codice SMS, src/lib/auth-config.ts).
+  // Entrambi facoltativi: gli account esistenti restano invariati.
+  // Indice semplice, NON @unique: su una tabella con righe, `prisma db push` senza
+  // --accept-data-loss (il comando di build su Vercel) rifiuta un nuovo vincolo unico, e il deploy
+  // partirebbe con colonne mancanti. L'unicità la garantisce il codice: il numero si imposta solo
+  // con /phone-number/verify (codice Twilio, approvato una sola volta), che riusa l'account
+  // esistente col numero; ogni altro endpoint che lo riceve è rifiutato (auth-guards.server.ts).
+  phoneNumber         String?
+  phoneNumberVerified Boolean?
   sessions      Session[]
   accounts      Account[]
 
   @@unique([email])
+  @@index([phoneNumber])
   @@map("user")
 }
 

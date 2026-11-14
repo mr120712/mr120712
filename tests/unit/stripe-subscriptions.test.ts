@@ -58,6 +58,24 @@ describe('abbonamenti Stripe', () => {
     expect(subscriptionsEnabled()).toBe(false);
   });
 
+  it('account col telefono: niente email provvisoria precompilata nel checkout', async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(json({ url: 'https://checkout.stripe.com/c/pay/cs_test_2' }));
+    await createSubscriptionCheckout(
+      {
+        userId: 'user-2',
+        email: '393331234567@telefono.solcomusic.invalid',
+        planId: 'premium',
+        period: 'month',
+        appUrl: 'https://solco.test',
+      },
+      fetcher as unknown as typeof fetch,
+    );
+    const [, init] = fetcher.mock.calls[0] as [string, RequestInit];
+    expect(new URLSearchParams(String(init.body)).has('customer_email')).toBe(false);
+  });
+
   it('crea un checkout in abbonamento senza limitare i metodi (PayPal incluso)', async () => {
     const fetcher = vi
       .fn()

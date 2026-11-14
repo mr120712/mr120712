@@ -31,6 +31,7 @@ type ItemRow = {
 const memory = vi.hoisted(() => ({
   userId: 'owner' as string | null,
   emailVerified: true,
+  phoneNumberVerified: null as boolean | null,
   sameOrigin: true,
   counter: 0,
   users: [] as Array<{ id: string; name: string; email: string; banned?: boolean | null }>,
@@ -76,6 +77,7 @@ vi.mock('@/lib/require-auth', () => ({
       id: memory.userId,
       email: `${memory.userId}@example.test`,
       emailVerified: memory.emailVerified,
+      phoneNumberVerified: memory.phoneNumberVerified,
     };
   }),
 }));
@@ -307,6 +309,7 @@ beforeEach(() => {
   mocks.forcedRandom.length = 0;
   memory.userId = 'owner';
   memory.emailVerified = true;
+  memory.phoneNumberVerified = null;
   memory.sameOrigin = true;
   memory.counter = 0;
   memory.collections = [];
@@ -428,6 +431,20 @@ describe('condivisione di una playlist (azioni share/unshare)', () => {
     const unshare = await collectionsRequest({ action: 'unshare', collectionId: playlist.id });
     expect(unshare.status).toBe(200);
     expect(playlist.shareId).toBeNull();
+  });
+
+  it('un account creato col telefono (numero verificato via SMS) può condividere', async () => {
+    const playlist = seedPlaylist();
+    memory.emailVerified = false; // email provvisoria, non verificabile
+    memory.phoneNumberVerified = true;
+    const shared = await collectionsRequest({ action: 'share', collectionId: playlist.id });
+    expect(shared.status).toBe(200);
+
+    // Numero non verificato (null/false) ed email non verificata: rifiutato come prima.
+    const other = seedPlaylist();
+    memory.phoneNumberVerified = false;
+    const refused = await collectionsRequest({ action: 'share', collectionId: other.id });
+    expect(refused.status).toBe(403);
   });
 
   it('richiede same-origin e accesso', async () => {

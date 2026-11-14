@@ -1,6 +1,7 @@
 // @polsia:user-owned — email di verifica di Solco, in italiano. Non blocca mai la registrazione:
 // un invio non riuscito viene registrato nei log e l'utente resta registrato.
 import 'server-only';
+import { isPhoneAccountEmail } from '@/lib/business/phone-auth';
 import { consumeRateLimit } from '@/lib/business/rate-limit.server';
 import { sendWithResend } from '@/lib/email/resend-relay.server';
 import { sendEmail } from '@/lib/email/send';
@@ -48,6 +49,8 @@ export async function sendVerificationEmail(input: {
   url: string;
 }) {
   try {
+    // Account creati col telefono: l'email è provvisoria e non consegnabile. Non si invia nulla.
+    if (isPhoneAccountEmail(input.user.email)) return;
     if (!(await verificationEmailAllowed(input.user.email))) {
       console.warn('[solco] verification email skipped: rate limit reached or unavailable');
       return;

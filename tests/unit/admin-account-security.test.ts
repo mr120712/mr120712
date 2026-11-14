@@ -126,7 +126,14 @@ describe('normalizzazione persistente dei ruoli', () => {
 describe('assegnazione controllata e accesso', () => {
   it('mantiene la verifica email e non aggiunge credenziali amministrative predefinite', () => {
     expect(authConfig.emailVerification?.sendOnSignUp).toBe(true);
-    expect(authConfig.emailAndPassword).toEqual({ enabled: true });
+    // Solo le opzioni volute: accesso con email e recupero password (link via email, 1 ora,
+    // sessioni chiuse dopo il cambio). Qualsiasi altra chiave (es. credenziali predefinite) fallisce.
+    expect(authConfig.emailAndPassword).toEqual({
+      enabled: true,
+      sendResetPassword: expect.any(Function),
+      resetPasswordTokenExpiresIn: 3600,
+      revokeSessionsOnPasswordReset: true,
+    });
     expect(authConfig.emailAndPassword).not.toHaveProperty('defaultPassword');
   });
 

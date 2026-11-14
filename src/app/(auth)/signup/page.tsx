@@ -3,9 +3,11 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { AuthPageGate } from '@/components/custom/auth-page-gate';
+import { PhoneSignIn } from '@/components/custom/phone-sign-in';
 import { SignUpForm } from '@/components/custom/sign-up-form';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { isSafeAuthDestination } from '@/lib/business/auth-form';
+import { isPhoneLoginConfigured } from '@/lib/business/twilio-verify.server';
 import styles from './auth.module.css';
 
 export const metadata: Metadata = {
@@ -70,6 +72,7 @@ export default async function SignupPage({
             </CardHeader>
             <CardContent className={styles.cardContent}>
               <SignUpForm />
+              {isPhoneLoginConfigured() ? <PhoneSignIn mode="signup" /> : null}
               <p className={styles.switchLink}>
                 Hai già un account? <Link href={loginHref}>Accedi</Link>
               </p>

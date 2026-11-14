@@ -2,8 +2,18 @@
 
 export type EmailAuthFlow = 'login' | 'signup';
 
+/**
+ * Un percorso interno ("/premi?x=1"), mai "//host" o "/\\host". Rifiuta anche tab, a capo e gli
+ * altri caratteri di controllo: il browser li elimina, quindi "/\t/sito.example" diventerebbe
+ * "//sito.example" (un altro sito) al momento della navigazione.
+ */
 export function isSafeAuthDestination(value: string | null | undefined): value is string {
-  return Boolean(value?.startsWith('/') && !value.startsWith('//') && !value.includes('\\'));
+  if (!value?.startsWith('/') || value.startsWith('//') || value.includes('\\')) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 32 || code === 127) return false;
+  }
+  return true;
 }
 
 export function safeAuthDestination(value: string | null | undefined): string {

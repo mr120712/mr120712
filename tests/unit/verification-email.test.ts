@@ -40,6 +40,16 @@ describe('email di verifica', () => {
     expect(mocks.sendEmail).not.toHaveBeenCalled();
   });
 
+  it('account col telefono: nessuna email verso l’indirizzo provvisorio', async () => {
+    vi.stubEnv('RESEND_API_KEY', 're_test');
+    await sendVerificationEmail({
+      user: { email: '393331234567@telefono.solcomusic.invalid' },
+      url: 'https://x',
+    });
+    expect(mocks.sendWithResend).not.toHaveBeenCalled();
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
+  });
+
   it('non blocca la registrazione se l’invio fallisce', async () => {
     vi.stubEnv('RESEND_API_KEY', '');
     vi.spyOn(console, 'error').mockImplementation(() => undefined);

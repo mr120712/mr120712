@@ -22,6 +22,9 @@ const PUBLIC_EXACT = new Set([
   '/stato',
   '/bot',
   '/impostazioni',
+  // Recupero password: chi l'ha dimenticata per definizione non è dentro.
+  '/password-dimenticata',
+  '/reimposta-password',
 ]);
 const PUBLIC_PREFIXES = [
   '/login/',

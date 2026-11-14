@@ -5,10 +5,13 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { useEffect } from 'react';
+import { toast } from 'sonner';
 import { EmailVerification } from '@/components/custom/email-verification';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { signOut, useSession } from '@/lib/auth-client';
+import { useSession } from '@/lib/auth-client';
+import { accountLabel, needsEmailVerification } from '@/lib/business/phone-auth';
+import { SIGN_OUT_FAILED_MESSAGE, signOutAndStopMusic } from '@/lib/music/player-session';
 import { DashboardNav } from './dashboard-nav';
 
 export interface DashboardShellProps {
@@ -36,8 +39,7 @@ export function DashboardShell({ children }: DashboardShellProps) {
   }, [isPending, router, session?.user]);
 
   async function handleSignOut() {
-    await signOut();
-    router.replace('/login');
+    if (!(await signOutAndStopMusic('/login'))) toast.error(SIGN_OUT_FAILED_MESSAGE);
   }
 
   if (isPending) {
@@ -91,14 +93,14 @@ export function DashboardShell({ children }: DashboardShellProps) {
             <div className="mb-6 flex flex-col gap-1">
               <p className="text-sm text-muted-foreground">Accesso effettuato come</p>
               <p className="truncate text-sm font-medium text-foreground">
-                {session.user.email ?? session.user.name ?? 'Account'}
+                {accountLabel(session.user)}
               </p>
               <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">
                 {isAdmin ? 'Amministrazione' : 'Raccolte personali'}
               </p>
             </div>
             <Separator className="mb-6" />
-            {!session.user.emailVerified ? (
+            {needsEmailVerification(session.user) ? (
               <div className="mb-6 rounded-xl border border-border bg-card p-4">
                 <p className="mb-3 text-sm text-muted-foreground">
                   Verifica il tuo indirizzo email per confermare l’account e attivare l’accesso

@@ -264,6 +264,11 @@ describe('messaggi e callback email', () => {
     expect(safeAuthDestination('https://example.com')).toBe('/dashboard');
     expect(safeAuthDestination('//example.com')).toBe('/dashboard');
     expect(safeAuthDestination('/\\example.com')).toBe('/dashboard');
+    // Tab, a capo e altri caratteri di controllo: il browser li toglie e "/\t/host" diventa "//host".
+    expect(safeAuthDestination('/\t/evil.example/x')).toBe('/dashboard');
+    expect(safeAuthDestination('/\n/evil.example')).toBe('/dashboard');
+    expect(safeAuthDestination('/\r/evil.example')).toBe('/dashboard');
+    expect(safeAuthDestination('/premi\u007f')).toBe('/dashboard');
   });
 
   it('restituisce messaggi comprensibili per errori di rete e validazione', () => {

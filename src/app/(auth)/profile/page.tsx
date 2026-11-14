@@ -2,12 +2,15 @@
 'use client';
 
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { AccountDeletionPanel } from '@/components/custom/account-deletion-panel';
 import { CommunitySettingsPanel } from '@/components/custom/community/community-settings';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import { signOut, useSession } from '@/lib/auth-client';
+import { useSession } from '@/lib/auth-client';
+import { accountLabel, isPhoneAccount } from '@/lib/business/phone-auth';
+import { SIGN_OUT_FAILED_MESSAGE, signOutAndStopMusic } from '@/lib/music/player-session';
 
 export default function ProfilePage() {
   const { data: session, isPending } = useSession();
@@ -50,7 +53,7 @@ export default function ProfilePage() {
           </div>
           <div className="min-w-0">
             <h1 className="truncate font-display text-3xl">{session.user.name}</h1>
-            <p className="truncate text-sm text-muted-foreground">{session.user.email}</p>
+            <p className="truncate text-sm text-muted-foreground">{accountLabel(session.user)}</p>
           </div>
         </header>
         <Separator />
@@ -66,8 +69,10 @@ export default function ProfilePage() {
             </div>
             <Separator />
             <div className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
-              <span className="text-muted-foreground">Email</span>
-              <span className="max-w-full break-all">{session.user.email}</span>
+              <span className="text-muted-foreground">
+                {isPhoneAccount(session.user) ? 'Telefono' : 'Email'}
+              </span>
+              <span className="max-w-full break-all">{accountLabel(session.user)}</span>
             </div>
           </CardContent>
         </Card>
@@ -78,8 +83,7 @@ export default function ProfilePage() {
             type="button"
             variant="outline"
             onClick={async () => {
-              await signOut();
-              window.location.assign('/login');
+              if (!(await signOutAndStopMusic('/login'))) toast.error(SIGN_OUT_FAILED_MESSAGE);
             }}
           >
             Esci
