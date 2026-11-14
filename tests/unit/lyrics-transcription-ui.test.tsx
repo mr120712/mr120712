@@ -3,7 +3,10 @@
 // motivo senza OPENAI_API_KEY o con un formato non accettato; lingua scelta inviata; avanzamento
 // con aria-busy e «Annulla» che interrompe la richiesta; errori in linea + avviso; editor con la
 // bozza, righe lette e segmenti scartati; «Salva come .lrc», conferma prima di sostituire un .lrc
-// esistente (anche dopo un 409 del server), «Annulla» e «Riapri la bozza».
+// esistente (anche dopo un 409 del server), «Annulla» e «Riapri la bozza». Cache cifrata: badge
+// «Dalla cache» / «Nuova trascrizione», «Rigenera con l'IA» con la domanda sui crediti (ricontrolla
+// le correzioni alla conferma), e con una bozza modificata la domanda dice se si ricarica la bozza
+// conservata (stessa lingua) o se si chiede una trascrizione nuova.
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -114,6 +117,8 @@ const DRAFT: TranscribeResponse = {
   language: 'italian',
   durationSeconds: 184.4,
   droppedSegments: 2,
+  fromCache: false,
+  cachedAt: '2026-11-14T14:31:00.000Z',
 };
 
 type FetchInit = {
@@ -589,13 +594,13 @@ describe('trascrizione IA: stato che sopravvive a filtri e ricerca', () => {
 
 describe('trascrizione IA: nuova trascrizione con una bozza già presente', () => {
   const SECOND: TranscribeResponse = { ...DRAFT, draft: '[00:05.00] Seconda versione' };
+  /** Quello che il server risponde davvero a una nuova richiesta con la stessa chiave: la cache. */
+  const STORED: TranscribeResponse = { ...DRAFT, fromCache: true };
 
-  async function withEditedDraft() {
-    let attempt = 0;
-    handlers[TRANSCRIBE] = async (init) => {
-      attempt += 1;
-      return init.schema?.parse(attempt === 1 ? DRAFT : SECOND);
-    };
+  /** Bozza `first` modificata e editor chiuso; le richieste dopo rispondono con `next`, in ordine. */
+  async function withEditedDraft(first: TranscribeResponse = DRAFT, next = [STORED]) {
+    const queue = [first, ...next];
+    handlers[TRANSCRIBE] = async (init) => init.schema?.parse(queue.shift() ?? first);
     const container = await mount();
     const card = article(container, 'Autrice — Canzone');
     await click(button(card, "Trascrivi con l'IA"));
@@ -613,7 +618,7 @@ describe('trascrizione IA: nuova trascrizione con una bozza già presente', () =
     await click(button(card, "Trascrivi con l'IA"));
     expect(callsTo(TRANSCRIBE)).toHaveLength(1);
     expect(card.textContent).toContain(
-      'Hai una bozza modificata: sostituirla con una nuova trascrizione?',
+      'Hai una bozza modificata: ricaricare la bozza conservata sul server?',
     );
     const keep = button(card, 'Tieni la bozza');
     expect(document.activeElement).toBe(keep);
@@ -625,9 +630,63 @@ describe('trascrizione IA: nuova trascrizione con una bozza già presente', () =
     expect(dialog()?.querySelector('textarea')?.value).toBe('[00:01.00] Correzione manuale');
   });
 
-  it('«Sì, trascrivi di nuovo» sostituisce la bozza con quella nuova', async () => {
+  it('stessa lingua di una bozza conservata: la domanda dice che si ricarica QUELLA bozza, non una nuova', async () => {
     const { card } = await withEditedDraft();
     await click(button(card, "Trascrivi con l'IA"));
+    expect(card.textContent).toContain(
+      'Hai una bozza modificata: ricaricare la bozza conservata sul server? Le tue correzioni andrebbero perse. Per una trascrizione nuova usa «Rigenera con l’IA».',
+    );
+    expect(card.textContent).not.toContain('sostituirla con una nuova trascrizione');
+    expect(maybeButton(card, 'Sì, trascrivi di nuovo')).toBeUndefined();
+    await click(button(card, 'Sì, ricarica la bozza'));
+    expect(callsTo(TRANSCRIBE)).toHaveLength(2);
+    // Nessuna rigenerazione: il server risponde dalla cache con la stessa bozza.
+    expect(requestBody(callsTo(TRANSCRIBE)[1]?.[1] as FetchInit)).toEqual({
+      pathname: 'Cantautori/Autrice - Canzone.mp3',
+    });
+    const editor = dialog() as HTMLElement;
+    expect(editor.querySelector('textarea')?.value).toBe(DRAFT.draft);
+    expect(editor.textContent).toContain('Dalla cache · nessun credito usato');
+  });
+
+  it('dalla domanda, «Rigenera con l’IA» chiede dei crediti e poi rifà la trascrizione (regenerate)', async () => {
+    const { card } = await withEditedDraft(DRAFT, [SECOND]);
+    await click(button(card, "Trascrivi con l'IA"));
+    await click(button(card, "Rigenera con l'IA"));
+    expect(card.textContent).toContain(
+      'Usa di nuovo i crediti OpenAI per questo brano? Le correzioni fatte nell’editor andrebbero perse.',
+    );
+    expect(callsTo(TRANSCRIBE)).toHaveLength(1);
+    await click(button(card, 'Sì, rigenera'));
+    expect(requestBody(callsTo(TRANSCRIBE)[1]?.[1] as FetchInit)).toEqual({
+      pathname: 'Cantautori/Autrice - Canzone.mp3',
+      regenerate: true,
+    });
+    expect(dialog()?.querySelector('textarea')?.value).toBe(SECOND.draft);
+  });
+
+  it('lingua diversa: «Sì, trascrivi di nuovo» chiede la trascrizione in quella lingua', async () => {
+    const { card } = await withEditedDraft(DRAFT, [SECOND]);
+    await choose(card.querySelector('select') as HTMLSelectElement, 'en');
+    await click(button(card, "Trascrivi con l'IA"));
+    expect(card.textContent).toContain(
+      'Hai una bozza modificata: sostituirla con una nuova trascrizione?',
+    );
+    expect(maybeButton(card, "Rigenera con l'IA")).toBeUndefined();
+    await click(button(card, 'Sì, trascrivi di nuovo'));
+    expect(requestBody(callsTo(TRANSCRIBE)[1]?.[1] as FetchInit)).toEqual({
+      pathname: 'Cantautori/Autrice - Canzone.mp3',
+      language: 'en',
+    });
+    expect(dialog()?.querySelector('textarea')?.value).toBe(SECOND.draft);
+  });
+
+  it('bozza non confermata sul server (cachedAt null): si chiede una nuova trascrizione', async () => {
+    const { card } = await withEditedDraft({ ...DRAFT, cachedAt: null }, [SECOND]);
+    await click(button(card, "Trascrivi con l'IA"));
+    expect(card.textContent).toContain(
+      'Hai una bozza modificata: sostituirla con una nuova trascrizione?',
+    );
     await click(button(card, 'Sì, trascrivi di nuovo'));
     expect(callsTo(TRANSCRIBE)).toHaveLength(2);
     expect(dialog()?.querySelector('textarea')?.value).toBe(SECOND.draft);
@@ -697,6 +756,194 @@ describe('trascrizione IA: fuoco, lingua riconosciuta, file troppo grandi', () =
     expect(card.querySelector('select')).toBeNull();
     await click(start);
     expect(callsTo(TRANSCRIBE)).toHaveLength(0);
+  });
+});
+
+describe('trascrizione IA: cache cifrata sul server', () => {
+  const CACHED: TranscribeResponse = {
+    ...DRAFT,
+    fromCache: true,
+    cachedAt: '2026-11-12T09:05:00.000Z',
+  };
+  const FRESH: TranscribeResponse = { ...DRAFT, draft: '[00:03.00] Rigenerata', lineCount: 1 };
+
+  it('bozza nuova: «Nuova trascrizione · salvata in modo cifrato», nessun «Rigenera»', async () => {
+    handlers[TRANSCRIBE] = respondWith(DRAFT);
+    const container = await mount();
+    const card = article(container, 'Autrice — Canzone');
+    await click(button(card, "Trascrivi con l'IA"));
+    const editor = dialog() as HTMLElement;
+    expect(editor.textContent).toContain('Nuova trascrizione · salvata in modo cifrato');
+    expect(editor.textContent).not.toContain('Dalla cache');
+    expect(maybeButton(editor, "Rigenera con l'IA")).toBeUndefined();
+    await click(button(editor, 'Annulla'));
+    expect(card.textContent).toContain('Nuova trascrizione · salvata in modo cifrato');
+  });
+
+  it('bozza nuova senza conferma del salvataggio (cachedAt null): "non confermato", senza promettere né escludere la cache', async () => {
+    handlers[TRANSCRIBE] = respondWith({ ...DRAFT, cachedAt: null });
+    const container = await mount();
+    await click(button(article(container, 'Autrice — Canzone'), "Trascrivi con l'IA"));
+    const editor = dialog() as HTMLElement;
+    expect(editor.textContent).toContain('Nuova trascrizione · salvataggio cifrato non confermato');
+    expect(editor.textContent).toContain(
+      'Il server non ha confermato di averla conservata cifrata: una nuova richiesta potrebbe usare di nuovo i crediti OpenAI.',
+    );
+    expect(editor.textContent).not.toContain('salvata in modo cifrato');
+    expect(editor.textContent).not.toContain('non salvata sul server');
+  });
+
+  it('bozza dalla cache: badge, data della trascrizione e avviso senza crediti', async () => {
+    handlers[TRANSCRIBE] = respondWith(CACHED);
+    const container = await mount();
+    await click(button(article(container, 'Autrice — Canzone'), "Trascrivi con l'IA"));
+    const editor = dialog() as HTMLElement;
+    expect(editor.textContent).toContain('Dalla cache · nessun credito usato');
+    // 09:05 UTC = 10:05 a Roma (ora solare).
+    expect(editor.textContent).toContain('Trascritta il 12 novembre 2026 alle 10:05');
+    expect(editor.querySelector('time')?.getAttribute('dateTime')).toBe(CACHED.cachedAt);
+    expect(editor.querySelector('textarea')?.value).toBe(DRAFT.draft);
+    expect(button(editor, "Rigenera con l'IA")).toBeTruthy();
+    expect(mocks.success).toHaveBeenCalledWith('Bozza dalla cache: 3 righe, nessun credito usato.');
+  });
+
+  it('«Rigenera con l’IA»: chiede dei crediti; «No» non chiama OpenAI e torna al pulsante', async () => {
+    handlers[TRANSCRIBE] = respondWith(CACHED);
+    const container = await mount();
+    await click(button(article(container, 'Autrice — Canzone'), "Trascrivi con l'IA"));
+    const editor = dialog() as HTMLElement;
+    await click(button(editor, "Rigenera con l'IA"));
+    expect(editor.textContent).toContain('Usa di nuovo i crediti OpenAI per questo brano?');
+    expect(editor.textContent).not.toContain('andrebbero perse');
+    const keep = button(editor, 'No, tieni questa');
+    expect(document.activeElement).toBe(keep);
+    await click(keep);
+    expect(editor.textContent).not.toContain('Usa di nuovo i crediti OpenAI');
+    expect(document.activeElement).toBe(button(editor, "Rigenera con l'IA"));
+    expect(callsTo(TRANSCRIBE)).toHaveLength(1);
+  });
+
+  it('«Sì, rigenera»: regenerate: true con la lingua della bozza, poi la bozza nuova', async () => {
+    const regenerated = pending();
+    let attempt = 0;
+    handlers[TRANSCRIBE] = async (init) => {
+      attempt += 1;
+      if (attempt === 1) return init.schema?.parse(CACHED);
+      return regenerated.handler(init);
+    };
+    const container = await mount();
+    const card = article(container, 'Autrice — Canzone');
+    await choose(card.querySelector('select') as HTMLSelectElement, 'it');
+    await click(button(card, "Trascrivi con l'IA"));
+    // La lingua del menu cambia dopo la bozza: la rigenerazione rifà QUELLA trascrizione.
+    await click(button(dialog() as HTMLElement, 'Annulla'));
+    await choose(card.querySelector('select') as HTMLSelectElement, 'en');
+    await click(button(card, 'Riapri la bozza'));
+    await click(button(dialog() as HTMLElement, "Rigenera con l'IA"));
+    await click(button(dialog() as HTMLElement, 'Sì, rigenera'));
+    await settleFocus();
+
+    expect(requestBody(callsTo(TRANSCRIBE)[0]?.[1] as FetchInit)).toEqual({
+      pathname: 'Cantautori/Autrice - Canzone.mp3',
+      language: 'it',
+    });
+    expect(requestBody(regenerated.calls[0])).toEqual({
+      pathname: 'Cantautori/Autrice - Canzone.mp3',
+      language: 'it',
+      regenerate: true,
+    });
+    // Durante la richiesta l'editor è chiuso; avanzamento e «Annulla» nella scheda.
+    expect(dialog()).toBeNull();
+    expect(card.querySelector('section')?.getAttribute('aria-busy')).toBe('true');
+    expect(document.activeElement).toBe(button(card, 'Annulla'));
+
+    await act(async () => regenerated.resolve(FRESH));
+    await flush();
+    const editor = dialog() as HTMLElement;
+    expect(editor.querySelector('textarea')?.value).toBe(FRESH.draft);
+    expect(editor.textContent).toContain('Nuova trascrizione · salvata in modo cifrato');
+    expect(maybeButton(editor, "Rigenera con l'IA")).toBeUndefined();
+    expect(mocks.success).toHaveBeenLastCalledWith('Bozza pronta: 1 riga.');
+  });
+
+  it('con correzioni nell’editor la domanda avvisa che andrebbero perse', async () => {
+    handlers[TRANSCRIBE] = respondWith(CACHED);
+    const container = await mount();
+    await click(button(article(container, 'Autrice — Canzone'), "Trascrivi con l'IA"));
+    const editor = dialog() as HTMLElement;
+    await typeInto(editor.querySelector('textarea') as HTMLTextAreaElement, '[00:01.00] Mia');
+    await click(button(editor, "Rigenera con l'IA"));
+    expect(editor.textContent).toContain(
+      'Usa di nuovo i crediti OpenAI per questo brano? Le correzioni fatte nell’editor andrebbero perse.',
+    );
+  });
+
+  it('correzioni scritte mentre la domanda è aperta: prima l’avviso, si rigenera solo confermando di nuovo', async () => {
+    const regenerated = pending();
+    let attempt = 0;
+    handlers[TRANSCRIBE] = async (init) => {
+      attempt += 1;
+      if (attempt === 1) return init.schema?.parse(CACHED);
+      return regenerated.handler(init);
+    };
+    const container = await mount();
+    await click(button(article(container, 'Autrice — Canzone'), "Trascrivi con l'IA"));
+    const editor = dialog() as HTMLElement;
+    await click(button(editor, "Rigenera con l'IA"));
+    expect(editor.textContent).not.toContain('andrebbero perse');
+    const textarea = editor.querySelector('textarea') as HTMLTextAreaElement;
+    await typeInto(textarea, '[00:01.00] Mia correzione');
+    await click(button(editor, 'Sì, rigenera'));
+    // Nessuna richiesta: la domanda ora avvisa delle correzioni e il fuoco va sulla scelta sicura.
+    expect(callsTo(TRANSCRIBE)).toHaveLength(1);
+    expect(editor.textContent).toContain(
+      'Usa di nuovo i crediti OpenAI per questo brano? Le correzioni fatte nell’editor andrebbero perse.',
+    );
+    expect(document.activeElement).toBe(button(editor, 'No, tieni questa'));
+    expect(textarea.value).toBe('[00:01.00] Mia correzione');
+    await click(button(editor, 'Sì, rigenera'));
+    expect(callsTo(TRANSCRIBE)).toHaveLength(2);
+    expect(requestBody(regenerated.calls[0])).toEqual({
+      pathname: 'Cantautori/Autrice - Canzone.mp3',
+      regenerate: true,
+    });
+  });
+
+  it('nella scheda il badge resta visibile con l’editor chiuso', async () => {
+    handlers[TRANSCRIBE] = respondWith(CACHED);
+    const container = await mount();
+    const card = article(container, 'Autrice — Canzone');
+    expect(card.textContent).not.toContain('Dalla cache');
+    await click(button(card, "Trascrivi con l'IA"));
+    await click(button(dialog() as HTMLElement, 'Annulla'));
+    expect(card.textContent).toContain('Dalla cache · nessun credito usato');
+    expect(card.textContent).toContain('Trascritta il 12 novembre 2026 alle 10:05');
+  });
+
+  it('scheda nascosta durante la richiesta: l’avviso dice che viene dalla cache', async () => {
+    const request = pending();
+    handlers[TRANSCRIBE] = request.handler;
+    const container = await mount();
+    await click(button(article(container, 'Autrice — Canzone'), "Trascrivi con l'IA"));
+    await search(container, 'Ballata');
+    await act(async () => request.resolve(CACHED));
+    await flush();
+    expect(mocks.success).toHaveBeenCalledWith(
+      'Bozza pronta per Autrice — Canzone (dalla cache, nessun credito usato): 3 righe. La trovi con «Riapri la bozza» nella sua scheda.',
+    );
+  });
+
+  it('nota a piè di pagina sulla conservazione cifrata (solo se ci sono brani trascrivibili)', async () => {
+    const note =
+      'Le trascrizioni sono conservate cifrate sul server per non pagarle due volte; quelle non usate per 6 mesi vengono cancellate.';
+    const container = await mount();
+    expect(container.textContent?.replace(/\s+/g, ' ')).toContain(note);
+
+    handlers[REPORT] = respondWith(
+      report({ tracks: TRACKS.map(({ transcription: _unused, ...track }) => track) }),
+    );
+    const other = await mount();
+    expect(other.textContent).not.toContain('conservate cifrate');
   });
 });
 

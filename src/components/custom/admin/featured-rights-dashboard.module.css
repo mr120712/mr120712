@@ -442,3 +442,26 @@
 .editorActions {
   gap: 0.5rem;
 }
+/* Da dove viene la bozza (cache cifrata o nuova trascrizione) e «Rigenera con l'IA» */
+.origin {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  font-size: 0.875rem;
+}
+.regenerate {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+/* Domanda sui crediti dentro l'avviso «bozza modificata»: si stacca dallo sfondo dell'avviso. */
+.replaceBody > .warning {
+  background: var(--background);
+}
+.footnote {
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}

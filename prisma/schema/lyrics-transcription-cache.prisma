@@ -1,0 +1,37 @@
+// @polsia:user-owned — trascrizioni IA (Whisper) dei testi dei brani in evidenza conservate CIFRATE,
+// così la stessa versione dello stesso file audio non viene mandata a OpenAI (e pagata) due volte,
+// salvo una richiesta esplicita «Rigenera con l'IA» dell'amministratore. Vedi
+// src/lib/music/transcription-cache.server.ts.
+//
+// Nessun testo né percorso o titolo in chiaro: la chiave di ricerca è un HMAC-SHA256 (chiave
+// derivata da BETTER_AUTH_SECRET) di versione, percorso, versione dell'audio (etag), lingua chiesta,
+// modello e versione della bozza; la bozza è cifrata con AES-256-GCM (IV casuale per scrittura,
+// dati autenticati = keyHash più i metadati qui sotto: un testo copiato in un'altra riga, o righe,
+// lingua, durata o data cambiate, non si decifrano). In chiaro restano solo dati non sensibili
+// (lingua riconosciuta, durata, righe, segmenti scartati, date), comunque autenticati.
+// La pulizia giornaliera cancella le voci non usate da 180 giorni.
+model LyricsTranscriptionCache {
+  id              String   @id @default(cuid())
+  /// HMAC-SHA256 esadecimale della chiave della trascrizione (64 caratteri).
+  keyHash         String   @unique
+  /// Bozza LRC cifrata (AES-256-GCM, senza il tag).
+  ciphertext      Bytes
+  /// IV casuale di 12 byte, nuovo a ogni scrittura.
+  iv              Bytes
+  /// Tag di autenticazione GCM (16 byte).
+  authTag         Bytes
+  /// Versione della derivazione delle chiavi: una voce di un'altra versione non si usa.
+  keyVersion      Int
+  model           String
+  /// Lingua riconosciuta da Whisper (es. "italian"), se c'è.
+  language        String?
+  durationSeconds Float?
+  lineCount       Int
+  droppedSegments Int
+  /// Quando è stata fatta la trascrizione (si aggiorna con «Rigenera con l'IA»).
+  createdAt       DateTime @default(now())
+  /// Ultimo riuso: le voci ferme da 180 giorni si cancellano.
+  lastUsedAt      DateTime @default(now())
+
+  @@index([lastUsedAt])
+}

@@ -12,6 +12,10 @@
 // esistente solo dopo la conferma). La bozza resta in questa pagina, per questo amministratore:
 // lo stato di ogni brano (richiesta in corso, bozza, modifiche) vive sopra l'elenco, così filtri e
 // ricerca non lo perdono; una bozza modificata non si sostituisce senza chiedere.
+// Il server conserva ogni trascrizione CIFRATA e la riusa: una bozza dalla cache mostra «Dalla
+// cache · nessun credito usato» con la data della trascrizione e «Rigenera con l'IA» (dopo la
+// conferma sui crediti OpenAI chiede regenerate: true); una nuova mostra «Nuova trascrizione ·
+// salvata in modo cifrato».
 'use client';
 
 import {
@@ -312,6 +316,12 @@ function Report({ data }: { data: AdminFeaturedRights }) {
       <ManifestPanel manifest={data.manifest} />
       <GuidePanel defaultOpen={data.manifest.status !== 'valid'} />
       <TracksPanel data={data} />
+      {data.tracks.some((track) => track.transcription) ? (
+        <p className={styles.footnote}>
+          Le trascrizioni sono conservate cifrate sul server per non pagarle due volte; quelle non
+          usate per 6 mesi vengono cancellate.
+        </p>
+      ) : null}
     </>
   );
 }
@@ -924,6 +934,132 @@ function detectedLanguageName(language: string | null): string | null {
 }
 
 const durationFormat = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 });
+const dayFormat = new Intl.DateTimeFormat('it-IT', {
+  timeZone: 'Europe/Rome',
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+});
+
+/** "14 novembre 2026 alle 15:30" (ora di Roma). */
+function transcribedAtText(iso: string) {
+  const date = new Date(iso);
+  return `${dayFormat.format(date)} alle ${timeFormat.format(date)}`;
+}
+
+/**
+ * Da dove viene la bozza: conservata sul server (nessun credito) o nuova, e in quel caso se il
+ * server ha confermato di averla conservata cifrata (senza conferma potrebbe esserci lo stesso:
+ * database lento).
+ */
+function DraftOrigin({ draft }: { draft: TranscribeResponse }) {
+  if (draft.fromCache) {
+    return (
+      <>
+        <StatusBadge tone="info">Dalla cache · nessun credito usato</StatusBadge>
+        {draft.cachedAt ? (
+          <span className={styles.muted}>
+            Trascritta il <time dateTime={draft.cachedAt}>{transcribedAtText(draft.cachedAt)}</time>
+          </span>
+        ) : null}
+      </>
+    );
+  }
+  return draft.cachedAt ? (
+    <StatusBadge tone="positive">Nuova trascrizione · salvata in modo cifrato</StatusBadge>
+  ) : (
+    <StatusBadge tone="warning">
+      Nuova trascrizione · salvataggio cifrato non confermato
+    </StatusBadge>
+  );
+}
+
+/**
+ * «Rigenera con l'IA» per una bozza conservata sul server: prima chiede se usare di nuovo i crediti
+ * OpenAI (e avvisa se le correzioni nell'editor andrebbero perse), poi `onConfirm`. Le correzioni
+ * si ricontrollano alla conferma: se sono comparse mentre la domanda era aperta, prima si avvisa.
+ */
+function RegenerateDraft({
+  isEdited,
+  onConfirm,
+}: {
+  isEdited: () => boolean;
+  onConfirm: () => void;
+}) {
+  const [asking, setAsking] = useState<{ edited: boolean } | null>(null);
+  const questionId = useId();
+  const askRef = useRef<HTMLButtonElement>(null);
+  const keepRef = useRef<HTMLButtonElement>(null);
+  const returnFocus = useRef(false);
+
+  // La domanda prende il fuoco sulla scelta sicura; «No» lo riporta sul pulsante.
+  useEffect(() => {
+    if (asking) keepRef.current?.focus();
+    else if (returnFocus.current) {
+      returnFocus.current = false;
+      askRef.current?.focus();
+    }
+  }, [asking]);
+
+  if (!asking) {
+    return (
+      <div className={styles.regenerate}>
+        <Button
+          ref={askRef}
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => setAsking({ edited: isEdited() })}
+        >
+          <RotateCw aria-hidden="true" />
+          Rigenera con l'IA
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className={styles.warning}>
+      <TriangleAlert aria-hidden="true" />
+      <div className={styles.replaceBody}>
+        <p id={questionId}>
+          Usa di nuovo i crediti OpenAI per questo brano?
+          {asking.edited ? ' Le correzioni fatte nell’editor andrebbero perse.' : ''}
+        </p>
+        <div className={styles.replaceActions}>
+          <Button
+            type="button"
+            size="sm"
+            aria-describedby={questionId}
+            onClick={() => {
+              // L'editor resta modificabile durante la domanda: correzioni scritte dopo «Rigenera»
+              // non si perdono senza avviso (la domanda si aggiorna e si conferma di nuovo).
+              if (!asking.edited && isEdited()) {
+                setAsking({ edited: true });
+                return;
+              }
+              onConfirm();
+            }}
+          >
+            Sì, rigenera
+          </Button>
+          <Button
+            ref={keepRef}
+            type="button"
+            size="sm"
+            variant="outline"
+            aria-describedby={questionId}
+            onClick={() => {
+              returnFocus.current = true;
+              setAsking(null);
+            }}
+          >
+            No, tieni questa
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function formatDuration(seconds: number) {
   const whole = Math.round(seconds);
@@ -976,6 +1112,8 @@ type TranscriptionSession = {
   errorMessage: string | null;
   /** Ultima bozza ricevuta (null = nessuna, o già salvata). */
   draft: TranscribeResponse | null;
+  /** Lingua chiesta per quella bozza: «Rigenera con l'IA» rifà la stessa trascrizione. */
+  draftLanguage: TranscriptionLanguage | '';
   /** Cresce a ogni bozza nuova: l'editor riparte dal testo della bozza. */
   draftVersion: number;
   editorOpen: boolean;
@@ -991,6 +1129,7 @@ const IDLE_SESSION: TranscriptionSession = {
   phase: 'idle',
   errorMessage: null,
   draft: null,
+  draftLanguage: '',
   draftVersion: 0,
   editorOpen: false,
   confirmReplace: false,
@@ -1078,13 +1217,15 @@ function useTranscriptionSession(pathname: string) {
 
 /**
  * Chiede la bozza e la conserva nello stato del brano, anche se nel frattempo la scheda è stata
- * nascosta da un filtro: l'editor si apre da solo solo se la scheda è visibile.
+ * nascosta da un filtro: l'editor si apre da solo solo se la scheda è visibile. Con `regenerate`
+ * (solo dopo la conferma sui crediti) il server ignora la trascrizione conservata e la rifà.
  */
 async function runTranscription(
   sessions: TranscriptionSessions,
   pathname: string,
   name: string,
   language: TranscriptionLanguage | '',
+  regenerate = false,
 ) {
   const controller = new AbortController();
   sessions.update(pathname, {
@@ -1097,7 +1238,11 @@ async function runTranscription(
   try {
     const result = await apiFetch(TRANSCRIBE_ENDPOINT, {
       method: 'POST',
-      body: JSON.stringify({ pathname, ...(language ? { language } : {}) }),
+      body: JSON.stringify({
+        pathname,
+        ...(language ? { language } : {}),
+        ...(regenerate ? { regenerate: true } : {}),
+      }),
       schema: TranscribeResponseSchema,
       signal: controller.signal,
     });
@@ -1108,14 +1253,27 @@ async function runTranscription(
       phase: 'idle',
       controller: null,
       draft: result,
+      draftLanguage: language,
       draftVersion: sessions.get(pathname).draftVersion + 1,
       editorOpen: visible,
     });
-    if (result.lineCount === 0) toast('Trascrizione finita, ma nessuna parola riconosciuta.');
-    else if (visible) toast.success(`Bozza pronta: ${linesText(result.lineCount)}.`);
-    else {
+    const lines = linesText(result.lineCount);
+    if (result.lineCount === 0) {
+      toast(
+        result.fromCache
+          ? 'Trascrizione dalla cache: nessuna parola riconosciuta.'
+          : 'Trascrizione finita, ma nessuna parola riconosciuta.',
+      );
+    } else if (visible) {
       toast.success(
-        `Bozza pronta per ${name}: ${linesText(result.lineCount)}. La trovi con «Riapri la bozza» nella sua scheda.`,
+        result.fromCache
+          ? `Bozza dalla cache: ${lines}, nessun credito usato.`
+          : `Bozza pronta: ${lines}.`,
+      );
+    } else {
+      const origin = result.fromCache ? ' (dalla cache, nessun credito usato)' : '';
+      toast.success(
+        `Bozza pronta per ${name}${origin}: ${lines}. La trovi con «Riapri la bozza» nella sua scheda.`,
       );
     }
   } catch (error) {
@@ -1197,11 +1355,26 @@ function LyricsTranscription({
     startRef.current?.focus();
   };
 
+  // «Rigenera con l'IA» confermato: stessa lingua della bozza, l'editor si chiude durante la
+  // richiesta (avanzamento e «Annulla» nella scheda) e si riapre con la bozza nuova.
+  const regenerate = () => {
+    const current = sessions.get(pathname);
+    if (blockedReason || current.phase === 'running') return;
+    sessions.update(pathname, { editorOpen: false });
+    void runTranscription(sessions, pathname, name, current.draftLanguage, true);
+  };
+
   const cancel = () => sessions.get(pathname).controller?.abort();
   const setEditorOpen = (open: boolean) => sessions.update(pathname, { editorOpen: open });
 
   const draft = session.draft;
   const detected = draft ? detectedLanguageName(draft.language) : null;
+  // Stessa lingua di una bozza conservata sul server: «Trascrivi con l'IA» riavrebbe QUELLA bozza
+  // dalla cache (gratis), non una trascrizione nuova; per una nuova serve «Rigenera con l'IA».
+  const reloadsStoredDraft =
+    draft !== null &&
+    session.language === session.draftLanguage &&
+    (draft.fromCache || draft.cachedAt !== null);
 
   return (
     <section className={styles.transcribe} aria-labelledby={headingId} aria-busy={running}>
@@ -1267,13 +1440,19 @@ function LyricsTranscription({
           ) : null}
         </div>
       )}
+      {draft && !running ? (
+        <div className={styles.origin}>
+          <DraftOrigin draft={draft} />
+        </div>
+      ) : null}
       {session.confirmReplace && !running ? (
         <div className={styles.warning}>
           <TriangleAlert aria-hidden="true" />
           <div className={styles.replaceBody}>
             <p id={replaceId}>
-              Hai una bozza modificata: sostituirla con una nuova trascrizione? Le tue correzioni
-              andrebbero perse.
+              {reloadsStoredDraft
+                ? 'Hai una bozza modificata: ricaricare la bozza conservata sul server? Le tue correzioni andrebbero perse. Per una trascrizione nuova usa «Rigenera con l’IA».'
+                : 'Hai una bozza modificata: sostituirla con una nuova trascrizione? Le tue correzioni andrebbero perse.'}
             </p>
             <div className={styles.replaceActions}>
               <Button
@@ -1282,7 +1461,7 @@ function LyricsTranscription({
                 aria-describedby={replaceId}
                 onClick={() => start(true)}
               >
-                Sì, trascrivi di nuovo
+                {reloadsStoredDraft ? 'Sì, ricarica la bozza' : 'Sì, trascrivi di nuovo'}
               </Button>
               <Button
                 ref={keepRef}
@@ -1295,6 +1474,13 @@ function LyricsTranscription({
                 Tieni la bozza
               </Button>
             </div>
+            {reloadsStoredDraft ? (
+              <RegenerateDraft
+                key={`scheda-rigenera-${session.draftVersion}`}
+                isEdited={() => sessions.edited(pathname)}
+                onConfirm={regenerate}
+              />
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -1317,9 +1503,10 @@ function LyricsTranscription({
           <DialogContent
             className={styles.editorDialog}
             onCloseAutoFocus={(event) => {
-              // Senza DialogTrigger Radix non sa dove tornare: il fuoco resta nella scheda.
+              // Senza DialogTrigger Radix non sa dove tornare: il fuoco resta nella scheda (su
+              // «Annulla» se nel frattempo è partita una rigenerazione).
               event.preventDefault();
-              (reopenRef.current ?? startRef.current)?.focus();
+              (reopenRef.current ?? startRef.current ?? cancelRef.current)?.focus();
             }}
           >
             <DialogHeader>
@@ -1328,6 +1515,22 @@ function LyricsTranscription({
                 Bozza automatica: controlla parole e tempi prima di salvare.
               </DialogDescription>
             </DialogHeader>
+            <div className={styles.origin}>
+              <DraftOrigin draft={draft} />
+            </div>
+            {draft.fromCache && !blockedReason ? (
+              <RegenerateDraft
+                key={`rigenera-${session.draftVersion}`}
+                isEdited={() => sessions.edited(pathname)}
+                onConfirm={regenerate}
+              />
+            ) : null}
+            {!draft.fromCache && !draft.cachedAt ? (
+              <p className={styles.muted}>
+                Il server non ha confermato di averla conservata cifrata: una nuova richiesta
+                potrebbe usare di nuovo i crediti OpenAI.
+              </p>
+            ) : null}
             <ul className={styles.editorMeta} aria-label="Dettagli della trascrizione">
               {detected ? <li>Lingua riconosciuta: {detected}</li> : null}
               {draft.durationSeconds !== null ? (

@@ -19,6 +19,16 @@
 // Il permesso si nega anche quando diritti.json è pubblico (il CDN potrebbe servirne una copia
 // vecchia, con un "testo": true già revocato): va caricato come privato, come dice la guida.
 // La bozza torna solo all'amministratore che l'ha chiesta; nessun testo nei log.
+//
+// Cache cifrata (transcription-cache.server.ts): ogni bozza pagata si conserva CIFRATA nel
+// database, legata a percorso, versione del file audio (etag dell'head() del permesso), lingua
+// chiesta, modello e versione della bozza. Si consulta SOLO dopo permesso, formato e dimensione
+// (mai una scorciatoia sul permesso): se c'è, la bozza torna con fromCache: true senza leggere
+// l'audio, senza OpenAI e senza consumare limiti. «Rigenera con l'IA» (regenerate) la ignora, rifà
+// la trascrizione e la sostituisce. Un file audio sostituito ha un'altra versione: la voce vecchia
+// non si usa più e scade da sola. Due richieste identiche nello stesso processo: la seconda
+// aspetta la prima e riusa il suo risultato (una rigenerazione solo se è stato scritto DOPO la sua
+// richiesta, cioè è una trascrizione nuova).
 import 'server-only';
 import {
   BlobAccessError,
@@ -47,6 +57,7 @@ import {
   type TranscribeResponse,
   type TranscriptionLanguage,
   WHISPER_EXTENSIONS,
+  type WhisperExtension,
 } from '@/lib/contracts/lyrics-transcription';
 import { env } from '@/lib/env';
 import { invalidateFeaturedLyricsCache } from '@/lib/music/featured-lyrics.server';
@@ -68,8 +79,17 @@ import {
 } from '@/lib/music/home-tracks.server';
 import { normalizeLyricsInput, parseLyrics, sanitizeLyricsLine } from '@/lib/music/lyrics';
 import {
+  beginTranscription,
+  type CachedTranscription,
+  readCachedTranscription,
+  storeCachedTranscription,
+  transcriptionCacheKey,
+  transcriptionInFlight,
+} from '@/lib/music/transcription-cache.server';
+import {
   openAiApiKey,
   transcribeWithWhisper,
+  WHISPER_MODEL,
   WHISPER_TIMEOUT_MS,
   type WhisperErrorCode,
   type WhisperSegment,
@@ -86,10 +106,22 @@ const PUT_DEADLINE_MS = 15_000;
 const TRANSCRIBE_BUDGET_MS = 112_000;
 /** Whisper non parte con meno di così: si sprecherebbe una chiamata a pagamento. */
 const WHISPER_MIN_TIMEOUT_MS = 20_000;
+/**
+ * Tempo lasciato alla lettura dell'audio quando si decide, PRIMA di prenotare i limiti, se c'è
+ * ancora tempo per trascrivere (dopo la lettura resta il controllo con WHISPER_MIN_TIMEOUT_MS).
+ */
+const AUDIO_READ_MARGIN_MS = 10_000;
 /** Allucinazione da silenzio: no_speech_prob oltre questa soglia… */
 export const NO_SPEECH_PROB_LIMIT = 0.6;
 /** …e insieme avg_logprob sotto questa. */
 export const AVG_LOGPROB_LIMIT = -1;
+/**
+ * Versione di buildDraftLrc, parte della chiave della cache: va aumentata quando cambia la bozza
+ * prodotta (le bozze vecchie non si riusano più e scadono da sole).
+ */
+export const DRAFT_BUILDER_VERSION = 1;
+/** Giri di attesa al massimo dietro una trascrizione identica in corso, poi si procede. */
+const MAX_IN_FLIGHT_WAITS = 3;
 
 const LRC_CONTENT_TYPE = 'text/plain; charset=utf-8';
 
@@ -261,6 +293,11 @@ export type EligibleTrack = {
   audioPublic: boolean;
   /** Dimensione del file audio secondo lo store. */
   size: number;
+  /**
+   * Versione del file audio (etag dell'head(), o dimensione + data di caricamento): cambia se il
+   * file viene sostituito, così una trascrizione conservata del file vecchio non si riusa.
+   */
+  audioVersion: string;
   /** Dove si salva il testo: stessa cartella, stesso nome, estensione .lrc. */
   lrcPathname: string;
   /** I .lrc già accanto al brano nell'elenco (maiuscole o forma Unicode diverse comprese). */
@@ -301,6 +338,14 @@ async function headWithin(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Versione del file audio dall'head(): l'etag se c'è, altrimenti dimensione + data di caricamento. */
+export function audioVersionOf(blob: Pick<HeadBlobResult, 'etag' | 'size' | 'uploadedAt'>): string {
+  const etag = typeof blob.etag === 'string' ? blob.etag.trim() : '';
+  if (etag) return `etag:${etag}`;
+  const uploadedAt = new Date(blob.uploadedAt);
+  return `size:${blob.size}:${Number.isNaN(uploadedAt.getTime()) ? '' : uploadedAt.toISOString()}`;
 }
 
 /**
@@ -346,6 +391,7 @@ export async function checkTranscriptionEligibility(pathname: string): Promise<E
         pathname,
         audioPublic: isPublicBlobUrl(blob.url),
         size: blob.size,
+        audioVersion: audioVersionOf(blob),
         lrcPathname,
         listedLrc,
       },
@@ -362,6 +408,11 @@ type DeniedRateLimit = Exclude<RateLimitDecision, { allowed: true }>;
 export type TranscriptionRefusal =
   | { kind: 'not_found' }
   | { kind: 'store_unavailable' }
+  /**
+   * Questa richiesta ha aspettato una trascrizione identica, finita senza una bozza da riusare, e
+   * non le resta abbastanza tempo per rifarla: nessun limite consumato, nessuna lettura.
+   */
+  | { kind: 'in_flight_failed' }
   | { kind: 'manifest_public' }
   | { kind: 'cancelled' }
   | { kind: 'lrc_private_rejected' }
@@ -402,6 +453,12 @@ export function transcriptionRefusalResponse(refusal: TranscriptionRefusal): Res
         error: 'store_unavailable',
         message:
           'Non riesco a leggere lo store o diritti.json in questo momento: riprova tra poco.',
+      });
+    case 'in_flight_failed':
+      return json(503, {
+        error: 'transcription_retry',
+        message:
+          'Un’altra trascrizione dello stesso brano è appena finita senza una bozza da riusare: riprova.',
       });
     case 'manifest_public':
       return json(503, {
@@ -542,23 +599,103 @@ export type TranscribeInput = {
   identity: string;
   /** Interruzione della richiesta (l'admin annulla): ferma anche la chiamata a OpenAI. */
   signal?: AbortSignal;
+  /**
+   * true = l'admin ha confermato «Usa di nuovo i crediti OpenAI»: la trascrizione conservata si
+   * ignora, si rifà e si sostituisce. Assente o false = si riusa se c'è.
+   */
+  regenerate?: boolean;
 };
 
 export type TranscribeOutcome =
   | { ok: true; result: TranscribeResponse }
   | { ok: false; refusal: TranscriptionRefusal };
 
+/** Risposta di una trascrizione conservata: nessuna lettura dell'audio, nessun costo. */
+function cachedOutcome(hit: CachedTranscription): TranscribeOutcome {
+  return {
+    ok: true,
+    result: {
+      draft: hit.draft,
+      lineCount: hit.lineCount,
+      language: hit.language,
+      durationSeconds: hit.durationSeconds,
+      droppedSegments: hit.droppedSegments,
+      fromCache: true,
+      cachedAt: hit.cachedAt.toISOString(),
+    },
+  };
+}
+
+/** Attende `running`; true se nel frattempo l'admin annulla (la richiesta finisce lì). */
+async function waitUnlessAborted(running: Promise<void>, signal?: AbortSignal): Promise<boolean> {
+  if (!signal) {
+    await running;
+    return false;
+  }
+  if (signal.aborted) return true;
+  return new Promise<boolean>((resolve) => {
+    const onAbort = () => resolve(true);
+    signal.addEventListener('abort', onAbort, { once: true });
+    void running.then(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve(false);
+    });
+  });
+}
+
+type Claim =
+  /**
+   * Nessuna trascrizione identica in corso: questa si segna come in corso (release alla fine).
+   * `waited` = prima ha aspettato un'altra trascrizione (finita senza una bozza da riusare).
+   */
+  | { kind: 'claimed'; release: () => void; waited: boolean }
+  /** Si procede senza segnarsi (attese esaurite). */
+  | { kind: 'unclaimed'; waited: true }
+  /** Una trascrizione identica appena finita l'ha conservata: si riusa. */
+  | { kind: 'hit'; hit: CachedTranscription }
+  | { kind: 'cancelled' };
+
+/**
+ * Richieste identiche contemporanee nello STESSO processo: chi arriva dopo aspetta la trascrizione
+ * in corso e poi riguarda la cache, così OpenAI non si paga due volte. Controllo e prenotazione
+ * sono sincroni (nessun await in mezzo). Anche una rigenerazione aspetta, ma accetta solo una voce
+ * scritta da `freshSince` in poi (cioè una trascrizione nuova, pagata dopo la sua richiesta); se
+ * quella in corso fallisce, la rifà da sé. Tra istanze diverse del server una chiamata doppia resta
+ * possibile (rara: pagina solo admin, con limiti).
+ */
+async function claimTranscription(
+  cacheKey: string,
+  freshSince: Date | null,
+  signal?: AbortSignal,
+): Promise<Claim> {
+  for (let round = 0; round < MAX_IN_FLIGHT_WAITS; round += 1) {
+    const running = transcriptionInFlight(cacheKey);
+    if (!running) {
+      return { kind: 'claimed', release: beginTranscription(cacheKey), waited: round > 0 };
+    }
+    if (await waitUnlessAborted(running, signal)) return { kind: 'cancelled' };
+    const hit = await readCachedTranscription(cacheKey);
+    if (hit && (!freshSince || hit.cachedAt.getTime() >= freshSince.getTime())) {
+      return { kind: 'hit', hit };
+    }
+  }
+  return { kind: 'unclaimed', waited: true };
+}
+
 /**
  * La bozza LRC di un brano dichiarato con "testo": true. Ordine dei controlli: chiave OpenAI,
- * permesso (fresco), formato, dimensione dall'elenco; solo allora si consumano i limiti, si legge
- * l'audio e si chiama Whisper. Se la lettura fallisce, l'admin annulla prima dell'invio o la
- * richiesta non raggiunge OpenAI, i limiti si restituiscono. Mai throw.
+ * permesso (fresco), formato, dimensione dall'elenco; poi la cache cifrata (salvo `regenerate`):
+ * se c'è la trascrizione di questa versione del file, torna subito (fromCache: true) senza
+ * leggere l'audio, senza OpenAI e senza consumare limiti. Altrimenti si consumano i limiti, si
+ * legge l'audio, si chiama Whisper e la bozza si conserva cifrata. Se la lettura fallisce, l'admin
+ * annulla prima dell'invio o la richiesta non raggiunge OpenAI, i limiti si restituiscono. Mai throw.
  */
 export async function transcribeFeaturedTrack({
   pathname,
   language,
   identity,
   signal,
+  regenerate = false,
 }: TranscribeInput): Promise<TranscribeOutcome> {
   const startedAt = Date.now();
   const apiKey = openAiApiKey();
@@ -579,6 +716,76 @@ export async function transcribeFeaturedTrack({
     return { ok: false, refusal: { kind: 'too_large' } };
   }
 
+  // Solo dopo permesso, formato e dimensione: la cache non scavalca mai il controllo dei diritti.
+  // null = cache spenta (BETTER_AUTH_SECRET assente): si trascrive come sempre.
+  const cacheKey = transcriptionCacheKey({
+    pathname: track.pathname,
+    audioVersion: track.audioVersion,
+    language: language ?? 'auto',
+    model: WHISPER_MODEL,
+    draftVersion: DRAFT_BUILDER_VERSION,
+  });
+  const run = { track, token, extension, language, identity, signal, apiKey, startedAt, cacheKey };
+  if (!cacheKey) return transcribeNow({ ...run, waited: false });
+
+  if (!regenerate) {
+    const hit = await readCachedTranscription(cacheKey);
+    if (hit) return cachedOutcome(hit);
+  }
+  // Una rigenerazione riusa solo una trascrizione scritta dopo l'inizio di questa richiesta.
+  const claim = await claimTranscription(cacheKey, regenerate ? new Date(startedAt) : null, signal);
+  if (claim.kind === 'hit') return cachedOutcome(claim.hit);
+  if (claim.kind === 'cancelled') return { ok: false, refusal: { kind: 'cancelled' } };
+  try {
+    if (!regenerate && !claim.waited) {
+      // La prima lettura può essere di un attimo prima che una trascrizione identica conservasse
+      // la sua bozza (e chiudesse): ora che questa è segnata come in corso, si riguarda una volta.
+      const late = await readCachedTranscription(cacheKey);
+      if (late) return cachedOutcome(late);
+    }
+    return await transcribeNow({ ...run, waited: claim.waited });
+  } finally {
+    // Dopo il salvataggio cifrato: chi aspettava trova la voce nuova.
+    if (claim.kind === 'claimed') claim.release();
+  }
+}
+
+type TranscribeRun = {
+  track: EligibleTrack;
+  token: string;
+  extension: WhisperExtension;
+  language?: TranscriptionLanguage;
+  identity: string;
+  signal?: AbortSignal;
+  apiKey: string;
+  startedAt: number;
+  /** Chiave della cache cifrata, o null se è spenta. */
+  cacheKey: string | null;
+  /** true = ha aspettato una trascrizione identica (finita senza una bozza da riusare). */
+  waited: boolean;
+};
+
+/** Limiti, lettura dell'audio, Whisper, bozza e (se la cache è attiva) salvataggio cifrato. */
+async function transcribeNow({
+  track,
+  token,
+  extension,
+  language,
+  identity,
+  signal,
+  apiKey,
+  startedAt,
+  cacheKey,
+  waited,
+}: TranscribeRun): Promise<TranscribeOutcome> {
+  // Prima di prenotare i limiti e leggere l'audio: dopo un'attesa (o uno store lento) potrebbe
+  // non restare il tempo per lettura + Whisper. Meglio dirlo subito che consumare e restituire.
+  if (
+    startedAt + TRANSCRIBE_BUDGET_MS - Date.now() <
+    WHISPER_MIN_TIMEOUT_MS + AUDIO_READ_MARGIN_MS
+  ) {
+    return { ok: false, refusal: { kind: waited ? 'in_flight_failed' : 'store_unavailable' } };
+  }
   const limited = await reserveTranscription(identity);
   if (limited) return { ok: false, refusal: limited };
 
@@ -623,15 +830,21 @@ export async function transcribeFeaturedTrack({
 
   const draft = buildDraftLrc(whisper.transcript.segments);
   const duration = whisper.transcript.durationSeconds;
+  const fields = {
+    draft: draft.draft,
+    lineCount: draft.lineCount,
+    language: whisper.transcript.language,
+    durationSeconds: duration === null ? null : Math.round(duration * 10) / 10,
+    droppedSegments: draft.droppedSegments,
+  };
+  // Pagata: si conserva cifrata (anche se l'admin ha annullato nel frattempo), così la prossima
+  // richiesta per questa versione del file non costa nulla. Se non riesce, la bozza arriva lo stesso.
+  const cachedAt = cacheKey
+    ? await storeCachedTranscription(cacheKey, { ...fields, model: WHISPER_MODEL })
+    : null;
   return {
     ok: true,
-    result: {
-      draft: draft.draft,
-      lineCount: draft.lineCount,
-      language: whisper.transcript.language,
-      durationSeconds: duration === null ? null : Math.round(duration * 10) / 10,
-      droppedSegments: draft.droppedSegments,
-    },
+    result: { ...fields, fromCache: false, cachedAt: cachedAt ? cachedAt.toISOString() : null },
   };
 }
 

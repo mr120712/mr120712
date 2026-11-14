@@ -7,6 +7,8 @@
 // Poi contatori della quota dei giorni passati, contatori dei limiti per azione (account o IP
 // con hash) fermi da 2 giorni, piani AI scaduti, esiti dei controlli automatici oltre 30
 // giorni e ascolti contati della classifica della community (chiavi HMAC) oltre 35 giorni.
+// Infine le trascrizioni IA dei testi conservate cifrate e non usate da 180 giorni (a lotti
+// limitati; se la loro pulizia fallisce si riprova il giorno dopo, senza fermare le altre).
 // A fine lavoro salva il battito 'cleanup', letto dal controllo "Pulizia giornaliera".
 // Vercel invia "Authorization: Bearer <CRON_SECRET>"; senza segreto valido risponde 401.
 import 'server-only';
@@ -17,6 +19,7 @@ import { CLEANUP_HEARTBEAT } from '@/lib/monitoring/checks.server';
 import { recordHeartbeat } from '@/lib/monitoring/monitor.server';
 import { expireYouTubeCollectionMetadata } from '@/lib/music/collections.server';
 import { FOUND_TTL_MS } from '@/lib/music/song-resolve.server';
+import { purgeStaleTranscriptions } from '@/lib/music/transcription-cache.server';
 import { deleteOldYouTubeQuotaUsage } from '@/lib/music/youtube-budget.server';
 import {
   YOUTUBE_CHART_KEY_PREFIX,
@@ -57,6 +60,7 @@ export async function GET(request: Request) {
     plans,
     monitorRuns,
     communityPlays,
+    transcriptions,
   ] = await Promise.all([
     expireYouTubeCollectionMetadata(new Date(now.getTime() + NEXT_RUN_MS)),
     // createdAt is when YouTube sent the data: rows written with the older 29-day expiry
@@ -95,6 +99,8 @@ export async function GET(request: Request) {
     prisma.publicUploadPlay.deleteMany({
       where: { createdAt: { lt: new Date(now.getTime() - PUBLIC_UPLOAD_PLAY_MAX_AGE_MS) } },
     }),
+    // Trascrizioni cifrate non riusate da 180 giorni: al massimo un lotto per esecuzione, mai throw.
+    purgeStaleTranscriptions(now),
   ]);
   const removed = {
     youtubeCollectionItems: collections.count,
@@ -112,7 +118,8 @@ export async function GET(request: Request) {
     `Rimossi: ${removed.youtubeCollectionItems} dati YouTube, ${removed.songResolutions} brani risolti, ` +
       `${removed.youtubeSearches} ricerche salvate, ${removed.youtubeHistory} ascolti YouTube vecchi, ` +
       `${removed.aiPlans} piani AI, ${removed.monitorRuns} controlli vecchi, ` +
-      `${removed.communityPlays} ascolti della community vecchi`,
+      `${removed.communityPlays} ascolti della community vecchi, ` +
+      `${transcriptions.count} trascrizioni cifrate non usate`,
   );
   return NextResponse.json(removed, { headers: { 'Cache-Control': 'no-store' } });
 }

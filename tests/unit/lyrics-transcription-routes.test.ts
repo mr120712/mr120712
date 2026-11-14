@@ -217,6 +217,8 @@ function expectPrivate(response: Response) {
 beforeEach(() => {
   vi.resetAllMocks();
   vi.stubEnv('OPENAI_API_KEY', KEY);
+  // Cache cifrata spenta qui (vedi lyrics-transcription-cache.test.ts): comportamento di sempre.
+  vi.stubEnv('BETTER_AUTH_SECRET', '');
   errors = vi.spyOn(console, 'error').mockImplementation(() => {});
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   clearFeaturedRightsReportCacheForTests();
@@ -498,12 +500,15 @@ describe('bozza: limiti e chiamata a OpenAI', () => {
     expect(response.status).toBe(200);
     expectPrivate(response);
     const body = TranscribeResponseSchema.parse(await response.json());
+    // Senza BETTER_AUTH_SECRET la cache cifrata è spenta: bozza nuova, non conservata.
     expect(body).toEqual({
       draft: '[00:12.30] Prima strofa\n[00:20.00] Ritornello\n[00:28.00] Ritornello',
       lineCount: 3,
       language: 'italian',
       durationSeconds: 184.4,
       droppedSegments: 2,
+      fromCache: false,
+      cachedAt: null,
     });
     expect(mocks.consume.mock.calls).toEqual([
       ['lyrics.transcribe', 'user:admin-1'],

@@ -3,7 +3,9 @@
 // /api/admin/featured-rights/transcribe/save (salvataggio del .lrc accanto al brano). Vale SOLO per
 // i brani in evidenza dichiarati in diritti.json con "testo": true: per ogni altro brano la
 // funzione non esiste (nessun pulsante, il server risponde 404 sempre uguale). La bozza torna solo
-// all'amministratore che l'ha chiesta, mai in cache. Route e pagina importano gli stessi schemi.
+// all'amministratore che l'ha chiesta, mai nella cache HTTP; il server la conserva CIFRATA per
+// riusarla senza pagare di nuovo OpenAI (fromCache/cachedAt, «regenerate» per rifarla).
+// Route e pagina importano gli stessi schemi.
 import { z } from 'zod';
 
 /** Formati audio che Whisper accetta (dall'estensione del file). Gli altri si rifiutano. */
@@ -52,11 +54,22 @@ export type TranscriptionLanguage = z.infer<typeof TranscriptionLanguageSchema>;
  */
 const PathnameSchema = z.string().max(2048);
 
+/**
+ * Giorni dopo i quali una trascrizione conservata (cifrata) e mai riusata si cancella: circa 6
+ * mesi. La pulizia giornaliera la toglie, la pagina lo dice.
+ */
+export const TRANSCRIPTION_CACHE_RETENTION_DAYS = 180;
+
 export const TranscribeRequestSchema = z
   .object({
     pathname: PathnameSchema,
     /** Assente = riconoscimento automatico della lingua. */
     language: TranscriptionLanguageSchema.optional(),
+    /**
+     * true solo dopo la conferma «Usa di nuovo i crediti OpenAI per questo brano?»: ignora la
+     * trascrizione conservata e la rifà (poi la sostituisce). Assente = si riusa se c'è.
+     */
+    regenerate: z.boolean().optional(),
   })
   .strict();
 export type TranscribeRequest = z.infer<typeof TranscribeRequestSchema>;
@@ -72,6 +85,14 @@ export const TranscribeResponseSchema = z
     durationSeconds: z.number().nonnegative().nullable(),
     /** Segmenti scartati come allucinazioni (crediti dei sottotitoli, silenzio). */
     droppedSegments: z.number().int().nonnegative(),
+    /** true = trascrizione conservata (cifrata) sul server: nessuna chiamata a OpenAI. */
+    fromCache: z.boolean(),
+    /**
+     * Quando la trascrizione è stata conservata cifrata sul server (ISO). Con fromCache false:
+     * null se il server non ha la conferma di averla conservata (database giù o lento: la
+     * prossima richiesta potrebbe pagarla di nuovo).
+     */
+    cachedAt: z.string().datetime().nullable(),
   })
   .strict();
 export type TranscribeResponse = z.infer<typeof TranscribeResponseSchema>;

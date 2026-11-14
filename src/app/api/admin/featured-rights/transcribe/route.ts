@@ -3,8 +3,12 @@
 // in diritti.json con "testo": true (permesso ricontrollato adesso, mai dalla cache): per ogni
 // altro brano la risposta è sempre lo stesso 404, senza chiamare OpenAI né consumare limiti.
 // Solo admin con email verificata, stessa origine; la bozza torna solo a chi l'ha chiesta e non
-// va mai in cache. Limiti 'lyrics.transcribe' (per admin) e 'lyrics.transcribe.global', contati
-// solo quando la chiamata a OpenAI parte davvero.
+// va mai nella cache HTTP. Limiti 'lyrics.transcribe' (per admin) e 'lyrics.transcribe.global',
+// contati solo quando la chiamata a OpenAI parte davvero.
+// Ogni bozza pagata si conserva CIFRATA sul server e si riusa per la stessa versione del file
+// (fromCache: true, cachedAt): niente lettura dell'audio, niente OpenAI, nessun limite consumato.
+// La cache si consulta solo DOPO permesso, formato e dimensione. `regenerate: true` (dopo la
+// conferma dell'admin) la ignora, rifà la trascrizione e la sostituisce.
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
@@ -65,6 +69,7 @@ export async function POST(request: Request) {
       language: parsed.data.language,
       identity: `user:${access.userId}`,
       signal: request.signal,
+      regenerate: parsed.data.regenerate === true,
     });
     if (!outcome.ok) return transcriptionRefusalResponse(outcome.refusal);
     return NextResponse.json(TranscribeResponseSchema.parse(outcome.result), {
