@@ -269,6 +269,11 @@ describe('messaggi e callback email', () => {
     expect(safeAuthDestination('/\n/evil.example')).toBe('/dashboard');
     expect(safeAuthDestination('/\r/evil.example')).toBe('/dashboard');
     expect(safeAuthDestination('/premi\u007f')).toBe('/dashboard');
+    // Solo ciò che better-auth accetta come destinazione (altrimenti l'accesso fallisce).
+    expect(safeAuthDestination('/search?q=Vasco%20Rossi')).toBe('/search?q=Vasco%20Rossi');
+    expect(safeAuthDestination('/search?q=The%20Beatles%20Help!')).toBe('/dashboard');
+    expect(safeAuthDestination('/search?q=P!nk%20(live)')).toBe('/dashboard');
+    expect(safeAuthDestination(`/search?q=${'a'.repeat(2100)}`)).toBe('/dashboard');
   });
 
   it('restituisce messaggi comprensibili per errori di rete e validazione', () => {

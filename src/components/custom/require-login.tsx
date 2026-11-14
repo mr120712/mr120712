@@ -53,9 +53,13 @@ export function RequireLogin({ children }: { children: ReactNode }) {
     // conservando la destinazione così dopo l'accesso si torna dove si voleva andare. Su "/" NON si
     // reindirizza: si mostra la landing pubblica.
     if (open || isPending || atRoot) return;
-    const callback = isSafeAuthDestination(pathname)
-      ? `?callbackURL=${encodeURIComponent(pathname)}`
-      : '';
+    // Anche la query: un link condiviso (es. /search?q=artista titolo) riporta alla stessa ricerca.
+    const destination = `${pathname}${window.location.search}`;
+    const callback = isSafeAuthDestination(destination)
+      ? `?callbackURL=${encodeURIComponent(destination)}`
+      : isSafeAuthDestination(pathname)
+        ? `?callbackURL=${encodeURIComponent(pathname)}`
+        : '';
     router.replace(`/login${callback}`);
   }, [open, isPending, atRoot, pathname, router]);
 

@@ -1,10 +1,11 @@
 // @polsia:user-owned — pagina Premi: inviti, fondatori, ascolta e guadagna, fedeltà e compleanno.
 'use client';
 
-import { Cake, Copy, Crown, Gem, Gift, Headphones, Share2, Users } from 'lucide-react';
+import { Cake, Copy, Crown, Gem, Gift, Headphones, Users } from 'lucide-react';
 import Link from 'next/link';
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { ShareMenu } from '@/components/custom/share-menu';
 import { TelegramLinkButton } from '@/components/custom/telegram-link-button';
 import { TelegramMiniAppButton } from '@/components/custom/telegram-mini-app-button';
 import { Button } from '@/components/ui/button';
@@ -110,16 +111,8 @@ export function RewardsView() {
 
   // Sempre il sito ufficiale (www.solcomusic.online), anche se la pagina è aperta da un altro dominio.
   const inviteUrl = summary ? inviteUrlForCode(summary.code) : '';
-  const share = async () => {
-    const text =
-      'Ascolta musica, radio e podcast con me su Solco: con questo invito ricevi 1 mese di Premium gratis.';
-    if (navigator.share) {
-      await navigator.share({ title: 'Solco', text, url: inviteUrl }).catch(() => undefined);
-      return;
-    }
-    await navigator.clipboard.writeText(inviteUrl);
-    toast.success('Link di invito copiato.');
-  };
+  const inviteText =
+    'Ascolta musica, radio e podcast con me su Solco: con questo invito ricevi 1 mese di Premium gratis.';
 
   const saveBirthday = async (event: FormEvent) => {
     event.preventDefault();
@@ -207,9 +200,13 @@ export function RewardsView() {
             </p>
             <div className={styles.inviteRow}>
               <input readOnly value={inviteUrl} aria-label="Il tuo link di invito" />
-              <Button type="button" onClick={() => void share()}>
-                <Share2 aria-hidden="true" /> Condividi
-              </Button>
+              <ShareMenu
+                variant="default"
+                title="Solco"
+                text={inviteText}
+                url={inviteUrl}
+                ariaLabel="Condividi il tuo link di invito"
+              />
               <Button
                 type="button"
                 variant="outline"

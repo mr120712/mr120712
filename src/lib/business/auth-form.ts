@@ -3,17 +3,27 @@
 export type EmailAuthFlow = 'login' | 'signup';
 
 /**
+ * La stessa regola di better-auth per i callbackURL relativi (auth/trusted-origins): un percorso
+ * diverso fa fallire l'accesso con INVALID_CALLBACK_URL, mostrato come "email o password errate".
+ */
+const AUTH_RELATIVE_PATH = /^\/(?!\/|\\|%2f|%5c)[\w\-.+/@]*(?:\?[\w\-.+/=&%@]*)?$/;
+/** Limite di lunghezza del controllo lato server (safe-auth-redirect.ts). */
+const MAX_DESTINATION_LENGTH = 2048;
+
+/**
  * Un percorso interno ("/premi?x=1"), mai "//host" o "/\\host". Rifiuta anche tab, a capo e gli
  * altri caratteri di controllo: il browser li elimina, quindi "/\t/sito.example" diventerebbe
- * "//sito.example" (un altro sito) al momento della navigazione.
+ * "//sito.example" (un altro sito) al momento della navigazione. Accetta solo ciò che anche
+ * better-auth accetta come destinazione dopo l'accesso.
  */
 export function isSafeAuthDestination(value: string | null | undefined): value is string {
   if (!value?.startsWith('/') || value.startsWith('//') || value.includes('\\')) return false;
+  if (value.length > MAX_DESTINATION_LENGTH) return false;
   for (let index = 0; index < value.length; index += 1) {
     const code = value.charCodeAt(index);
     if (code < 32 || code === 127) return false;
   }
-  return true;
+  return AUTH_RELATIVE_PATH.test(value);
 }
 
 export function safeAuthDestination(value: string | null | undefined): string {

@@ -24,6 +24,7 @@ import {
 import { useMusicPlayer } from '@/components/custom/music/music-player';
 import { collectionDownloadPlan } from '@/components/custom/music/offline-download';
 import { OfflineDownloadButton } from '@/components/custom/music/offline-download-button';
+import { ShareMenu } from '@/components/custom/share-menu';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,6 +40,7 @@ import { apiFetch } from '@/lib/api-client';
 import { useSession } from '@/lib/auth-client';
 import { apiErrorMessage } from '@/lib/business/api-error-message';
 import { hasVerifiedContact } from '@/lib/business/phone-auth';
+import { publicShareUrl } from '@/lib/business/social-share';
 import {
   CollectionMutationResponseSchema,
   CollectionShareResponseSchema,
@@ -641,6 +643,19 @@ export function MusicCollections({
                     <a href={shareUrl} target="_blank" rel="noreferrer">
                       {shareUrl}
                     </a>
+                    <ShareMenu
+                      size="sm"
+                      variant="secondary"
+                      label="Condividi sui social"
+                      ariaLabel={`Condividi sui social la playlist ${collection.name}`}
+                      title={collection.name}
+                      text={`Ascolta la playlist “${collection.name}” su Solco.`}
+                      url={
+                        collection.shareId
+                          ? publicShareUrl(sharedPlaylistPath(collection.shareId))
+                          : shareUrl
+                      }
+                    />
                     <Button
                       type="button"
                       variant="ghost"

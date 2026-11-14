@@ -108,6 +108,32 @@ describe('RequireLogin', () => {
     expect(mocks.replace).toHaveBeenCalledWith('/login?callbackURL=%2Fradio');
   });
 
+  it('link condiviso con una ricerca: dopo l’accesso si torna alla stessa ricerca', () => {
+    window.history.replaceState(null, '', '/search?q=Vasco%20Rossi%20Albachiara');
+    mocks.pathname = '/search';
+    mocks.session = { data: null, isPending: false };
+    try {
+      render();
+      expect(mocks.replace).toHaveBeenCalledWith(
+        `/login?callbackURL=${encodeURIComponent('/search?q=Vasco%20Rossi%20Albachiara')}`,
+      );
+    } finally {
+      window.history.replaceState(null, '', '/');
+    }
+  });
+
+  it('query che better-auth rifiuterebbe: si conserva solo il percorso', () => {
+    window.history.replaceState(null, '', '/search?q=Help!');
+    mocks.pathname = '/search';
+    mocks.session = { data: null, isPending: false };
+    try {
+      render();
+      expect(mocks.replace).toHaveBeenCalledWith('/login?callbackURL=%2Fsearch');
+    } finally {
+      window.history.replaceState(null, '', '/');
+    }
+  });
+
   it('home "/" non loggato → mostra la landing pubblica, senza redirect', () => {
     mocks.pathname = '/';
     mocks.session = { data: null, isPending: false };

@@ -21,11 +21,14 @@ export function ListenElsewhereMenu({
   artist,
   youtubeVideoId = null,
   className,
+  contentClassName,
 }: {
   title: string;
   artist: string | null;
   youtubeVideoId?: string | null;
   className?: string;
+  /** Classi del menu aperto (es. uno z-index più alto dentro il player a schermo intero). */
+  contentClassName?: string;
 }) {
   const links = listenElsewhereLinks({ title, artist, youtubeVideoId });
   if (links.length === 0) return null;
@@ -37,7 +40,7 @@ export function ListenElsewhereMenu({
           Ascolta altrove
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-64">
+      <DropdownMenuContent align="start" className={cn('w-64', contentClassName)}>
         <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
           Si apre il servizio: l’ascolto lì dipende dal tuo account.
         </DropdownMenuLabel>

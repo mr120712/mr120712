@@ -30,8 +30,10 @@ import {
   useRef,
   useState,
 } from 'react';
+import { ShareMenu } from '@/components/custom/share-menu';
 import { apiFetch } from '@/lib/api-client';
 import { useSession } from '@/lib/auth-client';
+import { songShareText, songShareUrl } from '@/lib/business/social-share';
 import {
   AudiusPlaybackCheckSchema,
   type AudiusTrackSearchResult,
@@ -250,6 +252,11 @@ export function isOpenStream(track: Pick<MusicPlayerTrack, 'playbackMode'>) {
 }
 
 const STORAGE_KEY = PLAYER_STORAGE_KEY;
+/**
+ * Menu aperti dal player a schermo intero: sopra il player (.full ha z-index 60, il video
+ * espanso 61). Con lo z-index standard (50) restavano disegnati sotto, invisibili.
+ */
+const FULL_PLAYER_MENU = 'z-[70]';
 const MAX_RECONNECTS = 3;
 /** On-demand streams (Audius, Jamendo, podcast): one immediate retry after a network drop. */
 const MAX_MEDIA_RETRIES = 1;
@@ -2315,6 +2322,25 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     const title = song.title.replace(/\s*[([][^)\]]*[)\]]\s*/g, ' ').trim();
     return title ? { title, artist: song.artist || null } : null;
   })();
+  // "Condividi": brano (artista e titolo) o radio in diretta, con un link alla ricerca di Solco sul
+  // sito pubblico. Mai per i file dell'utente (privati) né per i podcast.
+  const shareTarget = (() => {
+    if (songSearch) {
+      return {
+        title: songSearch.title,
+        text: songShareText(songSearch.title, songSearch.artist),
+        url: songShareUrl(songSearch.title, songSearch.artist),
+      };
+    }
+    if (currentTrack && isLiveTrack(currentTrack) && !isLocalTrack(currentTrack)) {
+      return {
+        title: currentTrack.title,
+        text: songShareText(currentTrack.title, null, true),
+        url: songShareUrl(currentTrack.title, null),
+      };
+    }
+    return null;
+  })();
   // The YouTube Music link opens the same video when the track is a YouTube video.
   const songSearchVideoId = currentTrack?.qualifiedId.startsWith('youtube:')
     ? currentTrack.qualifiedId.slice('youtube:'.length)
@@ -2839,7 +2865,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     document.body.classList.toggle('music-player-expanded', showFull);
     if (!showFull) return () => document.body.classList.remove('music-player-expanded');
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setExpanded(false);
+      // Un menu aperto (Condividi, Ascolta altrove) gestisce Escape da sé: chiude solo il menu.
+      if (event.key === 'Escape' && !event.defaultPrevented) setExpanded(false);
     };
     window.addEventListener('keydown', onKey);
     return () => {
@@ -3446,11 +3473,22 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                   </p>
                 ) : null}
                 <span className={styles.links}>
+                  {shareTarget ? (
+                    <ShareMenu
+                      size="sm"
+                      title={shareTarget.title}
+                      text={shareTarget.text}
+                      url={shareTarget.url}
+                      ariaLabel={`Condividi ${shareTarget.title}`}
+                      contentClassName={FULL_PLAYER_MENU}
+                    />
+                  ) : null}
                   {songSearch ? (
                     <ListenElsewhereMenu
                       title={songSearch.title}
                       artist={songSearch.artist}
                       youtubeVideoId={songSearchVideoId}
+                      contentClassName={FULL_PLAYER_MENU}
                     />
                   ) : null}
                   {currentTrack.sourceUrl ? (
