@@ -1,0 +1,55 @@
+// @polsia:user-owned — quali brani del player possono avere il TESTO (pannello "Testo" stile
+// Spotify) e dove chiederlo. SOLO tre casi, dove Solco ha il diritto di mostrarlo:
+// - brano in evidenza (qualifiedId "upload:<pathname dello store>", es. "upload:Pop/A - B.mp3"):
+//   il server lo mostra solo se diritti.json dichiara "testo": true per quel file;
+// - upload di un utente (qualifiedId "upload:<id>", id cuid): solo se pubblicato e con il testo
+//   confermato dall'autore;
+// - file dell'ascoltatore in "La tua musica" (qualifiedId "local:<id>", fonte "La tua musica"):
+//   letto sul dispositivo, mai inviato. I brani SCARICATI (Audius, podcast) restano esclusi.
+// Mai per Audius, YouTube, brani importati, radio, podcast, Jamendo o anteprime.
+import type { MusicPlayerTrack } from '@/components/custom/music/music-player';
+import { LOCAL_SOURCE_LABEL, localTrackId } from './local-tracks';
+
+export type LyricsTarget =
+  | { source: 'featured'; id: string }
+  | { source: 'upload'; id: string }
+  | { source: 'local'; id: string };
+
+/** Id di un upload pubblico (cuid), come nel contratto della libreria. */
+const UPLOAD_ID = /^[a-z0-9]{20,40}$/;
+/** Estensioni audio dei brani in evidenza (le stesse del server, home-tracks.server). */
+const FEATURED_AUDIO = /\.(mp3|m4a|m4b|aac|ogg|oga|opus|wav|flac|webm|weba)$/i;
+
+/** Pathname plausibile di un brano in evidenza (il server lo rivalida comunque). */
+function isFeaturedPathname(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value.length <= 1024 &&
+    !value.startsWith('/') &&
+    !value.startsWith('public-uploads/') &&
+    !value.includes('\\') &&
+    value.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..') &&
+    FEATURED_AUDIO.test(value)
+  );
+}
+
+/** Dove chiedere il testo del brano, o null se per questo brano non si mostra mai. */
+export function lyricsTargetFor(
+  track: Pick<
+    MusicPlayerTrack,
+    'qualifiedId' | 'playbackMode' | 'sourceLabel' | 'sourceUrl'
+  > | null,
+): LyricsTarget | null {
+  if (!track) return null;
+  if (track.playbackMode === 'local') {
+    const id = localTrackId(track.qualifiedId);
+    // Solo i file dell'ascoltatore: i download (Audius, podcast) hanno un'altra fonte e un link.
+    if (!id || track.sourceLabel !== LOCAL_SOURCE_LABEL || track.sourceUrl) return null;
+    return { source: 'local', id };
+  }
+  if (track.playbackMode !== 'upload' || !track.qualifiedId.startsWith('upload:')) return null;
+  const rest = track.qualifiedId.slice('upload:'.length);
+  if (UPLOAD_ID.test(rest)) return { source: 'upload', id: rest };
+  if (isFeaturedPathname(rest)) return { source: 'featured', id: rest };
+  return null;
+}

@@ -1,12 +1,20 @@
 // @polsia:user-owned — carica un brano nella LIBRERIA PUBBLICA: il file va su Vercel Blob (oggetto
 // pubblico) ed è ascoltabile da tutti. Richiede login e l'attestazione dei diritti; la moderazione
-// (segnalazioni) può ritirarlo. Non per materiale di terzi sotto copyright.
+// (segnalazioni) può ritirarlo. Non per materiale di terzi sotto copyright. Testo facoltativo
+// (semplice o LRC): si pubblica solo con la conferma dei diritti sul testo (vedi upload-lyrics).
 'use client';
 
 import { Loader2, UploadCloud } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useLibrary } from '@/components/custom/music/library-context';
+import {
+  checkLyricsFields,
+  type LyricsFieldErrors,
+  type LyricsFieldValues,
+  lyricsErrorsFromServer,
+  UploadLyricsFields,
+} from '@/components/custom/music/upload-lyrics';
 import { Button } from '@/components/ui/button';
 import type { PublicUpload } from '@/lib/contracts/public-uploads';
 import {
@@ -36,6 +44,11 @@ export function PublicUploadForm({
   const [title, setTitle] = useState('');
   const [artist, setArtist] = useState('');
   const [confirmed, setConfirmed] = useState(false);
+  const [lyricsValues, setLyricsValues] = useState<LyricsFieldValues>({
+    lyrics: '',
+    lyricsRightsConfirmed: false,
+  });
+  const [lyricsErrors, setLyricsErrors] = useState<LyricsFieldErrors>({});
   const [saving, setSaving] = useState(false);
   const [percent, setPercent] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -93,6 +106,10 @@ export function PublicUploadForm({
   const save = async () => {
     const trimmed = title.trim();
     if (!file || !trimmed || !confirmed) return;
+    // Il testo si controlla PRIMA del caricamento: un errore qui non lascia un file orfano su Blob.
+    const localLyricsErrors = checkLyricsFields(lyricsValues);
+    setLyricsErrors(localLyricsErrors);
+    if (Object.keys(localLyricsErrors).length > 0) return;
     setSaving(true);
     setPercent(0);
     setError(null);
@@ -100,6 +117,8 @@ export function PublicUploadForm({
       const upload = await uploadPublicSong(file, {
         title: trimmed,
         artist: artist.trim() || undefined,
+        lyrics: lyricsValues.lyrics,
+        lyricsRightsConfirmed: lyricsValues.lyricsRightsConfirmed,
         onProgress: setPercent,
       });
       onUploaded(upload);
@@ -108,6 +127,8 @@ export function PublicUploadForm({
       setTitle('');
       setArtist('');
       setConfirmed(false);
+      setLyricsValues({ lyrics: '', lyricsRightsConfirmed: false });
+      setLyricsErrors({});
       if (inputRef.current) inputRef.current.value = '';
     } catch (err) {
       if (err instanceof PublicUploadError) {
@@ -115,12 +136,18 @@ export function PublicUploadForm({
       } else {
         const cause =
           err instanceof Error ? (err.cause as { errors?: Record<string, string> }) : null;
+        // Errori sul testo (400 { errors }): sotto i campi del testo, come nei form dell'app.
+        const fromServer = lyricsErrorsFromServer(cause);
+        setLyricsErrors(fromServer.fields);
+        const lyricsRejected = Object.keys(fromServer.fields).length > 0;
         setError(
           cause?.errors?.blobUrl ??
             cause?.errors?.title ??
-            (err instanceof Error
-              ? `Caricamento non riuscito. (${err.message})`
-              : 'Caricamento non riuscito. Riprova.'),
+            (lyricsRejected
+              ? 'Il brano non è stato pubblicato: controlla il testo e riprova.'
+              : err instanceof Error
+                ? `Caricamento non riuscito. (${err.message})`
+                : 'Caricamento non riuscito. Riprova.'),
         );
       }
       toast.error('Non è stato possibile caricare il brano.');
@@ -203,6 +230,15 @@ export function PublicUploadForm({
               placeholder="Nome dell'artista"
             />
           </label>
+          <UploadLyricsFields
+            values={lyricsValues}
+            errors={lyricsErrors}
+            disabled={saving}
+            onChange={(next) => {
+              setLyricsValues(next);
+              setLyricsErrors({});
+            }}
+          />
           <label className={styles.consent}>
             <input
               type="checkbox"

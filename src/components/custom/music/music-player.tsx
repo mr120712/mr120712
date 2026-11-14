@@ -7,6 +7,7 @@ import {
   Gauge,
   Infinity as InfinityIcon,
   ListMusic,
+  MicVocal,
   Music2,
   Pause,
   Play,
@@ -142,6 +143,9 @@ import {
   persistedQueueItem,
   restoreLocalItems,
 } from './local-tracks';
+import { LyricsPanel } from './lyrics-panel';
+import lyricsStyles from './lyrics-panel.module.css';
+import { lyricsTargetFor } from './lyrics-target';
 import styles from './music-player.module.css';
 import { RemoveVideoButton } from './remove-video-button';
 import { loadYouTubeIframeApi } from './youtube-queue-player';
@@ -754,6 +758,16 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const playbackSpeedRef = useRef(playbackSpeed);
   playbackSpeedRef.current = playbackSpeed;
   const [expanded, setExpanded] = useState(false);
+  // Pannello "Testo" del player a schermo intero (solo brani con i diritti sul testo, vedi
+  // lyrics-target.ts). Resta aperto passando da un brano all'altro, come su Spotify.
+  const [lyricsOpen, setLyricsOpen] = useState(false);
+  // true solo fra il tocco su "Testo" (apertura) e il montaggio del pannello, che si porta in vista.
+  const lyricsRevealRef = useRef(false);
+  const consumeLyricsReveal = useCallback(() => {
+    const reveal = lyricsRevealRef.current;
+    lyricsRevealRef.current = false;
+    return reveal;
+  }, []);
   // Latest queue and index for the YouTube engine callbacks (set every render; an in-run move or a
   // followed YouTube advance updates the index at once, before the next render).
   const queueRef = useRef(queue);
@@ -1340,6 +1354,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     },
     [currentTrack, decks],
   );
+
+  // Tempo dell'audio per il pannello del testo: lo legge da sé (polling), senza altri render qui.
+  const getLyricsTime = useCallback(() => decks.current?.currentTime ?? 0, [decks]);
 
   const stopPlayback = useCallback(() => {
     // Cancel any lookup, permit or radio reconnect still pending: closing must not bring it back.
@@ -3293,6 +3310,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       />
     ) : null;
   const errorLink = failureLink(errorMessage, currentTrack);
+  // Testo: solo brani in evidenza, upload degli utenti e file del dispositivo (mai Audius,
+  // YouTube, radio, podcast): il server decide poi se il brano ha davvero un testo autorizzato.
+  const lyricsTarget = lyricsTargetFor(currentTrack);
   const showCounter =
     playsLimit !== null && playsUsed !== null && showsFreePlayCounter(currentTrack?.playbackMode);
 
@@ -3663,6 +3683,20 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                     </a>
                   ) : null}
                 </span>
+                {lyricsTarget ? (
+                  <button
+                    type="button"
+                    className={lyricsStyles.toggle}
+                    aria-pressed={lyricsOpen}
+                    onClick={() => {
+                      lyricsRevealRef.current = !lyricsOpen;
+                      setLyricsOpen(!lyricsOpen);
+                    }}
+                  >
+                    <MicVocal aria-hidden="true" />
+                    Testo
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className={styles.dataSaverToggle}
@@ -3808,6 +3842,16 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                   ) : null}
                 </div>
               </div>
+
+              {lyricsOpen && lyricsTarget && showFull ? (
+                <LyricsPanel
+                  source={lyricsTarget.source}
+                  id={lyricsTarget.id}
+                  getTime={getLyricsTime}
+                  onSeek={seekTo}
+                  consumeReveal={consumeLyricsReveal}
+                />
+              ) : null}
 
               <details className={styles.queue} open>
                 <summary>

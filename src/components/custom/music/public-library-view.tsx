@@ -1,5 +1,6 @@
 // @polsia:user-owned — pagina della libreria PUBBLICA: form di caricamento (per i loggati, fino a
-// 3 brani) + gestione dei propri brani (rimozione per liberare un posto) + classifica pubblica.
+// 3 brani) + gestione dei propri brani (rimozione per liberare un posto, testo del brano) +
+// classifica pubblica.
 'use client';
 
 import { Download, Loader2, Trash2 } from 'lucide-react';
@@ -8,6 +9,7 @@ import { toast } from 'sonner';
 import { useLibrary } from '@/components/custom/music/library-context';
 import { PublicUploadForm } from '@/components/custom/music/public-upload-form';
 import { PublicUploadsChart } from '@/components/custom/music/public-uploads-chart';
+import { UploadLyricsEditor } from '@/components/custom/music/upload-lyrics';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
 import {
@@ -130,6 +132,15 @@ export function PublicLibraryView() {
                     Rimuovi
                   </Button>
                 </div>
+                <UploadLyricsEditor
+                  upload={upload}
+                  onSaved={(saved) =>
+                    setMine(
+                      (current) =>
+                        current?.map((item) => (item.id === saved.id ? saved : item)) ?? null,
+                    )
+                  }
+                />
               </li>
             ))}
           </ul>

@@ -10,6 +10,10 @@
 // - COPERTINA: un'immagine con lo stesso nome del brano ("Artista - Titolo.jpg"), oppure la
 //   copertina della cartella ("cover.jpg", "copertina.png", "folder.jpg"…), oppure quella già
 //   incorporata nel file MP3/FLAC (letta dal server, vedi /api/music/home-tracks/cover).
+// - TESTO: un file ".lrc" o ".txt" con lo stesso nome del brano ("Artista - Titolo.lrc"), mostrato
+//   nel player SOLO se il brano è dichiarato con "testo": true in diritti.json (vedi
+//   featured-rights.server.ts e featured-lyrics.server.ts). Questi file non sono mai brani né
+//   copertine: in Home non compaiono.
 import 'server-only';
 import { list } from '@vercel/blob';
 import {
@@ -48,6 +52,8 @@ const IMAGE_CONTENT_TYPES: Record<string, string> = {
   avif: 'image/avif',
   gif: 'image/gif',
 };
+/** File di testo accanto ai brani: .lrc (sincronizzato) o .txt (semplice). Mai brani o copertine. */
+const LYRICS_SIDECAR_EXTENSIONS = new Set(['lrc', 'txt']);
 /** Formati audio da cui il server sa leggere la copertina incorporata. */
 const EMBEDDED_ARTWORK_EXTENSIONS = new Set(['mp3', 'flac']);
 /** Nomi della copertina di una cartella (senza estensione, maiuscole indifferenti). */
@@ -109,6 +115,15 @@ export function isHomeImageBlob(pathname: string): boolean {
     isSafeBlobPathname(pathname) &&
     !pathname.startsWith(USER_UPLOAD_PREFIX) &&
     Object.hasOwn(IMAGE_CONTENT_TYPES, fileExtension(pathname))
+  );
+}
+
+/** True per un file di testo (.lrc/.txt) dello store affiancabile a un brano in evidenza. */
+export function isHomeLyricsSidecar(pathname: string): boolean {
+  return (
+    isSafeBlobPathname(pathname) &&
+    !pathname.startsWith(USER_UPLOAD_PREFIX) &&
+    LYRICS_SIDECAR_EXTENSIONS.has(fileExtension(pathname))
   );
 }
 
@@ -231,6 +246,8 @@ type CollectedBlobs = {
   images: ListedBlob[];
   /** Gli oggetti con un pathname fra quelli chiesti (`wanted`), se presenti nello store. */
   named: ListedBlob[];
+  /** I file di testo (.lrc/.txt) affiancabili ai brani: mai brani né copertine. */
+  sidecars: ListedBlob[];
   /** True se lo store è stato elencato fino in fondo (niente errore, scadenza o tetto di pagine). */
   complete: boolean;
 };
@@ -253,6 +270,7 @@ async function collectHomeBlobs(
   const audio: ListedBlob[] = [];
   const images: ListedBlob[] = [];
   const named: ListedBlob[] = [];
+  const sidecars: ListedBlob[] = [];
   let complete = false;
   try {
     let cursor: string | undefined;
@@ -272,6 +290,7 @@ async function collectHomeBlobs(
         if (isHomeAudioBlob(blob.pathname)) audio.push(blob);
         else if (isHomeImageBlob(blob.pathname)) images.push(blob);
         else if (wanted.has(blob.pathname)) named.push(blob);
+        else if (isHomeLyricsSidecar(blob.pathname)) sidecars.push(blob);
       }
       cursor = result.hasMore ? result.cursor : undefined;
       page += 1;
@@ -280,7 +299,7 @@ async function collectHomeBlobs(
   } catch {
     // Degrada: si usa quanto raccolto finora (anche niente).
   }
-  return { audio, images, named, complete };
+  return { audio, images, named, sidecars, complete };
 }
 
 function abortAfter(ms: number): AbortSignal | undefined {
@@ -416,6 +435,8 @@ export type HomeTrackCatalog = {
   tracks: HomeTrack[];
   /** Gli oggetti chiesti per nome (`files`) presenti nello store, per pathname. */
   files: Map<string, HomeStoreFile>;
+  /** I file di testo (.lrc/.txt) dello store, per i testi dei brani (vedi featured-lyrics). */
+  sidecars: HomeStoreFile[];
   /** True se lo store è stato elencato fino in fondo; false = elenco parziale o fallito. */
   complete: boolean;
 };
@@ -433,20 +454,51 @@ export async function listHomeTrackCatalog(
   const token = env.BLOB_READ_WRITE_TOKEN;
   if (!token) return null;
 
-  const { audio, images, named, complete } = await collectHomeBlobs(token, new Set(files));
+  const { audio, images, named, sidecars, complete } = await collectHomeBlobs(
+    token,
+    new Set(files),
+  );
   const artworkFor = artworkResolver(images);
   const tracks = [...audio]
     .sort(newestFirst)
     .map((blob) => toHomeTrack(blob, artworkFor(blob)))
     .filter((item): item is HomeTrack => item !== null);
   const found = new Map<string, HomeStoreFile>();
-  for (const blob of named) {
-    found.set(blob.pathname, {
-      pathname: blob.pathname,
-      url: blob.url,
-      size: blob.size,
-      uploadedAt: blob.uploadedAt,
-    });
+  for (const blob of named) found.set(blob.pathname, storeFile(blob));
+  return { tracks, files: found, sidecars: sidecars.map(storeFile), complete };
+}
+
+/** Percorso senza estensione, con il nome ESATTO (maiuscole comprese), in forma Unicode NFC. */
+function exactStem(pathname: string): string {
+  const slash = pathname.lastIndexOf('/');
+  const dot = pathname.lastIndexOf('.');
+  return (dot > slash + 1 ? pathname.slice(0, dot) : pathname).normalize('NFC');
+}
+
+/**
+ * Abbina i file di testo ai brani: stesso percorso e stesso nome (forma Unicode NFC, perché un nome
+ * con accenti caricato da un Mac può arrivare scomposto), estensione .lrc o .txt con maiuscole
+ * indifferenti. Restituisce, per un brano, prima i .lrc (sincronizzati) poi i .txt; a parità il
+ * più recente.
+ */
+export function lyricsSidecarMatcher(
+  sidecars: readonly HomeStoreFile[],
+): (audioPathname: string) => HomeStoreFile[] {
+  const byStem = new Map<string, HomeStoreFile[]>();
+  for (const file of sidecars) {
+    if (!isHomeLyricsSidecar(file.pathname)) continue;
+    const key = exactStem(file.pathname);
+    const group = byStem.get(key);
+    if (group) group.push(file);
+    else byStem.set(key, [file]);
   }
-  return { tracks, files: found, complete };
+  const rank = (file: HomeStoreFile) => (fileExtension(file.pathname) === 'lrc' ? 0 : 1);
+  return (audioPathname) =>
+    [...(byStem.get(exactStem(audioPathname)) ?? [])].sort(
+      (a, b) => rank(a) - rank(b) || b.uploadedAt.getTime() - a.uploadedAt.getTime(),
+    );
+}
+
+function storeFile(blob: ListedBlob): HomeStoreFile {
+  return { pathname: blob.pathname, url: blob.url, size: blob.size, uploadedAt: blob.uploadedAt };
 }

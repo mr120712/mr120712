@@ -5,21 +5,26 @@
 // l'autore può rimuoverlo in ogni momento (cancellando anche l'oggetto su Blob).
 
 model PublicUpload {
-  id              String   @id @default(cuid())
-  uploaderUserId  String
-  title           String
-  artist          String?
+  id                    String   @id @default(cuid())
+  uploaderUserId        String
+  title                 String
+  artist                String?
   // URL pubblico dell'oggetto su Vercel Blob (CDN). Unico: due righe non rivendicano lo stesso file.
-  blobUrl         String   @unique
+  blobUrl               String   @unique
   // Percorso dell'oggetto su Blob: serve per cancellarlo (del) alla rimozione. Unico.
-  blobPathname    String   @unique
-  mimeType        String
-  byteLength      Int
-  durationSeconds Int
+  blobPathname          String   @unique
+  mimeType              String
+  byteLength            Int
+  durationSeconds       Int
   // Pubblico per scelta: nasce visibile. La moderazione può ritirarlo.
-  published       Boolean  @default(true)
-  playCount       Int      @default(0)
-  createdAt       DateTime @default(now())
+  published             Boolean  @default(true)
+  playCount             Int      @default(0)
+  createdAt             DateTime @default(now())
+  // Testo del brano (facoltativo): LRC sincronizzato o testo semplice, al massimo 20 000 caratteri
+  // dopo la normalizzazione. Si mostra nel player SOLO se l'autore conferma di averne i diritti
+  // (lyricsRightsConfirmed) e il brano è pubblicato. Colonne nullable/con default: compatibili.
+  lyrics                String?
+  lyricsRightsConfirmed Boolean  @default(false)
 
   reports PublicUploadReport[]
 

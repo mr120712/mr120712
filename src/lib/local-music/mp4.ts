@@ -14,6 +14,8 @@ import {
   type ByteReader,
   byteAt,
   decodeMp4Text,
+  decodeUtf8,
+  decodeUtf16WithBom,
   finalizeTags,
   MAX_TAG_BYTES,
   plausibleDuration,
@@ -237,6 +239,86 @@ export async function readMp4Tags(read: ByteReader, size: number): Promise<Audio
     // Lettura fallita o box malformati: si tiene quanto letto.
   }
   return finalizeTags(draft);
+}
+
+/** Byte massimi del valore ©lyr (testo del brano) decodificati. */
+const MAX_LYRICS_VALUE_BYTES = 512 * 1024;
+
+/** Valore grezzo (byte e tipo) della voce `type` dentro 'ilst', o null. */
+function ilstValue(
+  bytes: Uint8Array,
+  ilst: Mp4Box,
+  type: string,
+): { value: Uint8Array; typeCode: number } | null {
+  for (const item of childBoxes(bytes, contentStart(ilst), ilst.end)) {
+    if (item.type !== type) continue;
+    for (const data of childBoxes(bytes, contentStart(item), item.end)) {
+      if (data.type !== 'data' || data.end > bytes.length) continue;
+      const payload = contentStart(data);
+      if (data.end - payload < 8) continue;
+      return {
+        typeCode: readUint32(bytes, payload) & 0xffffff,
+        value: bytes.subarray(payload + 8, data.end),
+      };
+    }
+  }
+  return null;
+}
+
+/** Il testo ©lyr in un box 'udta' o 'meta' già in memoria (coordinate locali), o null. */
+function lyricsInBox(bytes: Uint8Array, box: Mp4Box): string | null {
+  if (box.type === 'udta') {
+    for (const child of childBoxes(bytes, contentStart(box), box.end)) {
+      if (child.type !== 'meta') continue;
+      const text = lyricsInBox(bytes, child);
+      if (text) return text;
+    }
+    return null;
+  }
+  if (box.type !== 'meta') return null;
+  const start = contentStart(box);
+  const first = boxTypeAt(bytes, start + 4) === 'hdlr' ? start : start + 4;
+  for (const child of childBoxes(bytes, first, box.end)) {
+    if (child.type !== 'ilst') continue;
+    const found = ilstValue(bytes, child, '©lyr');
+    if (!found) continue;
+    // Tipo 2 = UTF-16BE; gli altri si leggono come UTF-8. Il testo intero, a capo compresi.
+    const text =
+      found.typeCode === 2
+        ? decodeUtf16WithBom(found.value, false, MAX_LYRICS_VALUE_BYTES)
+        : decodeUtf8(found.value, MAX_LYRICS_VALUE_BYTES);
+    const end = text.indexOf(String.fromCharCode(0));
+    return end >= 0 ? text.slice(0, end) : text;
+  }
+  return null;
+}
+
+/**
+ * Testo del brano (voce iTunes '©lyr') di un MP4/M4A di `size` byte, letto a pezzi come i tag:
+ * solo header, il primo udta e il primo meta di moov (al massimo MAX_TAG_BYTES), mai l'audio.
+ * Testo grezzo (LRC o semplice) da passare a parseLyrics; null se assente. Mai un'eccezione.
+ */
+export async function readMp4LyricsText(read: ByteReader, size: number): Promise<string | null> {
+  try {
+    const [moov] = await scanBoxes(read, 0, size, ['moov']);
+    if (!moov) return null;
+    const moovEnd = Math.min(moov.end, size);
+    const children = await scanBoxes(read, contentStart(moov), moovEnd, ['udta', 'meta']);
+    let budget = MAX_TAG_BYTES;
+    for (const child of children) {
+      const length = Math.min(Math.min(child.end, moovEnd) - child.start, MAX_TAG_BYTES, budget);
+      if (length < child.headerSize) break;
+      budget -= length;
+      const bytes = await read(child.start, child.start + length);
+      const local = parseBoxHeader(bytes, 0, child.end - child.start);
+      if (!local || local.type !== child.type) continue;
+      const text = lyricsInBox(bytes, local);
+      if (text) return text;
+    }
+  } catch {
+    // Lettura fallita o box malformati: nessun testo.
+  }
+  return null;
 }
 
 /** True se `head` (inizio del file) ha la firma 'ftyp' degli MP4/M4A. */

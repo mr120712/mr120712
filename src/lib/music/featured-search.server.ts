@@ -34,7 +34,9 @@
 //      "cc0", "cc-by", "cc-by-sa" o "cc-by-nd". Le Creative Commons NON commerciali (NC) non sono
 //      accettate: Solco vende abbonamenti Pro.
 //    - "titolare": chi detiene i diritti (1-120 caratteri); "prova": facoltativa, nota o link
-//      al contratto/licenza (al massimo 300 caratteri). Nessun altro campo.
+//      al contratto/licenza (al massimo 300 caratteri). "testo": facoltativo, true solo se hai
+//      anche i diritti sul TESTO (autori/editori): il player lo mostra (vedi featured-rights).
+//      Nessun altro campo.
 // 3. Il brano compare cercando titolo, artista o "Artista Titolo" (in cima a parità di
 //    rilevanza, con il distintivo «In evidenza»). Una voce sbagliata viene ignorata da sola; un
 //    manifest assente, non valido o troppo grande = nessun brano in evidenza nella ricerca.
@@ -50,16 +52,25 @@
 // ogni ~5 minuti (anche con manifest assente, non valido o troppo grande; ~1 minuto dopo un errore
 // di lettura); lo store si elenca una volta per finestra di cache, mai a ogni ricerca, e le ricerche
 // concorrenti condividono la stessa ricostruzione. Non fa mai throw.
+//
+// Lo stesso indice dice anche quali brani possono mostrare il TESTO nel player (voci con
+// "testo": true, vedi featured-lyrics.server.ts): stessa lettura dello store e del manifest, quindi
+// stessi tempi di revoca (~5 minuti).
 import 'server-only';
 import type { HomeTrack } from '@/lib/contracts/home-tracks';
 import { UNIFIED_FEATURED_LIMIT } from '@/lib/contracts/unified-search';
 import { env } from '@/lib/env';
 import {
-  declaredTrackIds,
+  declaredTrackEntries,
+  lyricsDeclared,
   RIGHTS_MANIFEST_PATHNAME,
   readRightsManifest,
 } from '@/lib/music/featured-rights.server';
-import { listHomeTrackCatalog } from '@/lib/music/home-tracks.server';
+import {
+  type HomeStoreFile,
+  listHomeTrackCatalog,
+  lyricsSidecarMatcher,
+} from '@/lib/music/home-tracks.server';
 import { featuredRelevance } from '@/lib/music/unified-search';
 
 /**
@@ -73,11 +84,25 @@ const FAILURE_TTL_MS = 60_000;
 /** Rilevanza minima di un brano in evidenza rispetto alla query ("contiene" = 40). */
 export const FEATURED_MIN_SCORE = 40;
 
+/** Un brano in evidenza con i diritti sul TESTO dichiarati ("testo": true nel manifest). */
+export type FeaturedLyricsSource = {
+  /** Pathname del file audio nello store. */
+  pathname: string;
+  /** "titolare" della voce del manifest (per la riga di credito). */
+  holder: string;
+  /** true = audio pubblico (letto dal CDN), false = privato (letto con il token). */
+  audioPublic: boolean;
+  /** I file di testo con lo stesso nome del brano: prima i .lrc, poi i .txt. */
+  sidecars: HomeStoreFile[];
+};
+
 export type FeaturedIndex = {
   /** false = Blob non configurato o non leggibile: la fonte è "unavailable", non "vuota". */
   available: boolean;
   /** Solo i brani con diritti dichiarati, dal più recente. */
   tracks: HomeTrack[];
+  /** Solo i brani dichiarati con "testo": true, per pathname. */
+  lyrics: ReadonlyMap<string, FeaturedLyricsSource>;
 };
 
 export type FeaturedSearchResult = {
@@ -97,7 +122,8 @@ export function clearFeaturedSearchCacheForTests() {
   generation += 1;
 }
 
-const UNAVAILABLE: FeaturedIndex = { available: false, tracks: [] };
+const NO_LYRICS: ReadonlyMap<string, FeaturedLyricsSource> = new Map();
+const UNAVAILABLE: FeaturedIndex = { available: false, tracks: [], lyrics: NO_LYRICS };
 
 async function buildIndex(token: string): Promise<{ index: FeaturedIndex; ttl: number }> {
   // UN solo elenco dello store per brani, copertine e manifest.
@@ -119,12 +145,12 @@ async function buildIndex(token: string): Promise<{ index: FeaturedIndex; ttl: n
     // stati stabili (si ricontrolla dopo ~5 minuti); solo la lettura fallita si riprova presto.
     const transient = rights.status === 'unavailable';
     return {
-      index: { available: !transient, tracks: [] },
+      index: { available: !transient, tracks: [], lyrics: NO_LYRICS },
       ttl: transient ? FAILURE_TTL_MS : HIT_TTL_MS,
     };
   }
 
-  const declared = declaredTrackIds(
+  const declared = declaredTrackEntries(
     rights.entries,
     catalog.tracks.map((track) => track.id),
   );
@@ -135,10 +161,23 @@ async function buildIndex(token: string): Promise<{ index: FeaturedIndex; ttl: n
     );
   }
   const tracks = catalog.tracks.filter((track) => declared.has(track.id));
+  // Testi: solo le voci valide con "testo": true di file che esistono davvero nello store.
+  const sidecarsFor = lyricsSidecarMatcher(catalog.sidecars);
+  const lyrics = new Map<string, FeaturedLyricsSource>();
+  for (const track of tracks) {
+    const entry = declared.get(track.id);
+    if (!entry || !lyricsDeclared(entry)) continue;
+    lyrics.set(track.id, {
+      pathname: track.id,
+      holder: entry.titolare,
+      audioPublic: /^https:\/\//.test(track.streamUrl),
+      sidecars: sidecarsFor(track.id),
+    });
+  }
   // Elenco parziale (oltre il tetto di pagine o scaduto) ma manifest trovato: si usa quanto trovato
   // (al più MENO brani ricercabili, mai di più) per la finestra normale. Uno store sempre oltre il
   // tetto non rifà così 20 elenchi ogni minuto.
-  return { index: { available: true, tracks }, ttl: HIT_TTL_MS };
+  return { index: { available: true, tracks, lyrics }, ttl: HIT_TTL_MS };
 }
 
 /** L'indice dalla cache, oppure ricostruito una sola volta anche con più ricerche in parallelo. */
@@ -201,5 +240,23 @@ export async function searchFeaturedTracks(
     return { outcome: index.available ? 'no_results' : 'unavailable', tracks: [] };
   } catch {
     return { outcome: 'unavailable', tracks: [] };
+  }
+}
+
+/**
+ * Il brano in evidenza `pathname` se il manifest ne dichiara i diritti sul TESTO ("testo": true) e
+ * il file esiste nello store; altrimenti null (voce assente, non valida, "testo" mancante o false,
+ * manifest assente/non valido, store non leggibile). Stesso indice della ricerca. Mai throw.
+ */
+export async function getFeaturedLyricsSource(
+  pathname: string,
+): Promise<FeaturedLyricsSource | null> {
+  const token = env.BLOB_READ_WRITE_TOKEN;
+  if (!token) return null;
+  try {
+    const index = await loadIndex(token);
+    return index.lyrics.get(pathname) ?? null;
+  } catch {
+    return null;
   }
 }

@@ -27,6 +27,12 @@ export const ACTION_RATE_LIMITS = {
     { requests: 240, windowMs: 60_000 },
     { requests: 5000, windowMs: 86_400_000 },
   ],
+  // Testi dei brani nel player (solo brani con i diritti sul testo), per utente: uno per brano
+  // aperto, più i cambi di brano col pannello aperto. Basta per l'uso vero, ferma gli script.
+  'music.lyrics': [
+    { requests: 30, windowMs: 60_000 },
+    { requests: 600, windowMs: 86_400_000 },
+  ],
   // Social preview image of a shared playlist or song (DB/Audius read + covers + drawing), per IP.
   // Generous: link-preview crawlers fetch from few addresses; the CDN absorbs repeated hits.
   'share.og': [
@@ -426,6 +432,7 @@ const actionLabels: Record<RateLimitAction, string> = {
   'music.search': 'le ricerche musicali',
   'music.catalog': 'le richieste al catalogo',
   'music.cover': 'le copertine',
+  'music.lyrics': 'i testi dei brani',
   'share.og': 'le anteprime dei link condivisi',
   'share.og.audius': 'le anteprime dei brani condivisi',
   'share.og.audius.global': 'le anteprime dei brani condivisi di oggi',

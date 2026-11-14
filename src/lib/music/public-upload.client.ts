@@ -122,7 +122,14 @@ export class PublicUploadError extends Error {}
  */
 export async function uploadPublicSong(
   file: File,
-  options: { title: string; artist?: string; onProgress?: (percent: number) => void },
+  options: {
+    title: string;
+    artist?: string;
+    /** Testo facoltativo (LRC o semplice): richiede lyricsRightsConfirmed. */
+    lyrics?: string;
+    lyricsRightsConfirmed?: boolean;
+    onProgress?: (percent: number) => void;
+  },
 ): Promise<PublicUpload> {
   const mime = canonicalAudioMime(file);
   const pathname = `public-uploads/${slugify(options.title || file.name)}.${extensionForMime(mime)}`;
@@ -174,6 +181,9 @@ export async function uploadPublicSong(
       mimeType: mime.split(';', 1)[0]?.trim().toLowerCase() ?? mime,
       byteLength: file.size,
       elapsedSeconds: seconds,
+      ...(options.lyrics?.trim()
+        ? { lyrics: options.lyrics, lyricsRightsConfirmed: options.lyricsRightsConfirmed === true }
+        : {}),
     }),
     schema: PublicUploadCreateResponseSchema,
     signal,

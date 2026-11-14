@@ -24,6 +24,12 @@
 //         "prova": "Contratto di distribuzione n. 42 del 03/2026"
 //       },
 //       {
+//         "file": "Cantautori/Autrice - Canzone.mp3",
+//         "licenza": "propria",
+//         "titolare": "Autrice",
+//         "testo": true
+//       },
+//       {
 //         "file": "Strumentale - Pioggia.mp3",
 //         "licenza": "cc-by",
 //         "titolare": "Strumentale",
@@ -46,9 +52,21 @@
 //   abbonamenti Pro, quindi l'uso è commerciale.
 // - "titolare": chi detiene i diritti (da 1 a 120 caratteri).
 // - "prova": facoltativa, una nota o un link al contratto/licenza (al massimo 300 caratteri).
+// - "testo": facoltativo, true o false (se manca vale false). Con true il player mostra il TESTO
+//   del brano (stile Spotify), letto da un file accanto all'audio con lo stesso nome ed estensione
+//   .lrc (sincronizzato) o .txt (semplice), es. "Cantautori/Autrice - Canzone.lrc", oppure, in
+//   mancanza, dal testo incorporato nel file audio (tag USLT/SYLT degli MP3, LYRICS dei FLAC/OGG,
+//   ©lyr degli M4A). ATTENZIONE: il testo è un'opera letteraria separata dalla registrazione e
+//   appartiene ad autori ed editori musicali. Una licenza sulla registrazione ("licenza" con
+//   un'etichetta o un distributore) spesso NON comprende il testo: metti "testo": true SOLO se
+//   anche questi diritti sono coperti (brano tuo con testo tuo, contratto che include il testo,
+//   accordo con l'editore). Nel dubbio lascialo fuori: Solco non mostra testi presi altrove.
+//   Il file .lrc/.txt va caricato come PRIVATO (UTF-8, al massimo 64 KB); non compare mai fra i
+//   brani o le copertine della Home. Una revoca ("testo" tolto o false) vale entro ~5 minuti.
 // - Nessun altro campo: un campo in più rende NON valida quella voce (o tutto il manifest, se è al
 //   primo livello). Una voce non valida viene ignorata da sola, le altre restano; una voce ripetuta
-//   conta una volta.
+//   conta una volta (vale la prima), ma il testo si mostra solo se TUTTE le voci di quel file
+//   hanno "testo": true.
 // - Tempi (cache): una REVOCA vale nella ricerca entro ~6 minuti al massimo con il manifest privato
 //   (indice fino a 5 minuti + risposte con brani in evidenza in cache al massimo 1 minuto); da
 //   pubblico si aggiunge la propagazione del CDN. Un brano appena dichiarato compare di solito
@@ -90,9 +108,16 @@ const RightsEntrySchema = z
     licenza: z.enum(RIGHTS_LICENSES),
     titolare: z.string().trim().min(1).max(120),
     prova: z.string().trim().max(300).optional(),
+    // Testo del brano mostrabile nel player: solo con true (assente = false, manifest vecchi validi).
+    testo: z.boolean().optional(),
   })
   .strict();
 export type RightsEntry = z.infer<typeof RightsEntrySchema>;
+
+/** True solo se la voce dichiara esplicitamente i diritti sul TESTO del brano ("testo": true). */
+export function lyricsDeclared(entry: Pick<RightsEntry, 'testo'>): boolean {
+  return entry.testo === true;
+}
 
 const RightsManifestSchema = z
   .object({
@@ -123,7 +148,8 @@ export function parseRightsManifest(text: string): RightsManifestParse {
   const manifest = RightsManifestSchema.safeParse(raw);
   if (!manifest.success) return { ok: false };
 
-  const seen = new Set<string>();
+  // Forma NFC del file → posizione della voce tenuta in `entries`.
+  const seen = new Map<string, number>();
   const entries: RightsEntry[] = [];
   let skipped = 0;
   for (const row of manifest.data.brani) {
@@ -135,8 +161,18 @@ export function parseRightsManifest(text: string): RightsManifestParse {
       continue;
     }
     const key = parsed.data.file.normalize('NFC');
-    if (seen.has(key)) continue;
-    seen.add(key);
+    const keptAt = seen.get(key);
+    if (keptAt !== undefined) {
+      // Voce ripetuta (anche solo nella forma Unicode): conta la prima, ma il TESTO vale solo se
+      // TUTTE le voci di quel file dicono "testo": true. Nel dubbio si esclude, qualunque sia
+      // l'ordine: una voce aggiunta in fondo con "testo": false revoca il testo.
+      const kept = entries[keptAt];
+      if (kept && kept.testo === true && parsed.data.testo !== true) {
+        entries[keptAt] = { ...kept, testo: false };
+      }
+      continue;
+    }
+    seen.set(key, entries.length);
     entries.push(parsed.data);
   }
   return { ok: true, entries, skipped };
@@ -153,6 +189,17 @@ export function declaredTrackIds(
   entries: readonly RightsEntry[],
   audioPathnames: Iterable<string>,
 ): Set<string> {
+  return new Set(declaredTrackEntries(entries, audioPathnames).keys());
+}
+
+/**
+ * Come declaredTrackIds, ma con la voce del manifest di ogni file coperto (stesse regole di
+ * corrispondenza): serve a leggere "titolare" e "testo" del brano.
+ */
+export function declaredTrackEntries(
+  entries: readonly RightsEntry[],
+  audioPathnames: Iterable<string>,
+): Map<string, RightsEntry> {
   const exact = new Set(audioPathnames);
   const byNormalForm = new Map<string, string | null>();
   for (const pathname of exact) {
@@ -160,14 +207,14 @@ export function declaredTrackIds(
     // null = due file diversi con la stessa forma NFC: serve la corrispondenza esatta.
     byNormalForm.set(key, byNormalForm.has(key) ? null : pathname);
   }
-  const declared = new Set<string>();
+  const declared = new Map<string, RightsEntry>();
   for (const entry of entries) {
     if (exact.has(entry.file)) {
-      declared.add(entry.file);
+      if (!declared.has(entry.file)) declared.set(entry.file, entry);
       continue;
     }
     const match = byNormalForm.get(entry.file.normalize('NFC'));
-    if (match) declared.add(match);
+    if (match && !declared.has(match)) declared.set(match, entry);
   }
   return declared;
 }
@@ -184,7 +231,10 @@ function abortAfter(ms: number): AbortSignal | undefined {
 }
 
 /** Legge lo stream fino a `limit` byte (poi lo chiude): mai più del necessario in memoria. */
-async function readUpTo(stream: ReadableStream<Uint8Array>, limit: number): Promise<Uint8Array> {
+export async function readUpTo(
+  stream: ReadableStream<Uint8Array>,
+  limit: number,
+): Promise<Uint8Array> {
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;

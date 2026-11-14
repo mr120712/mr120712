@@ -169,7 +169,7 @@ function frameData(
 }
 
 /** Indice subito dopo il terminatore della descrizione (NUL o doppio NUL allineato), o -1. */
-function afterTerminator(data: Uint8Array, start: number, wide: boolean): number {
+export function afterTerminator(data: Uint8Array, start: number, wide: boolean): number {
   if (!wide) {
     const index = data.indexOf(0, start);
     return index < 0 ? -1 : index + 1;
@@ -219,7 +219,23 @@ const FRAME_FIELDS: Record<string, FrameField> = {
   APIC: 'picture',
 };
 
-function readFrames(input: Uint8Array, draft: TagDraft): void {
+/** Un frame ID3v2 durante la scansione: i dati si estraggono solo se servono (data()). */
+export type Id3v2Frame = {
+  id: string;
+  major: 2 | 3 | 4;
+  /** Dati utili del frame (desincronizzati, senza byte di gruppo/lunghezza), o null se compresso/cifrato. */
+  data: () => Uint8Array | null;
+};
+
+/**
+ * Scorre i frame del tag ID3v2 all'inizio di `input` (header esteso, desincronizzazione e
+ * dimensioni v2.4 gestiti) e chiama `visit` per ognuno; `visit` restituisce true per fermarsi.
+ * Input non fidato: si ferma al primo header non valido; mai più di MAX_FRAMES frame.
+ */
+export function walkId3v2Frames(
+  input: Uint8Array,
+  visit: (frame: Id3v2Frame) => boolean | undefined,
+): void {
   const header = readId3v2Header(input);
   if (!header) return;
   const { major, flags } = header;
@@ -242,29 +258,46 @@ function readFrames(input: Uint8Array, draft: TagDraft): void {
     const frame = readFrameHeader(body, pos, major);
     if (!frame) break;
     pos = frame.dataEnd;
-    const field = FRAME_FIELDS[frame.id];
-    if (!field) continue;
-    if (field === 'picture' && draft.artworkIsFront) continue;
-    if (field !== 'picture' && draft[field]) continue;
-    const data = frameData(body, frame, major, tagUnsync);
-    if (!data || data.length === 0) continue;
+    const stop = visit({
+      id: frame.id,
+      major,
+      data: () => frameData(body, frame, major, tagUnsync),
+    });
+    if (stop) break;
+  }
+}
 
-    if (field === 'picture') {
-      const picture = readPicture(data, major === 2);
-      if (picture && (!draft.artwork || picture.front)) {
-        draft.artwork = picture.image;
-        draft.artworkIsFront = picture.front;
-      }
-      continue;
+function readFrames(input: Uint8Array, draft: TagDraft): void {
+  walkId3v2Frames(input, (frame) => {
+    readFrame(frame, draft);
+    return undefined;
+  });
+}
+
+function readFrame(frame: Id3v2Frame, draft: TagDraft): void {
+  const { major } = frame;
+  const field = FRAME_FIELDS[frame.id];
+  if (!field) return;
+  if (field === 'picture' && draft.artworkIsFront) return;
+  if (field !== 'picture' && draft[field]) return;
+  const data = frame.data();
+  if (!data || data.length === 0) return;
+
+  if (field === 'picture') {
+    const picture = readPicture(data, major === 2);
+    if (picture && (!draft.artwork || picture.front)) {
+      draft.artwork = picture.image;
+      draft.artworkIsFront = picture.front;
     }
-    const values = decodeId3Text(data.subarray(1), byteAt(data, 0));
-    if (values.length === 0) continue;
-    if (field === 'artist') {
-      // Più artisti (valori separati da NUL in v2.4) in una sola riga.
-      draft.artist = sanitizeTagText(values.join(', ')) ?? undefined;
-    } else {
-      draft[field] = values[0];
-    }
+    return;
+  }
+  const values = decodeId3Text(data.subarray(1), byteAt(data, 0));
+  if (values.length === 0) return;
+  if (field === 'artist') {
+    // Più artisti (valori separati da NUL in v2.4) in una sola riga.
+    draft.artist = sanitizeTagText(values.join(', ')) ?? undefined;
+  } else {
+    draft[field] = values[0];
   }
 }
 

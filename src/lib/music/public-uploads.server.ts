@@ -1,15 +1,22 @@
 // @polsia:user-owned — logica server della libreria PUBBLICA di brani caricati (Vercel Blob).
 // Il file audio è un oggetto PUBBLICO su Blob (URL CDN): qui si registrano i metadati, si elenca
 // la classifica pubblica, si moderano le segnalazioni e si rimuovono (anche l'oggetto su Blob).
+//
+// TESTO dei brani: un upload è per definizione un brano dell'utente (lo attesta al caricamento),
+// e il testo si mostra nel player solo se l'autore conferma di averne i diritti
+// (lyricsRightsConfirmed) e il brano è pubblicato. L'autore può aggiungerlo, cambiarlo o toglierlo.
 import 'server-only';
 import { del, head } from '@vercel/blob';
+import { LYRICS_CREDIT_UPLOAD, type Lyrics } from '@/lib/contracts/lyrics';
 import {
   PUBLIC_UPLOAD_MAX_PER_USER,
   type PublicUpload,
   type PublicUploadCreateInput,
+  type PublicUploadLyricsUpdate,
 } from '@/lib/contracts/public-uploads';
 import { prisma } from '@/lib/db';
 import { env } from '@/lib/env';
+import { parseLyrics } from '@/lib/music/lyrics';
 
 /** Oltre questo numero di segnalatori DISTINTI il brano si auto-ritira dalla libreria pubblica. */
 export const AUTO_UNPUBLISH_REPORTS = 5;
@@ -44,6 +51,13 @@ const selectUpload = {
   createdAt: true,
 } as const;
 
+/** I brani dell'utente stesso: anche il testo salvato e la conferma dei diritti (per modificarli). */
+const selectOwnUpload = {
+  ...selectUpload,
+  lyrics: true,
+  lyricsRightsConfirmed: true,
+} as const;
+
 type UploadRow = {
   id: string;
   uploaderUserId: string;
@@ -54,6 +68,8 @@ type UploadRow = {
   published: boolean;
   playCount: number;
   createdAt: Date;
+  lyrics?: string | null;
+  lyricsRightsConfirmed?: boolean;
 };
 
 /**
@@ -80,6 +96,10 @@ function toPublicUpload(
     mine,
     published: row.published,
     canPlay,
+    // Il testo salvato torna SOLO al suo autore (per modificarlo), mai nella classifica pubblica.
+    ...(mine && 'lyrics' in row
+      ? { lyrics: row.lyrics ?? null, lyricsRightsConfirmed: row.lyricsRightsConfirmed === true }
+      : {}),
   };
 }
 
@@ -135,6 +155,8 @@ export async function registerPublicUpload(
   }
 
   const durationSeconds = Math.max(1, Math.min(86_400, Math.ceil(input.elapsedSeconds)));
+  // Il contratto ha già normalizzato il testo e preteso la conferma dei diritti se non è vuoto.
+  const lyrics = input.lyrics && input.lyricsRightsConfirmed === true ? input.lyrics : null;
 
   try {
     const row = await prisma.publicUpload.create({
@@ -147,8 +169,10 @@ export async function registerPublicUpload(
         mimeType: input.mimeType,
         byteLength: input.byteLength,
         durationSeconds,
+        lyrics,
+        lyricsRightsConfirmed: lyrics !== null,
       },
-      select: selectUpload,
+      select: selectOwnUpload,
     });
     // È un brano del proprietario stesso: può sempre ascoltarlo (canPlay).
     return toPublicUpload(row, userId, true);
@@ -198,10 +222,48 @@ export async function listMyPublicUploads(userId: string): Promise<PublicUpload[
     where: { uploaderUserId: userId },
     orderBy: { createdAt: 'desc' },
     take: 100,
-    select: selectUpload,
+    select: selectOwnUpload,
   });
   // Sono tutti brani del proprietario: li può sempre ascoltare (canPlay).
   return rows.map((row) => toPublicUpload(row, userId, true));
+}
+
+/**
+ * L'autore aggiunge, cambia o toglie il testo di un SUO brano (`lyrics` vuoto o null = lo toglie,
+ * insieme alla conferma dei diritti). null se il brano non esiste o non è suo (stessa risposta).
+ */
+export async function updatePublicUploadLyrics(
+  userId: string,
+  uploadId: string,
+  update: PublicUploadLyricsUpdate,
+): Promise<PublicUpload | null> {
+  const owned = await prisma.publicUpload.findFirst({
+    where: { id: uploadId, uploaderUserId: userId },
+    select: { id: true },
+  });
+  if (!owned) return null;
+  const lyrics = update.lyrics && update.lyricsRightsConfirmed === true ? update.lyrics : null;
+  const row = await prisma.publicUpload.update({
+    where: { id: owned.id },
+    data: { lyrics, lyricsRightsConfirmed: lyrics !== null },
+    select: selectOwnUpload,
+  });
+  return toPublicUpload(row, userId, true);
+}
+
+/**
+ * Il testo di un upload per il player: solo per un brano PUBBLICATO con il testo confermato
+ * dall'autore. null in ogni altro caso (inesistente, ritirato, senza testo o senza conferma: la
+ * risposta è la stessa).
+ */
+export async function readPublishedUploadLyrics(uploadId: string): Promise<Lyrics | null> {
+  const row = await prisma.publicUpload.findFirst({
+    where: { id: uploadId, published: true, lyricsRightsConfirmed: true },
+    select: { lyrics: true },
+  });
+  const parsed = parseLyrics(row?.lyrics ?? null);
+  if (!parsed) return null;
+  return { kind: parsed.kind, lines: parsed.lines, source: 'upload', credit: LYRICS_CREDIT_UPLOAD };
 }
 
 /**

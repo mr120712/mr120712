@@ -1,5 +1,6 @@
 // @polsia:user-owned — libreria pubblica dei brani caricati: GET elenco (pubblico), POST registra
-// (loggato) un brano già salvato su Vercel Blob.
+// (loggato) un brano già salvato su Vercel Blob, con il testo facoltativo (solo con la conferma
+// dei diritti sul testo: senza, 400 sul campo lyricsRightsConfirmed).
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { hasPremiumAccess } from '@/lib/business/premium-access.server';
@@ -20,6 +21,9 @@ import { getSessionUser, requireAuth } from '@/lib/require-auth';
 import { sameOrigin } from '@/lib/same-origin';
 
 export const dynamic = 'force-dynamic';
+
+/** Corpo massimo della registrazione: metadati + testo (UTF-8, a capo e spazi compresi). */
+const CREATE_BODY_MAX_BYTES = 160 * 1024;
 
 const privateHeaders = {
   'Cache-Control': 'private, no-store, no-cache, must-revalidate',
@@ -60,7 +64,8 @@ export async function POST(request: Request) {
 
   // Niente rate-limit qui: il caricamento vero (e il suo tetto) è già limitato al rilascio del
   // token in /blob. Caricare due volte lo stesso oggetto fallisce comunque (blobUrl unico).
-  const payload = await readJsonLimited(request, 4096);
+  // Metadati (pochi byte) più il testo facoltativo (al massimo 20 000 caratteri normalizzati).
+  const payload = await readJsonLimited(request, CREATE_BODY_MAX_BYTES);
   if (!payload.ok) return limitedJsonError(payload);
 
   const parsed = PublicUploadCreateSchema.safeParse(payload.value);

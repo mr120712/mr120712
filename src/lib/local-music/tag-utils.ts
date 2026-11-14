@@ -106,8 +106,9 @@ const CP1252_HIGH = [
   0x203a, 0x0153, 0, 0x017e, 0x0178,
 ];
 
-export function decodeLatin1(bytes: Uint8Array): string {
-  const limit = Math.min(bytes.length, MAX_TEXT_BYTES);
+/** `maxBytes`: byte decodificati al massimo (di norma quelli di un campo; più alto per i testi). */
+export function decodeLatin1(bytes: Uint8Array, maxBytes: number = MAX_TEXT_BYTES): string {
+  const limit = Math.min(bytes.length, maxBytes);
   let out = '';
   for (let i = 0; i < limit; i++) {
     const b = byteAt(bytes, i);
@@ -117,35 +118,53 @@ export function decodeLatin1(bytes: Uint8Array): string {
   return out;
 }
 
-export function decodeUtf16(bytes: Uint8Array, littleEndian: boolean): string {
-  const limit = Math.min(bytes.length, MAX_TEXT_BYTES);
-  const units: number[] = [];
+export function decodeUtf16(
+  bytes: Uint8Array,
+  littleEndian: boolean,
+  maxBytes: number = MAX_TEXT_BYTES,
+): string {
+  const limit = Math.min(bytes.length, maxBytes);
+  let out = '';
+  let units: number[] = [];
   for (let i = 0; i + 1 < limit; i += 2) {
     const a = byteAt(bytes, i);
     const b = byteAt(bytes, i + 1);
     units.push(littleEndian ? a | (b << 8) : (a << 8) | b);
+    // A blocchi: fromCharCode con troppi argomenti esaurirebbe lo stack sui testi lunghi.
+    if (units.length >= 4096) {
+      out += String.fromCharCode(...units);
+      units = [];
+    }
   }
   // I surrogati isolati restano qui e li toglie sanitizeTagText.
-  return String.fromCharCode(...units);
+  return out + String.fromCharCode(...units);
 }
 
 /** UTF-16 con BOM opzionale: FF FE little-endian, FE FF big-endian, altrimenti `fallbackLE`. */
-export function decodeUtf16WithBom(bytes: Uint8Array, fallbackLittleEndian: boolean): string {
+export function decodeUtf16WithBom(
+  bytes: Uint8Array,
+  fallbackLittleEndian: boolean,
+  maxBytes: number = MAX_TEXT_BYTES,
+): string {
   const b0 = byteAt(bytes, 0);
   const b1 = byteAt(bytes, 1);
-  if (bytes.length >= 2 && b0 === 0xff && b1 === 0xfe) return decodeUtf16(bytes.subarray(2), true);
-  if (bytes.length >= 2 && b0 === 0xfe && b1 === 0xff) return decodeUtf16(bytes.subarray(2), false);
-  return decodeUtf16(bytes, fallbackLittleEndian);
+  if (bytes.length >= 2 && b0 === 0xff && b1 === 0xfe) {
+    return decodeUtf16(bytes.subarray(2), true, maxBytes);
+  }
+  if (bytes.length >= 2 && b0 === 0xfe && b1 === 0xff) {
+    return decodeUtf16(bytes.subarray(2), false, maxBytes);
+  }
+  return decodeUtf16(bytes, fallbackLittleEndian, maxBytes);
 }
 
-export function decodeUtf8(bytes: Uint8Array): string {
-  const capped = bytes.subarray(0, MAX_TEXT_BYTES);
+export function decodeUtf8(bytes: Uint8Array, maxBytes: number = MAX_TEXT_BYTES): string {
+  const capped = bytes.subarray(0, maxBytes);
   try {
     if (typeof TextDecoder === 'function') return new TextDecoder('utf-8').decode(capped);
   } catch {
     // Motore senza TextDecoder utilizzabile: meglio Latin-1 che niente.
   }
-  return decodeLatin1(capped);
+  return decodeLatin1(capped, maxBytes);
 }
 
 /** Divide sui terminatori NUL (doppio NUL allineato per l'UTF-16). */
