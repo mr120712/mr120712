@@ -33,7 +33,7 @@ import {
 import { ShareMenu } from '@/components/custom/share-menu';
 import { apiFetch } from '@/lib/api-client';
 import { useSession } from '@/lib/auth-client';
-import { songShareText, songShareUrl } from '@/lib/business/social-share';
+import { songPreviewImagePath, songShareText, songShareUrl } from '@/lib/business/social-share';
 import { HOME_TRACK_COVER_PREFIX } from '@/lib/contracts/home-tracks';
 import {
   AudiusPlaybackCheckSchema,
@@ -111,6 +111,7 @@ import {
 } from '@/lib/music/playback-speed';
 import { failureLink, failureMessage, showsFreePlayCounter } from '@/lib/music/player-messages';
 import { PLAYER_STORAGE_KEY, STOP_PLAYER_EVENT } from '@/lib/music/player-session';
+import { isShareableCoverUrl } from '@/lib/music/shareable-cover';
 import {
   continuesInRun,
   type PendingRunMove,
@@ -2405,12 +2406,17 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   })();
   // "Condividi": brano (artista e titolo) o radio in diretta, con un link alla ricerca di Solco sul
   // sito pubblico. Mai per i file dell'utente (privati) né per i podcast.
+  // Con la copertina (solo Audius: vedi shareable-cover) il link mostra la scheda del brano nelle
+  // anteprime social; la stessa scheda va allegata come immagine nel menu di condivisione del telefono.
   const shareTarget = (() => {
     if (songSearch) {
+      const cover = isShareableCoverUrl(currentTrack?.artworkUrl) ? currentTrack.artworkUrl : null;
+      const card = { title: songSearch.title, artist: songSearch.artist, cover };
       return {
         title: songSearch.title,
         text: songShareText(songSearch.title, songSearch.artist),
-        url: songShareUrl(songSearch.title, songSearch.artist),
+        url: songShareUrl(songSearch.title, songSearch.artist, undefined, cover),
+        imageUrl: songPreviewImagePath(card),
       };
     }
     if (currentTrack && isLiveTrack(currentTrack) && !isLocalTrack(currentTrack)) {
@@ -2418,6 +2424,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         title: currentTrack.title,
         text: songShareText(currentTrack.title, null, true),
         url: songShareUrl(currentTrack.title, null),
+        imageUrl: songPreviewImagePath({ title: currentTrack.title, artist: null, cover: null }),
       };
     }
     return null;
@@ -3591,6 +3598,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                       title={shareTarget.title}
                       text={shareTarget.text}
                       url={shareTarget.url}
+                      imageUrl={shareTarget.imageUrl}
                       ariaLabel={`Condividi ${shareTarget.title}`}
                       contentClassName={FULL_PLAYER_MENU}
                     />

@@ -23,6 +23,7 @@ import {
   evaluateGoogleAuthUrl,
   evaluateGoogleRedirect,
   evaluateSecurityHeaders,
+  FIREWALL_CHALLENGE_DETAIL,
   gateOutcome,
   type MonitorDeps,
   main,
@@ -314,17 +315,33 @@ describe('site checks', () => {
     }
   });
 
-  it('names the Vercel firewall when it stops the monitor (still a failure)', async () => {
-    const blocked = () =>
+  it('Attack Challenge Mode di Vercel acceso: avviso, mai un allarme, niente secondo tentativo', async () => {
+    const challenged = () =>
       new Response('<html>Vercel Security Checkpoint</html>', {
         status: 429,
         headers: { 'content-type': 'text/html', 'x-vercel-mitigated': 'challenge' },
       });
-    const { deps } = setup(healthySite({ 'GET /': blocked, 'GET /radio': blocked }));
-    const detail =
-      'Il firewall di Vercel ferma il monitor (x-vercel-mitigated: challenge): pagina non verificata';
-    expect(await checkPage(deps, '/radio')).toEqual(failWith(detail));
-    expect(await checkSecurityHeaders(deps)).toEqual(failWith(detail));
+    const { deps, sleeps } = setup(
+      healthySite({ 'GET /': challenged, 'GET /radio': challenged, 'GET /health': challenged }),
+    );
+    for (const [id, check] of [
+      ['page:/radio', () => checkPage(deps, '/radio')],
+      ['security_headers', () => checkSecurityHeaders(deps)],
+      ['site_health', () => checkSiteHealth(deps)],
+    ] as const) {
+      const result = await runCheck(deps, id, true, check);
+      expect(result, id).toMatchObject({ status: 'warn', detail: FIREWALL_CHALLENGE_DETAIL });
+    }
+    expect(sleeps).toEqual([]);
+    expect(gateOutcome(new Headers({ 'x-vercel-mitigated': 'challenge' }))?.status).toBe('warn');
+  });
+
+  it('names the Vercel firewall when it really blocks the monitor (a failure)', async () => {
+    expect(gateOutcome(new Headers({ 'x-vercel-mitigated': 'deny' }))).toEqual(
+      failWith(
+        'Il firewall di Vercel ferma il monitor (x-vercel-mitigated: deny): pagina non verificata',
+      ),
+    );
     expect(gateOutcome(new Headers({ 'x-vercel-mitigated': '<b>deny</b>' }))?.detail).toBe(
       'Il firewall di Vercel ferma il monitor (x-vercel-mitigated: blocco): pagina non verificata',
     );

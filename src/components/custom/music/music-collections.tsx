@@ -50,6 +50,7 @@ import {
 } from '@/lib/contracts/music';
 import {
   SHARED_PLAYLIST_OWNER_FALLBACK,
+  sharedPlaylistImagePath,
   sharedPlaylistOwnerName,
   sharedPlaylistPath,
 } from '@/lib/music/playlist-share';
@@ -654,6 +655,9 @@ export function MusicCollections({
                         collection.shareId
                           ? publicShareUrl(sharedPlaylistPath(collection.shareId))
                           : shareUrl
+                      }
+                      imageUrl={
+                        collection.shareId ? sharedPlaylistImagePath(collection.shareId) : undefined
                       }
                     />
                     <Button

@@ -31,7 +31,12 @@ import {
   SharedPlaylistSchema,
 } from '@/lib/contracts/shared-playlist';
 import { artInitial } from '@/lib/music/art-initial';
-import { isolateName, isShareId, sharedPlaylistPath } from '@/lib/music/playlist-share';
+import {
+  isolateName,
+  isShareId,
+  sharedPlaylistImagePath,
+  sharedPlaylistPath,
+} from '@/lib/music/playlist-share';
 import styles from './shared-playlist.module.css';
 
 /** Focusable while busy or waiting for the session (aria-disabled, never disabled). */
@@ -365,6 +370,7 @@ export function SharedPlaylistView({ shareId }: { shareId: string }) {
               title={playlist.name}
               text={`Ascolta “${isolateName(playlist.name)}” su Solco.`}
               path={sharedPlaylistPath(shareId)}
+              imageUrl={sharedPlaylistImagePath(shareId)}
             />
           </div>
           {signedOut && authPromptRequest > 0 ? (

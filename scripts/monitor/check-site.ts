@@ -253,15 +253,44 @@ async function readJson(response: Response): Promise<unknown> {
   }
 }
 
-function fetchUrl(deps: MonitorDeps, url: string | URL, init: RequestInit = {}): Promise<Response> {
+/** Testo di un controllo fermato dall'Attack Challenge Mode di Vercel (protezione accesa). */
+export const FIREWALL_CHALLENGE_DETAIL =
+  'Protezione anti-attacco di Vercel attiva (verifica del browser): pagina non verificata dal monitor';
+
+/**
+ * Risposta "verifica il browser" del firewall di Vercel (x-vercel-mitigated: challenge): con
+ * l'Attack Challenge Mode acceso arriva a ogni client che non è un browser, monitor compreso.
+ * I browser veri la superano: è la protezione accesa, non un sito giù.
+ */
+export class FirewallChallengeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'FirewallChallengeError';
+  }
+}
+
+function isFirewallChallenge(headers: Headers): boolean {
+  return (headers.get('x-vercel-mitigated') ?? '').trim().toLowerCase() === 'challenge';
+}
+
+async function fetchUrl(
+  deps: MonitorDeps,
+  url: string | URL,
+  init: RequestInit = {},
+): Promise<Response> {
   const headers = new Headers(init.headers);
   headers.set('User-Agent', USER_AGENT);
-  return deps.fetch(url, {
+  const response = await deps.fetch(url, {
     redirect: 'manual',
     ...init,
     headers,
     signal: AbortSignal.timeout(deps.timeoutMs),
   });
+  if (isFirewallChallenge(response.headers)) {
+    await discard(response);
+    throw new FirewallChallengeError(FIREWALL_CHALLENGE_DETAIL);
+  }
+  return response;
 }
 
 function request(deps: MonitorDeps, path: string, init: RequestInit = {}): Promise<Response> {
@@ -287,14 +316,16 @@ function isRedirect(status: number): boolean {
 /**
  * Answers that are not the real page. The UAM loading screen (src/lib/security/uam-gate.ts)
  * comes back as 200 (first-visit) or 503 (attack) with `X-Solco-Gate: challenge`: the page was
- * not checked, which is neither a pass nor an outage, so only a warning. A Vercel Firewall
- * challenge or block (`x-vercel-mitigated`) may stop real visitors too, so it stays a failure,
- * with a detail that says why.
+ * not checked, which is neither a pass nor an outage, so only a warning. The same for the Vercel
+ * Firewall's browser challenge (`x-vercel-mitigated: challenge`, Attack Challenge Mode on): real
+ * browsers pass it. Any other mitigation (deny, rate limit…) may stop real visitors too, so it
+ * stays a failure, with a detail that says why.
  */
 export function gateOutcome(headers: Headers): CheckOutcome | null {
   if ((headers.get('x-solco-gate') ?? '').trim().toLowerCase() === 'challenge') {
     return warn('Schermata anti-bot (UAM) attiva: pagina non verificata');
   }
+  if (isFirewallChallenge(headers)) return warn(FIREWALL_CHALLENGE_DETAIL);
   const mitigated = (headers.get('x-vercel-mitigated') ?? '').trim().toLowerCase();
   if (!mitigated) return null;
   const action = /^[a-z_-]{1,20}$/.test(mitigated) ? mitigated : 'blocco';
@@ -318,7 +349,11 @@ export async function runCheck(
     try {
       outcome = await attempt();
     } catch (error) {
-      outcome = fail(describeError(error, deps.timeoutMs));
+      // Protezione di Vercel accesa: un avviso, mai un allarme, e niente secondo tentativo.
+      outcome =
+        error instanceof FirewallChallengeError
+          ? warn(FIREWALL_CHALLENGE_DETAIL)
+          : fail(describeError(error, deps.timeoutMs));
     }
     ms = Math.max(0, Math.round(deps.clock() - started));
     if (outcome.status !== 'fail') {

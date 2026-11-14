@@ -4,7 +4,7 @@
 'use client';
 
 import { Copy, ExternalLink, Mail, Share2, Smartphone } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -34,7 +34,30 @@ export type ShareMenuProps = {
   className?: string;
   /** Classi del menu aperto (es. uno z-index più alto dentro il player a schermo intero). */
   contentClassName?: string;
+  /**
+   * Immagine della condivisione (percorso same-origin, es. la scheda PNG del brano): allegata al
+   * menu di condivisione del telefono quando il sistema accetta file (Instagram, WhatsApp…).
+   */
+  imageUrl?: string;
 };
+
+/** Scarica l'immagine come file da allegare, se il sistema lo consente; altrimenti null. */
+async function shareableImage(imageUrl: string): Promise<File | null> {
+  try {
+    const url = new URL(imageUrl, window.location.origin);
+    if (url.origin !== window.location.origin) return null;
+    const response = await fetch(url, { credentials: 'same-origin' });
+    const type = response.headers.get('content-type') ?? '';
+    if (!response.ok || !type.startsWith('image/')) return null;
+    const blob = await response.blob();
+    const file = new File([blob], 'solco.png', { type: blob.type || 'image/png' });
+    return typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })
+      ? file
+      : null;
+  } catch {
+    return null;
+  }
+}
 
 export function ShareMenu({
   url,
@@ -46,6 +69,7 @@ export function ShareMenu({
   size = 'default',
   className,
   contentClassName,
+  imageUrl,
 }: ShareMenuProps) {
   // Il menu del sistema esiste solo in alcuni browser: lo si scopre dopo il montaggio, così il
   // markup del server e quello del client coincidono.
@@ -56,11 +80,27 @@ export function ShareMenu({
 
   const links = socialShareLinks({ url, text, title });
 
+  // L'immagine si prepara all'apertura del menu: al tocco su "Altre app" deve essere già pronta,
+  // perché su iPhone navigator.share va chiamato subito, senza attese di rete in mezzo.
+  const imageRef = useRef<{ url: string; file: File | null } | null>(null);
+  const prepareImage = (open: boolean) => {
+    if (!open || !canShareNatively || !imageUrl || imageRef.current?.url === imageUrl) return;
+    const entry: { url: string; file: File | null } = { url: imageUrl, file: null };
+    imageRef.current = entry;
+    void shareableImage(imageUrl).then((file) => {
+      entry.file = file;
+    });
+  };
+
   const shareNatively = async () => {
+    const file = imageRef.current?.url === imageUrl ? imageRef.current?.file : null;
     try {
-      await navigator.share({ title, text, url });
-    } catch {
-      // Chiuso dall'utente o non consentito: nessun messaggio.
+      await navigator.share(file ? { title, text, url, files: [file] } : { title, text, url });
+    } catch (error) {
+      // Chiuso dall'utente: niente. Rifiutato con l'immagine (alcune app): di nuovo senza.
+      if (file && (error as { name?: unknown } | null)?.name !== 'AbortError') {
+        await navigator.share({ title, text, url }).catch(() => undefined);
+      }
     }
   };
 
@@ -74,7 +114,7 @@ export function ShareMenu({
   };
 
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={prepareImage}>
       <DropdownMenuTrigger asChild>
         <Button
           type="button"

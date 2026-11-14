@@ -3,13 +3,13 @@
 // Audius per l'anteprima social (mai miniature YouTube).
 import 'server-only';
 import { randomBytes } from 'node:crypto';
-import { isIP } from 'node:net';
 import { prisma } from '@/lib/db';
 import {
   MAX_ITEMS_PER_COLLECTION,
   withoutExpiredYouTubeMetadata,
 } from '@/lib/music/collections.server';
 import { isShareId, sharedPlaylistOwnerName, sharedPlaylistPath } from '@/lib/music/playlist-share';
+import { isShareableCoverUrl } from '@/lib/music/shareable-cover';
 import { siteUrl } from '@/lib/site';
 
 /** 16 byte da crypto in base64url: 22 caratteri, non indovinabili né enumerabili. */
@@ -107,39 +107,9 @@ export async function getSharedPlaylist(shareId: string, now = new Date()) {
   };
 }
 
-/** `/content/<cid>/<size>.jpg`: il percorso delle copertine sui nodi della rete Audius. */
-const AUDIUS_CONTENT_IMAGE_PATH =
-  /^\/content\/[A-Za-z0-9]{20,128}\/(?:150x150|480x480|1000x1000)\.(?:jpg|jpeg|png)$/i;
-
-function isHost(host: string, domain: string) {
-  return host === domain || host.endsWith(`.${domain}`);
-}
-
-/**
- * Copertina Audius che l'anteprima social può scaricare: solo https verso i domini Audius o il
- * percorso delle copertine dei nodi Audius, mai IP, porte o credenziali. Le miniature YouTube
- * (i.ytimg.com) sono escluse: le piattaforme social conservano l'immagine dell'anteprima senza
- * scadenza, mentre i dati della YouTube API si tengono meno di 30 giorni.
- */
-export function isShareableCoverUrl(value: string | null | undefined): value is string {
-  if (!value) return false;
-  try {
-    const url = new URL(value);
-    const host = url.hostname.toLowerCase();
-    if (url.protocol !== 'https:' || url.username || url.password || url.port) return false;
-    if (isIP(host) || host === 'localhost' || !host.includes('.')) return false;
-    if (isHost(host, 'ytimg.com') || isHost(host, 'youtube.com') || isHost(host, 'ggpht.com')) {
-      return false;
-    }
-    return (
-      isHost(host, 'audius.co') ||
-      isHost(host, 'audius.org') ||
-      AUDIUS_CONTENT_IMAGE_PATH.test(url.pathname)
-    );
-  } catch {
-    return false;
-  }
-}
+// La regola delle copertine condivisibili vive in un modulo comune (client e server): la usano
+// anche la condivisione di un brano e la sua anteprima social.
+export { isShareableCoverUrl } from '@/lib/music/shareable-cover';
 
 /** Fino a `limit` copertine Audius diverse, nell'ordine della playlist: mai elementi YouTube. */
 export function sharedPlaylistCovers(

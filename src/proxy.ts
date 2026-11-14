@@ -18,10 +18,11 @@
 
 import { type NextRequest, NextResponse } from 'next/server';
 import { buildCsp, DASHBOARD_FRAME_ANCESTORS } from '@/lib/csp';
+import { uamGate } from '@/lib/security/uam-gate';
 // Per-app extra CSP sources (frame/connect/media/font/img). User-owned, default empty.
 import { cspExtraSources } from '../next.user-config';
 
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const nonce = Buffer.from(crypto.randomUUID()).toString('base64');
   const isDev = process.env.NODE_ENV === 'development';
 
@@ -30,6 +31,15 @@ export function proxy(request: NextRequest) {
   // signature pre-checks) here via their manifest `contributions` block.
   // The installer maintains ordering per the module's `ordering` field.
   // Do NOT hand-edit this slot — the install-hash check will reject it.
+
+  // Solco "Under Attack Mode" (src/lib/security/uam-gate.ts): schermata di caricamento con prova di
+  // lavoro prima delle pagine. Spenta finché su Vercel non ci sono UAM_MODE (first-visit | attack)
+  // e un UAM_SECRET di almeno 32 caratteri; in caso di errore lascia passare (fail open). Le API
+  // (/api, escluse dal matcher) non passano di qui: webhook e chiamate dell'app non vengono
+  // fermati. Contro un attacco volumetrico la prima difesa è l'Attack Challenge Mode del firewall
+  // Vercel, che blocca prima che parta qualsiasi funzione.
+  const gate = await uamGate(request);
+  if (gate) return gate;
   // @polsia:slot middleware_chain end
 
   // CSP — script-src strict (nonce + 'strict-dynamic'); style-src relaxed for

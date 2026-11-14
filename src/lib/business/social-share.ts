@@ -1,6 +1,7 @@
 // @polsia:user-owned — condivisione sui social da parte degli utenti: semplici link alle pagine di
 // condivisione dei servizi (nessun SDK, nessuno script di terzi, nessun dato inviato da Solco).
 // Chi tocca il link apre WhatsApp, Telegram, X, Facebook o l'email con testo e link già pronti.
+import { isShareableCoverUrl } from '@/lib/music/shareable-cover';
 import { publicSiteUrl } from '@/lib/public-links';
 
 export type SocialShareTarget = {
@@ -68,13 +69,55 @@ export function publicShareUrl(path: string, base = publicSiteUrl()): string {
   return new URL(path, `${base}/`).toString();
 }
 
+/** Lunghezze massime di titolo e artista nel link e nell'anteprima. */
+const SHARED_TITLE_MAX = 120;
+const SHARED_ARTIST_MAX = 80;
+
 /**
- * Link per condividere un brano: la ricerca di Solco con artista e titolo. Funziona per ogni fonte
- * (la ricerca è unica); chi non ha ancora un account passa dall'accesso e torna qui.
+ * Link per condividere un brano: la ricerca di Solco con artista e titolo (funziona per ogni fonte;
+ * chi non ha ancora un account passa dall'accesso e torna qui). Porta anche titolo e artista per
+ * l'anteprima social e, se è una copertina condivisibile (Audius, vedi shareable-cover), la sua
+ * immagine: WhatsApp, Telegram, X e Facebook mostrano così la scheda con la copertina.
  */
-export function songShareUrl(title: string, artist: string | null, base = publicSiteUrl()): string {
+export function songShareUrl(
+  title: string,
+  artist: string | null,
+  base = publicSiteUrl(),
+  cover?: string | null,
+): string {
   const query = tidy(`${artist ?? ''} ${title}`, 80);
-  return publicShareUrl(`/search?q=${strictEncode(query)}`, base);
+  const params = [`q=${strictEncode(query)}`, `t=${strictEncode(tidy(title, SHARED_TITLE_MAX))}`];
+  if (artist?.trim()) params.push(`a=${strictEncode(tidy(artist, SHARED_ARTIST_MAX))}`);
+  if (isShareableCoverUrl(cover)) params.push(`img=${strictEncode(cover)}`);
+  return publicShareUrl(`/search?${params.join('&')}`, base);
+}
+
+export type SharedSongCard = { title: string; artist: string | null; cover: string | null };
+
+function firstParam(value: string | string[] | undefined): string {
+  return typeof value === 'string' ? value : Array.isArray(value) ? (value[0] ?? '') : '';
+}
+
+/**
+ * Il brano di un link condiviso (parametri t, a, img; q se manca il titolo), per l'anteprima
+ * social. null se il link non descrive un brano. La copertina passa solo se condivisibile.
+ */
+export function sharedSongFromParams(
+  params: Record<string, string | string[] | undefined>,
+): SharedSongCard | null {
+  const title = tidy(firstParam(params.t) || firstParam(params.q), SHARED_TITLE_MAX);
+  if (!title) return null;
+  const artist = tidy(firstParam(params.a), SHARED_ARTIST_MAX) || null;
+  const cover = firstParam(params.img);
+  return { title, artist, cover: isShareableCoverUrl(cover) ? cover : null };
+}
+
+/** Percorso dell'immagine di anteprima (PNG 1200×630) di un brano condiviso. */
+export function songPreviewImagePath(song: SharedSongCard): string {
+  const params = [`t=${strictEncode(song.title)}`];
+  if (song.artist) params.push(`a=${strictEncode(song.artist)}`);
+  if (song.cover) params.push(`img=${strictEncode(song.cover)}`);
+  return `/search/anteprima.png?${params.join('&')}`;
 }
 
 /** Testo per condividere ciò che si sta ascoltando. */
