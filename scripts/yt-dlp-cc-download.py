@@ -32,10 +32,25 @@ import argparse
 import shutil
 import subprocess
 import sys
+import urllib.parse
 
 # Filtro match-filter di yt-dlp: tiene SOLO i contenuti la cui licenza contiene "creative commons"
 # (case-insensitive). I video senza questo campo (es. licenza standard) vengono scartati.
 CC_MATCH_FILTER = "license ~= (?i)creative commons"
+
+# Domini consentiti di default (estendibili con --allow-domain). Evita di passare a yt-dlp un host
+# qualsiasi; il filtro CC resta comunque il controllo principale sui diritti.
+DEFAULT_ALLOWED_DOMAINS = (
+    "youtube.com",
+    "youtu.be",
+    "m.youtube.com",
+    "music.youtube.com",
+)
+
+
+def host_allowed(url: str, allowed: set[str]) -> bool:
+    host = (urllib.parse.urlparse(url).hostname or "").lower()
+    return bool(host) and any(host == dom or host.endswith("." + dom) for dom in allowed)
 
 
 def require(tool: str) -> None:
@@ -79,6 +94,13 @@ def main() -> int:
         default="bestaudio/best",
         help="Selettore di formato yt-dlp (default: bestaudio/best).",
     )
+    parser.add_argument(
+        "--allow-domain",
+        action="append",
+        default=[],
+        metavar="DOMINIO",
+        help="Aggiunge un dominio consentito (ripetibile). Default: youtube.com, youtu.be, ...",
+    )
     args = parser.parse_args()
 
     require("yt-dlp")
@@ -86,6 +108,20 @@ def main() -> int:
     urls = read_urls(args)
     if not urls:
         sys.exit("Nessun URL da scaricare. Passane uno, oppure usa --urls-file urls.txt.")
+
+    # Whitelist dei domini: tiene solo gli URL da host consentiti; gli altri vengono saltati.
+    allowed_domains = set(DEFAULT_ALLOWED_DOMAINS) | {
+        d.strip().lower() for d in args.allow_domain if d.strip()
+    }
+    kept, skipped = [], []
+    for candidate in urls:
+        (kept if host_allowed(candidate, allowed_domains) else skipped).append(candidate)
+    for candidate in skipped:
+        host = urllib.parse.urlparse(candidate).hostname or candidate
+        print(f"⛔ Dominio non consentito, salto: {host}  ({candidate})")
+    if not kept:
+        sys.exit("Nessun URL da un dominio consentito. Aggiungine con --allow-domain se sei sicuro.")
+    urls = kept
 
     cmd = [
         "yt-dlp",

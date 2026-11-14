@@ -3,10 +3,14 @@
 telegram-cc-download-bot.py — bot Telegram LOCALE per scaricare audio Creative Commons.
 
 Gira sul TUO PC in long-polling (getUpdates): nessun webhook, nessun server pubblico, niente di
-collegato al sito Solco. Mandi un link YouTube al bot e, SE il video ha licenza **Creative Commons**
-(o è un tuo contenuto, con /own), lo scarica in locale in MP3 e te lo rimanda su Telegram.
-Stessa regola di scripts/yt-dlp-cc-download.py: i video NON Creative Commons vengono SALTATI; non è
-uno strumento per rippare musica di terzi protetta.
+collegato al sito Solco. Mandi uno o più link YouTube al bot (anche uno per riga, o un file .txt di
+URL) e, SE il video ha licenza **Creative Commons** (o è un tuo contenuto, con /own), lo scarica in
+locale in MP3 e te lo rimanda su Telegram. Stessa regola di scripts/yt-dlp-cc-download.py: i video
+NON Creative Commons vengono SALTATI; non è uno strumento per rippare musica di terzi protetta.
+
+Accetta solo URL di domini in whitelist (default youtube.com/youtu.be; override con
+TELEGRAM_DL_ALLOWED_DOMAINS, separati da virgola). Un file .txt inviato in chat è letto come
+--urls-file (un URL per riga, '#' = commento), con un tetto di MAX_BATCH link per messaggio.
 
 Serve un bot DEDICATO (diverso da quello del sito: getUpdates e webhook non convivono sullo stesso
 token):
@@ -43,6 +47,17 @@ MAX_UPLOAD = 49 * 1024 * 1024  # limite pratico per l'invio file da bot (~50MB)
 TOKEN = os.environ.get("TELEGRAM_DL_BOT_TOKEN", "").strip()
 ALLOWED = {s.strip() for s in os.environ.get("TELEGRAM_DL_ALLOWED_IDS", "").split(",") if s.strip()}
 OUT_DIR = Path(os.environ.get("TELEGRAM_DL_OUT", "download")).resolve()
+
+# Domini consentiti (override con TELEGRAM_DL_ALLOWED_DOMAINS, separati da virgola). Gli URL verso
+# altri host vengono rifiutati; il filtro CC resta comunque il controllo principale sui diritti.
+_DEFAULT_DOMAINS = "youtube.com,youtu.be,m.youtube.com,music.youtube.com,www.youtube.com"
+ALLOWED_DOMAINS = {
+    d.strip().lower()
+    for d in os.environ.get("TELEGRAM_DL_ALLOWED_DOMAINS", _DEFAULT_DOMAINS).split(",")
+    if d.strip()
+}
+# Numero massimo di URL elaborati per messaggio/file (anti-flood locale).
+MAX_BATCH = 30
 
 
 def api(method: str, params: dict | None = None, timeout: int = 70) -> dict:
@@ -108,6 +123,82 @@ def download(url: str, own: bool) -> list[Path]:
     return sorted(after - before, key=lambda p: p.stat().st_mtime)
 
 
+def host_allowed(url: str) -> bool:
+    host = (urllib.parse.urlparse(url).hostname or "").lower()
+    return bool(host) and any(host == dom or host.endswith("." + dom) for dom in ALLOWED_DOMAINS)
+
+
+def extract_urls(text: str) -> list[str]:
+    """Tutti gli URL http(s) nel testo (uno o più, anche uno per riga)."""
+    return [tok for tok in text.split() if tok.startswith(("http://", "https://"))]
+
+
+def read_document_urls(document: dict) -> list[str] | None:
+    """Scarica un documento .txt inviato al bot e ne legge gli URL (uno per riga, '#' = commento).
+
+    È l'equivalente di --urls-file dello script locale. Ritorna None se non riesce a leggerlo.
+    """
+    file_id = document.get("file_id")
+    if not file_id:
+        return None
+    try:
+        info = api("getFile", {"file_id": file_id})
+        file_path = info.get("result", {}).get("file_path")
+        if not file_path:
+            return None
+        url = f"https://api.telegram.org/file/bot{TOKEN}/{file_path}"
+        with urllib.request.urlopen(url, timeout=60) as response:
+            content = response.read().decode("utf-8", "replace")
+    except Exception as error:  # noqa: BLE001
+        print("getFile fallito:", error)
+        return None
+    return [
+        line.strip()
+        for line in content.splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+
+
+def deliver(chat_id: int | str, path: Path) -> None:
+    send(chat_id, f"✅ Scaricato in locale: {path.name}")
+    if path.stat().st_size <= MAX_UPLOAD:
+        try:
+            send_audio(chat_id, path)
+        except Exception as error:  # noqa: BLE001
+            send(chat_id, f"(invio su Telegram non riuscito: {error} — il file è nella cartella locale)")
+    else:
+        send(chat_id, "(oltre ~50MB: non lo invio su Telegram, è nella cartella locale)")
+
+
+def process_urls(chat_id: int | str, urls: list[str], own: bool) -> None:
+    allowed = [u for u in urls if host_allowed(u)]
+    for bad in (u for u in urls if u not in allowed):
+        host = urllib.parse.urlparse(bad).hostname or bad
+        send(chat_id, f"⛔ Dominio non consentito, salto: {host}")
+    if not allowed:
+        return
+    if len(allowed) > MAX_BATCH:
+        send(chat_id, f"Troppi link ({len(allowed)}): elaboro i primi {MAX_BATCH}.")
+        allowed = allowed[:MAX_BATCH]
+    for url in allowed:
+        send(chat_id, f"⏳ Scarico: {url}")
+        try:
+            files = download(url, own)
+        except Exception as error:  # noqa: BLE001
+            send(chat_id, f"Errore durante il download: {error}")
+            continue
+        if not files:
+            send(
+                chat_id,
+                "⏭️ Saltato: non ha licenza Creative Commons (usa /own se è un tuo contenuto)."
+                if not own
+                else "Nessun file scaricato (controlla il link).",
+            )
+            continue
+        for path in files:
+            deliver(chat_id, path)
+
+
 def handle(update: dict) -> None:
     message = update.get("message") or update.get("channel_post")
     if not message:
@@ -115,7 +206,6 @@ def handle(update: dict) -> None:
     chat_id = message.get("chat", {}).get("id")
     if chat_id is None:
         return
-    text = (message.get("text") or "").strip()
 
     # Autorizzazione esplicita: solo i chat id in TELEGRAM_DL_ALLOWED_IDS possono scaricare.
     if str(chat_id) not in ALLOWED:
@@ -126,47 +216,38 @@ def handle(update: dict) -> None:
         )
         return
 
+    # File .txt inviato al bot: equivalente di --urls-file (un URL per riga).
+    document = message.get("document")
+    if document:
+        urls = read_document_urls(document)
+        if urls is None:
+            send(chat_id, "Non riesco a leggere il file.")
+            return
+        if not urls:
+            send(chat_id, "Il file non contiene URL.")
+            return
+        process_urls(chat_id, urls, own=False)
+        return
+
+    text = (message.get("text") or "").strip()
     if text in ("/start", "/help", ""):
         send(
             chat_id,
-            "Mandami un link YouTube: scarico l'audio in MP3 SOLO se ha licenza Creative Commons.\n"
-            "Usa «/own <link>» per un contenuto TUO (toglie il filtro CC; devi averne i diritti).",
+            "Mandami uno o più link (anche uno per riga), oppure un file .txt di URL: scarico "
+            "l'audio in MP3 SOLO se ha licenza Creative Commons.\n"
+            "Usa «/own <link>» per un contenuto TUO (toglie il filtro CC; devi averne i diritti).\n"
+            f"Domini consentiti: {', '.join(sorted(ALLOWED_DOMAINS))}.",
         )
         return
 
     own = text.startswith("/own")
     if own:
         text = text[len("/own") :].strip()
-    url = text.split()[0] if text else ""
-    if not url.startswith(("http://", "https://")):
-        send(chat_id, "Mandami un URL http(s). /help per le istruzioni.")
+    urls = extract_urls(text)
+    if not urls:
+        send(chat_id, "Mandami uno o più URL http(s), o un file .txt. /help per le istruzioni.")
         return
-
-    send(chat_id, "⏳ Scarico…")
-    try:
-        files = download(url, own)
-    except Exception as error:  # noqa: BLE001
-        send(chat_id, f"Errore durante il download: {error}")
-        return
-
-    if not files:
-        send(
-            chat_id,
-            "⏭️ Saltato: il video non ha licenza Creative Commons (usa /own se è un tuo contenuto)."
-            if not own
-            else "Nessun file scaricato (controlla il link).",
-        )
-        return
-
-    for path in files:
-        send(chat_id, f"✅ Scaricato in locale: {path.name}")
-        if path.stat().st_size <= MAX_UPLOAD:
-            try:
-                send_audio(chat_id, path)
-            except Exception as error:  # noqa: BLE001
-                send(chat_id, f"(invio su Telegram non riuscito: {error} — il file è nella cartella locale)")
-        else:
-            send(chat_id, "(oltre ~50MB: non lo invio su Telegram, è nella cartella locale)")
+    process_urls(chat_id, urls, own)
 
 
 def main() -> int:
