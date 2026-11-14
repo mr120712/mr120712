@@ -1,0 +1,62 @@
+/* @polsia:user-owned — avviso «Solo per admin» in cima ai risultati della ricerca (brani in evidenza
+   non dichiarati in diritti.json, manifest assente o non valido, store non leggibile). Stile di
+   avvertenza discreto: bordo e fondo tenui del colore --status-warning del tema, testo piccolo su
+   telefono (una o due righe), il link a «Diritti e testi» non va mai a capo a metà. */
+.notice {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  gap: 8px;
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--status-warning) 45%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--status-warning) 8%, transparent);
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  color: var(--status-warning);
+}
+
+.text {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.label {
+  color: var(--status-warning);
+  font-weight: 750;
+}
+
+.link {
+  border-radius: 4px;
+  color: var(--primary);
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  white-space: nowrap;
+}
+
+.link:hover {
+  color: var(--foreground);
+}
+
+.link:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+@media (min-width: 640px) {
+  .notice {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+}

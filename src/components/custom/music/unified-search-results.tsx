@@ -9,13 +9,17 @@
 // Chip-filtro opzionali (Tutto / Le tue / Brani / Radio / Podcast) restringono lo stesso elenco.
 // Consuma UnifiedSearchResponseSchema via apiFetch. Per chi ha fatto l'accesso, in parallelo e da un
 // endpoint PRIVATO (/api/music/library/search, mai dentro search-all che è in cache condivisa), la
-// sezione «Le tue playlist» in cima: le sue raccolte e i brani salvati che corrispondono.
+// sezione «Le tue playlist» in cima: le sue raccolte e i brani salvati che corrispondono. Per gli
+// admin (solo loro: AdminSearchHint non fa nulla per gli altri), sopra tutto, l'avviso sui brani in
+// evidenza che corrispondono ma non compaiono (non dichiarati in diritti.json), da un altro
+// endpoint privato in parallelo.
 'use client';
 
 import { ListMusic, Pause, Play, Search } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { AdminSearchHint } from '@/components/custom/music/admin-search-hint';
 import { AiMusicSearch } from '@/components/custom/music/ai-music-search';
 import { AudiusLicenseNotice } from '@/components/custom/music/audius-license-notice';
 import { FallbackArt } from '@/components/custom/music/fallback-art';
@@ -491,6 +495,11 @@ export function UnifiedSearchResults({
           <output className="sr-only" aria-live="polite">
             {statusLine}
           </output>
+
+          {/* Solo per gli admin: in cima e fuori dai rami di search-all, così non sposta i risultati
+              quando arrivano; mentre l'elenco vecchio resta a schermo, l'avviso non compare né
+              sparisce (lo fa insieme ai risultati nuovi). */}
+          <AdminSearchHint query={query} resultsUpdating={pending && response !== null} />
 
           {/* «Le tue playlist» non aspetta search-all: compare appena la Libreria risponde, anche
               mentre le altre fonti cercano o se la ricerca unificata non riesce. */}
