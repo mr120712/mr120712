@@ -317,3 +317,128 @@
     width: auto;
   }
 }
+
+/* Trascrizione con l'IA (solo brani dichiarati con "testo": true) */
+.transcribe {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  margin-top: 0.25rem;
+  padding: 0.75rem;
+  border: 1px dashed var(--border);
+  border-radius: calc(var(--app-panel-radius, 0.75rem) - 0.25rem);
+}
+.transcribeTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.transcribeTitle > svg {
+  width: 1rem;
+  height: 1rem;
+}
+.transcribeRow,
+.progress {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.progress {
+  align-items: center;
+}
+.progressText {
+  display: inline-flex;
+  flex: 1 1 14rem;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+.progressText > svg {
+  flex: none;
+  width: 1rem;
+  height: 1rem;
+}
+.languageField {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+.select {
+  height: 2rem;
+  min-width: 9rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--input, var(--border));
+  border-radius: 0.375rem;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 0.875rem;
+}
+.select:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+.inlineError {
+  color: var(--destructive);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.replaceBody {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  font-size: 0.875rem;
+}
+.replaceActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.savedNote {
+  display: block;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.editorDialog {
+  width: calc(100vw - 2rem);
+  max-width: 42rem;
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+.editorMeta {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding-left: 1.25rem;
+  list-style: disc;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+.editorMeta:empty {
+  display: none;
+}
+.editorForm {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.lrcInput {
+  min-height: 16rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  white-space: pre;
+  overflow-x: auto;
+}
+.lineCount {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+}
+.editorActions {
+  gap: 0.5rem;
+}

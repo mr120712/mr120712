@@ -116,6 +116,13 @@ export const FeaturedRightsTrackSchema = z
     /** File di testo con lo stesso nome accanto al brano. */
     sidecars: z.object({ lrc: z.boolean(), txt: z.boolean() }).strict(),
     lyrics: FeaturedRightsLyricsSchema,
+    /**
+     * Trascrizione IA del testo: presente SOLO per i brani dichiarati con "testo": true (per gli
+     * altri la funzione non esiste). ready = formato accettato da Whisper; unsupported_format =
+     * dichiarato ma in un formato che Whisper non accetta (es. .opus, .aac); too_large = file
+     * oltre 25 MB secondo l'elenco dello store (limite di OpenAI).
+     */
+    transcription: z.enum(['ready', 'unsupported_format', 'too_large']).optional(),
   })
   .strict();
 
@@ -155,6 +162,11 @@ export const AdminFeaturedRightsSchema = z
     tracks: z.array(FeaturedRightsTrackSchema).max(FEATURED_RIGHTS_MAX_TRACKS),
     /** true = lo store ha più brani di quanti ne mostra la risposta. */
     tracksTruncated: z.boolean(),
+    /**
+     * true = la trascrizione IA dei testi si può usare (OPENAI_API_KEY e store configurati).
+     * Assente = false.
+     */
+    transcriptionAvailable: z.boolean().optional(),
   })
   .strict();
 
@@ -163,4 +175,5 @@ export type FeaturedRightsProblem = z.infer<typeof FeaturedRightsProblemSchema>;
 export type FeaturedRightsManifest = z.infer<typeof FeaturedRightsManifestSchema>;
 export type FeaturedRightsLyrics = z.infer<typeof FeaturedRightsLyricsSchema>;
 export type FeaturedRightsTrack = z.infer<typeof FeaturedRightsTrackSchema>;
+export type FeaturedRightsTranscription = NonNullable<FeaturedRightsTrack['transcription']>;
 export type AdminFeaturedRights = z.infer<typeof AdminFeaturedRightsSchema>;

@@ -12,6 +12,10 @@
 // lettura fallita in cache si ricontrolla a ogni "Aggiorna", dopo i brani mai controllati.
 // Se l'elenco (anche in cache) non ha diritti.json, o lo dà oltre 256 KB, lo si chiede allo store
 // per nome (head): un manifest appena caricato o ridotto vale subito, senza un nuovo elenco.
+// Per la trascrizione IA (Whisper) dice solo SE si può usare (`transcriptionAvailable`: chiave
+// OpenAI e store presenti) e, per i SOLI brani dichiarati con "testo": true, se formato e
+// dimensione sono accettati (`transcription`); gli altri brani non hanno il campo. Il permesso
+// vero lo ricontrolla la route della trascrizione a ogni richiesta.
 import 'server-only';
 import { BlobNotFoundError, head } from '@vercel/blob';
 import {
@@ -21,6 +25,7 @@ import {
   type FeaturedRightsLyrics,
   type FeaturedRightsTrack,
 } from '@/lib/contracts/admin-featured-rights';
+import { TRANSCRIPTION_MAX_AUDIO_BYTES } from '@/lib/contracts/lyrics-transcription';
 import { env } from '@/lib/env';
 import {
   type FeaturedLyricsAvailability,
@@ -41,6 +46,7 @@ import {
   lyricsSidecarMatcher,
   sectionTitleFromDirectory,
 } from '@/lib/music/home-tracks.server';
+import { isWhisperConfigured, whisperExtension } from '@/lib/music/whisper.server';
 
 /** Un elenco completo dello store resta valido ~1 minuto; uno parziale ~15 secondi. */
 const LISTING_TTL_MS = 60_000;
@@ -233,6 +239,7 @@ function unavailableReport(generatedAt: string, reason: string): AdminFeaturedRi
     summary: { ...EMPTY_SUMMARY },
     tracks: [],
     tracksTruncated: false,
+    transcriptionAvailable: false,
   };
 }
 
@@ -329,6 +336,13 @@ export async function buildFeaturedRightsReport(
     rows.push(row);
     // Il testo si cerca SOLO per i brani dichiarati con "testo": true (come fa il player).
     if (!entry || !testo) continue;
+    // Solo qui la trascrizione IA esiste: per gli altri brani il campo manca.
+    const audioSize = catalog.audioSizes?.get(track.id) ?? 0;
+    row.transcription = !whisperExtension(track.id)
+      ? 'unsupported_format'
+      : audioSize > TRANSCRIPTION_MAX_AUDIO_BYTES
+        ? 'too_large'
+        : 'ready';
     const source: FeaturedLyricsSource = {
       pathname: track.id,
       holder: entry.titolare,
@@ -382,5 +396,6 @@ export async function buildFeaturedRightsReport(
     },
     tracks: rows,
     tracksTruncated: catalog.tracks.length > rows.length,
+    transcriptionAvailable: isWhisperConfigured(),
   };
 }

@@ -1,0 +1,706 @@
+// @polsia:user-owned — pagina /admin/diritti-testi, trascrizione IA: il pulsante «Trascrivi con
+// l'IA» compare SOLO sui brani dichiarati con "testo": true (mai sugli altri); spento con il
+// motivo senza OPENAI_API_KEY o con un formato non accettato; lingua scelta inviata; avanzamento
+// con aria-busy e «Annulla» che interrompe la richiesta; errori in linea + avviso; editor con la
+// bozza, righe lette e segmenti scartati; «Salva come .lrc», conferma prima di sostituire un .lrc
+// esistente (anche dopo un 409 del server), «Annulla» e «Riapri la bozza».
+import { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+const mocks = vi.hoisted(() => ({
+  apiFetch: vi.fn(),
+  toast: vi.fn(),
+  success: vi.fn(),
+  error: vi.fn(),
+}));
+vi.mock('@/lib/api-client', () => ({ apiFetch: mocks.apiFetch }));
+vi.mock('next/navigation', () => ({ usePathname: () => '/admin/diritti-testi' }));
+vi.mock('@/lib/auth-client', () => ({ useSession: () => ({ data: null }) }));
+vi.mock('sonner', () => ({
+  toast: Object.assign(mocks.toast, { success: mocks.success, error: mocks.error }),
+}));
+
+import { FeaturedRightsDashboard } from '@/components/custom/admin/featured-rights-dashboard';
+import {
+  type AdminFeaturedRights,
+  AdminFeaturedRightsSchema,
+  type FeaturedRightsTrack,
+} from '@/lib/contracts/admin-featured-rights';
+import {
+  SaveLyricsResponseSchema,
+  type TranscribeResponse,
+  TranscribeResponseSchema,
+} from '@/lib/contracts/lyrics-transcription';
+
+const NOW = '2026-11-14T14:30:00.000Z';
+const REPORT = '/api/admin/featured-rights';
+const TRANSCRIBE = '/api/admin/featured-rights/transcribe';
+const SAVE = '/api/admin/featured-rights/transcribe/save';
+
+function row(pathname: string, extra: Partial<FeaturedRightsTrack> = {}): FeaturedRightsTrack {
+  const name = pathname.slice(pathname.lastIndexOf('/') + 1).replace(/\.[^.]+$/, '');
+  const [artist, title] = name.split(' - ');
+  return {
+    pathname,
+    folder: pathname.slice(0, pathname.lastIndexOf('/')),
+    section: 'Sezione',
+    title: title ?? name,
+    artist: artist ?? null,
+    declared: false,
+    licenza: null,
+    titolare: null,
+    testo: false,
+    testoOffBy: null,
+    sidecars: { lrc: false, txt: false },
+    lyrics: { status: 'not_checked' },
+    ...extra,
+  };
+}
+
+const lyricsOn = {
+  declared: true,
+  licenza: 'propria',
+  titolare: 'Autrice',
+  testo: true,
+  lyrics: { status: 'none' },
+} as const;
+
+const TRACKS: FeaturedRightsTrack[] = [
+  row('Cantautori/Autrice - Canzone.mp3', { ...lyricsOn, transcription: 'ready' }),
+  row('Cantautori/Autrice - Ballata.mp3', {
+    ...lyricsOn,
+    sidecars: { lrc: true, txt: false },
+    lyrics: { status: 'lrc', kind: 'synced', lineCount: 3 },
+    transcription: 'ready',
+  }),
+  row('Voce/Autrice - Sussurro.opus', { ...lyricsOn, transcription: 'unsupported_format' }),
+  row('Rock/Band - Inno.mp3', { declared: true, licenza: 'propria', titolare: 'Band' }),
+  row('Pop/Ignoto - Copiato.mp3', { sidecars: { lrc: true, txt: false } }),
+];
+
+function report(extra: Partial<AdminFeaturedRights> = {}): AdminFeaturedRights {
+  return {
+    generatedAt: NOW,
+    store: { status: 'ok', listedAt: NOW, reason: null },
+    manifest: {
+      status: 'valid',
+      reasons: [],
+      location: null,
+      counts: { entries: 4, valid: 4, invalid: 0, ignored: 0 },
+      problems: [],
+    },
+    summary: {
+      totalTracks: 5,
+      declared: 4,
+      declaredWithLyrics: 3,
+      lyricsFound: 1,
+      lyricsMissing: 2,
+      lyricsErrors: 0,
+      lyricsSkipped: 0,
+      lyricsNotShown: 0,
+      manifestProblems: 0,
+    },
+    tracks: TRACKS,
+    tracksTruncated: false,
+    transcriptionAvailable: true,
+    ...extra,
+  };
+}
+
+const DRAFT: TranscribeResponse = {
+  draft: '[00:12.30] Prima strofa\n[00:20.00] Ritornello\n[00:28.00] Ritornello',
+  lineCount: 3,
+  language: 'italian',
+  durationSeconds: 184.4,
+  droppedSegments: 2,
+};
+
+type FetchInit = {
+  method?: string;
+  body?: string;
+  signal?: AbortSignal;
+  schema?: { parse: (value: unknown) => unknown };
+};
+type Handler = (init: FetchInit) => Promise<unknown>;
+
+let handlers: Record<string, Handler> = {};
+
+function route(path: string, init: FetchInit = {}) {
+  const handler = handlers[path];
+  if (!handler) throw new Error(`Percorso inatteso: ${path}`);
+  return handler(init);
+}
+
+function respondWith(value: unknown): Handler {
+  return async (init) => (init.schema ? init.schema.parse(value) : value);
+}
+
+function apiError(path: string, status: number, body: Record<string, unknown>) {
+  return new Error(`apiFetch ${path} failed (${status})`, { cause: body });
+}
+
+/** Una richiesta che resta in attesa: si risolve a mano o si interrompe col segnale. */
+function pending() {
+  let resolve: (value: unknown) => void = () => undefined;
+  const calls: FetchInit[] = [];
+  const handler: Handler = (init) => {
+    calls.push(init);
+    return new Promise((done, fail) => {
+      resolve = (value) => done(init.schema ? init.schema.parse(value) : value);
+      init.signal?.addEventListener('abort', () =>
+        fail(new DOMException('The operation was aborted.', 'AbortError')),
+      );
+    });
+  };
+  return { handler, calls, resolve: (value: unknown) => resolve(value) };
+}
+
+const roots: Array<{ root: ReturnType<typeof createRoot>; container: HTMLElement }> = [];
+
+async function flush() {
+  await act(async () => {
+    for (let index = 0; index < 5; index += 1) await Promise.resolve();
+  });
+}
+
+async function mount() {
+  const container = document.createElement('div');
+  document.body.append(container);
+  const root = createRoot(container);
+  roots.push({ root, container });
+  await act(async () => root.render(<FeaturedRightsDashboard />));
+  await flush();
+  return container;
+}
+
+function article(container: HTMLElement, title: string) {
+  const heading = [...container.querySelectorAll('article h3')].find(
+    (element) => element.textContent === title,
+  );
+  const element = heading?.closest('article');
+  if (!element) throw new Error(`Brano "${title}" non trovato.`);
+  return element as HTMLElement;
+}
+
+function button(scope: ParentNode, text: string) {
+  const found = [...scope.querySelectorAll<HTMLButtonElement>('button')].find((element) =>
+    element.textContent?.trim().startsWith(text),
+  );
+  if (!found) throw new Error(`Pulsante "${text}" non trovato.`);
+  return found;
+}
+
+function maybeButton(scope: ParentNode, text: string) {
+  return [...scope.querySelectorAll<HTMLButtonElement>('button')].find((element) =>
+    element.textContent?.trim().startsWith(text),
+  );
+}
+
+async function click(element: HTMLElement) {
+  await act(async () => {
+    element.click();
+  });
+  await flush();
+}
+
+async function submit(element: HTMLElement) {
+  const form = element.closest('form');
+  if (!form) throw new Error('Modulo non trovato.');
+  await act(async () => {
+    form.requestSubmit(element as HTMLButtonElement);
+  });
+  await flush();
+}
+
+async function choose(select: HTMLSelectElement, value: string) {
+  await act(async () => {
+    select.value = value;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await flush();
+}
+
+async function typeInto(textarea: HTMLTextAreaElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+  await act(async () => {
+    setter?.call(textarea, value);
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await flush();
+}
+
+function dialog() {
+  return document.body.querySelector<HTMLElement>('[role="dialog"]');
+}
+
+function requestBody(init: FetchInit | undefined) {
+  return JSON.parse(init?.body ?? '{}') as Record<string, unknown>;
+}
+
+function callsTo(path: string) {
+  return mocks.apiFetch.mock.calls.filter(([called]) => called === path);
+}
+
+beforeEach(() => {
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  mocks.apiFetch.mockReset();
+  mocks.toast.mockReset();
+  mocks.success.mockReset();
+  mocks.error.mockReset();
+  handlers = { [REPORT]: respondWith(report()) };
+  mocks.apiFetch.mockImplementation((path: string, init?: FetchInit) => route(path, init));
+});
+
+afterEach(async () => {
+  for (const { root, container } of roots.splice(0)) {
+    await act(async () => root.unmount());
+    container.remove();
+  }
+  document.body.innerHTML = '';
+  vi.unstubAllGlobals();
+});
+
+describe('trascrizione IA: dove compare', () => {
+  it('SOLO sui brani con "testo": true; mai sui non dichiarati o senza testo', async () => {
+    const container = await mount();
+    const eligible = article(container, 'Autrice — Canzone');
+    expect(eligible.textContent).toContain("Trascrizione con l'IA");
+    const start = button(eligible, "Trascrivi con l'IA");
+    expect(start.disabled).toBe(false);
+    expect(eligible.textContent).toContain(
+      "L'audio viene inviato a OpenAI solo per la trascrizione.",
+    );
+    expect(eligible.querySelector('select')?.value).toBe('');
+
+    for (const title of ['Band — Inno', 'Ignoto — Copiato']) {
+      const other = article(container, title);
+      expect(other.textContent).not.toContain('Trascri');
+      expect(other.querySelector('select')).toBeNull();
+      expect(maybeButton(other, 'Trascrivi')).toBeUndefined();
+    }
+  });
+
+  it('senza OPENAI_API_KEY: pulsante spento con il motivo, nessuna richiesta', async () => {
+    handlers[REPORT] = respondWith(report({ transcriptionAvailable: undefined }));
+    const container = await mount();
+    const eligible = article(container, 'Autrice — Canzone');
+    const start = button(eligible, "Trascrivi con l'IA");
+    expect(start.disabled).toBe(true);
+    const reasonId = start.getAttribute('aria-describedby');
+    expect(reasonId).toBeTruthy();
+    expect(document.getElementById(reasonId ?? '')?.textContent).toBe(
+      'Aggiungi OPENAI_API_KEY su Vercel per usare la trascrizione',
+    );
+    await click(start);
+    expect(callsTo(TRANSCRIBE)).toHaveLength(0);
+  });
+
+  it('formato non accettato da Whisper: pulsante spento con il motivo', async () => {
+    const container = await mount();
+    const opus = article(container, 'Autrice — Sussurro');
+    const start = button(opus, "Trascrivi con l'IA");
+    expect(start.disabled).toBe(true);
+    expect(opus.textContent).toContain('Formato .opus non supportato dalla trascrizione');
+    expect(opus.querySelector('select')).toBeNull();
+  });
+});
+
+describe('trascrizione IA: richiesta', () => {
+  it('lingua scelta, avanzamento con aria-busy, poi editor con la bozza', async () => {
+    const request = pending();
+    handlers[TRANSCRIBE] = request.handler;
+    const container = await mount();
+    const eligible = article(container, 'Autrice — Canzone');
+    const select = eligible.querySelector('select') as HTMLSelectElement;
+    expect([...select.options].map((option) => option.textContent)).toEqual([
+      'Automatica',
+      'Italiano',
+      'English',
+      'Español',
+      'Français',
+      'Deutsch',
+      'Português',
+    ]);
+    await choose(select, 'it');
+    await click(button(eligible, "Trascrivi con l'IA"));
+
+    const [path, init] = callsTo(TRANSCRIBE)[0] as [string, FetchInit];
+    expect(path).toBe(TRANSCRIBE);
+    expect(init.method).toBe('POST');
+    expect(requestBody(init)).toEqual({
+      pathname: 'Cantautori/Autrice - Canzone.mp3',
+      language: 'it',
+    });
+    expect(init.schema).toBe(TranscribeResponseSchema);
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+
+    const section = eligible.querySelector('section');
+    expect(section?.getAttribute('aria-busy')).toBe('true');
+    expect(eligible.textContent).toContain(
+      'Trascrizione in corso… può richiedere fino a un minuto',
+    );
+    expect(maybeButton(eligible, "Trascrivi con l'IA")).toBeUndefined();
+
+    await act(async () => request.resolve(DRAFT));
+    await flush();
+    expect(section?.getAttribute('aria-busy')).toBe('false');
+    const editor = dialog();
+    expect(editor).not.toBeNull();
+    expect(editor?.textContent).toContain('Testo di Autrice — Canzone');
+    expect(editor?.textContent).toContain(
+      'Bozza automatica: controlla parole e tempi prima di salvare.',
+    );
+    expect(editor?.querySelector('textarea')?.value).toBe(DRAFT.draft);
+    expect(editor?.textContent).toContain('3 righe lette dal player (sincronizzato)');
+    expect(editor?.textContent).toContain('Lingua riconosciuta: italiano');
+    expect(editor?.textContent).toContain('2 segmenti scartati');
+    expect(mocks.success).toHaveBeenCalledWith('Bozza pronta: 3 righe.');
+  });
+
+  it('lingua automatica: nessun campo "language"', async () => {
+    const request = pending();
+    handlers[TRANSCRIBE] = request.handler;
+    const container = await mount();
+    await click(button(article(container, 'Autrice — Canzone'), "Trascrivi con l'IA"));
+    expect(requestBody(request.calls[0])).toEqual({ pathname: 'Cantautori/Autrice - Canzone.mp3' });
+  });
+
+  it('«Annulla» interrompe la richiesta e torna al pulsante', async () => {
+    const request = pending();
+    handlers[TRANSCRIBE] = request.handler;
+    const container = await mount();
+    const eligible = article(container, 'Autrice — Canzone');
+    await click(button(eligible, "Trascrivi con l'IA"));
+    await click(button(eligible, 'Annulla'));
+    expect(request.calls[0]?.signal?.aborted).toBe(true);
+    expect(mocks.toast).toHaveBeenCalledWith('Trascrizione annullata.');
+    expect(mocks.error).not.toHaveBeenCalled();
+    expect(eligible.querySelector('section')?.getAttribute('aria-busy')).toBe('false');
+    expect(button(eligible, "Trascrivi con l'IA").disabled).toBe(false);
+    expect(dialog()).toBeNull();
+  });
+
+  it('errore: messaggio del server in linea e nell’avviso', async () => {
+    const message = 'Trascrizione non riuscita: limite OpenAI raggiunto, riprova più tardi.';
+    handlers[TRANSCRIBE] = async () => {
+      throw apiError(TRANSCRIBE, 429, { error: 'openai_rate_limited', message });
+    };
+    const container = await mount();
+    const eligible = article(container, 'Autrice — Canzone');
+    await click(button(eligible, "Trascrivi con l'IA"));
+    expect(eligible.querySelector('[role="alert"]')?.textContent).toBe(message);
+    expect(mocks.error).toHaveBeenCalledWith(message);
+    expect(dialog()).toBeNull();
+  });
+});
+
+describe('trascrizione IA: editor e salvataggio', () => {
+  async function openEditor(title = 'Autrice — Canzone') {
+    handlers[TRANSCRIBE] = respondWith(DRAFT);
+    const container = await mount();
+    const card = article(container, title);
+    await click(button(card, "Trascrivi con l'IA"));
+    const editor = dialog();
+    if (!editor) throw new Error('Editor non aperto.');
+    return { container, card, editor };
+  }
+
+  it('«Salva come .lrc»: invia il testo rivisto, chiude e dice entro quando compare', async () => {
+    handlers[SAVE] = respondWith({ saved: true, visibleWithinMinutes: 5 });
+    const { card, editor } = await openEditor();
+    const textarea = editor.querySelector('textarea') as HTMLTextAreaElement;
+    await typeInto(textarea, '[00:12.30] Prima strofa corretta\n[00:20.00] Ritornello');
+    expect(editor.textContent).toContain('2 righe lette dal player (sincronizzato)');
+    await submit(button(editor, 'Salva come .lrc'));
+
+    const [, init] = callsTo(SAVE)[0] as [string, FetchInit];
+    expect(init.method).toBe('POST');
+    expect(init.schema).toBe(SaveLyricsResponseSchema);
+    expect(requestBody(init)).toEqual({
+      pathname: 'Cantautori/Autrice - Canzone.mp3',
+      lrc: '[00:12.30] Prima strofa corretta\n[00:20.00] Ritornello',
+      overwrite: false,
+    });
+    expect(dialog()).toBeNull();
+    const note =
+      'Testo salvato come “Cantautori/Autrice - Canzone.lrc”: compare nel player entro ~5 minuti.';
+    expect(mocks.success).toHaveBeenCalledWith(note);
+    expect(card.textContent).toContain(note);
+    expect(maybeButton(card, 'Riapri la bozza')).toBeUndefined();
+  });
+
+  it('testo vuoto: errore in linea, nessuna richiesta', async () => {
+    handlers[SAVE] = respondWith({ saved: true, visibleWithinMinutes: 5 });
+    const { editor } = await openEditor();
+    await typeInto(editor.querySelector('textarea') as HTMLTextAreaElement, '   ');
+    expect(editor.textContent).toContain('Nessuna riga leggibile');
+    await submit(button(editor, 'Salva come .lrc'));
+    expect(editor.textContent).toContain('Il testo è vuoto: scrivi almeno una riga.');
+    expect(callsTo(SAVE)).toHaveLength(0);
+  });
+
+  it('.lrc già presente: prima la conferma, poi la sostituzione con overwrite', async () => {
+    handlers[SAVE] = respondWith({ saved: true, visibleWithinMinutes: 5 });
+    const { editor } = await openEditor('Autrice — Ballata');
+    await submit(button(editor, 'Salva come .lrc'));
+    expect(callsTo(SAVE)).toHaveLength(0);
+    expect(editor.textContent).toContain('salvando sostituisci “Cantautori/Autrice - Ballata.lrc”');
+    await submit(button(editor, 'Sostituisci il .lrc'));
+    expect(requestBody(callsTo(SAVE)[0]?.[1] as FetchInit).overwrite).toBe(true);
+    expect(dialog()).toBeNull();
+  });
+
+  it('409 del server: errore sul campo, poi conferma esplicita', async () => {
+    let attempt = 0;
+    handlers[SAVE] = async (init) => {
+      attempt += 1;
+      if (attempt === 1) {
+        throw apiError(SAVE, 409, {
+          error: 'lrc_exists',
+          errors: { lrc: 'Esiste già un .lrc: conferma per sostituirlo' },
+        });
+      }
+      return init.schema?.parse({ saved: true, visibleWithinMinutes: 5 });
+    };
+    const { editor } = await openEditor();
+    await submit(button(editor, 'Salva come .lrc'));
+    expect(editor.textContent).toContain('Esiste già un .lrc: conferma per sostituirlo');
+    expect(mocks.error).not.toHaveBeenCalled();
+    await submit(button(editor, 'Sostituisci il .lrc'));
+    expect(callsTo(SAVE).map(([, init]) => requestBody(init as FetchInit).overwrite)).toEqual([
+      false,
+      true,
+    ]);
+  });
+
+  it('errore generico del salvataggio: in linea e nell’avviso, l’editor resta aperto', async () => {
+    const message =
+      'Salvataggio non riuscito: lo store non ha accettato il file. Riprova tra poco.';
+    handlers[SAVE] = async () => {
+      throw apiError(SAVE, 502, { error: 'save_failed', message });
+    };
+    const { editor } = await openEditor();
+    await submit(button(editor, 'Salva come .lrc'));
+    expect(editor.querySelector('[role="alert"]')?.textContent).toBe(message);
+    expect(mocks.error).toHaveBeenCalledWith(message);
+    expect(dialog()).not.toBeNull();
+  });
+
+  it('«Annulla» chiude l’editor; «Riapri la bozza» lo riapre con le modifiche', async () => {
+    const { card, editor } = await openEditor();
+    await typeInto(editor.querySelector('textarea') as HTMLTextAreaElement, '[00:01.00] Rivista');
+    await click(button(editor, 'Annulla'));
+    expect(dialog()).toBeNull();
+    await click(button(card, 'Riapri la bozza'));
+    expect(dialog()?.querySelector('textarea')?.value).toBe('[00:01.00] Rivista');
+  });
+});
+
+async function search(container: HTMLElement, value: string) {
+  const input = container.querySelector<HTMLInputElement>('input[type="search"]');
+  if (!input) throw new Error('Ricerca non trovata.');
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  await act(async () => {
+    setter?.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await flush();
+}
+
+function hasArticle(container: HTMLElement, title: string) {
+  return [...container.querySelectorAll('article h3')].some((h3) => h3.textContent === title);
+}
+
+/** Radix rimette il fuoco con un setTimeout(0) dopo la chiusura del dialogo. */
+async function settleFocus() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  await flush();
+}
+
+describe('trascrizione IA: stato che sopravvive a filtri e ricerca', () => {
+  it('ricerca durante la trascrizione: la richiesta continua e la bozza resta', async () => {
+    const request = pending();
+    handlers[TRANSCRIBE] = request.handler;
+    const container = await mount();
+    await click(button(article(container, 'Autrice — Canzone'), "Trascrivi con l'IA"));
+    await search(container, 'Ballata');
+    expect(hasArticle(container, 'Autrice — Canzone')).toBe(false);
+    expect(request.calls[0]?.signal?.aborted).toBe(false);
+
+    await act(async () => request.resolve(DRAFT));
+    await flush();
+    // Scheda nascosta: niente editor che si apre da solo, ma un avviso col nome del brano.
+    expect(dialog()).toBeNull();
+    expect(mocks.success).toHaveBeenCalledWith(
+      'Bozza pronta per Autrice — Canzone: 3 righe. La trovi con «Riapri la bozza» nella sua scheda.',
+    );
+    expect(mocks.toast).not.toHaveBeenCalledWith('Trascrizione annullata.');
+
+    await search(container, '');
+    const card = article(container, 'Autrice — Canzone');
+    await click(button(card, 'Riapri la bozza'));
+    expect(dialog()?.querySelector('textarea')?.value).toBe(DRAFT.draft);
+    expect(callsTo(TRANSCRIBE)).toHaveLength(1);
+  });
+
+  it('ricerca mentre la richiesta è in corso: al ritorno la scheda è ancora "in corso"', async () => {
+    const request = pending();
+    handlers[TRANSCRIBE] = request.handler;
+    const container = await mount();
+    await click(button(article(container, 'Autrice — Canzone'), "Trascrivi con l'IA"));
+    await search(container, 'Ballata');
+    await search(container, '');
+    const card = article(container, 'Autrice — Canzone');
+    expect(card.querySelector('section')?.getAttribute('aria-busy')).toBe('true');
+    await click(button(card, 'Annulla'));
+    expect(request.calls[0]?.signal?.aborted).toBe(true);
+    expect(mocks.toast).toHaveBeenCalledWith('Trascrizione annullata.');
+  });
+
+  it('le correzioni nell’editor sopravvivono a un filtro', async () => {
+    handlers[TRANSCRIBE] = respondWith(DRAFT);
+    const container = await mount();
+    await click(button(article(container, 'Autrice — Canzone'), "Trascrivi con l'IA"));
+    await typeInto(dialog()?.querySelector('textarea') as HTMLTextAreaElement, '[00:01.00] Mia');
+    await click(button(dialog() as HTMLElement, 'Annulla'));
+    await click(button(container, 'Testo trovato'));
+    expect(hasArticle(container, 'Autrice — Canzone')).toBe(false);
+    await click(button(container, 'Tutti'));
+    await click(button(article(container, 'Autrice — Canzone'), 'Riapri la bozza'));
+    expect(dialog()?.querySelector('textarea')?.value).toBe('[00:01.00] Mia');
+  });
+
+  it('uscendo dalla pagina la richiesta si interrompe senza avvisi', async () => {
+    const request = pending();
+    handlers[TRANSCRIBE] = request.handler;
+    const container = await mount();
+    await click(button(article(container, 'Autrice — Canzone'), "Trascrivi con l'IA"));
+    for (const { root } of roots.splice(0)) await act(async () => root.unmount());
+    container.remove();
+    await flush();
+    expect(request.calls[0]?.signal?.aborted).toBe(true);
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(mocks.error).not.toHaveBeenCalled();
+  });
+});
+
+describe('trascrizione IA: nuova trascrizione con una bozza già presente', () => {
+  const SECOND: TranscribeResponse = { ...DRAFT, draft: '[00:05.00] Seconda versione' };
+
+  async function withEditedDraft() {
+    let attempt = 0;
+    handlers[TRANSCRIBE] = async (init) => {
+      attempt += 1;
+      return init.schema?.parse(attempt === 1 ? DRAFT : SECOND);
+    };
+    const container = await mount();
+    const card = article(container, 'Autrice — Canzone');
+    await click(button(card, "Trascrivi con l'IA"));
+    await typeInto(
+      dialog()?.querySelector('textarea') as HTMLTextAreaElement,
+      '[00:01.00] Correzione manuale',
+    );
+    await click(button(dialog() as HTMLElement, 'Annulla'));
+    await settleFocus();
+    return { container, card };
+  }
+
+  it('bozza modificata: chiede prima di sostituirla; «Tieni la bozza» non chiama OpenAI', async () => {
+    const { card } = await withEditedDraft();
+    await click(button(card, "Trascrivi con l'IA"));
+    expect(callsTo(TRANSCRIBE)).toHaveLength(1);
+    expect(card.textContent).toContain(
+      'Hai una bozza modificata: sostituirla con una nuova trascrizione?',
+    );
+    const keep = button(card, 'Tieni la bozza');
+    expect(document.activeElement).toBe(keep);
+    await click(keep);
+    expect(card.textContent).not.toContain('Hai una bozza modificata');
+    expect(document.activeElement).toBe(button(card, "Trascrivi con l'IA"));
+    expect(callsTo(TRANSCRIBE)).toHaveLength(1);
+    await click(button(card, 'Riapri la bozza'));
+    expect(dialog()?.querySelector('textarea')?.value).toBe('[00:01.00] Correzione manuale');
+  });
+
+  it('«Sì, trascrivi di nuovo» sostituisce la bozza con quella nuova', async () => {
+    const { card } = await withEditedDraft();
+    await click(button(card, "Trascrivi con l'IA"));
+    await click(button(card, 'Sì, trascrivi di nuovo'));
+    expect(callsTo(TRANSCRIBE)).toHaveLength(2);
+    expect(dialog()?.querySelector('textarea')?.value).toBe(SECOND.draft);
+  });
+
+  it('bozza NON modificata: nessuna domanda, si trascrive di nuovo', async () => {
+    handlers[TRANSCRIBE] = respondWith(DRAFT);
+    const container = await mount();
+    const card = article(container, 'Autrice — Canzone');
+    await click(button(card, "Trascrivi con l'IA"));
+    await click(button(dialog() as HTMLElement, 'Annulla'));
+    await click(button(card, "Trascrivi con l'IA"));
+    expect(card.textContent).not.toContain('Hai una bozza modificata');
+    expect(callsTo(TRANSCRIBE)).toHaveLength(2);
+  });
+});
+
+describe('trascrizione IA: fuoco, lingua riconosciuta, file troppo grandi', () => {
+  it('chiudendo l’editor il fuoco torna nella scheda (mai su <body>)', async () => {
+    handlers[TRANSCRIBE] = respondWith(DRAFT);
+    handlers[SAVE] = respondWith({ saved: true, visibleWithinMinutes: 5 });
+    const container = await mount();
+    const card = article(container, 'Autrice — Canzone');
+    await click(button(card, "Trascrivi con l'IA"));
+    await click(button(dialog() as HTMLElement, 'Annulla'));
+    await settleFocus();
+    expect(document.activeElement).toBe(button(card, 'Riapri la bozza'));
+
+    await click(button(card, 'Riapri la bozza'));
+    await submit(button(dialog() as HTMLElement, 'Salva come .lrc'));
+    await settleFocus();
+    expect(dialog()).toBeNull();
+    expect(document.activeElement).toBe(button(card, "Trascrivi con l'IA"));
+  });
+
+  it('lingua riconosciuta in italiano anche fuori dal menu; sconosciuta → nessuna riga', async () => {
+    handlers[TRANSCRIBE] = respondWith({ ...DRAFT, language: 'japanese' });
+    const container = await mount();
+    await click(button(article(container, 'Autrice — Canzone'), "Trascrivi con l'IA"));
+    expect(dialog()?.textContent).toContain('Lingua riconosciuta: giapponese');
+    expect(dialog()?.textContent).not.toContain('japanese');
+    await click(button(dialog() as HTMLElement, 'Annulla'));
+
+    handlers[TRANSCRIBE] = respondWith({ ...DRAFT, language: 'klingon' });
+    await click(button(article(container, 'Autrice — Ballata'), "Trascrivi con l'IA"));
+    expect(dialog()?.textContent).toContain('Testo di Autrice — Ballata');
+    expect(dialog()?.textContent).not.toContain('Lingua riconosciuta');
+    expect(dialog()?.textContent).not.toContain('klingon');
+  });
+
+  it('file oltre 25 MB: pulsante spento col motivo, nessuna richiesta', async () => {
+    handlers[REPORT] = respondWith(
+      report({
+        tracks: [
+          ...TRACKS,
+          row('Grande/Autrice - Lunga.wav', { ...lyricsOn, transcription: 'too_large' }),
+        ],
+      }),
+    );
+    const container = await mount();
+    const card = article(container, 'Autrice — Lunga');
+    const start = button(card, "Trascrivi con l'IA");
+    expect(start.disabled).toBe(true);
+    expect(document.getElementById(start.getAttribute('aria-describedby') ?? '')?.textContent).toBe(
+      'File oltre 25 MB: la trascrizione non è disponibile.',
+    );
+    expect(card.querySelector('select')).toBeNull();
+    await click(start);
+    expect(callsTo(TRANSCRIBE)).toHaveLength(0);
+  });
+});
+
+it('i dati di prova rispettano il contratto', () => {
+  expect(() => AdminFeaturedRightsSchema.parse(report())).not.toThrow();
+  expect(() => TranscribeResponseSchema.parse(DRAFT)).not.toThrow();
+});

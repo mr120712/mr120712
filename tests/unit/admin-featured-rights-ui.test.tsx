@@ -554,7 +554,8 @@ describe('raggiungibilità', () => {
     expect(link?.textContent).toContain('Apri diritti e testi');
     const card = link?.closest('article');
     expect(card?.querySelector('h2')?.textContent).toBe('Diritti e testi');
-    expect(card?.textContent).toContain('il testo non compare mai');
+    expect(card?.textContent).toContain('La diagnosi non mostra il testo');
+    expect(card?.textContent).toContain('puoi trascriverlo con l’IA');
   });
 });
 

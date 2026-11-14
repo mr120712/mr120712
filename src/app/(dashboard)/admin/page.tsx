@@ -45,7 +45,8 @@ export default function AdminPage() {
           <h2 className="font-semibold text-card-foreground">Diritti e testi</h2>
           <p className="text-sm leading-6 text-muted-foreground">
             Perché un brano in evidenza è (o non è) ricercabile, gli errori di diritti.json voce per
-            voce e se il testo dei brani dichiarati c’è. Solo diagnosi: il testo non compare mai.
+            voce e se il testo dei brani dichiarati c’è. La diagnosi non mostra il testo; per i
+            brani con “testo”: true puoi trascriverlo con l’IA.
           </p>
           <Button asChild variant="outline" className="mt-1 justify-between">
             <Link href="/admin/diritti-testi">

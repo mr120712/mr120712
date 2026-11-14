@@ -439,6 +439,8 @@ export type HomeTrackCatalog = {
   sidecars: HomeStoreFile[];
   /** True se lo store è stato elencato fino in fondo; false = elenco parziale o fallito. */
   complete: boolean;
+  /** Dimensione (byte) di ogni file audio elencato, per pathname (es. tetto della trascrizione). */
+  audioSizes?: ReadonlyMap<string, number>;
 };
 
 /**
@@ -465,7 +467,8 @@ export async function listHomeTrackCatalog(
     .filter((item): item is HomeTrack => item !== null);
   const found = new Map<string, HomeStoreFile>();
   for (const blob of named) found.set(blob.pathname, storeFile(blob));
-  return { tracks, files: found, sidecars: sidecars.map(storeFile), complete };
+  const audioSizes = new Map(audio.map((blob) => [blob.pathname, blob.size] as const));
+  return { tracks, files: found, sidecars: sidecars.map(storeFile), complete, audioSizes };
 }
 
 /** Percorso senza estensione, con il nome ESATTO (maiuscole comprese), in forma Unicode NFC. */

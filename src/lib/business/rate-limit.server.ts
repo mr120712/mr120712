@@ -247,6 +247,19 @@ export const ACTION_RATE_LIMITS = {
     { requests: 8, windowMs: 60_000 },
     { requests: 40, windowMs: 86_400_000 },
   ],
+  // Trascrizione IA dei testi (OpenAI Whisper, a pagamento) dalla pagina admin «Diritti e testi»,
+  // solo brani dichiarati con "testo": true. Contata solo quando la chiamata a OpenAI parte davvero:
+  // per admin, più un tetto giornaliero per l'intera app.
+  'lyrics.transcribe': [
+    { requests: 10, windowMs: 3_600_000 },
+    { requests: 30, windowMs: 86_400_000 },
+  ],
+  'lyrics.transcribe.global': [{ requests: 50, windowMs: 86_400_000 }],
+  // Salvataggio del .lrc nello store (scrittura su Vercel Blob), per admin.
+  'lyrics.transcribe.save': [
+    { requests: 20, windowMs: 600_000 },
+    { requests: 100, windowMs: 86_400_000 },
+  ],
 } as const satisfies Record<string, readonly WindowLimit[]>;
 
 export type RateLimitAction = keyof typeof ACTION_RATE_LIMITS;
@@ -489,6 +502,9 @@ const actionLabels: Record<RateLimitAction, string> = {
   'iap.verify': 'le verifiche degli acquisti in-app',
   'music.resolve_download': 'le ricerche di versioni scaricabili',
   'recordings.write': 'le registrazioni dei brani',
+  'lyrics.transcribe': 'le trascrizioni dei testi con l’IA',
+  'lyrics.transcribe.global': 'le trascrizioni dei testi con l’IA di oggi',
+  'lyrics.transcribe.save': 'i salvataggi dei testi',
 };
 
 type DeniedRateLimit = Exclude<RateLimitDecision, { allowed: true }>;

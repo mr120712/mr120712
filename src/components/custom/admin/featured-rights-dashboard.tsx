@@ -2,20 +2,42 @@
 // Blob). Per ogni brano dice se è ricercabile (voce valida in diritti.json) e, per i brani
 // dichiarati con "testo": true, se il testo c'è e da dove viene. Mostra lo stato di diritti.json
 // con le voci scartate o ignorate e il perché, più una guida. Legge solo /api/admin/featured-rights.
-// È una DIAGNOSI: qui non compare MAI il testo dei brani (la risposta non lo contiene) e non ci
-// sono scorciatoie per dichiarare brani in blocco: solo "Copia percorso" del singolo file.
+// È una DIAGNOSI: la risposta non contiene MAI il testo dei brani e non ci sono scorciatoie per
+// dichiarare brani in blocco: solo "Copia percorso" del singolo file.
+//
+// Trascrizione IA (Whisper): SOLO nelle schede dei brani dichiarati con "testo": true (campo
+// `transcription` della risposta; gli altri brani non hanno né pulsante né altro). "Trascrivi con
+// l'IA" chiede una bozza LRC a /api/admin/featured-rights/transcribe (si può annullare), la mostra
+// in un editor da rivedere e "Salva come .lrc" la scrive accanto al brano (sostituendo un .lrc
+// esistente solo dopo la conferma). La bozza resta in questa pagina, per questo amministratore:
+// lo stato di ogni brano (richiesta in corso, bozza, modifiche) vive sopra l'elenco, così filtri e
+// ricerca non lo perdono; una bozza modificata non si sostituisce senza chiedere.
 'use client';
 
 import {
   CircleX,
   ClipboardCopy,
   FileCheck2,
+  LoaderCircle,
   Music2,
   RefreshCw,
   RotateCw,
+  Sparkles,
   TriangleAlert,
 } from 'lucide-react';
-import { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react';
+import { useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { ZodError } from 'zod';
 import { AppSurface } from '@/components/custom/app-ui/app-shell';
@@ -26,9 +48,26 @@ import { PageHeader } from '@/components/custom/app-ui/page-header';
 import { Panel } from '@/components/custom/app-ui/panel';
 import { StatusBadge } from '@/components/custom/app-ui/status-badge';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Textarea } from '@/components/ui/textarea';
 import { apiFetch } from '@/lib/api-client';
 import {
   type AdminFeaturedRights,
@@ -37,7 +76,21 @@ import {
   type FeaturedRightsManifestStatus,
   type FeaturedRightsProblem,
   type FeaturedRightsTrack,
+  type FeaturedRightsTranscription,
 } from '@/lib/contracts/admin-featured-rights';
+import {
+  SaveLyricsResponseSchema,
+  TRANSCRIPTION_LANGUAGES,
+  TRANSCRIPTION_LRC_MAX_BYTES,
+  TRANSCRIPTION_NOT_CONFIGURED_MESSAGE,
+  type TranscribeResponse,
+  TranscribeResponseSchema,
+  type TranscriptionLanguage,
+  WHISPER_EXTENSIONS,
+  whisperLanguageCode,
+} from '@/lib/contracts/lyrics-transcription';
+import { applyServerErrors } from '@/lib/forms';
+import { parseLyrics } from '@/lib/music/lyrics';
 import styles from './featured-rights-dashboard.module.css';
 
 const ENDPOINT = '/api/admin/featured-rights';
@@ -160,6 +213,9 @@ export function FeaturedRightsDashboard() {
   const [announcement, setAnnouncement] = useState('');
   const requestRef = useRef(0);
   const loadingRef = useRef(true);
+  // Trascrizioni dei brani: sopravvivono a filtri, ricerca e «Aggiorna»; l'uscita le interrompe.
+  const [sessions] = useState(() => new TranscriptionSessions());
+  useEffect(() => () => sessions.abortAll(), [sessions]);
 
   const load = useCallback(async (announce: boolean) => {
     const request = ++requestRef.current;
@@ -196,47 +252,50 @@ export function FeaturedRightsDashboard() {
   const { data, loading, error } = state;
 
   return (
-    <AppSurface className="bg-transparent">
-      <PageHeader
-        title="Diritti e testi"
-        description="Perché un brano in evidenza è (o non è) ricercabile e se il suo testo è disponibile nel player. È solo una diagnosi: qui il testo dei brani non compare mai."
-        actions={
-          <Button
-            type="button"
-            onClick={refresh}
-            aria-disabled={loading || undefined}
-            className="aria-disabled:cursor-progress aria-disabled:opacity-70"
-          >
-            <RefreshCw aria-hidden="true" className={loading ? 'motion-safe:animate-spin' : ''} />
-            {loading && data ? 'Aggiornamento…' : 'Aggiorna'}
-          </Button>
-        }
-      />
-      <div className={styles.status}>
-        {data ? (
-          <p>
-            Aggiornato alle <time dateTime={data.generatedAt}>{formatTime(data.generatedAt)}</time>
-            {data.store.listedAt ? (
-              <>
-                {' '}
-                · elenco dello store delle{' '}
-                <time dateTime={data.store.listedAt}>{formatTime(data.store.listedAt)}</time> (si
-                rilegge al massimo ogni minuto)
-              </>
-            ) : null}
-          </p>
-        ) : null}
-        <output aria-live="polite" className={styles.announcement}>
-          {announcement}
-        </output>
-      </div>
+    <TranscriptionSessionsContext.Provider value={sessions}>
+      <AppSurface className="bg-transparent">
+        <PageHeader
+          title="Diritti e testi"
+          description="Perché un brano in evidenza è (o non è) ricercabile e se il suo testo è disponibile nel player. La diagnosi non mostra mai il testo dei brani; solo per quelli dichiarati con “testo”: true puoi trascriverlo con l'IA e salvarlo come .lrc."
+          actions={
+            <Button
+              type="button"
+              onClick={refresh}
+              aria-disabled={loading || undefined}
+              className="aria-disabled:cursor-progress aria-disabled:opacity-70"
+            >
+              <RefreshCw aria-hidden="true" className={loading ? 'motion-safe:animate-spin' : ''} />
+              {loading && data ? 'Aggiornamento…' : 'Aggiorna'}
+            </Button>
+          }
+        />
+        <div className={styles.status}>
+          {data ? (
+            <p>
+              Aggiornato alle{' '}
+              <time dateTime={data.generatedAt}>{formatTime(data.generatedAt)}</time>
+              {data.store.listedAt ? (
+                <>
+                  {' '}
+                  · elenco dello store delle{' '}
+                  <time dateTime={data.store.listedAt}>{formatTime(data.store.listedAt)}</time> (si
+                  rilegge al massimo ogni minuto)
+                </>
+              ) : null}
+            </p>
+          ) : null}
+          <output aria-live="polite" className={styles.announcement}>
+            {announcement}
+          </output>
+        </div>
 
-      {error ? (
-        <ErrorState message={error} stale={data !== null} onRetry={refresh} retrying={loading} />
-      ) : null}
-      {loading && !data && !error ? <LoadingState /> : null}
-      {data ? <Report data={data} /> : null}
-    </AppSurface>
+        {error ? (
+          <ErrorState message={error} stale={data !== null} onRetry={refresh} retrying={loading} />
+        ) : null}
+        {loading && !data && !error ? <LoadingState /> : null}
+        {data ? <Report data={data} /> : null}
+      </AppSurface>
+    </TranscriptionSessionsContext.Provider>
   );
 }
 
@@ -663,6 +722,7 @@ function TracksPanel({ data }: { data: AdminFeaturedRights }) {
                   key={track.pathname}
                   track={track}
                   manifestStatus={data.manifest.status}
+                  transcriptionAvailable={data.transcriptionAvailable === true}
                 />
               ))}
             </ul>
@@ -844,12 +904,599 @@ async function copyPath(pathname: string) {
   }
 }
 
+// ─── Trascrizione con l'IA (solo brani dichiarati con "testo": true) ────────────────────────────
+
+const TRANSCRIBE_ENDPOINT = '/api/admin/featured-rights/transcribe';
+const SAVE_LYRICS_ENDPOINT = '/api/admin/featured-rights/transcribe/save';
+const FORMAT_LIST = `${WHISPER_EXTENSIONS.slice(0, -1).join(', ')} o ${WHISPER_EXTENSIONS.at(-1)}`;
+const TOO_LARGE_REASON = 'File oltre 25 MB: la trascrizione non è disponibile.';
+const utf8 = new TextEncoder();
+
+/** Nome italiano della lingua riconosciuta da Whisper ("japanese" → "giapponese"), o null. */
+function detectedLanguageName(language: string | null): string | null {
+  const code = whisperLanguageCode(language);
+  if (!code) return null;
+  try {
+    return new Intl.DisplayNames('it', { type: 'language', fallback: 'none' }).of(code) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+const durationFormat = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 });
+
+function formatDuration(seconds: number) {
+  const whole = Math.round(seconds);
+  const minutes = Math.floor(whole / 60);
+  const rest = String(whole % 60).padStart(2, '0');
+  return `${durationFormat.format(minutes)}:${rest}`;
+}
+
+/** Messaggio di un'azione fallita: quello del server se c'è, altrimenti `fallback`. */
+function actionErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ZodError) return 'La risposta del server non è nel formato atteso.';
+  if (error instanceof TypeError) return 'Connessione non riuscita: controlla la rete e riprova.';
+  const cause =
+    error instanceof Error && typeof error.cause === 'object' && error.cause !== null
+      ? (error.cause as { message?: unknown; error?: unknown })
+      : null;
+  if (typeof cause?.message === 'string' && cause.message.trim()) {
+    return cause.message.trim().slice(0, ERROR_TEXT_MAX);
+  }
+  const code = cause?.error;
+  if (typeof code === 'string' && Object.hasOwn(ERROR_CODE_TEXT, code)) {
+    return ERROR_CODE_TEXT[code] ?? fallback;
+  }
+  return fallback;
+}
+
+function isAbort(error: unknown, signal: AbortSignal) {
+  return signal.aborted || (error instanceof DOMException && error.name === 'AbortError');
+}
+
+/** Perché il pulsante è spento (chiave mancante, formato non accettato, file oltre 25 MB), o null. */
+function transcriptionBlockedReason(
+  transcription: FeaturedRightsTranscription,
+  available: boolean,
+  pathname: string,
+): string | null {
+  if (!available) return TRANSCRIPTION_NOT_CONFIGURED_MESSAGE;
+  if (transcription === 'unsupported_format') {
+    const extension = pathname.slice(pathname.lastIndexOf('.') + 1).toLowerCase();
+    return `Formato .${extension} non supportato dalla trascrizione: servono file ${FORMAT_LIST}.`;
+  }
+  if (transcription === 'too_large') return TOO_LARGE_REASON;
+  return null;
+}
+
+type TranscriptionSession = {
+  /** Lingua scelta nel menu ('' = automatica). */
+  language: TranscriptionLanguage | '';
+  phase: 'idle' | 'running' | 'error';
+  errorMessage: string | null;
+  /** Ultima bozza ricevuta (null = nessuna, o già salvata). */
+  draft: TranscribeResponse | null;
+  /** Cresce a ogni bozza nuova: l'editor riparte dal testo della bozza. */
+  draftVersion: number;
+  editorOpen: boolean;
+  /** Domanda prima di sostituire una bozza modificata con una nuova trascrizione. */
+  confirmReplace: boolean;
+  savedNote: string | null;
+  /** Richiesta in corso (per «Annulla»). */
+  controller: AbortController | null;
+};
+
+const IDLE_SESSION: TranscriptionSession = {
+  language: '',
+  phase: 'idle',
+  errorMessage: null,
+  draft: null,
+  draftVersion: 0,
+  editorOpen: false,
+  confirmReplace: false,
+  savedNote: null,
+  controller: null,
+};
+
+/**
+ * Stato della trascrizione di OGNI brano, tenuto sopra l'elenco: filtri, ricerca e «Aggiorna»
+ * smontano le schede, ma la richiesta in corso, la bozza e le modifiche nell'editor restano (la
+ * chiamata a OpenAI è a pagamento). Solo l'uscita dalla pagina interrompe le richieste.
+ */
+class TranscriptionSessions {
+  private readonly sessions = new Map<string, TranscriptionSession>();
+  /** Testo dell'editor per brano: fuori dallo stato osservato perché cambia a ogni tasto. */
+  private readonly texts = new Map<string, string>();
+  private readonly mounted = new Map<string, number>();
+  private readonly listeners = new Set<() => void>();
+
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
+
+  get(pathname: string): TranscriptionSession {
+    return this.sessions.get(pathname) ?? IDLE_SESSION;
+  }
+
+  update(pathname: string, patch: Partial<TranscriptionSession>) {
+    this.sessions.set(pathname, { ...this.get(pathname), ...patch });
+    for (const listener of this.listeners) listener();
+  }
+
+  text(pathname: string): string {
+    return this.texts.get(pathname) ?? '';
+  }
+
+  setText(pathname: string, value: string) {
+    this.texts.set(pathname, value);
+  }
+
+  /** True se il testo nell'editor non è più quello della bozza ricevuta (modifiche dell'admin). */
+  edited(pathname: string): boolean {
+    const draft = this.get(pathname).draft;
+    return draft !== null && this.text(pathname) !== draft.draft;
+  }
+
+  mount(pathname: string) {
+    this.mounted.set(pathname, (this.mounted.get(pathname) ?? 0) + 1);
+  }
+
+  unmount(pathname: string) {
+    const count = (this.mounted.get(pathname) ?? 0) - 1;
+    if (count > 0) this.mounted.set(pathname, count);
+    else this.mounted.delete(pathname);
+  }
+
+  /** True se la scheda del brano è visibile adesso (non nascosta da filtri o ricerca). */
+  isMounted(pathname: string): boolean {
+    return this.mounted.has(pathname);
+  }
+
+  /** Uscita dalla pagina: interrompe tutte le richieste, senza avvisi. */
+  abortAll() {
+    for (const [pathname, session] of this.sessions) {
+      const controller = session.controller;
+      if (!controller) continue;
+      this.sessions.set(pathname, { ...session, phase: 'idle', controller: null });
+      controller.abort();
+    }
+  }
+}
+
+const TranscriptionSessionsContext = createContext<TranscriptionSessions | null>(null);
+
+function useTranscriptionSession(pathname: string) {
+  const sessions = useContext(TranscriptionSessionsContext);
+  if (!sessions) throw new Error('Stato della trascrizione mancante.');
+  const snapshot = useCallback(() => sessions.get(pathname), [sessions, pathname]);
+  const session = useSyncExternalStore(sessions.subscribe, snapshot, snapshot);
+  return { sessions, session };
+}
+
+/**
+ * Chiede la bozza e la conserva nello stato del brano, anche se nel frattempo la scheda è stata
+ * nascosta da un filtro: l'editor si apre da solo solo se la scheda è visibile.
+ */
+async function runTranscription(
+  sessions: TranscriptionSessions,
+  pathname: string,
+  name: string,
+  language: TranscriptionLanguage | '',
+) {
+  const controller = new AbortController();
+  sessions.update(pathname, {
+    phase: 'running',
+    errorMessage: null,
+    savedNote: null,
+    confirmReplace: false,
+    controller,
+  });
+  try {
+    const result = await apiFetch(TRANSCRIBE_ENDPOINT, {
+      method: 'POST',
+      body: JSON.stringify({ pathname, ...(language ? { language } : {}) }),
+      schema: TranscribeResponseSchema,
+      signal: controller.signal,
+    });
+    if (sessions.get(pathname).controller !== controller) return;
+    const visible = sessions.isMounted(pathname);
+    sessions.setText(pathname, result.draft);
+    sessions.update(pathname, {
+      phase: 'idle',
+      controller: null,
+      draft: result,
+      draftVersion: sessions.get(pathname).draftVersion + 1,
+      editorOpen: visible,
+    });
+    if (result.lineCount === 0) toast('Trascrizione finita, ma nessuna parola riconosciuta.');
+    else if (visible) toast.success(`Bozza pronta: ${linesText(result.lineCount)}.`);
+    else {
+      toast.success(
+        `Bozza pronta per ${name}: ${linesText(result.lineCount)}. La trovi con «Riapri la bozza» nella sua scheda.`,
+      );
+    }
+  } catch (error) {
+    if (sessions.get(pathname).controller !== controller) return;
+    if (isAbort(error, controller.signal)) {
+      sessions.update(pathname, { phase: 'idle', controller: null });
+      toast('Trascrizione annullata.');
+      return;
+    }
+    const message = actionErrorMessage(error, 'La trascrizione non è riuscita. Riprova.');
+    sessions.update(pathname, { phase: 'error', errorMessage: message, controller: null });
+    toast.error(message);
+  }
+}
+
+type LrcForm = { lrc: string };
+
+/**
+ * Pulsante, avanzamento e editor della trascrizione di UN brano. Si monta SOLO per i brani con
+ * `transcription` (dichiarati con "testo": true): per gli altri non esiste. Lo stato vive in
+ * TranscriptionSessions, così filtri e ricerca non perdono la richiesta né la bozza.
+ */
+function LyricsTranscription({
+  track,
+  transcription,
+  name,
+  available,
+}: {
+  track: FeaturedRightsTrack;
+  transcription: FeaturedRightsTranscription;
+  name: string;
+  available: boolean;
+}) {
+  const pathname = track.pathname;
+  const { sessions, session } = useTranscriptionSession(pathname);
+  const headingId = useId();
+  const selectId = useId();
+  const reasonId = useId();
+  const replaceId = useId();
+  const startRef = useRef<HTMLButtonElement>(null);
+  const reopenRef = useRef<HTMLButtonElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const keepRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    sessions.mount(pathname);
+    return () => sessions.unmount(pathname);
+  }, [sessions, pathname]);
+
+  const blockedReason = transcriptionBlockedReason(transcription, available, pathname);
+  const running = session.phase === 'running';
+  const lrcPathname = sidecarPath(pathname, 'lrc');
+
+  // Avvio da un pulsante che sparisce (es. «Sì, trascrivi di nuovo»): il fuoco va su «Annulla».
+  useEffect(() => {
+    if (!running) return;
+    const active = document.activeElement;
+    if (!active || active === document.body) cancelRef.current?.focus();
+  }, [running]);
+
+  // La domanda prima di sostituire la bozza prende il fuoco sulla scelta sicura.
+  useEffect(() => {
+    if (session.confirmReplace) keepRef.current?.focus();
+  }, [session.confirmReplace]);
+
+  const start = (force = false) => {
+    const current = sessions.get(pathname);
+    if (blockedReason || current.phase === 'running') return;
+    // Una bozza modificata (e non salvata) non si sostituisce senza chiedere.
+    if (!force && sessions.edited(pathname)) {
+      sessions.update(pathname, { confirmReplace: true });
+      return;
+    }
+    void runTranscription(sessions, pathname, name, current.language);
+  };
+
+  const keepDraft = () => {
+    sessions.update(pathname, { confirmReplace: false });
+    startRef.current?.focus();
+  };
+
+  const cancel = () => sessions.get(pathname).controller?.abort();
+  const setEditorOpen = (open: boolean) => sessions.update(pathname, { editorOpen: open });
+
+  const draft = session.draft;
+  const detected = draft ? detectedLanguageName(draft.language) : null;
+
+  return (
+    <section className={styles.transcribe} aria-labelledby={headingId} aria-busy={running}>
+      <h4 id={headingId} className={styles.transcribeTitle}>
+        <Sparkles aria-hidden="true" />
+        Trascrizione con l'IA
+      </h4>
+      {running ? (
+        <div className={styles.progress}>
+          <output aria-live="polite" className={styles.progressText}>
+            <LoaderCircle aria-hidden="true" className="motion-safe:animate-spin" />
+            Trascrizione in corso… può richiedere fino a un minuto
+          </output>
+          <Button ref={cancelRef} type="button" size="sm" variant="outline" onClick={cancel}>
+            Annulla
+          </Button>
+        </div>
+      ) : (
+        <div className={styles.transcribeRow}>
+          {blockedReason ? null : (
+            <div className={styles.languageField}>
+              <label htmlFor={selectId}>Lingua del brano</label>
+              <select
+                id={selectId}
+                className={styles.select}
+                value={session.language}
+                onChange={(event) =>
+                  sessions.update(pathname, {
+                    language: event.target.value as TranscriptionLanguage | '',
+                  })
+                }
+              >
+                <option value="">Automatica</option>
+                {TRANSCRIPTION_LANGUAGES.map((option) => (
+                  <option key={option.code} value={option.code}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <Button
+            ref={startRef}
+            type="button"
+            size="sm"
+            onClick={() => start()}
+            disabled={blockedReason !== null}
+            aria-describedby={blockedReason ? reasonId : undefined}
+          >
+            <Sparkles aria-hidden="true" />
+            Trascrivi con l'IA
+          </Button>
+          {draft && !session.editorOpen ? (
+            <Button
+              ref={reopenRef}
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setEditorOpen(true)}
+            >
+              Riapri la bozza
+            </Button>
+          ) : null}
+        </div>
+      )}
+      {session.confirmReplace && !running ? (
+        <div className={styles.warning}>
+          <TriangleAlert aria-hidden="true" />
+          <div className={styles.replaceBody}>
+            <p id={replaceId}>
+              Hai una bozza modificata: sostituirla con una nuova trascrizione? Le tue correzioni
+              andrebbero perse.
+            </p>
+            <div className={styles.replaceActions}>
+              <Button
+                type="button"
+                size="sm"
+                aria-describedby={replaceId}
+                onClick={() => start(true)}
+              >
+                Sì, trascrivi di nuovo
+              </Button>
+              <Button
+                ref={keepRef}
+                type="button"
+                size="sm"
+                variant="outline"
+                aria-describedby={replaceId}
+                onClick={keepDraft}
+              >
+                Tieni la bozza
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {blockedReason ? (
+        <p id={reasonId} className={styles.muted}>
+          {blockedReason}
+        </p>
+      ) : (
+        <p className={styles.muted}>L'audio viene inviato a OpenAI solo per la trascrizione.</p>
+      )}
+      {session.phase === 'error' && session.errorMessage ? (
+        <p role="alert" className={styles.inlineError}>
+          {session.errorMessage}
+        </p>
+      ) : null}
+      {session.savedNote ? <output className={styles.savedNote}>{session.savedNote}</output> : null}
+
+      {draft ? (
+        <Dialog open={session.editorOpen} onOpenChange={setEditorOpen}>
+          <DialogContent
+            className={styles.editorDialog}
+            onCloseAutoFocus={(event) => {
+              // Senza DialogTrigger Radix non sa dove tornare: il fuoco resta nella scheda.
+              event.preventDefault();
+              (reopenRef.current ?? startRef.current)?.focus();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>Testo di {name}</DialogTitle>
+              <DialogDescription>
+                Bozza automatica: controlla parole e tempi prima di salvare.
+              </DialogDescription>
+            </DialogHeader>
+            <ul className={styles.editorMeta} aria-label="Dettagli della trascrizione">
+              {detected ? <li>Lingua riconosciuta: {detected}</li> : null}
+              {draft.durationSeconds !== null ? (
+                <li>Durata: {formatDuration(draft.durationSeconds)}</li>
+              ) : null}
+              {draft.droppedSegments > 0 ? (
+                <li>
+                  {draft.droppedSegments === 1
+                    ? '1 segmento scartato'
+                    : `${formatCount(draft.droppedSegments)} segmenti scartati`}{' '}
+                  perché sembravano allucinazioni dell'IA (crediti dei sottotitoli o silenzio):
+                  controlla che non manchi una strofa.
+                </li>
+              ) : null}
+            </ul>
+            <LyricsEditor
+              key={session.draftVersion}
+              sessions={sessions}
+              track={track}
+              lrcPathname={lrcPathname}
+              onClose={() => setEditorOpen(false)}
+            />
+          </DialogContent>
+        </Dialog>
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * Il modulo dell'editor. Il testo parte da quello conservato per il brano (la bozza o le modifiche
+ * già fatte) e ogni modifica si conserva subito: chiudere l'editor o nascondere la scheda non la
+ * perde.
+ */
+function LyricsEditor({
+  sessions,
+  track,
+  lrcPathname,
+  onClose,
+}: {
+  sessions: TranscriptionSessions;
+  track: FeaturedRightsTrack;
+  lrcPathname: string;
+  onClose: () => void;
+}) {
+  const pathname = track.pathname;
+  const [confirmOverwrite, setConfirmOverwrite] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const form = useForm<LrcForm>({ defaultValues: { lrc: sessions.text(pathname) } });
+  const lrc = useWatch({ control: form.control, name: 'lrc' });
+  const parsed = useMemo(() => parseLyrics(lrc), [lrc]);
+
+  const save = form.handleSubmit(async (values) => {
+    setSaveError(null);
+    if (!parseLyrics(values.lrc)) {
+      form.setError('lrc', {
+        type: 'manual',
+        message: 'Il testo è vuoto: scrivi almeno una riga.',
+      });
+      return;
+    }
+    if (utf8.encode(values.lrc).length > TRANSCRIPTION_LRC_MAX_BYTES) {
+      form.setError('lrc', {
+        type: 'manual',
+        message: 'Il testo supera 64 KB: accorcialo prima di salvarlo.',
+      });
+      return;
+    }
+    // C'è già un .lrc accanto: prima si chiede la conferma, poi si sostituisce.
+    if (track.sidecars.lrc && !confirmOverwrite) {
+      setConfirmOverwrite(true);
+      return;
+    }
+    try {
+      const saved = await apiFetch(SAVE_LYRICS_ENDPOINT, {
+        method: 'POST',
+        body: JSON.stringify({ pathname, lrc: values.lrc, overwrite: confirmOverwrite }),
+        schema: SaveLyricsResponseSchema,
+      });
+      const note = `Testo salvato come “${lrcPathname}”: compare nel player entro ~${saved.visibleWithinMinutes} minuti.`;
+      sessions.setText(pathname, '');
+      sessions.update(pathname, { savedNote: note, editorOpen: false, draft: null });
+      toast.success(note);
+    } catch (error) {
+      const cause = error instanceof Error ? error.cause : null;
+      if (applyServerErrors(cause, form.setError)) {
+        const code =
+          typeof cause === 'object' && cause !== null ? (cause as { error?: unknown }).error : null;
+        if (code === 'lrc_exists') setConfirmOverwrite(true);
+        return;
+      }
+      const message = actionErrorMessage(error, 'Salvataggio non riuscito. Riprova.');
+      setSaveError(message);
+      toast.error(message);
+    }
+  });
+
+  const submitting = form.formState.isSubmitting;
+
+  return (
+    <Form {...form}>
+      <form onSubmit={save} noValidate className={styles.editorForm}>
+        <FormField
+          control={form.control}
+          name="lrc"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Testo (.lrc)</FormLabel>
+              <FormControl>
+                <Textarea
+                  {...field}
+                  onChange={(event) => {
+                    form.clearErrors('lrc');
+                    sessions.setText(pathname, event.target.value);
+                    field.onChange(event);
+                  }}
+                  rows={14}
+                  spellCheck={false}
+                  className={styles.lrcInput}
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <output aria-live="polite" className={styles.lineCount}>
+          {parsed
+            ? `${parsed.lines.length === 1 ? '1 riga letta' : `${formatCount(parsed.lines.length)} righe lette`} dal player (${parsed.kind === 'synced' ? 'sincronizzato' : 'semplice'})`
+            : 'Nessuna riga leggibile: il player non mostrerebbe nulla.'}
+        </output>
+        {confirmOverwrite ? (
+          <output className={styles.warning}>
+            <TriangleAlert aria-hidden="true" />
+            <span>
+              Accanto al brano c’è già un file .lrc: salvando sostituisci “{lrcPathname}”. Premi
+              «Sostituisci il .lrc» per confermare.
+            </span>
+          </output>
+        ) : null}
+        {saveError ? (
+          <p role="alert" className={styles.inlineError}>
+            {saveError}
+          </p>
+        ) : null}
+        <DialogFooter className={styles.editorActions}>
+          <Button type="button" variant="outline" onClick={onClose}>
+            Annulla
+          </Button>
+          <Button type="submit" disabled={submitting}>
+            {submitting
+              ? 'Salvataggio…'
+              : confirmOverwrite
+                ? 'Sostituisci il .lrc'
+                : 'Salva come .lrc'}
+          </Button>
+        </DialogFooter>
+      </form>
+    </Form>
+  );
+}
+
 function TrackItem({
   track,
   manifestStatus,
+  transcriptionAvailable,
 }: {
   track: FeaturedRightsTrack;
   manifestStatus: FeaturedRightsManifestStatus;
+  transcriptionAvailable: boolean;
 }) {
   const titleId = useId();
   const name = track.artist ? `${track.artist} — ${track.title}` : track.title;
@@ -904,6 +1551,14 @@ function TrackItem({
           </dl>
           <p className={styles.explanation}>{searchExplanation(track, manifestStatus)}</p>
           {lyricsNote ? <p className={styles.explanation}>{lyricsNote}</p> : null}
+          {track.transcription ? (
+            <LyricsTranscription
+              track={track}
+              transcription={track.transcription}
+              name={name}
+              available={transcriptionAvailable}
+            />
+          ) : null}
         </div>
       </article>
     </li>

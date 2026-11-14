@@ -76,6 +76,19 @@ export function clearFeaturedLyricsCacheForTests() {
   generation += 1;
 }
 
+/**
+ * Dimentica il testo in cache di UN brano (dopo il salvataggio di un .lrc dalla pagina admin):
+ * player e diagnosi lo rileggono alla richiesta successiva. Le letture già in corso non scrivono
+ * più in cache. Le chiavi sono "pathname|file accanto…": si tolgono tutte quelle del brano.
+ */
+export function invalidateFeaturedLyricsCache(pathname: string) {
+  const ofTrack = (key: string) => key === pathname || key.startsWith(`${pathname}|`);
+  for (const key of [...cache.keys()]) if (ofTrack(key)) cache.delete(key);
+  for (const key of [...availabilityCache.keys()]) if (ofTrack(key)) availabilityCache.delete(key);
+  for (const key of [...pending.keys()]) if (ofTrack(key)) pending.delete(key);
+  generation += 1;
+}
+
 function abortAfter(ms: number): AbortSignal | undefined {
   return typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
     ? AbortSignal.timeout(ms)
