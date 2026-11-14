@@ -7,6 +7,7 @@ vi.mock('server-only', () => ({}));
 const mocks = vi.hoisted(() => ({
   configured: true,
   channel: '@solcomusic' as string | undefined,
+  username: '@Solcomusic_boT' as string | undefined,
   send: vi.fn(),
   create: vi.fn(),
   upsert: vi.fn(),
@@ -16,7 +17,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/env', () => ({
   get env() {
-    return { TELEGRAM_CHANNEL_CHAT_ID: mocks.channel };
+    return {
+      TELEGRAM_CHANNEL_CHAT_ID: mocks.channel,
+      NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: mocks.username,
+    };
   },
 }));
 vi.mock('@/lib/business/telegram-bot.server', () => ({
@@ -39,9 +43,12 @@ import { Prisma } from '@prisma/client';
 import {
   announceBuildIfNew,
   announcementPreview,
+  botInviteLink,
+  botInviteText,
   buildAnnouncementText,
   isBuildAnnouncementConfigured,
   publishAnnouncementNow,
+  publishBotInviteNow,
   redactSecrets,
 } from '@/lib/business/build-announcement.server';
 
@@ -51,6 +58,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.configured = true;
   mocks.channel = '@solcomusic';
+  mocks.username = '@Solcomusic_boT';
   mocks.send.mockResolvedValue(true);
   mocks.create.mockResolvedValue({ id: 'x' });
   mocks.upsert.mockResolvedValue({ id: 'x' });
@@ -227,6 +235,70 @@ describe('publishAnnouncementNow', () => {
     const result = await publishAnnouncementNow();
     expect(result).toMatchObject({ posted: false, reason: 'telegram_failed' });
     expect(mocks.upsert).not.toHaveBeenCalled();
+  });
+});
+
+describe('botInviteLink', () => {
+  it('compone t.me/<username> togliendo la @', () => {
+    expect(botInviteLink()).toBe('https://t.me/Solcomusic_boT');
+  });
+
+  it('null senza username', () => {
+    mocks.username = undefined;
+    expect(botInviteLink()).toBeNull();
+  });
+
+  it('null con username non valido (caratteri illeciti)', () => {
+    mocks.username = 'bot con spazi!';
+    expect(botInviteLink()).toBeNull();
+  });
+});
+
+describe('botInviteText', () => {
+  it('invita ad aprire il bot e contiene il link', () => {
+    const text = botInviteText('https://t.me/Solcomusic_boT');
+    expect(text).toContain('Continua su Solco');
+    expect(text).toContain('https://t.me/Solcomusic_boT');
+  });
+});
+
+describe('publishBotInviteNow', () => {
+  it('pubblica sul canale con il pulsante «Apri il bot»', async () => {
+    const result = await publishBotInviteNow();
+    expect(result).toMatchObject({ posted: true, reason: 'ok' });
+    const call = mocks.send.mock.calls[0];
+    expect(call?.[0]).toBe('@solcomusic');
+    expect(String(call?.[1])).toContain('https://t.me/Solcomusic_boT');
+    const options = call?.[2] as { replyMarkup?: { inline_keyboard?: unknown[][] } };
+    const button = options?.replyMarkup?.inline_keyboard?.[0]?.[0] as { url?: string };
+    expect(button?.url).toBe('https://t.me/Solcomusic_boT');
+  });
+
+  it('bot non configurato → non invia', async () => {
+    mocks.configured = false;
+    const result = await publishBotInviteNow();
+    expect(result).toMatchObject({ posted: false, reason: 'bot_not_configured' });
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it('canale non configurato → non invia', async () => {
+    mocks.channel = undefined;
+    const result = await publishBotInviteNow();
+    expect(result).toMatchObject({ posted: false, reason: 'channel_not_configured' });
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it('username non configurato → non invia', async () => {
+    mocks.username = undefined;
+    const result = await publishBotInviteNow();
+    expect(result).toMatchObject({ posted: false, reason: 'username_not_configured' });
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it('Telegram rifiuta → telegram_failed', async () => {
+    mocks.send.mockResolvedValue(false);
+    const result = await publishBotInviteNow();
+    expect(result).toMatchObject({ posted: false, reason: 'telegram_failed' });
   });
 });
 

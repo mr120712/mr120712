@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ExternalLink,
   Gauge,
+  Infinity as InfinityIcon,
   ListMusic,
   Music2,
   Pause,
@@ -31,7 +32,11 @@ import {
 } from 'react';
 import { apiFetch } from '@/lib/api-client';
 import { useSession } from '@/lib/auth-client';
-import { AudiusPlaybackCheckSchema } from '@/lib/contracts/music';
+import {
+  AudiusPlaybackCheckSchema,
+  type AudiusTrackSearchResult,
+  MusicTrendingResponseSchema,
+} from '@/lib/contracts/music';
 import {
   createObjectUrlForArtwork,
   createObjectUrlForTrack,
@@ -55,6 +60,12 @@ import {
   primeMediaElement,
   releasePlaybackSession,
 } from '@/lib/music/audio-session';
+import {
+  AUTOPLAY_BATCH,
+  selectAutoplayCandidates,
+  setAutoplay,
+  useAutoplay,
+} from '@/lib/music/autoplay';
 import { parseVideoTitle } from '@/lib/music/background-match';
 import { setDataSaver, useDataSaver } from '@/lib/music/data-saver';
 import {
@@ -176,6 +187,8 @@ type MusicPlayerValue = {
   errorMessage: string | null;
   shuffle: boolean;
   repeat: RepeatMode;
+  /** Autoplay continuo: a coda finita prosegue da solo con brani consigliati (fonte lecita Audius). */
+  autoplay: boolean;
   /** Velocità "slowed / sped up" (0.5–2×); 1 = normale. Cambia tono sugli stream HTML5. */
   playbackSpeed: number;
   expanded: boolean;
@@ -205,6 +218,8 @@ type MusicPlayerValue = {
   forgetLocalTracks: (ids: readonly string[] | 'all') => void;
   toggleShuffle: () => void;
   cycleRepeat: () => void;
+  /** Accende/spegne l'autoplay continuo (per dispositivo). */
+  toggleAutoplay: () => void;
   /** Imposta la velocità di riproduzione (ritagliata a 0.5–2×). */
   setSpeed: (speed: number) => void;
   setExpanded: (expanded: boolean) => void;
@@ -406,6 +421,22 @@ export function trackStreamPath(track: MusicPlayerTrack) {
   }
   if (track.playbackMode !== 'solco' || !track.albumId || !safeId.test(track.albumId)) return null;
   return `/api/music/albums/${encodeURIComponent(track.albumId)}/tracks/${encodeURIComponent(match[1])}/stream`;
+}
+
+/** Brano Audius (dal trending) → traccia del player, per l'autoplay continuo. */
+function audiusResultToTrack(track: AudiusTrackSearchResult): MusicPlayerTrack {
+  return {
+    qualifiedId: track.qualifiedId,
+    title: track.title,
+    artistName: track.artistName,
+    artistUrl: track.artistUrl,
+    artworkUrl: track.artworkUrl,
+    sourceLabel: 'Solco · Audius',
+    sourceUrl: track.trackUrl,
+    sourceUrlLabel: 'Apri il brano su Audius',
+    durationSeconds: track.durationSeconds,
+    playbackMode: 'audius',
+  };
 }
 
 function playbackPath(track: MusicPlayerTrack) {
@@ -1410,6 +1441,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  const autoplay = useAutoplay();
+  const autoplayRef = useRef(autoplay);
+  autoplayRef.current = autoplay;
+  const toggleAutoplay = useCallback(() => setAutoplay(!autoplayRef.current), []);
+  // Brani già visti dall'autoplay in questa sessione: niente ripetizioni immediate.
+  const autoplaySeenRef = useRef<Set<string>>(new Set());
+  // Evita continuazioni concorrenti (una fetch alla volta).
+  const autoplayBusyRef = useRef(false);
+
   const live = isLiveTrack(currentTrack);
   const hasNext =
     queueIndex >= 0 &&
@@ -1869,6 +1909,50 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   };
   advanceRef.current = advanceTo;
 
+  // Autoplay continuo: a coda finita (senza ripetizione) prosegue da solo con brani consigliati da
+  // una fonte lecita (Audius trending). Niente YouTube/terzi. Si ferma da solo quando non ci sono più
+  // brani nuovi (dedup per sessione), quindi non cresce all'infinito.
+  const continueAutoplay = () => {
+    if (autoplayBusyRef.current) return;
+    autoplayBusyRef.current = true;
+    setStatus('loading');
+    const seen = autoplaySeenRef.current;
+    for (const item of queue) seen.add(item.qualifiedId);
+    const current = currentTrackRef.current;
+    if (current) seen.add(current.qualifiedId);
+    // Istantanea della richiesta: se durante il fetch l'utente chiude il player o avvia altro
+    // (stopPlayback/un nuovo brano incrementano playRequestRef), la continuazione si annulla e non
+    // resuscita la riproduzione.
+    const request = playRequestRef.current;
+    void (async () => {
+      try {
+        const data = await apiFetch('/api/music/trending', {
+          schema: MusicTrendingResponseSchema,
+        });
+        if (request !== playRequestRef.current) return;
+        const picks = selectAutoplayCandidates(data.tracks, seen, AUTOPLAY_BATCH).map(
+          audiusResultToTrack,
+        );
+        const first = picks[0];
+        const path = first ? trackStreamPath(first) : null;
+        if (!first || !path) {
+          releaseAudio();
+          setStatus('ended');
+          return;
+        }
+        for (const pick of picks) seen.add(pick.qualifiedId);
+        await playTrack(first, path, picks);
+      } catch {
+        if (request === playRequestRef.current) {
+          releaseAudio();
+          setStatus('ended');
+        }
+      } finally {
+        autoplayBusyRef.current = false;
+      }
+    })();
+  };
+
   const handleEnded = () => {
     const audio = decks.current;
     if (repeat === 'one' && isYouTubeTrack(currentTrack) && ytPlayerRef.current) {
@@ -1887,6 +1971,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       // Automatic advance: Now Playing stays "playing" between the two items.
       setSessionPlaybackState('playing');
       if (!advanceTo(index)) void playQueueIndex(index);
+      return;
+    }
+    if (autoplayRef.current) {
+      // Coda finita e autoplay acceso: prosegui con brani consigliati, senza fermarti.
+      setSessionPlaybackState('playing');
+      continueAutoplay();
       return;
     }
     releaseAudio();
@@ -3074,6 +3164,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         errorMessage,
         shuffle,
         repeat,
+        autoplay,
         playbackSpeed,
         expanded,
         premium,
@@ -3090,6 +3181,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         forgetLocalTracks,
         toggleShuffle,
         cycleRepeat,
+        toggleAutoplay,
         setSpeed: setPlaybackSpeed,
         setExpanded,
         primeAudio,
@@ -3438,6 +3530,16 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                     ) : (
                       <Repeat aria-hidden="true" />
                     )}
+                  </button>
+                  <button
+                    className={styles.toggle}
+                    type="button"
+                    onClick={toggleAutoplay}
+                    aria-pressed={autoplay}
+                    aria-label="Autoplay continuo: a coda finita continua con brani consigliati"
+                    title="Autoplay continuo"
+                  >
+                    <InfinityIcon aria-hidden="true" />
                   </button>
                 </div>
                 <div className={styles.speed}>

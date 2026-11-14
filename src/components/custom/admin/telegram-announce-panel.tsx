@@ -16,6 +16,7 @@ import {
   type AnnouncePreview,
   AnnouncePreviewSchema,
   AnnounceResultSchema,
+  TelegramBotPostResultSchema,
 } from '@/lib/contracts/telegram-announce';
 import {
   TelegramMenuSetResultSchema,
@@ -31,6 +32,7 @@ import {
 const ENDPOINT = '/api/admin/telegram-announce';
 const WEBHOOK_ENDPOINT = '/api/admin/telegram-webhook';
 const MENU_ENDPOINT = '/api/admin/telegram-menu';
+const BOT_POST_ENDPOINT = '/api/admin/telegram-bot-post';
 const ERROR_TEXT_MAX = 300;
 
 const ERROR_CODE_TEXT: Record<string, string> = {
@@ -47,6 +49,8 @@ const REASON_TEXT: Record<string, string> = {
     'Il canale non è configurato (manca TELEGRAM_CHANNEL_CHAT_ID). Impostalo su Vercel e ridistribuisci.',
   telegram_failed:
     'Telegram ha rifiutato l’invio. Controlla che il bot sia amministratore del canale e che l’id sia corretto.',
+  username_not_configured:
+    'Manca lo username del bot (NEXT_PUBLIC_TELEGRAM_BOT_USERNAME). Impostalo su Vercel e ridistribuisci.',
 };
 
 function failureMessage(error: unknown, fallback: string): string {
@@ -78,6 +82,7 @@ export function TelegramAnnouncePanel() {
   const [registering, setRegistering] = useState(false);
   const [menu, setMenu] = useState<TelegramMenuStatus | null>(null);
   const [settingMenu, setSettingMenu] = useState(false);
+  const [postingBot, setPostingBot] = useState(false);
   const publishingRef = useRef(false);
   const requestRef = useRef(0);
 
@@ -146,6 +151,22 @@ export function TelegramAnnouncePanel() {
       toast.error(failureMessage(error, 'Impostazione del pulsante non riuscita.'));
     } finally {
       setSettingMenu(false);
+    }
+  };
+
+  const postBotInvite = async () => {
+    setPostingBot(true);
+    try {
+      const result = await apiFetch(BOT_POST_ENDPOINT, {
+        method: 'POST',
+        schema: TelegramBotPostResultSchema,
+      });
+      if (result.posted) toast.success('Post d’invito al bot pubblicato sul canale.');
+      else toast.error(REASON_TEXT[result.reason] ?? 'Pubblicazione non riuscita.');
+    } catch (error) {
+      toast.error(failureMessage(error, 'Pubblicazione del post non riuscita.'));
+    } finally {
+      setPostingBot(false);
     }
   };
 
@@ -373,6 +394,23 @@ export function TelegramAnnouncePanel() {
           <p className="mt-2 break-all text-xs text-muted-foreground">Apre: {menu.expectedUrl}</p>
         </Panel>
       ) : null}
+
+      <Panel
+        title="Invito al bot sul canale"
+        description="Pubblica un post dedicato che invita i membri del canale ad aprire il bot, con un pulsante «Apri il bot»."
+      >
+        <div className="mt-1">
+          <Button
+            type="button"
+            onClick={() => void postBotInvite()}
+            aria-disabled={postingBot || undefined}
+            className="aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
+          >
+            <Send aria-hidden="true" />
+            {postingBot ? 'Pubblicazione…' : 'Pubblica invito al bot'}
+          </Button>
+        </div>
+      </Panel>
     </AppSurface>
   );
 }

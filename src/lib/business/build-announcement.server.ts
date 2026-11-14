@@ -89,6 +89,43 @@ export type AnnounceReason =
 
 export type AnnounceResult = { posted: boolean; text: string; reason: AnnounceReason };
 
+/** Link diretto al bot (t.me/<username>), o null se lo username non è configurato/valido. */
+export function botInviteLink(): string | null {
+  const username = env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME?.trim().replace(/^@/, '');
+  if (!username || !/^[A-Za-z0-9_]{3,64}$/.test(username)) return null;
+  return `https://t.me/${username}`;
+}
+
+/** Testo del post d'invito al bot sul canale (HTML). Contenuto statico: nessun dato sensibile. */
+export function botInviteText(link: string): string {
+  return (
+    '🎧 <b>Continua su Solco nel bot</b>\n' +
+    'Cerca musica Creative Commons, ricevi il tuo codice invito e apri la Mini App — tutto dentro Telegram.\n\n' +
+    `👉 Apri il bot: ${link}`
+  );
+}
+
+export type BotPostReason = AnnounceReason | 'username_not_configured';
+export type BotPostResult = { posted: boolean; text: string; reason: BotPostReason };
+
+/**
+ * Pubblica SUBITO sul canale un post dedicato che invita ad aprire il bot (azione admin on-demand),
+ * con un pulsante inline "Apri il bot". Non deduplica (è una richiesta esplicita, ripetibile).
+ */
+export async function publishBotInviteNow(): Promise<BotPostResult> {
+  if (!isTelegramBotConfigured()) return { posted: false, text: '', reason: 'bot_not_configured' };
+  const channel = env.TELEGRAM_CHANNEL_CHAT_ID;
+  if (!channel) return { posted: false, text: '', reason: 'channel_not_configured' };
+  const link = botInviteLink();
+  if (!link) return { posted: false, text: '', reason: 'username_not_configured' };
+  const text = botInviteText(link);
+  const posted = await sendTelegramMessage(channel, text, {
+    parseMode: 'HTML',
+    replyMarkup: { inline_keyboard: [[{ text: '▶️ Apri il bot', url: link }]] },
+  });
+  return { posted, text, reason: posted ? 'ok' : 'telegram_failed' };
+}
+
 /**
  * Pubblica SUBITO l'annuncio della build corrente sul canale (azione admin on-demand). A differenza
  * di announceBuildIfNew(), pubblica anche se il commit è già registrato (è una richiesta esplicita);

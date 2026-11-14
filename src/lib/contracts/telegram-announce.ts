@@ -18,3 +18,17 @@ export const AnnounceResultSchema = z.object({
   reason: z.enum(['ok', 'telegram_failed', 'bot_not_configured', 'channel_not_configured']),
 });
 export type AnnounceResult = z.infer<typeof AnnounceResultSchema>;
+
+/** Esito del post dedicato che invita ad aprire il bot (POST). */
+export const TelegramBotPostResultSchema = z.object({
+  posted: z.boolean(),
+  text: z.string(),
+  reason: z.enum([
+    'ok',
+    'telegram_failed',
+    'bot_not_configured',
+    'channel_not_configured',
+    'username_not_configured',
+  ]),
+});
+export type TelegramBotPostResult = z.infer<typeof TelegramBotPostResultSchema>;
