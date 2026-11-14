@@ -14,7 +14,15 @@ import { isSafeAuthDestination } from '@/lib/business/auth-form';
 import styles from './require-login.module.css';
 
 /** Rotte raggiungibili SENZA essere loggati (voluto dal prodotto: solo queste). */
-const PUBLIC_EXACT = new Set(['/login', '/signup', '/privacy', '/terms', '/stato', '/bot']);
+const PUBLIC_EXACT = new Set([
+  '/login',
+  '/signup',
+  '/privacy',
+  '/terms',
+  '/stato',
+  '/bot',
+  '/impostazioni',
+]);
 const PUBLIC_PREFIXES = [
   '/login/',
   '/signup/',
