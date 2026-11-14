@@ -2,14 +2,18 @@
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  canonicalAppOrigin,
   challengeTtlSeconds,
   hasLeadingZeroBits,
   ipPrefix,
   isAllowlistedBot,
+  isClientNavigationRequest,
   isGateablePath,
+  isLinkPreviewBot,
   issueChallenge,
   issueClearance,
   readUamConfig,
+  UAM_PUBLIC_ROOT_FILES,
   type UamContext,
   uaHash,
   uamChallengeHosts,
@@ -385,6 +389,62 @@ describe('clearance cookie', () => {
     }
   });
 
+  it('client navigation in attack mode: an attack clearance counts up to 24 h', async () => {
+    const cookie = await issueClearance(ctx(), 'attack');
+    const nav = { clientNavigation: true };
+    expect(await verifyClearance(cookie, ctx({ now: T0 + 2 * 3600_000 }), 'attack', nav)).toBe(
+      true,
+    );
+    expect(await verifyClearance(cookie, ctx({ now: T0 + 24 * 3600_000 }), 'attack', nav)).toBe(
+      true,
+    );
+    expect(
+      await verifyClearance(cookie, ctx({ now: T0 + 24 * 3600_000 + 1000 }), 'attack', nav),
+    ).toBe(false);
+    // Senza l'opzione (navigazione di documento) resta la regola dell'ora.
+    expect(await verifyClearance(cookie, ctx({ now: T0 + 2 * 3600_000 }), 'attack')).toBe(false);
+    expect(
+      await verifyClearance(cookie, ctx({ now: T0 + 2 * 3600_000 }), 'attack', {
+        clientNavigation: false,
+      }),
+    ).toBe(false);
+  });
+
+  it('client navigation in attack mode: a first-visit clearance keeps the 1 h rule', async () => {
+    const cookie = await issueClearance(ctx(), 'first-visit');
+    const nav = { clientNavigation: true };
+    // Mai più severa dei documenti: entro l'ora vale, come per loro.
+    expect(await verifyClearance(cookie, ctx({ now: T0 + 3600_000 }), 'attack', nav)).toBe(true);
+    // Oltre l'ora no: la prova di first-visit (14 bit) non vale per un giorno di attacco.
+    expect(await verifyClearance(cookie, ctx({ now: T0 + 3601_000 }), 'attack', nav)).toBe(false);
+    expect(
+      await verifyClearance(cookie, ctx({ now: T0 + 29 * 24 * 3600_000 }), 'attack', nav),
+    ).toBe(false);
+  });
+
+  it('client navigation never revives an expired, foreign or tampered clearance', async () => {
+    const nav = { clientNavigation: true };
+    const short = await issueClearance(ctx(), 'attack', 60);
+    expect(await verifyClearance(short, ctx({ now: T0 + 61_000 }), 'attack', nav)).toBe(false);
+    const cookie = await issueClearance(ctx(), 'attack');
+    const later = T0 + 2 * 3600_000;
+    expect(
+      await verifyClearance(cookie, ctx({ now: later, ipPrefix: '198.51' }), 'attack', nav),
+    ).toBe(false);
+    expect(await verifyClearance(tamperSignature(cookie), ctx({ now: later }), 'attack', nav)).toBe(
+      false,
+    );
+  });
+
+  it('client navigation changes nothing in first-visit mode (30-day clearance)', async () => {
+    const cookie = await issueClearance(ctx(), 'first-visit');
+    const later = ctx({ now: T0 + 29 * 24 * 3600_000 });
+    expect(await verifyClearance(cookie, later, 'first-visit', { clientNavigation: true })).toBe(
+      true,
+    );
+    expect(await verifyClearance(cookie, later, 'first-visit')).toBe(true);
+  });
+
   it('rejects a clearance issued in the future', async () => {
     const cookie = await issueClearance(ctx({ now: T0 + 60_000 }), 'first-visit');
     expect(await verifyClearance(cookie, ctx(), 'first-visit')).toBe(false);
@@ -447,6 +507,46 @@ describe('isGateablePath', () => {
     '/music.rsc',
     '/index.rsc',
     '/ios',
+    // Un'estensione statica fuori dalla radice e da /fonts/, /brand/ renderebbe una pagina
+    // dinamica: passa dal gate.
+    '/albums/x.png',
+    '/albums/x.png/',
+    '/generi/x.json',
+    '/profiles/abc/x.jpg',
+    '/profiles/x.css',
+    '/podcasts/x.mp3',
+    '/playlist/x.png',
+    '/playlist/AbCdEfGhIjKlMnOpQrStUv.png',
+    '/playlist/AbCdEfGhIjKlMnOpQrStUv/x.png',
+    '/playlist/short/anteprima.png',
+    '/playlist/AbCdEfGhIjKlMnOpQrStUv/anteprima.gif',
+    '/search/x.png',
+    '/search/anteprima.gif',
+    '/search/anteprima.jpg/extra',
+    '/invito/abc.js',
+    '/ios/x.mobileconfig',
+    '/fonts',
+    '/fontsx/a.woff2',
+    '/brandx/a.svg',
+    // Nella radice valgono solo i file veri di public/: /a1.png renderebbe not-found senza verifica.
+    '/x.png',
+    '/a1.png',
+    '/LOGO.PNG',
+    '/logo.png/',
+    '/SW.JS',
+    '/sw.js.map',
+    '/solco.apk.json',
+    '/robots.txt.js',
+    // /fonts/ e /brand/: solo la forma <directory>/<file> con le estensioni giuste.
+    '/fonts/x.png',
+    '/fonts/x.woff2',
+    '/fonts/inter/x.png',
+    '/fonts/inter/x.json',
+    '/fonts/inter/a/b.woff2',
+    '/brand/x.svg',
+    '/brand/spotify/x.json',
+    '/brand/spotify/x.woff2',
+    '/brand/spotify/a/b.svg',
   ])('gates %s', (pathname) => {
     expect(isGateablePath(pathname)).toBe(true);
   });
@@ -478,10 +578,124 @@ describe('isGateablePath', () => {
     '/ios/solco.mobileconfig',
     '/fonts/inter/inter-latin-400.woff2',
     '/music-captions.vtt',
-    '/LOGO.PNG',
-    '/logo.png/',
+    '/sw.js',
+    '/sw.js/',
+    '/apple-touch-icon.png',
+    '/solco-icon-512.png',
+    '/solco-android-icon.svg',
+    '/fonts/space-grotesk/space-grotesk-400-normal-latin.woff2',
+    '/brand/spotify/full-logo-green.svg',
+    '/search/anteprima.png',
+    '/search/anteprima.jpg',
+    '/playlist/AbCdEfGhIjKlMnOpQrStUv/anteprima.png',
+    '/playlist/Ab-_EfGhIjKlMnOpQrStUv/anteprima.jpg',
   ])('does not gate %s', (pathname) => {
     expect(isGateablePath(pathname)).toBe(false);
+  });
+
+  it('every file in public/ stays outside the gate', async () => {
+    const { readdirSync } = await import('node:fs');
+    const { join, relative, sep } = await import('node:path');
+    const root = join(process.cwd(), 'public');
+    const files: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        if (entry.isDirectory()) walk(full);
+        else files.push(`/${relative(root, full).split(sep).join('/')}`);
+      }
+    };
+    walk(root);
+    // Solo i file che il browser chiede davvero (estensione statica); .gitkeep, SOURCE.md esclusi.
+    const served = files.filter((file) => /\.(?!md$|gitkeep$)[a-z0-9]+$/i.test(file));
+    expect(served.length).toBeGreaterThan(0);
+    for (const file of served) expect(isGateablePath(file), file).toBe(false);
+  });
+
+  it('no stale entries: every exempt root file exists in public/', async () => {
+    const { existsSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    expect(UAM_PUBLIC_ROOT_FILES.size).toBeGreaterThan(0);
+    for (const file of UAM_PUBLIC_ROOT_FILES) {
+      expect(existsSync(join(process.cwd(), 'public', file)), file).toBe(true);
+    }
+  });
+});
+
+describe('isLinkPreviewBot', () => {
+  it.each([
+    'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)',
+    'facebookexternalhit/1.1 Facebot Twitterbot/1.0',
+    'Twitterbot/1.0',
+    'TelegramBot (like TwitterBot)',
+    'WhatsApp/2.23.20.0 A',
+    'LinkedInBot/1.0 (compatible; Mozilla/5.0; Apache-HttpClient +http://www.linkedin.com)',
+    'Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)',
+    'Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)',
+    'Mozilla/5.0 (Windows NT 6.1; WOW64) SkypeUriPreview Preview/0.5',
+    'Mozilla/5.0 (compatible; Embedly/0.2; +http://support.embed.ly/)',
+    'Mozilla/5.0 (compatible; redditbot/1.0; +http://www.reddit.com/feedback)',
+    'Pinterestbot/1.0 (+http://www.pinterest.com/bot.html)',
+  ])('recognises %s', (ua) => {
+    expect(isLinkPreviewBot(ua)).toBe(true);
+    // Every link-preview bot is also on the first-visit allowlist.
+    expect(isAllowlistedBot(ua)).toBe(true);
+  });
+
+  it.each([
+    null,
+    undefined,
+    '',
+    'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+    'Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)',
+    'DuckDuckBot/1.1; (+http://duckduckgo.com/duckduckbot.html)',
+    'Mozilla/5.0 (compatible; GPTBot/1.2; +https://openai.com/gptbot)',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1',
+    'curl/8.5.0',
+  ])('does not treat %j as a link-preview bot (search crawlers keep the 503)', (ua) => {
+    expect(isLinkPreviewBot(ua)).toBe(false);
+  });
+});
+
+describe('isClientNavigationRequest', () => {
+  it.each([
+    [{ rsc: '1' }, true],
+    [{ rsc: '1', 'next-router-prefetch': '1' }, true],
+    [{ rsc: '1', 'sec-fetch-dest': 'empty' }, true],
+    // Sec-Fetch-Dest lo sceglie il client: da solo non rende "non documento" una richiesta.
+    [{ 'sec-fetch-dest': 'empty' }, false],
+    [{ 'sec-fetch-dest': 'iframe' }, false],
+    [{ 'sec-fetch-dest': 'image' }, false],
+    [{ 'sec-fetch-dest': 'document' }, false],
+    [{ rsc: '0' }, false],
+    [{ rsc: 'true' }, false],
+    [{}, false],
+  ])('%j → %s', (headers, expected) => {
+    expect(isClientNavigationRequest(new Headers(headers))).toBe(expected);
+  });
+});
+
+describe('canonicalAppOrigin', () => {
+  it.each([
+    ['https://www.solcomusic.online', 'https://www.solcomusic.online'],
+    [' https://www.solcomusic.online/qualcosa?x=1 ', 'https://www.solcomusic.online'],
+    ['https://solco.example:8443', 'https://solco.example:8443'],
+  ])('%j → %s', (value, expected) => {
+    expect(canonicalAppOrigin({ NEXT_PUBLIC_APP_URL: value })).toBe(expected);
+  });
+
+  it.each([
+    undefined,
+    '',
+    '  ',
+    'http://www.solcomusic.online',
+    'http://localhost:3000',
+    'https://*.solcomusic.online',
+    'https://user:pw@solcomusic.online',
+    'ftp://solcomusic.online',
+    'garbage',
+  ])('%j → null', (value) => {
+    expect(canonicalAppOrigin({ NEXT_PUBLIC_APP_URL: value })).toBeNull();
   });
 });
 

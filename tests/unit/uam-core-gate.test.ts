@@ -21,13 +21,21 @@ vi.mock('@/lib/security/uam-page', async (importOriginal) => {
   };
 });
 
+// La paginetta per i bot delle anteprime, vera ma spiata (per farla fallire: fail open).
+vi.mock('@/lib/security/uam-preview', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/security/uam-preview')>();
+  return { ...actual, renderLinkPreviewPage: vi.fn(actual.renderLinkPreviewPage) };
+});
+
 import { uamGate } from '@/lib/security/uam-gate';
 import * as uamPage from '@/lib/security/uam-page';
+import * as uamPreview from '@/lib/security/uam-preview';
 
 const page = {
   renderUamPage: vi.mocked(uamPage.renderUamPage),
   uamPageCsp: vi.mocked(uamPage.uamPageCsp),
 };
+const preview = { renderLinkPreviewPage: vi.mocked(uamPreview.renderLinkPreviewPage) };
 
 const SECRET = 'gate-test-secret-0123456789-abcdefgh';
 const IP = '203.0.113.42';
@@ -119,12 +127,15 @@ describe('uamGate — pass-through', () => {
     'https://www.example.com',
     'https://solcomusic-git-main-team.vercel.app',
     'http://localhost:3000',
-  ])('lets requests to %s through (verify would refuse its origin)', async (origin) => {
-    enable('attack');
-    expect(await uamGate(request('/', { origin }))).toBeNull();
-    expect(await uamGate(request('/', { origin, method: 'POST' }))).toBeNull();
-    expect(page.renderUamPage).not.toHaveBeenCalled();
-  });
+  ])(
+    'lets requests to %s through in first-visit mode (verify would refuse its origin)',
+    async (origin) => {
+      enable('first-visit');
+      expect(await uamGate(request('/', { origin }))).toBeNull();
+      expect(await uamGate(request('/', { origin, method: 'POST' }))).toBeNull();
+      expect(page.renderUamPage).not.toHaveBeenCalled();
+    },
+  );
 
   it.each(['POST', 'PUT', 'PATCH', 'DELETE'])(
     'lets %s through with a valid clearance cookie',
@@ -144,9 +155,29 @@ describe('uamGate — pass-through', () => {
     '/health',
     '/icon.svg',
     '/robots.txt',
+    '/search/anteprima.jpg?t=Brano',
+    '/search/anteprima.png?t=Brano',
+    '/playlist/AbCdEfGhIjKlMnOpQrStUv/anteprima.jpg',
+    '/fonts/inter/inter-400-normal-latin.woff2',
+    '/sw.js',
+    '/solco.apk',
   ])('lets the non-gateable path %s through', async (path) => {
     enable('attack');
     expect(await uamGate(request(path))).toBeNull();
+  });
+
+  it.each([
+    '/a1.png',
+    '/x.js',
+    '/fonts/x.png',
+    '/fonts/inter/x.json',
+    '/brand/spotify/x.json',
+    '/albums/x.png',
+  ])('challenges %s (no such file: Next would render a page)', async (path) => {
+    enable('attack');
+    const response = await uamGate(request(path));
+    expect(response?.status).toBe(503);
+    expect(response?.headers.get('x-solco-gate')).toBe('challenge');
   });
 
   it('lets a valid clearance cookie through', async () => {
@@ -198,6 +229,246 @@ describe('uamGate — hosts', () => {
     expect(await uamGate(request('/'))).toBeNull();
     const local = await uamGate(request('/', { origin: 'http://localhost:3000' }));
     expect(local?.headers.get('x-solco-gate')).toBe('challenge');
+  });
+});
+
+describe('uamGate — host non protetti in modalità attacco', () => {
+  const STATUS = 'https://status.solcomusic.online';
+
+  it.each([
+    ['/', 'https://solcomusic.vercel.app/'],
+    ['/stato', 'https://solcomusic.vercel.app/stato'],
+    ['/albums/abc?x=1&y=%C3%A8', 'https://solcomusic.vercel.app/albums/abc?x=1&y=%C3%A8'],
+    // Un percorso che inizia con // resta un percorso dell'origine canonica (nessun open redirect).
+    ['//evil.example/x', 'https://solcomusic.vercel.app//evil.example/x'],
+  ])('rimanda %s allo stesso percorso sull’origine canonica (308)', async (path, location) => {
+    enable('attack');
+    for (const method of ['GET', 'HEAD']) {
+      const response = await uamGate(request(path, { origin: STATUS, method }));
+      expect(response?.status, method).toBe(308);
+      expect(response?.headers.get('location'), method).toBe(location);
+      expect(new URL(response?.headers.get('location') ?? '').host).toBe('solcomusic.vercel.app');
+      expect(response?.headers.get('cache-control')).toBe('no-store, private');
+      expect(response?.headers.get('x-solco-gate')).toBe('redirect');
+      expect(response?.headers.get('set-cookie')).toBeNull();
+    }
+    expect(page.renderUamPage).not.toHaveBeenCalled();
+  });
+
+  it('rimanda anche con una clearance o con lo UA di un bot (là il gate decide)', async () => {
+    enable('attack');
+    const cookie = await issueClearance(await clientCtx(), 'attack');
+    const withCookie = await uamGate(
+      request('/', { origin: STATUS, headers: { cookie: `${UAM_COOKIE}=${cookie}` } }),
+    );
+    expect(withCookie?.status).toBe(308);
+    const bot = await uamGate(request('/', { origin: STATUS, ua: 'WhatsApp/2.23.20.0 A' }));
+    expect(bot?.status).toBe(308);
+  });
+
+  it.each(['POST', 'PUT', 'PATCH', 'DELETE'])('risponde 405 a %s', async (method) => {
+    enable('attack');
+    const response = await uamGate(request('/', { origin: STATUS, method }));
+    expect(response?.status).toBe(405);
+    expect(response?.body).toBeNull();
+    expect(response?.headers.get('allow')).toBe('GET, HEAD');
+    expect(response?.headers.get('location')).toBeNull();
+  });
+
+  it('non tocca i percorsi esclusi dal gate (API, /health, immagini di anteprima)', async () => {
+    enable('attack');
+    for (const path of ['/api/music/radio', '/health', '/search/anteprima.jpg?t=x', '/sw.js']) {
+      expect(await uamGate(request(path, { origin: STATUS })), path).toBeNull();
+    }
+  });
+
+  it.each([
+    ['', 'NEXT_PUBLIC_APP_URL assente'],
+    ['http://solcomusic.example', 'origine non https'],
+    ['https://*.example.org', 'wildcard'],
+    ['https://user:pw@solco.example', 'credenziali'],
+    ['garbage', 'valore non valido'],
+  ])('senza origine canonica https lascia passare (%s: %s)', async (appUrl) => {
+    enable('attack');
+    vi.stubEnv('NEXT_PUBLIC_APP_URL', appUrl);
+    expect(await uamGate(request('/', { origin: STATUS }))).toBeNull();
+    expect(await uamGate(request('/', { origin: STATUS, method: 'POST' }))).toBeNull();
+  });
+
+  it('in modalità first-visit lascia passare (comportamento invariato)', async () => {
+    enable('first-visit');
+    expect(await uamGate(request('/stato', { origin: STATUS }))).toBeNull();
+    expect(await uamGate(request('/', { origin: STATUS, method: 'POST' }))).toBeNull();
+  });
+});
+
+describe('uamGate — navigazioni client (RSC) in modalità attacco', () => {
+  async function oldCookie(hoursAgo = 2, issuedIn: 'attack' | 'first-visit' = 'attack') {
+    const ctx = await clientCtx();
+    return issueClearance({ ...ctx, now: Date.now() - hoursAgo * 3600_000 }, issuedIn);
+  }
+
+  it.each([
+    ['RSC: 1', { rsc: '1' }],
+    ['prefetch RSC', { rsc: '1', 'next-router-prefetch': '1' }],
+    ['RSC con Sec-Fetch-Dest: empty', { rsc: '1', 'sec-fetch-dest': 'empty' }],
+  ])('accetta una clearance di attacco più vecchia di 1 h per %s', async (_label, headers) => {
+    enable('attack');
+    const cookie = await oldCookie();
+    const response = await uamGate(
+      request('/music?_rsc=abc', { headers: { ...headers, cookie: `${UAM_COOKIE}=${cookie}` } }),
+    );
+    expect(response).toBeNull();
+  });
+
+  it('accetta una clearance di attacco di 23 h per una richiesta RSC, non una di 25 h', async () => {
+    enable('attack');
+    for (const [hoursAgo, passes] of [
+      [23, true],
+      [25, false],
+    ] as const) {
+      const cookie = await oldCookie(hoursAgo);
+      const response = await uamGate(
+        request('/music?_rsc=abc', { headers: { rsc: '1', cookie: `${UAM_COOKIE}=${cookie}` } }),
+      );
+      if (passes) expect(response, `${hoursAgo} h`).toBeNull();
+      else expect(response?.status, `${hoursAgo} h`).toBe(503);
+    }
+  });
+
+  it.each([
+    ['nessun header', {}],
+    ['Sec-Fetch-Dest: document', { 'sec-fetch-dest': 'document' }],
+    // Sec-Fetch-Dest lo sceglie il client: con "empty" (o iframe, …) riceverebbe l'HTML completo.
+    ['Sec-Fetch-Dest: empty', { 'sec-fetch-dest': 'empty' }],
+    ['Sec-Fetch-Dest: iframe', { 'sec-fetch-dest': 'iframe' }],
+    ['Sec-Fetch-Dest: image', { 'sec-fetch-dest': 'image' }],
+    ['RSC: 0', { rsc: '0' }],
+  ])('per una navigazione di documento (%s) resta la regola di 1 h', async (_label, headers) => {
+    enable('attack');
+    const cookie = await oldCookie();
+    const response = await uamGate(
+      request('/music', { headers: { ...headers, cookie: `${UAM_COOKIE}=${cookie}` } }),
+    );
+    expect(response?.status).toBe(503);
+    expect(response?.headers.get('x-solco-gate')).toBe('challenge');
+  });
+
+  it('una vecchia clearance di first-visit non basta per una richiesta RSC', async () => {
+    enable('attack');
+    for (const hoursAgo of [2, 29 * 24]) {
+      const cookie = await oldCookie(hoursAgo, 'first-visit');
+      const variants: Record<string, string>[] = [{ rsc: '1' }, { 'sec-fetch-dest': 'empty' }, {}];
+      for (const headers of variants) {
+        const response = await uamGate(
+          request('/', { headers: { ...headers, cookie: `${UAM_COOKIE}=${cookie}` } }),
+        );
+        expect(response?.status, `${hoursAgo} h ${JSON.stringify(headers)}`).toBe(503);
+      }
+    }
+  });
+
+  it('una clearance di first-visit recente (meno di 1 h) vale anche per RSC', async () => {
+    enable('attack');
+    const cookie = await oldCookie(0.5, 'first-visit');
+    const response = await uamGate(
+      request('/music?_rsc=abc', { headers: { rsc: '1', cookie: `${UAM_COOKIE}=${cookie}` } }),
+    );
+    expect(response).toBeNull();
+  });
+
+  it('senza clearance valida una richiesta RSC riceve ancora la schermata', async () => {
+    enable('attack');
+    const ctx = await clientCtx();
+    const expired = await issueClearance({ ...ctx, now: Date.now() - 2 * 3600_000 }, 'attack', 60);
+    const foreign = await issueClearance(await clientCtx('198.51.100.1'), 'attack');
+    const fresh = await issueClearance(ctx, 'attack');
+    const tampered = fresh.replace('.attack.', '.first-visit.');
+    for (const cookie of [null, expired, foreign, tampered, 'garbage']) {
+      const headers: Record<string, string> = { rsc: '1' };
+      if (cookie) headers.cookie = `${UAM_COOKIE}=${cookie}`;
+      const response = await uamGate(request('/music?_rsc=abc', { headers }));
+      expect(response?.status, String(cookie)).toBe(503);
+    }
+  });
+
+  it('in modalità first-visit nulla cambia: la clearance vale per 30 giorni', async () => {
+    enable('first-visit');
+    const ctx = await clientCtx();
+    const old = await issueClearance({ ...ctx, now: Date.now() - 10 * 24 * 3600_000 }, 'attack');
+    expect(
+      await uamGate(request('/music', { headers: { cookie: `${UAM_COOKIE}=${old}` } })),
+    ).toBeNull();
+  });
+});
+
+describe('uamGate — bot delle anteprime in modalità attacco', () => {
+  const WHATSAPP = 'WhatsApp/2.23.20.0 A';
+  const FACEBOOK = 'facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)';
+  const TELEGRAM = 'TelegramBot (like TwitterBot)';
+
+  it.each([WHATSAPP, FACEBOOK, TELEGRAM])(
+    'risponde 200 con la paginetta di meta tag a %s',
+    async (ua) => {
+      enable('attack');
+      const response = await uamGate(request('/', { ua }));
+      expect(response?.status).toBe(200);
+      const headers = response?.headers;
+      expect(headers?.get('x-solco-gate')).toBe('preview');
+      expect(headers?.get('content-type')).toBe('text/html; charset=utf-8');
+      expect(headers?.get('cache-control')).toBe('no-store, private');
+      expect(headers?.get('content-security-policy')).toContain("default-src 'none'");
+      expect(headers?.get('retry-after')).toBeNull();
+      expect(headers?.get('set-cookie')).toBeNull();
+      const html = (await response?.text()) ?? '';
+      expect(html).toContain('<meta property="og:title" content="Solco">');
+      expect(html).toContain(
+        '<meta property="og:image" content="https://solcomusic.vercel.app/opengraph-image">',
+      );
+      expect(html).not.toContain('<script');
+      expect(page.renderUamPage).not.toHaveBeenCalled();
+    },
+  );
+
+  it('HEAD: stessi header, nessun corpo', async () => {
+    enable('attack');
+    const response = await uamGate(request('/', { ua: WHATSAPP, method: 'HEAD' }));
+    expect(response?.status).toBe(200);
+    expect(response?.headers.get('x-solco-gate')).toBe('preview');
+    expect(response?.body).toBeNull();
+  });
+
+  it('POST da un bot di anteprima: 405 come per tutti', async () => {
+    enable('attack');
+    expect((await uamGate(request('/', { ua: WHATSAPP, method: 'POST' })))?.status).toBe(405);
+  });
+
+  it.each([
+    GOOGLEBOT,
+    'Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)',
+    'Mozilla/5.0 (compatible; GPTBot/1.2; +https://openai.com/gptbot)',
+  ])('i crawler di ricerca (%s) ricevono ancora 503 + Retry-After', async (ua) => {
+    enable('attack');
+    const response = await uamGate(request('/', { ua }));
+    expect(response?.status).toBe(503);
+    expect(response?.headers.get('retry-after')).toBe('5');
+    expect(response?.headers.get('x-solco-gate')).toBe('challenge');
+  });
+
+  it('in modalità first-visit i bot delle anteprime passano come prima', async () => {
+    enable('first-visit');
+    expect(await uamGate(request('/search?t=Brano', { ua: WHATSAPP }))).toBeNull();
+  });
+
+  it('se la paginetta fallisce lascia passare (fail open)', async () => {
+    enable('attack');
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    preview.renderLinkPreviewPage.mockImplementationOnce(() => {
+      throw new TypeError(`boom for ${IP}`);
+    });
+    expect(await uamGate(request('/', { ua: WHATSAPP }))).toBeNull();
+    expect(error).toHaveBeenCalledTimes(1);
+    expect((error.mock.calls[0] ?? []).map(String).join(' ')).not.toContain(IP);
   });
 });
 

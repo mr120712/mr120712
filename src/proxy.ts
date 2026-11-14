@@ -65,14 +65,21 @@ export async function proxy(request: NextRequest) {
   return response;
 }
 
+// Correzione di sicurezza (fuori dallo slot, su Vercel): il matcher NON ha più la clausola
+// `missing` sugli header `next-router-prefetch` e `purpose: prefetch`. Quegli header li sceglie
+// il client: con `Purpose: prefetch` (o `Next-Router-Prefetch: x`) qualunque richiesta saltava il
+// proxy intero, quindi anche il gate dell'Under Attack Mode, e riceveva l'HTML completo senza
+// verifica. Ora anche i prefetch passano dal proxy: con una clearance valida proseguono come
+// prima, senza clearance ricevono la schermata di verifica (e la CSP con nonce vale anche per
+// loro). Verificato in tests/unit/proxy-matcher.test.ts.
+// Le esclusioni sono ancorate al confine del segmento: prima `api` escludeva anche /apiary e
+// /api-docs, e `favicon.ico` (punto non escapato) anche /favicon.icox o /faviconXico. Quei
+// percorsi saltavano proxy, gate e CSP e Next li rispondeva con not-found renderizzato. Ora
+// restano fuori solo /api e /api/…, /_next/static/…, /_next/image e /favicon.ico esatti.
 export const config = {
   matcher: [
     {
-      source: '/((?!api|_next/static|_next/image|favicon.ico).*)',
-      missing: [
-        { type: 'header', key: 'next-router-prefetch' },
-        { type: 'header', key: 'purpose', value: 'prefetch' },
-      ],
+      source: '/((?!api(?:/|$)|_next/static/|_next/image(?:/|$)|favicon\\.ico$).*)',
     },
   ],
 };

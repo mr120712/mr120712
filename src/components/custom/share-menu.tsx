@@ -35,13 +35,19 @@ export type ShareMenuProps = {
   /** Classi del menu aperto (es. uno z-index più alto dentro il player a schermo intero). */
   contentClassName?: string;
   /**
-   * Immagine della condivisione (percorso same-origin, es. la scheda PNG del brano): allegata al
+   * Immagine della condivisione (percorso same-origin, es. la scheda JPEG del brano): allegata al
    * menu di condivisione del telefono quando il sistema accetta file (Instagram, WhatsApp…).
    */
   imageUrl?: string;
 };
 
-/** Scarica l'immagine come file da allegare, se il sistema lo consente; altrimenti null. */
+const IMAGE_EXTENSIONS: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+};
+
+/** Scarica l'immagine (solo dal sito stesso) come file da allegare; altrimenti null. */
 async function shareableImage(imageUrl: string): Promise<File | null> {
   try {
     const url = new URL(imageUrl, window.location.origin);
@@ -50,12 +56,28 @@ async function shareableImage(imageUrl: string): Promise<File | null> {
     const type = response.headers.get('content-type') ?? '';
     if (!response.ok || !type.startsWith('image/')) return null;
     const blob = await response.blob();
-    const file = new File([blob], 'solco.png', { type: blob.type || 'image/png' });
-    return typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] })
-      ? file
-      : null;
+    const fileType = blob.type || 'image/jpeg';
+    // Nome coerente con il tipo: alcune app scelgono come aprire il file dall'estensione.
+    const extension = IMAGE_EXTENSIONS[fileType] ?? 'jpg';
+    return new File([blob], `solco.${extension}`, { type: fileType });
   } catch {
     return null;
+  }
+}
+
+/**
+ * Il contenuto da condividere: con l'immagine solo se il sistema accetta QUESTO contenuto intero
+ * (titolo, testo, link e file insieme), altrimenti solo il link. Il controllo si fa prima di
+ * chiamare navigator.share: la condivisione consuma il gesto dell'utente, quindi un secondo
+ * tentativo senza immagine fallirebbe sempre.
+ */
+function sharePayload(data: ShareData, file: File | null): ShareData {
+  if (!file || typeof navigator.canShare !== 'function') return data;
+  const withFile: ShareData = { ...data, files: [file] };
+  try {
+    return navigator.canShare(withFile) ? withFile : data;
+  } catch {
+    return data;
   }
 }
 
@@ -93,13 +115,14 @@ export function ShareMenu({
   };
 
   const shareNatively = async () => {
-    const file = imageRef.current?.url === imageUrl ? imageRef.current?.file : null;
+    const file = imageRef.current?.url === imageUrl ? (imageRef.current?.file ?? null) : null;
     try {
-      await navigator.share(file ? { title, text, url, files: [file] } : { title, text, url });
+      await navigator.share(sharePayload({ title, text, url }, file));
     } catch (error) {
-      // Chiuso dall'utente: niente. Rifiutato con l'immagine (alcune app): di nuovo senza.
-      if (file && (error as { name?: unknown } | null)?.name !== 'AbortError') {
-        await navigator.share({ title, text, url }).catch(() => undefined);
+      // Chiuso dall'utente: niente. Altrimenti nessun nuovo tentativo (il gesto è già consumato):
+      // si suggerisce di copiare il link.
+      if ((error as { name?: unknown } | null)?.name !== 'AbortError') {
+        toast.error('Condivisione non riuscita. Usa «Copia link» e incolla il link nell’app.');
       }
     }
   };

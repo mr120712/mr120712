@@ -9,10 +9,15 @@ vi.mock('sonner', () => ({ toast }));
 import { ShareMenu } from '@/components/custom/share-menu';
 import { safeAuthDestination } from '@/lib/business/auth-form';
 import {
+  audiusTrackIdFromQualifiedId,
   publicShareUrl,
+  SONG_SHARE_URL_MAX,
+  searchParamsRecord,
+  shareCardText,
   sharedSongFromParams,
   socialShareLinks,
   songPreviewImagePath,
+  songShareImagePath,
   songShareText,
   songShareUrl,
 } from '@/lib/business/social-share';
@@ -89,48 +94,165 @@ describe('link di condivisione', () => {
     expect(() => songShareUrl(broken, '\uDFFF', 'https://x.example')).not.toThrow();
   });
 
-  it('copertina nel link solo se Audius (mai miniature YouTube); link sempre valido dopo l’accesso', () => {
-    const audius = 'https://audius.co/content/QmAbcdefghijklmnopqrstuvwxyz12/480x480.jpg';
+  it('brano Audius: nel link solo il suo id (au), mai un URL di immagine', () => {
     const url = songShareUrl(
       'Notte Chiara',
       'Artista Uno',
       'https://www.solcomusic.online',
-      audius,
+      'J7Xb000',
     );
-    expect(new URL(url).searchParams.get('img')).toBe(audius);
+    expect(url).toBe(
+      'https://www.solcomusic.online/search?q=Artista%20Uno%20Notte%20Chiara&t=Notte%20Chiara&a=Artista%20Uno&au=J7Xb000',
+    );
     const destination = new URL(url).pathname + new URL(url).search;
     expect(safeAuthDestination(destination)).toBe(destination);
-    for (const cover of [
-      'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
-      'https://evil.example/cover.jpg',
-      '/api/music/home-tracks/cover?p=a.mp3',
-      null,
-    ]) {
-      expect(
-        new URL(songShareUrl('X', null, 'https://x.example', cover)).searchParams.has('img'),
-      ).toBe(false);
+    for (const id of [null, '', 'playlist:abc', 'a b', 'x'.repeat(129), '../x', 'id&img=1']) {
+      const link = new URL(songShareUrl('X', null, 'https://x.example', id));
+      expect(link.searchParams.has('au'), String(id)).toBe(false);
+      expect(link.searchParams.has('img')).toBe(false);
     }
   });
 
-  it('dal link alla scheda dell’anteprima: titolo, artista, copertina ammessa', () => {
-    const audius =
-      'https://creatornode.audius.co/content/QmAbcdefghijklmnopqrstuvwxyz12/480x480.jpg';
+  it('id Audius dal player: solo brani, mai playlist o album', () => {
+    expect(audiusTrackIdFromQualifiedId('audius:J7Xb000')).toBe('J7Xb000');
+    expect(audiusTrackIdFromQualifiedId('audius:playlist:J7Xb000')).toBeNull();
+    expect(audiusTrackIdFromQualifiedId('audius:album:J7Xb000')).toBeNull();
+    expect(audiusTrackIdFromQualifiedId('youtube:dQw4w9WgXcQ')).toBeNull();
+    expect(audiusTrackIdFromQualifiedId('audius:')).toBeNull();
+    expect(audiusTrackIdFromQualifiedId(undefined)).toBeNull();
+  });
+
+  it('link lunghi (titoli non latini): sotto ~1800 caratteri, via prima l’artista poi il titolo', () => {
+    const base = 'https://www.solcomusic.online';
+    const title = 'Ж'.repeat(120);
+    // 3 byte UTF-8 per carattere: 9 caratteri nel link per ognuno.
+    const artist = '音'.repeat(80);
+    const withArtist = songShareUrl(title, 'Ω'.repeat(80), base, 'J7Xb000');
+    expect([...new URL(withArtist).searchParams.keys()]).toEqual(['q', 't', 'a', 'au']);
+    expect(withArtist.length).toBeLessThanOrEqual(SONG_SHARE_URL_MAX);
+
+    const noArtist = songShareUrl(title, artist, base, 'J7Xb000');
+    expect(noArtist.length).toBeLessThanOrEqual(SONG_SHARE_URL_MAX);
+    const params = new URL(noArtist).searchParams;
+    expect([...params.keys()]).toEqual(['q', 't', 'au']);
+
+    const emoji = '😀'.repeat(120);
+    const onlyQuery = songShareUrl(emoji, '😀'.repeat(80), base, 'J7Xb000');
+    expect(onlyQuery.length).toBeLessThanOrEqual(SONG_SHARE_URL_MAX);
+    expect([...new URL(onlyQuery).searchParams.keys()]).toEqual(['q', 'au']);
+    // Sempre accettato come destinazione dopo l'accesso (al massimo 2048 caratteri).
+    for (const link of [noArtist, onlyQuery]) {
+      const destination = new URL(link).pathname + new URL(link).search;
+      expect(safeAuthDestination(destination)).toBe(destination);
+    }
+  });
+
+  it('dal link alla scheda dell’anteprima: titolo, artista, id; img ignorato', () => {
     expect(
-      sharedSongFromParams({ q: 'Vasco Albachiara', t: 'Albachiara', a: 'Vasco', img: audius }),
-    ).toEqual({
-      title: 'Albachiara',
-      artist: 'Vasco',
-      cover: audius,
+      sharedSongFromParams({
+        q: 'Vasco Albachiara',
+        t: 'Albachiara',
+        a: 'Vasco',
+        au: 'J7Xb000',
+        img: 'https://evil.example/content/QmAbcdefghijklmnopqrstuvwxyz12/480x480.jpg',
+      }),
+    ).toEqual({ title: 'Albachiara', artist: 'Vasco', audiusId: 'J7Xb000' });
+    // Senza t si usa la ricerca; un id non valido si scarta.
+    expect(sharedSongFromParams({ q: 'Solo ricerca', au: 'non valido' })).toEqual({
+      title: 'Solo ricerca',
+      artist: null,
+      audiusId: null,
     });
-    // Senza t si usa la ricerca; una copertina non ammessa si scarta.
-    expect(
-      sharedSongFromParams({ q: 'Solo ricerca', img: 'https://i.ytimg.com/vi/x/hqdefault.jpg' }),
-    ).toEqual({ title: 'Solo ricerca', artist: null, cover: null });
+    expect(sharedSongFromParams({ au: 'J7Xb000' })).toEqual({
+      title: '',
+      artist: null,
+      audiusId: 'J7Xb000',
+    });
     expect(sharedSongFromParams({})).toBeNull();
+    expect(sharedSongFromParams({ img: 'https://audius.co/x.jpg' })).toBeNull();
     expect(sharedSongFromParams({ t: ['Primo', 'Secondo'] })?.title).toBe('Primo');
-    expect(songPreviewImagePath({ title: 'Help!', artist: 'The Beatles', cover: audius })).toBe(
-      `/search/anteprima.png?t=Help%21&a=The%20Beatles&img=${encodeURIComponent(audius)}`,
+    // Niente indirizzi web nel testo libero.
+    expect(
+      sharedSongFromParams({ t: 'Ascolta https://evil.example/x qui', a: 'www.evil.example' }),
+    ).toEqual({ title: 'Ascolta qui', artist: null, audiusId: null });
+    expect(sharedSongFromParams({ t: 'http://evil.example' })).toBeNull();
+  });
+
+  it('indirizzi web attaccati a una parola, senza schema o che ne formano un altro: tolti', () => {
+    const title = (t: string) => sharedSongFromParams({ t, a: 'Artista' })?.title ?? null;
+    expect(title('_https://evil.example/login')).toBe('_');
+    expect(title('1www.evil.example/x ora')).toBe('ora');
+    expect(title('Vaiahttps://evil.example ora')).toBe('Vaia ora');
+    expect(title('Brano xhttp://a.b')).toBe('Brano x');
+    expect(title('Vai su evil.com subito')).toBe('Vai su subito');
+    expect(title('Vai su EVIL.COM')).toBe('Vai su');
+    expect(title('Brano sito.example/login')).toBe('Brano');
+    // Togliendo un indirizzo ne resterebbe un altro: si toglie anche quello.
+    expect(title('Brano a.comhttps://x')).toBe('Brano');
+    // Nomi veri con un punto restano.
+    for (const name of ['will.i.am', 'Vol.II', 'Mr.Brightside', 'No.1', 'P!nk', 'AC/DC']) {
+      expect(title(name), name).toBe(name);
+    }
+    // Pulire due volte non cambia nulla: l'indirizzo canonico resta lo stesso.
+    for (const raw of [
+      '_https://evil.example/login',
+      'Brano a.comhttps://x',
+      'www.a www.b fine',
+      `${'a'.repeat(118)} evil.com`,
+      `${'b'.repeat(115)} x.it/y`,
+    ]) {
+      const path = songPreviewImagePath({ title: raw, artist: raw });
+      const reread = sharedSongFromParams(
+        searchParamsRecord(new URLSearchParams(path.split('?')[1] ?? '')),
+      );
+      expect(songPreviewImagePath(reread), raw).toBe(path);
+    }
+  });
+
+  it('titolo e artista di un brano (anche da Audius) per la scheda: niente indirizzi web', () => {
+    expect(shareCardText('Solco chiude: vai su https://evil.example/login', 'title')).toBe(
+      'Solco chiude: vai su',
     );
+    expect(shareCardText('www.evil.example', 'artist')).toBe('');
+    expect(shareCardText('  Luci   basse ', 'title')).toBe('Luci basse');
+    expect(Array.from(shareCardText('Ω'.repeat(200), 'artist'))).toHaveLength(80);
+  });
+
+  it('indirizzo canonico dell’immagine: JPEG, pulito da sé, sempre lo stesso', () => {
+    expect(songPreviewImagePath({ title: 'Help!', artist: 'The Beatles' })).toBe(
+      '/search/anteprima.jpg?t=Help%21&a=The%20Beatles',
+    );
+    expect(songPreviewImagePath({ title: '  Help!   ', artist: '  The   Beatles ' })).toBe(
+      '/search/anteprima.jpg?t=Help%21&a=The%20Beatles',
+    );
+    expect(
+      songPreviewImagePath({ title: 'Ignorato', artist: 'Ignorato', audiusId: 'J7Xb000' }),
+    ).toBe('/search/anteprima.jpg?au=J7Xb000');
+    expect(songPreviewImagePath({ title: 'X', audiusId: 'audius:playlist:1' })).toBe(
+      '/search/anteprima.jpg?t=X',
+    );
+    expect(songPreviewImagePath(null)).toBe('/search/anteprima.jpg');
+    expect(songPreviewImagePath({ title: 'www.evil.example' })).toBe('/search/anteprima.jpg');
+    // Rileggere l'indirizzo canonico dà di nuovo lo stesso indirizzo.
+    for (const song of [
+      { title: `${'a'.repeat(118)} https://evil.example`, artist: 'Ω'.repeat(100) },
+      { title: '😀'.repeat(200), artist: null },
+      { title: 'Titolo \uD83C rotto', artist: '\uDFFF' },
+      { title: 'P!nk ~ *', artist: "Rock'n'roll (live)" },
+    ]) {
+      const path = songPreviewImagePath(song);
+      const reread = sharedSongFromParams(
+        searchParamsRecord(new URLSearchParams(path.split('?')[1] ?? '')),
+      );
+      expect(songPreviewImagePath(reread)).toBe(path);
+    }
+  });
+
+  it('immagine del player = og:image della pagina per lo stesso link', () => {
+    const link = songShareUrl('Notte Chiara', 'Artista Uno', 'https://www.solcomusic.online');
+    expect(songShareImagePath(link)).toBe('/search/anteprima.jpg?t=Notte%20Chiara&a=Artista%20Uno');
+    const audius = songShareUrl('Notte', 'Uno', 'https://www.solcomusic.online', 'J7Xb000');
+    expect(songShareImagePath(audius)).toBe('/search/anteprima.jpg?au=J7Xb000');
   });
 
   it('testo di ciò che si ascolta', () => {
@@ -149,6 +271,7 @@ describe('menu "Condividi"', () => {
     vi.unstubAllGlobals();
     document.body.innerHTML = '';
     toast.success.mockReset();
+    toast.error.mockReset();
   });
 
   async function open(element: React.ReactElement) {
@@ -216,36 +339,94 @@ describe('menu "Condividi"', () => {
     expect(share).toHaveBeenCalledWith({ title: props.title, text: props.text, url: props.url });
   });
 
-  it('sul telefono allega la scheda del brano come immagine (preparata all’apertura del menu)', async () => {
-    const share = vi.fn(async (_data: ShareData) => undefined);
-    const canShare = vi.fn(() => true);
-    vi.stubGlobal('navigator', { ...navigator, share, canShare });
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(
-        async () =>
-          new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47]), {
-            headers: { 'content-type': 'image/png' },
-          }),
-      ),
+  function jpegFetch() {
+    return vi.fn(
+      async () =>
+        new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]), {
+          headers: { 'content-type': 'image/jpeg' },
+        }),
     );
-    await open(<ShareMenu {...props} imageUrl="/search/anteprima.png?t=Albachiara" />);
-    await act(async () => {
-      for (let i = 0; i < 10; i += 1) await Promise.resolve();
-    });
-    expect(fetch).toHaveBeenCalledTimes(1);
+  }
+
+  async function tapNative() {
     const native = [...document.querySelectorAll('[role="menuitem"]')].find((item) =>
       item.textContent?.includes('Altre app'),
     );
     await act(async () => {
       native?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
-    const payload = share.mock.calls[0]?.[0] as { files?: File[]; url?: string } | undefined;
+  }
+
+  async function settle() {
+    await act(async () => {
+      for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    });
+  }
+
+  it('sul telefono allega la scheda del brano come immagine (preparata all’apertura del menu)', async () => {
+    const share = vi.fn(async (_data: ShareData) => undefined);
+    const canShare = vi.fn((_data?: ShareData) => true);
+    vi.stubGlobal('navigator', { ...navigator, share, canShare });
+    vi.stubGlobal('fetch', jpegFetch());
+    await open(<ShareMenu {...props} imageUrl="/search/anteprima.jpg?t=Albachiara" />);
+    await settle();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await tapNative();
+    const payload = share.mock.calls[0]?.[0] as ShareData | undefined;
     expect(payload).toBeDefined();
     if (!payload) return;
     expect(payload.url).toBe(props.url);
-    expect(payload.files?.[0]?.name).toBe('solco.png');
-    expect(payload.files?.[0]?.type).toBe('image/png');
+    expect(payload.files?.[0]?.name).toBe('solco.jpg');
+    expect(payload.files?.[0]?.type).toBe('image/jpeg');
+    // Il controllo riguarda il contenuto intero (titolo, testo, link e immagine insieme).
+    expect(canShare).toHaveBeenCalledWith({
+      title: props.title,
+      text: props.text,
+      url: props.url,
+      files: payload.files,
+    });
+  });
+
+  it('se il sistema non accetta il contenuto intero con l’immagine, condivide solo il link', async () => {
+    const share = vi.fn(async (_data: ShareData) => undefined);
+    // Accetta i file da soli ma non insieme al testo e al link (come alcune versioni di Android).
+    const canShare = vi.fn((data?: ShareData) => Boolean(data?.files && !data.url));
+    vi.stubGlobal('navigator', { ...navigator, share, canShare });
+    vi.stubGlobal('fetch', jpegFetch());
+    await open(<ShareMenu {...props} imageUrl="/search/anteprima.jpg?t=Albachiara" />);
+    await settle();
+    await tapNative();
+    expect(share).toHaveBeenCalledTimes(1);
+    expect(share).toHaveBeenCalledWith({ title: props.title, text: props.text, url: props.url });
+  });
+
+  it('condivisione rifiutata: nessun secondo tentativo, suggerisce «Copia link»', async () => {
+    const share = vi.fn(async (_data: ShareData) => {
+      throw Object.assign(new Error('rifiutato'), { name: 'NotAllowedError' });
+    });
+    vi.stubGlobal('navigator', { ...navigator, share, canShare: () => true });
+    vi.stubGlobal('fetch', jpegFetch());
+    await open(<ShareMenu {...props} imageUrl="/search/anteprima.jpg?t=Albachiara" />);
+    await settle();
+    await tapNative();
+    await settle();
+    expect(share).toHaveBeenCalledTimes(1);
+    expect(toast.error).toHaveBeenCalledTimes(1);
+    expect(String(toast.error.mock.calls[0]?.[0])).toContain('Copia link');
+  });
+
+  it('chiusa dall’utente (AbortError): nessun messaggio, nessun secondo tentativo', async () => {
+    const share = vi.fn(async (_data: ShareData) => {
+      throw Object.assign(new Error('chiuso'), { name: 'AbortError' });
+    });
+    vi.stubGlobal('navigator', { ...navigator, share, canShare: () => true });
+    vi.stubGlobal('fetch', jpegFetch());
+    await open(<ShareMenu {...props} imageUrl="/search/anteprima.jpg?t=Albachiara" />);
+    await settle();
+    await tapNative();
+    await settle();
+    expect(share).toHaveBeenCalledTimes(1);
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
   it('immagine di un altro sito o sistema senza file: si condivide solo il link', async () => {

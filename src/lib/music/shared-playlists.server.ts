@@ -107,8 +107,8 @@ export async function getSharedPlaylist(shareId: string, now = new Date()) {
   };
 }
 
-// La regola delle copertine condivisibili vive in un modulo comune (client e server): la usano
-// anche la condivisione di un brano e la sua anteprima social.
+// La regola delle copertine condivisibili vive in un modulo puro (shareable-cover), testabile da
+// solo. I brani condivisi non la usano: la loro copertina arriva da Audius, mai dal link.
 export { isShareableCoverUrl } from '@/lib/music/shareable-cover';
 
 /** Fino a `limit` copertine Audius diverse, nell'ordine della playlist: mai elementi YouTube. */

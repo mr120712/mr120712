@@ -62,6 +62,12 @@ export const UAM_DIFFICULTY_BY_MODE: Readonly<Record<ActiveUamMode, number>> = {
 export const UAM_CLEARANCE_TTL_SECONDS = 30 * 24 * 60 * 60;
 /** In attack mode a clearance counts only if it was issued at most this long ago. */
 export const UAM_ATTACK_MAX_CLEARANCE_AGE_SECONDS = 60 * 60;
+/**
+ * Modalità attacco, navigazioni client di Next (`RSC: 1`): una clearance EMESSA in modalità
+ * attacco vale fino a questa età (non i 30 giorni della scadenza), così il player non si ferma
+ * ogni ora ma chi aggiunge l'header a mano deve comunque rifare la prova da 18 bit ogni giorno.
+ */
+export const UAM_ATTACK_CLIENT_NAVIGATION_MAX_AGE_SECONDS = 24 * 60 * 60;
 /** Lifetime of a challenge of up to 18 bits (see challengeTtlSeconds). */
 export const UAM_CHALLENGE_TTL_SECONDS = 120;
 /** Ceiling of the scaled challenge lifetime. */
@@ -382,11 +388,17 @@ export async function issueClearance(
  * uaHash, it has not expired, it was not issued in the future and — when the
  * current mode is 'attack' — it was issued at most one hour ago (whatever mode
  * issued it).
+ *
+ * Con `clientNavigation` (navigazione client di Next, vedi isClientNavigationRequest), in
+ * modalità attacco vale anche una clearance più vecchia di un'ora, ma solo se è stata emessa in
+ * modalità attacco (prova da 18 bit, non quella più leggera di first-visit) e al massimo
+ * UAM_ATTACK_CLIENT_NAVIGATION_MAX_AGE_SECONDS fa. Mai più severa della regola dei documenti.
  */
 export async function verifyClearance(
   cookie: string | null | undefined,
   ctx: UamContext,
   currentMode: ActiveUamMode,
+  options: { clientNavigation?: boolean } = {},
 ): Promise<boolean> {
   if (!cookie || cookie.length > MAX_TOKEN_LENGTH) return false;
   const match = CLEARANCE_PATTERN.exec(cookie);
@@ -400,8 +412,13 @@ export async function verifyClearance(
   const issuedAt = Number(iat);
   if (Number(exp) <= now) return false;
   if (issuedAt > now + UAM_CLOCK_SKEW_SECONDS) return false;
-  if (currentMode === 'attack' && now - issuedAt > UAM_ATTACK_MAX_CLEARANCE_AGE_SECONDS) {
-    return false;
+  const age = now - issuedAt;
+  if (currentMode === 'attack' && age > UAM_ATTACK_MAX_CLEARANCE_AGE_SECONDS) {
+    return (
+      options.clientNavigation === true &&
+      mode === 'attack' &&
+      age <= UAM_ATTACK_CLIENT_NAVIGATION_MAX_AGE_SECONDS
+    );
   }
   return true;
 }
@@ -422,6 +439,36 @@ export function isAllowlistedBot(userAgent: string | null | undefined): boolean 
   return ALLOWLISTED_BOT.test(userAgent.slice(0, MAX_UA_LENGTH));
 }
 
+// Sottoinsieme di ALLOWLISTED_BOT: solo i bot che disegnano l'anteprima di un link condiviso
+// (chat e social). NON i crawler dei motori di ricerca (googlebot, bingbot, …): in modalità
+// attacco quelli continuano a ricevere 503 + Retry-After e ripassano più tardi.
+const LINK_PREVIEW_BOT =
+  /facebookexternalhit|facebot|twitterbot|telegrambot|whatsapp|linkedinbot|slackbot|discordbot|skypeuripreview|embedly|redditbot|pinterestbot/i;
+
+/**
+ * Bot che chiede una pagina solo per mostrarne l'anteprima (WhatsApp, Telegram, X, …). In
+ * modalità attacco ricevono una paginetta statica di soli meta tag (uam-preview.ts) invece della
+ * schermata di verifica, che non saprebbero risolvere. Lo UA è dichiarato dal client: chi lo
+ * falsifica ottiene solo quella paginetta, mai il render dell'app.
+ */
+export function isLinkPreviewBot(userAgent: string | null | undefined): boolean {
+  if (!userAgent) return false;
+  return LINK_PREVIEW_BOT.test(userAgent.slice(0, MAX_UA_LENGTH));
+}
+
+/**
+ * Navigazione client di Next: il router di Next 16 manda `RSC: 1` su ogni navigazione e prefetch
+ * (fetch-server-response.js, segment-cache/cache.js). Per queste il gate accetta in modalità
+ * attacco una clearance di attacco fino a 24 ore (verifyClearance, `clientNavigation`):
+ * altrimenti ogni ora la navigazione client riceverebbe la schermata HTML, il router farebbe una
+ * navigazione completa e il player musicale si fermerebbe a tutti gli ascoltatori.
+ * `Sec-Fetch-Dest` NON conta: un client scriptato lo sceglie a piacere e i valori diversi da
+ * "document" (empty, iframe, …) gli farebbero ricevere l'HTML completo con una clearance vecchia.
+ */
+export function isClientNavigationRequest(headers: Headers): boolean {
+  return headers.get('rsc') === '1';
+}
+
 const EXEMPT_EXACT = new Set([
   '/api',
   '/_next',
@@ -436,52 +483,41 @@ const EXEMPT_EXACT = new Set([
 ]);
 const EXEMPT_DIRECTORIES = ['/api/', '/_next/', '/_vercel/', '/health/', '/.well-known/'];
 const EXEMPT_NAME_PREFIXES = ['/icon', '/apple-icon', '/opengraph-image', '/twitter-image'];
-/**
- * Static-file extensions that skip the gate. Deliberately a closed list, not
- * "any dot": the dynamic pages (/albums/[albumId], /generi/[slug], …) would
- * otherwise render for `/albums/x.y` without a challenge.
- * Keep in sync with the src/proxy.ts matcher once the gate is wired (see uam-gate.ts).
- */
-export const UAM_STATIC_EXTENSIONS = [
-  'ico',
-  'png',
-  'jpg',
-  'jpeg',
-  'gif',
-  'webp',
-  'avif',
-  'svg',
-  'css',
-  'js',
-  'mjs',
-  'map',
-  'json',
-  'txt',
-  'xml',
-  'webmanifest',
-  'woff',
-  'woff2',
-  'ttf',
-  'otf',
-  'mp3',
-  'm4a',
-  'aac',
-  'ogg',
-  'opus',
-  'wav',
-  'mp4',
-  'webm',
-  'vtt',
-  'pdf',
-  'apk',
-  'mobileconfig',
-  'wasm',
-] as const;
-const STATIC_FILE = new RegExp(`\\.(?:${UAM_STATIC_EXTENSIONS.join('|')})$`, 'i');
+// File statici esenti, uno per uno o con una forma esatta. Un'esenzione più larga ("qualsiasi
+// /<nome>.<estensione>") lascerebbe passare senza verifica anche i percorsi inesistenti come
+// /a1.png, che Next risponde renderizzando not-found nel layout (dinamico): un flood di render.
+//
+// I file nella radice di public/ (il test "every file in public/ stays outside the gate" fallisce
+// se ne manca uno, quello "no stale entries" se uno non c'è più) e la route fissa
+// /ios/solco.mobileconfig (force-static, nessun parametro).
+export const UAM_PUBLIC_ROOT_FILES: ReadonlySet<string> = new Set([
+  '/apple-touch-icon.png',
+  '/music-captions.vtt',
+  '/solco-android-icon.svg',
+  '/solco-icon-512.png',
+  '/solco.apk',
+  '/sw.js',
+]);
+const STATIC_ROUTE_FILES = new Set(['/ios/solco.mobileconfig']);
+// Forme esatte: font in public/fonts/<famiglia>/ e loghi in public/brand/<marchio>/ (solo le
+// estensioni che ci stanno davvero), e le immagini di anteprima per i social (route handler
+// leggeri che disegnano un PNG/JPEG: i bot dei link le scaricano senza poter risolvere la
+// verifica). /playlist/x.png, /fonts/x.png o /brand/x.json renderebbero una pagina: gate.
+const STATIC_FILE_ROUTES = [
+  /^\/fonts\/[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+\.(?:woff2?|ttf|otf)$/,
+  /^\/brand\/[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+\.(?:svg|png)$/,
+  /^\/search\/anteprima\.(?:png|jpg)$/,
+  /^\/playlist\/[A-Za-z0-9_-]{22}\/anteprima\.(?:png|jpg)$/,
+];
 
 /**
  * True when a navigation to `pathname` should pass through the gate. False for
  * /api, framework/platform internals, health, metadata files and static files.
+ *
+ * Un'estensione da sola non esenta: solo i file della radice di public/ elencati in
+ * UAM_PUBLIC_ROOT_FILES, le route fisse in STATIC_ROUTE_FILES e le forme in STATIC_FILE_ROUTES
+ * (font, loghi, immagini di anteprima). Tutto il resto (/x.png, /albums/x.png, /generi/x.json,
+ * /profiles/…, /podcasts/…, /playlist/x.png) renderebbe una pagina, quindi passa dal gate.
  */
 export function isGateablePath(pathname: string): boolean {
   if (typeof pathname !== 'string' || !pathname.startsWith('/')) return true;
@@ -489,8 +525,8 @@ export function isGateablePath(pathname: string): boolean {
   if (EXEMPT_EXACT.has(path)) return false;
   if (EXEMPT_DIRECTORIES.some((directory) => path.startsWith(directory))) return false;
   if (EXEMPT_NAME_PREFIXES.some((prefix) => path.startsWith(prefix))) return false;
-  const lastSegment = path.slice(path.lastIndexOf('/') + 1);
-  return !STATIC_FILE.test(lastSegment);
+  if (UAM_PUBLIC_ROOT_FILES.has(path) || STATIC_ROUTE_FILES.has(path)) return false;
+  return !STATIC_FILE_ROUTES.some((route) => route.test(path));
 }
 
 // ---------------------------------------------------------------------------
@@ -552,4 +588,16 @@ export function uamChallengeHosts(env: EnvLike = process.env): Set<string> {
   }
   for (const origin of vercelDeploymentOrigins(env)) hosts.add(new URL(origin).host);
   return hosts;
+}
+
+/**
+ * L'origine pubblica canonica di Solco: NEXT_PUBLIC_APP_URL solo se è un'origine https esatta
+ * (niente wildcard, credenziali, http). null altrimenti: chi la usa (redirect degli host non
+ * protetti, URL assoluti delle anteprime) ripiega sul comportamento sicuro.
+ */
+export function canonicalAppOrigin(env: EnvLike = process.env): string | null {
+  const raw = env.NEXT_PUBLIC_APP_URL?.trim();
+  if (!raw) return null;
+  const origin = exactOrigin(raw);
+  return origin?.startsWith('https://') ? origin : null;
 }

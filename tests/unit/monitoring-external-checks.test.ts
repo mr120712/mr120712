@@ -24,6 +24,7 @@ import {
   evaluateGoogleRedirect,
   evaluateSecurityHeaders,
   FIREWALL_CHALLENGE_DETAIL,
+  FirewallChallengeError,
   gateOutcome,
   type MonitorDeps,
   main,
@@ -330,10 +331,39 @@ describe('site checks', () => {
       ['site_health', () => checkSiteHealth(deps)],
     ] as const) {
       const result = await runCheck(deps, id, true, check);
-      expect(result, id).toMatchObject({ status: 'warn', detail: FIREWALL_CHALLENGE_DETAIL });
+      // Marcato, così il controllo del monitor cieco sa che la pagina non è stata vista.
+      expect(result, id).toMatchObject({
+        status: 'warn',
+        detail: FIREWALL_CHALLENGE_DETAIL,
+        firewallChallenged: true,
+      });
     }
     expect(sleeps).toEqual([]);
-    expect(gateOutcome(new Headers({ 'x-vercel-mitigated': 'challenge' }))?.status).toBe('warn');
+    expect(gateOutcome(new Headers({ 'x-vercel-mitigated': 'challenge' }))).toEqual({
+      status: 'warn',
+      detail: FIREWALL_CHALLENGE_DETAIL,
+      firewallChallenged: true,
+    });
+  });
+
+  it('resta marcato quando la verifica di Vercel arriva al secondo tentativo, e solo allora', async () => {
+    const { deps } = setup();
+    const attempt = vi
+      .fn<() => Promise<CheckOutcome>>()
+      .mockRejectedValueOnce(Object.assign(new TypeError('fetch failed'), { cause: {} }))
+      .mockRejectedValueOnce(new FirewallChallengeError(FIREWALL_CHALLENGE_DETAIL));
+    expect(await runCheck(deps, 'site_health', true, attempt)).toMatchObject({
+      status: 'warn',
+      detail: `${FIREWALL_CHALLENGE_DETAIL} (al secondo tentativo)`,
+      firewallChallenged: true,
+    });
+    const plain = await runCheck(deps, 'site_health', true, async () => ({
+      status: 'warn',
+      detail: 'lento',
+    }));
+    expect(plain).not.toHaveProperty('firewallChallenged');
+    const uam = gateOutcome(new Headers({ 'x-solco-gate': 'challenge' }));
+    expect(uam).not.toHaveProperty('firewallChallenged');
   });
 
   it('names the Vercel firewall when it really blocks the monitor (a failure)', async () => {
@@ -982,6 +1012,7 @@ describe('main', () => {
     vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
   });
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -1041,6 +1072,143 @@ describe('main', () => {
     );
     expect(code).toBe(1);
     expect(Object.keys(state.checks)).toEqual(['site_health']);
+  });
+
+  /** Ogni richiesta riceve la verifica del browser di Vercel (Attack Challenge Mode acceso). */
+  const vercelChallenge = () =>
+    new Response('<html>Vercel Security Checkpoint</html>', {
+      status: 429,
+      headers: { 'content-type': 'text/html', 'x-vercel-mitigated': 'challenge' },
+    });
+  const attackChallengeMode = () =>
+    Object.fromEntries(Object.keys(healthySite()).map((key) => [key, vercelChallenge]));
+  const HOUR = 60 * 60 * 1000;
+  const ACM_START = Date.parse('2026-11-14T17:23:00.000Z');
+  const BLIND_LABEL = 'Visibilità del monitor (firewall di Vercel)';
+
+  it('Attack Challenge Mode acceso: email dopo 6 giri di fila, promemoria dopo 24 ore, poi "tornato a funzionare"', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const runAt = async (hours: number, handlers: Record<string, Handler>) => {
+      vi.setSystemTime(ACM_START + hours * HOUR);
+      return run(handlers, { GITHUB_ACTIONS: 'true' });
+    };
+    const codes: number[] = [];
+    for (let hour = 0; hour < 5; hour += 1) {
+      codes.push((await runAt(hour, attackChallengeMode())).code);
+    }
+    // Prima della soglia nessuna email: i singoli controlli restano avvisi.
+    expect(codes).toEqual([0, 0, 0, 0, 0]);
+    expect(process.stdout.write).not.toHaveBeenCalledWith(expect.stringContaining('::error'));
+    let summary = await readFile(join(dir, 'summary.md'), 'utf8');
+    expect(summary).toContain('primo errore: email solo se continua per altri 5 controlli');
+    expect(summary).toContain('5 controlli di fila: email solo se si ripete al prossimo controllo');
+    expect(summary).toContain('**❌ Problemi già segnalati o in attesa di conferma nei prossimi');
+    expect(summary).toContain(
+      `| ⚠️ | Sito raggiungibile (/health) | ${FIREWALL_CHALLENGE_DETAIL} |`,
+    );
+
+    const sixth = await runAt(5, attackChallengeMode());
+    expect(sixth.code).toBe(1);
+    expect(sixth.state.checks).toEqual({
+      firewall_blind: {
+        failingSince: new Date(ACM_START).toISOString(),
+        consecutive: 6,
+        lastAlertAt: new Date(ACM_START + 5 * HOUR).toISOString(),
+      },
+    });
+    const message =
+      'Il monitor non può verificare il sito da 5 ore (dal 14/11/2026, 18:23): la protezione ' +
+      'anti-attacco di Vercel (Attack Challenge Mode) ferma anche /health e /api/status. Un ' +
+      'guasto vero non manderebbe email. Per spegnerla: Vercel → Firewall → Attack Challenge ' +
+      'Mode, o aspetta che scada.';
+    expect(process.stdout.write).toHaveBeenCalledWith(
+      `::error title=Solco%3A ${BLIND_LABEL}::${message}\n`,
+    );
+    summary = await readFile(join(dir, 'summary.md'), 'utf8');
+    expect(summary).toContain(`### Nuovi problemi\n\n- ❌ **${BLIND_LABEL}**: ${message}`);
+
+    // Già segnalato: silenzio fino a 24 ore dopo l'email (con il margine dei giri in ritardo).
+    expect((await runAt(6, attackChallengeMode())).code).toBe(0);
+    expect((await runAt(28, attackChallengeMode())).code).toBe(0);
+    const reminder = await runAt(29, attackChallengeMode());
+    expect(reminder.code).toBe(1);
+    expect(process.stdout.write).toHaveBeenCalledWith(
+      expect.stringContaining('::Il monitor non può verificare il sito da 29 ore (dal 14/11/2026'),
+    );
+
+    // Il firewall torna a lasciar passare il monitor: riga verde e "tornato a funzionare".
+    const healed = await runAt(30, healthySite());
+    expect(healed.code).toBe(0);
+    expect(healed.state.checks).toEqual({});
+    expect(healed.state.recent).toEqual({
+      firewall_blind: {
+        lastAlertAt: new Date(ACM_START + 29 * HOUR).toISOString(),
+        recoveredAt: new Date(ACM_START + 30 * HOUR).toISOString(),
+      },
+    });
+    summary = await readFile(join(dir, 'summary.md'), 'utf8');
+    expect(summary).toContain(
+      `### Tornati a funzionare\n\n- ✅ **${BLIND_LABEL}** (guasto dal 14/11/2026, 18:23)`,
+    );
+  });
+
+  it('un guasto già segnalato resta in corso mentre la verifica di Vercel ferma tutto: niente "tornato a funzionare", niente email nuova dopo', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const runAt = async (hours: number, handlers: Record<string, Handler>) => {
+      vi.setSystemTime(ACM_START + hours * HOUR);
+      return run(handlers, { GITHUB_ACTIONS: 'true' });
+    };
+    const outage = healthySite({
+      'GET /health': () => new Response('down', { status: 502 }),
+      'GET /api/status': () =>
+        Response.json({
+          status: 'down',
+          checkedAt: '2026-11-11T10:00:00.000Z',
+          stale: false,
+          failing: ['database'],
+          warnings: [],
+        }),
+    });
+    const first = await runAt(-1, outage);
+    expect(first.code).toBe(1);
+    const alertedAt = new Date(ACM_START - HOUR).toISOString();
+    const entry = { failingSince: alertedAt, consecutive: 1, lastAlertAt: alertedAt };
+    expect(first.state.checks).toEqual({ site_health: entry, 'internal:database': entry });
+
+    // 8 giri con l'Attack Challenge Mode acceso (più della finestra di 6 ore).
+    for (let hour = 0; hour < 8; hour += 1) {
+      const { state } = await runAt(hour, attackChallengeMode());
+      expect(state.checks.site_health, String(hour)).toEqual(entry);
+      expect(state.checks['internal:database'], String(hour)).toEqual(entry);
+    }
+    const summary = await readFile(join(dir, 'summary.md'), 'utf8');
+    expect(summary).not.toContain('- ✅ **Sito raggiungibile (/health)**');
+    expect(summary).not.toContain('- ✅ **Database (controllo interno)**');
+
+    // Le risposte tornano e il guasto c'è ancora: già segnalato 9 ore fa, nessuna email.
+    vi.mocked(process.stdout.write).mockClear();
+    const back = await runAt(8, outage);
+    expect(back.code).toBe(0);
+    expect(process.stdout.write).not.toHaveBeenCalledWith(expect.stringContaining('::error'));
+    expect(back.state.checks).toEqual({
+      site_health: { ...entry, consecutive: 2 },
+      'internal:database': { ...entry, consecutive: 2 },
+    });
+  });
+
+  it('una protezione solo sulle pagine non rende cieco il monitor: /health e /api/status rispondono', async () => {
+    const pagesOnly = healthySite(
+      Object.fromEntries(PUBLIC_PAGES.map((page) => [`GET ${page.path}`, vercelChallenge])),
+    );
+    for (let round = 0; round < 7; round += 1) {
+      const { code, state } = await run(pagesOnly);
+      expect(code).toBe(0);
+      expect(state.checks).toEqual({});
+    }
+    const summary = await readFile(join(dir, 'summary.md'), 'utf8');
+    expect(summary).toContain(
+      `| ✅ | ${BLIND_LABEL} | Il firewall di Vercel ferma 22 controlli, ma non /health e /api/status: un guasto vero resta visibile | — |`,
+    );
   });
 
   it('rejects a BASE_URL that is not http(s) (the CLI turns it into exit 2)', async () => {

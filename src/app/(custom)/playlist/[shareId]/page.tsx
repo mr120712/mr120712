@@ -15,7 +15,7 @@ export async function generateMetadata({
   params: Promise<{ shareId: string }>;
 }): Promise<Metadata> {
   const { shareId } = await params;
-  // The preview image is drawn by ./anteprima.png/route.tsx (name, first name, Audius covers).
+  // The preview image is drawn by ./anteprima.jpg/route.tsx (name, first name, Audius covers).
   const image = isShareId(shareId) ? sharedPlaylistImagePath(shareId) : null;
   return {
     title,
@@ -26,7 +26,17 @@ export async function generateMetadata({
       title,
       description,
       ...(image
-        ? { images: [{ url: image, width: 1200, height: 630, alt: 'Playlist condivisa su Solco' }] }
+        ? {
+            images: [
+              {
+                url: image,
+                type: 'image/jpeg',
+                width: 1200,
+                height: 630,
+                alt: 'Playlist condivisa su Solco',
+              },
+            ],
+          }
         : {}),
     },
     twitter: {

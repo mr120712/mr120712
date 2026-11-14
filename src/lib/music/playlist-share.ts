@@ -18,11 +18,12 @@ export function sharedPlaylistPath(shareId: string) {
 }
 
 /**
- * Anteprima social (PNG 1200×630): un solo indirizzo canonico, senza query string. L’estensione
- * .png la fa trattare come un file statico (crawler dei link, gate anti-attacco).
+ * Anteprima social (JPEG 1200×630): un solo indirizzo canonico, senza query string. L’estensione
+ * .jpg la fa trattare come un file statico (crawler dei link, gate anti-attacco). Il vecchio
+ * indirizzo .png reindirizza qui.
  */
 export function sharedPlaylistImagePath(shareId: string) {
-  return `${sharedPlaylistPath(shareId)}/anteprima.png`;
+  return `${sharedPlaylistPath(shareId)}/anteprima.jpg`;
 }
 
 /** Whole graphemes (emoji, flags, accented letters); code points where Intl.Segmenter is missing. */

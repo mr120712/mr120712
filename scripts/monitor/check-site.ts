@@ -42,6 +42,23 @@ export const BATCH_REMINDER_MS = 12 * 60 * 60 * 1000;
 /** Richieste contemporanee verso il sito: poche, per non pesare su Vercel. */
 const CONCURRENCY = 4;
 const MAX_DETAIL = 200;
+const HOUR_MS = 60 * 60 * 1000;
+/**
+ * Controllo sintetico "monitor cieco": il firewall di Vercel ferma i controlli che vedono un
+ * guasto vero, quindi nessun altro controllo può più mandare un'email.
+ */
+export const FIREWALL_BLIND_ID = 'firewall_blind';
+/** Giri orari di fila con il monitor cieco prima della prima email (circa 6 ore). */
+export const FIREWALL_BLIND_ALERT_AFTER = 6;
+/**
+ * Il controllo decisivo per il monitor cieco: /api/status è l'unico che vede database,
+ * registrazione, accesso e gli altri controlli interni (e risponde solo se l'app è su). /health
+ * è statico (non tocca il database): se risponde ma /api/status è fermato, un database spento
+ * resta invisibile, quindi conta solo /api/status.
+ */
+export const FIREWALL_DECISIVE = 'internal_status';
+/** I percorsi citati nel testo della riga: /health solo per la descrizione, mai per la regola. */
+export const FIREWALL_SENTINELS = ['site_health', FIREWALL_DECISIVE] as const;
 
 // ---------- Tipi ----------
 
@@ -56,9 +73,21 @@ export type CheckResult = {
   detail: string;
   /** Durata dell'ultimo tentativo; null per le voci che riportano i controlli interni. */
   ms: number | null;
+  /** Presente quando il firewall di Vercel ha risposto con la sua verifica del browser. */
+  firewallChallenged?: true;
+  /**
+   * Giri di fila con errore prima della prima email, quando non basta la regola di `critical`
+   * (1 giro se critico, 2 altrimenti): oggi solo il controllo del monitor cieco.
+   */
+  alertAfter?: number;
 };
 
-export type CheckOutcome = { status: CheckStatus; detail: string; critical?: boolean };
+export type CheckOutcome = {
+  status: CheckStatus;
+  detail: string;
+  critical?: boolean;
+  firewallChallenged?: true;
+};
 
 export type MonitorDeps = {
   baseUrl: string;
@@ -94,8 +123,10 @@ export type AlertItem = {
 };
 
 export type OngoingItem = Omit<AlertItem, 'kind'> & {
-  /** false: primo errore di un controllo non critico, avviso solo se si ripete. */
+  /** false: il controllo non ha ancora raggiunto la sua soglia, avviso solo se si ripete. */
   alerted: boolean;
+  /** Giri di fila con errore che fanno partire la prima email (vedi alertThreshold). */
+  alertAfter: number;
 };
 
 export type RecoveredItem = {
@@ -173,6 +204,7 @@ const CHECK_LABELS: Record<string, string> = {
   catalog_podcasts: 'Catalogo podcast',
   catalog_audius: 'Catalogo Audius',
   internal_status: 'Controlli interni (/api/status)',
+  [FIREWALL_BLIND_ID]: 'Visibilità del monitor (firewall di Vercel)',
 };
 
 /** Stesse richieste che fa l'app (riga radio della home, podcast in evidenza, tendenze). */
@@ -273,6 +305,11 @@ function isFirewallChallenge(headers: Headers): boolean {
   return (headers.get('x-vercel-mitigated') ?? '').trim().toLowerCase() === 'challenge';
 }
 
+/** Avviso di un controllo fermato dalla verifica di Vercel, marcato per il monitor cieco. */
+function firewallChallenged(): CheckOutcome {
+  return { status: 'warn', detail: FIREWALL_CHALLENGE_DETAIL, firewallChallenged: true };
+}
+
 async function fetchUrl(
   deps: MonitorDeps,
   url: string | URL,
@@ -325,7 +362,7 @@ export function gateOutcome(headers: Headers): CheckOutcome | null {
   if ((headers.get('x-solco-gate') ?? '').trim().toLowerCase() === 'challenge') {
     return warn('Schermata anti-bot (UAM) attiva: pagina non verificata');
   }
-  if (isFirewallChallenge(headers)) return warn(FIREWALL_CHALLENGE_DETAIL);
+  if (isFirewallChallenge(headers)) return firewallChallenged();
   const mitigated = (headers.get('x-vercel-mitigated') ?? '').trim().toLowerCase();
   if (!mitigated) return null;
   const action = /^[a-z_-]{1,20}$/.test(mitigated) ? mitigated : 'blocco';
@@ -349,10 +386,11 @@ export async function runCheck(
     try {
       outcome = await attempt();
     } catch (error) {
-      // Protezione di Vercel accesa: un avviso, mai un allarme, e niente secondo tentativo.
+      // Protezione di Vercel accesa: un avviso, mai un allarme, e niente secondo tentativo. Se
+      // dura, lo segnala il controllo del monitor cieco (firewallBlindResult).
       outcome =
         error instanceof FirewallChallengeError
-          ? warn(FIREWALL_CHALLENGE_DETAIL)
+          ? firewallChallenged()
           : fail(describeError(error, deps.timeoutMs));
     }
     ms = Math.max(0, Math.round(deps.clock() - started));
@@ -368,6 +406,7 @@ export async function runCheck(
     status: outcome.status,
     detail: clip(outcome.detail),
     ms,
+    ...(outcome.firewallChallenged ? { firewallChallenged: true as const } : {}),
   };
 }
 
@@ -836,8 +875,93 @@ export function normalizeState(raw: unknown): MonitorState {
   return state;
 }
 
+/** Durata leggibile ("meno di un’ora", "5 ore", "3 giorni e 2 ore"), per difetto. */
+export function describeDuration(ms: number): string {
+  const hours = Math.floor(Math.max(0, Number.isFinite(ms) ? ms : 0) / HOUR_MS);
+  const hoursText = (count: number) => (count === 1 ? 'un’ora' : `${count} ore`);
+  if (hours < 1) return 'meno di un’ora';
+  if (hours < 48) return hoursText(hours);
+  const days = `${Math.floor(hours / 24)} giorni`;
+  const rest = hours % 24;
+  return rest === 0 ? days : `${days} e ${hoursText(rest)}`;
+}
+
+const SENTINEL_PATHS: Record<(typeof FIREWALL_SENTINELS)[number], string> = {
+  site_health: '/health',
+  internal_status: '/api/status',
+};
+
 /**
- * Critical ids alert on the first failing run, the others after 2 consecutive failing runs; a
+ * Riga sintetica del monitor cieco. Regola: fallisce quando la verifica del browser di Vercel
+ * (Attack Challenge Mode, o una regola del firewall che la usa) ha fermato in questo giro
+ * /api/status, l'unico controllo che vede database, accesso e gli altri controlli interni; che
+ * /health risponda o no cambia solo il testo, perché /health è statico e non vede il database.
+ * Non serve che tutte le altre righe siano fermate: una pagina con un errore di rete passeggero
+ * non deve azzerare il conto dei giri; se invece /api/status riceve una risposta vera, un guasto
+ * resta visibile e la riga passa (una protezione su poche pagine non basta).
+ * Non avvisa subito: FIREWALL_BLIND_ALERT_AFTER giri di fila (alertAfter), poi promemoria
+ * giornaliero come gli altri; torna a funzionare al primo giro con risposte vere.
+ * La durata viene dallo stato del giro precedente (failingSince di questa riga).
+ */
+export function firewallBlindResult(
+  results: readonly CheckResult[],
+  previousState: unknown,
+  now: Date,
+): CheckResult {
+  const base = {
+    id: FIREWALL_BLIND_ID,
+    label: labelForId(FIREWALL_BLIND_ID),
+    critical: false,
+    alertAfter: FIREWALL_BLIND_ALERT_AFTER,
+    ms: null,
+  };
+  const challenged = new Set(
+    results.filter((result) => result.firewallChallenged === true).map((result) => result.id),
+  );
+  if (!challenged.has(FIREWALL_DECISIVE)) {
+    if (challenged.size === 0) {
+      return { ...base, status: 'ok', detail: 'Il firewall di Vercel non ferma il monitor' };
+    }
+    const count = challenged.size === 1 ? '1 controllo' : `${challenged.size} controlli`;
+    const free = FIREWALL_SENTINELS.filter((id) => !challenged.has(id));
+    const paths = free.map((id) => SENTINEL_PATHS[id]).join(' e ');
+    return {
+      ...base,
+      status: 'ok',
+      detail: `Il firewall di Vercel ferma ${count}, ma non ${paths}: un guasto vero resta visibile`,
+    };
+  }
+  const previous = normalizeState(previousState).checks[FIREWALL_BLIND_ID]?.failingSince;
+  const since =
+    previous && Date.parse(previous) <= now.getTime() ? new Date(previous) : new Date(now);
+  // /health fermato anche lui: non si vede niente. /health libero: si vede solo che l'app è su.
+  const whole = challenged.has('site_health');
+  const what = whole ? 'il sito' : 'database e accesso';
+  const stopped = whole ? 'anche /health e /api/status' : '/api/status';
+  const missed = whole ? 'Un guasto vero' : 'Un loro guasto';
+  return {
+    ...base,
+    status: 'fail',
+    detail:
+      `Il monitor non può verificare ${what} da ${describeDuration(now.getTime() - since.getTime())} ` +
+      `(dal ${formatRome(since)}): la protezione anti-attacco di Vercel (Attack Challenge Mode) ` +
+      `ferma ${stopped}. ${missed} non manderebbe email. Per spegnerla: ` +
+      'Vercel → Firewall → Attack Challenge Mode, o aspetta che scada.',
+  };
+}
+
+/** Giri di fila con errore prima della prima email: alertAfter se valido, altrimenti 1 o 2. */
+export function alertThreshold(result: Pick<CheckResult, 'critical' | 'alertAfter'>): number {
+  const custom = result.alertAfter;
+  if (typeof custom === 'number' && Number.isInteger(custom) && custom >= 1) {
+    return Math.min(custom, 1_000);
+  }
+  return result.critical ? 1 : 2;
+}
+
+/**
+ * Critical ids alert on the first failing run, the others after 2 consecutive failing runs (a
+ * result with a valid alertAfter, e.g. the blind monitor, after that many runs instead); a
  * check still failing re-alerts once every 24 hours (at once if its last alert is dated in the
  * future, which only a corrupt state can do); a check that passes (or only warns) again is
  * removed from the state and reported as recovered. An alerted check that breaks again within
@@ -846,6 +970,10 @@ export function normalizeState(raw: unknown): MonitorState {
  * BATCH_REMINDER_MS old rides along, so daily reminders arrive in one email. Internal ids missing
  * from this run recover only when /api/status answered (otherwise they are unknown and kept);
  * other missing ids belong to checks that no longer exist and are forgotten.
+ * Una riga fermata dalla verifica del browser di Vercel (firewallChallenged) non ha avuto una
+ * risposta vera: il suo stato resta com'era (niente "tornato a funzionare", niente conto, niente
+ * email; ne parla la riga del monitor cieco), e se è /api/status i controlli interni restano
+ * ignoti, quindi conservati.
  */
 export function decideAlerts(
   previousState: unknown,
@@ -879,6 +1007,12 @@ export function decideAlerts(
     if (seen.has(result.id) || !STATE_ID.test(result.id)) continue;
     seen.add(result.id);
     const before = previous.checks[result.id];
+    if (result.firewallChallenged === true) {
+      // Fermato dalla verifica di Vercel: nessuna risposta vera, quindi un guasto in corso non è
+      // guarito né peggiorato. Resta com'era (stesso inizio, stesso conto, stessa ultima email).
+      if (before) state.checks[result.id] = before;
+      continue;
+    }
     if (result.status !== 'fail') {
       if (before) recover(result.id, result.label, before);
       continue;
@@ -888,9 +1022,10 @@ export function decideAlerts(
     const inherited = flap && flapAge >= 0 && flapAge < FLAP_WINDOW_MS ? flap.lastAlertAt : null;
     const consecutive = (before?.consecutive ?? 0) + 1;
     const failingSince = before?.failingSince ?? nowIso;
+    const threshold = alertThreshold(result);
     let lastAlertAt = before?.lastAlertAt ?? inherited;
     let kind: AlertItem['kind'] | null = null;
-    if (consecutive >= (result.critical ? 1 : 2)) {
+    if (consecutive >= threshold) {
       if (lastAlertAt === null) kind = 'new';
       else {
         const age = ageOf(lastAlertAt);
@@ -909,7 +1044,7 @@ export function decideAlerts(
       lastAlertAt = nowIso;
       alerts.push({ ...item, kind });
     } else {
-      ongoing.push({ ...item, alerted: lastAlertAt !== null });
+      ongoing.push({ ...item, alerted: lastAlertAt !== null, alertAfter: threshold });
     }
     state.checks[result.id] = { failingSince, consecutive, lastAlertAt };
   }
@@ -921,16 +1056,19 @@ export function decideAlerts(
     const lastAlertAt = entry?.lastAlertAt ?? null;
     if (alerts.length > 0 && entry && lastAlertAt && ageOf(lastAlertAt) >= BATCH_REMINDER_MS) {
       entry.lastAlertAt = nowIso;
-      const { alerted: _alerted, ...rest } = item;
+      const { alerted: _alerted, alertAfter: _alertAfter, ...rest } = item;
       alerts.push({ ...rest, kind: 'reminder' });
     } else {
       quiet.push(item);
     }
   }
 
+  // /api/status fermato dalla verifica di Vercel non risponde: i controlli interni restano ignoti.
   const internalKnown = results.some(
     (result) =>
-      (result.id === 'internal_status' && result.status !== 'fail') ||
+      (result.id === 'internal_status' &&
+        result.status !== 'fail' &&
+        result.firewallChallenged !== true) ||
       result.id.startsWith(INTERNAL_PREFIX),
   );
   for (const [id, before] of Object.entries(previous.checks)) {
@@ -991,7 +1129,7 @@ export function overallLine(report: Pick<MonitorReport, 'results' | 'decision'>)
   }
   if (alerts.length > 0) return '❌ Problemi ancora presenti: promemoria giornaliero via email';
   if (report.results.some((result) => result.status === 'fail')) {
-    return '❌ Problemi già segnalati o in attesa di conferma al prossimo controllo';
+    return '❌ Problemi già segnalati o in attesa di conferma nei prossimi controlli';
   }
   if (report.results.some((result) => result.status === 'warn')) {
     return '⚠️ Tutto funziona, con qualche avviso';
@@ -1001,6 +1139,17 @@ export function overallLine(report: Pick<MonitorReport, 'results' | 'decision'>)
 
 function since(iso: string): string {
   return `dal ${formatRome(new Date(iso))}`;
+}
+
+/** Nota di un problema non ancora segnalato: quanti giri mancano alla prima email. */
+function pendingNote(item: OngoingItem): string {
+  const remaining = Math.max(1, item.alertAfter - item.consecutive);
+  const streak = item.consecutive === 1 ? 'primo errore' : `${item.consecutive} controlli di fila`;
+  const when =
+    remaining === 1
+      ? 'email solo se si ripete al prossimo controllo'
+      : `email solo se continua per altri ${remaining} controlli`;
+  return `${streak}: ${when}`;
 }
 
 export function renderMarkdown(report: MonitorReport): string {
@@ -1037,7 +1186,7 @@ export function renderMarkdown(report: MonitorReport): string {
   for (const item of decision.ongoing) {
     const note = item.alerted
       ? `guasto ${since(item.failingSince)}, già segnalato (promemoria ogni 24 ore)`
-      : 'primo errore: email solo se si ripete al prossimo controllo';
+      : pendingNote(item);
     lines.push(`- ❌ **${cell(item.label)}**: ${cell(item.detail)} (${note})`);
   }
   lines.push('', '### Tornati a funzionare', '');
@@ -1146,8 +1295,10 @@ export async function main(
   const stateFile = env.STATE_FILE?.trim() || DEFAULT_STATE_FILE;
   const startedAt = new Date();
   const previous = await readStateFile(stateFile);
-  const results = await runAllChecks(createDeps(baseUrl, overrides));
+  const checks = await runAllChecks(createDeps(baseUrl, overrides));
   const finishedAt = new Date();
+  // Il monitor cieco va in cima: quando fallisce spiega tutti gli avvisi qui sotto.
+  const results = [firewallBlindResult(checks, previous.raw, finishedAt), ...checks];
   const decision = decideAlerts(previous.raw, results, finishedAt);
   const report: MonitorReport = {
     baseUrl,

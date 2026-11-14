@@ -730,21 +730,25 @@ describe('aiuti delle playlist condivise', () => {
   });
 
   it('scarica per l’anteprima solo copertine https di Audius, mai miniature YouTube', () => {
-    expect(isShareableCoverUrl('https://audius.co/content/abc/480x480.jpg')).toBe(true);
-    expect(
-      isShareableCoverUrl('https://node.example/content/QmAbcdefghijklmnopqrstu/480x480.jpg'),
-    ).toBe(true);
+    const cid = 'QmAbcdefghijklmnopqrstu';
+    expect(isShareableCoverUrl(`https://audius.co/content/${cid}/480x480.jpg`)).toBe(true);
+    expect(isShareableCoverUrl(`https://creatornode.audius.co/content/${cid}/1000x1000.webp`)).toBe(
+      true,
+    );
+    expect(isShareableCoverUrl(`https://node.example/content/${cid}/480x480.jpg`)).toBe(true);
     // YouTube API data is kept < 30 days; social platforms keep the preview image forever.
     expect(isShareableCoverUrl('https://i.ytimg.com/vi/x/mqdefault.jpg')).toBe(false);
-    expect(
-      isShareableCoverUrl('https://i.ytimg.com/content/QmAbcdefghijklmnopqrstu/480x480.jpg'),
-    ).toBe(false);
-    expect(isShareableCoverUrl('http://audius.co/content/abc/480x480.jpg')).toBe(false);
-    expect(
-      isShareableCoverUrl('https://127.0.0.1/content/QmAbcdefghijklmnopqrstu/480x480.jpg'),
-    ).toBe(false);
+    expect(isShareableCoverUrl(`https://i.ytimg.com/content/${cid}/480x480.jpg`)).toBe(false);
+    expect(isShareableCoverUrl(`http://audius.co/content/${cid}/480x480.jpg`)).toBe(false);
+    expect(isShareableCoverUrl(`https://127.0.0.1/content/${cid}/480x480.jpg`)).toBe(false);
     expect(isShareableCoverUrl('https://evil.example/cover.jpg')).toBe(false);
-    const audius = (name: string) => `https://audius.co/content/${name}/480x480.jpg`;
+    // Anche sui domini Audius serve il percorso delle copertine; mai query o frammenti.
+    expect(isShareableCoverUrl('https://audius.co/qualsiasi/immagine.jpg')).toBe(false);
+    expect(isShareableCoverUrl('https://audius.co/content/abc/480x480.jpg')).toBe(false);
+    expect(isShareableCoverUrl(`https://audius.co/content/${cid}/480x480.jpg?x=1`)).toBe(false);
+    expect(isShareableCoverUrl(`https://audius.co/content/${cid}/480x480.jpg#x`)).toBe(false);
+    expect(isShareableCoverUrl(`https://audius.co/content/${cid}/480x480.jpg?`)).toBe(false);
+    const audius = (name: string) => `https://audius.co/content/Qm${name.repeat(20)}/480x480.jpg`;
     expect(
       sharedPlaylistCovers([
         { source: 'audius', artworkUrl: null },

@@ -27,12 +27,22 @@ export const ACTION_RATE_LIMITS = {
     { requests: 240, windowMs: 60_000 },
     { requests: 5000, windowMs: 86_400_000 },
   ],
-  // Social preview image of a shared playlist (DB read + Audius covers + PNG drawing), per IP.
+  // Social preview image of a shared playlist or song (DB/Audius read + covers + drawing), per IP.
   // Generous: link-preview crawlers fetch from few addresses; the CDN absorbs repeated hits.
   'share.og': [
     { requests: 120, windowMs: 60_000 },
     { requests: 3000, windowMs: 86_400_000 },
   ],
+  // Anteprime dei brani condivisi: lettura del brano da Audius (solo se la cache in memoria non lo
+  // conosce già; una sola richiesta ad Audius per lettura). Prima un limite per IP, così un solo
+  // indirizzo non consuma il tetto di tutti; poi un tetto giornaliero per l'intera app, che protegge
+  // il budget mensile Audius condiviso con ricerca e player. Oltre l'uno o l'altro la scheda resta
+  // generica (nessuna lettura).
+  'share.og.audius': [
+    { requests: 20, windowMs: 60_000 },
+    { requests: 300, windowMs: 86_400_000 },
+  ],
+  'share.og.audius.global': [{ requests: 1500, windowMs: 86_400_000 }],
   // Verification emails: per recipient address, and app-wide.
   'auth.verification_email': [
     { requests: 3, windowMs: 3_600_000 },
@@ -416,7 +426,9 @@ const actionLabels: Record<RateLimitAction, string> = {
   'music.search': 'le ricerche musicali',
   'music.catalog': 'le richieste al catalogo',
   'music.cover': 'le copertine',
-  'share.og': 'le anteprime delle playlist condivise',
+  'share.og': 'le anteprime dei link condivisi',
+  'share.og.audius': 'le anteprime dei brani condivisi',
+  'share.og.audius.global': 'le anteprime dei brani condivisi di oggi',
   'auth.verification_email': 'le email di verifica',
   'auth.verification_email.global': 'le email di verifica di oggi',
   'auth.reset_email': 'le email di recupero password',

@@ -11,7 +11,27 @@ import { type ReactNode, useEffect } from 'react';
 import { LandingPage } from '@/components/custom/landing-page';
 import { useSession } from '@/lib/auth-client';
 import { isSafeAuthDestination } from '@/lib/business/auth-form';
+import { strictEncode } from '@/lib/business/social-share';
 import styles from './require-login.module.css';
+
+/** Lunghezza massima della ricerca conservata (come la pagina /search). */
+const QUERY_MAX = 80;
+
+/**
+ * Dove tornare dopo l'accesso: la pagina con tutta la query; se better-auth non l'accetterebbe
+ * (troppo lunga, caratteri non ammessi) almeno la ricerca (?q=…), così chi apre un link condiviso
+ * ritrova lo stesso brano; altrimenti il solo percorso. null se nemmeno quello è valido.
+ */
+export function loginDestination(pathname: string, search: string): string | null {
+  const full = `${pathname}${search}`;
+  if (isSafeAuthDestination(full)) return full;
+  const query = new URLSearchParams(search).get('q')?.trim();
+  if (query) {
+    const onlyQuery = `${pathname}?q=${strictEncode(Array.from(query).slice(0, QUERY_MAX).join(''))}`;
+    if (isSafeAuthDestination(onlyQuery)) return onlyQuery;
+  }
+  return isSafeAuthDestination(pathname) ? pathname : null;
+}
 
 /** Rotte raggiungibili SENZA essere loggati (voluto dal prodotto: solo queste). */
 const PUBLIC_EXACT = new Set([
@@ -54,12 +74,8 @@ export function RequireLogin({ children }: { children: ReactNode }) {
     // reindirizza: si mostra la landing pubblica.
     if (open || isPending || atRoot) return;
     // Anche la query: un link condiviso (es. /search?q=artista titolo) riporta alla stessa ricerca.
-    const destination = `${pathname}${window.location.search}`;
-    const callback = isSafeAuthDestination(destination)
-      ? `?callbackURL=${encodeURIComponent(destination)}`
-      : isSafeAuthDestination(pathname)
-        ? `?callbackURL=${encodeURIComponent(pathname)}`
-        : '';
+    const destination = loginDestination(pathname, window.location.search);
+    const callback = destination ? `?callbackURL=${encodeURIComponent(destination)}` : '';
     router.replace(`/login${callback}`);
   }, [open, isPending, atRoot, pathname, router]);
 

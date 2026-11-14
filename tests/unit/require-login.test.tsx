@@ -122,13 +122,44 @@ describe('RequireLogin', () => {
     }
   });
 
-  it('query che better-auth rifiuterebbe: si conserva solo il percorso', () => {
-    window.history.replaceState(null, '', '/search?q=Help!');
+  it('query che better-auth rifiuterebbe: si conserva almeno la ricerca, ricodificata', () => {
+    window.history.replaceState(null, '', '/search?q=Help!&x=~');
     mocks.pathname = '/search';
     mocks.session = { data: null, isPending: false };
     try {
       render();
-      expect(mocks.replace).toHaveBeenCalledWith('/login?callbackURL=%2Fsearch');
+      expect(mocks.replace).toHaveBeenCalledWith(
+        `/login?callbackURL=${encodeURIComponent('/search?q=Help%21')}`,
+      );
+    } finally {
+      window.history.replaceState(null, '', '/');
+    }
+  });
+
+  it('link condiviso troppo lungo per il ritorno: si conserva solo q, non una ricerca vuota', () => {
+    // Un vecchio link con titolo, artista e copertina lunghi: oltre i 2048 caratteri ammessi.
+    const q = encodeURIComponent('Artista Brano');
+    const long = encodeURIComponent('音'.repeat(120));
+    window.history.replaceState(null, '', `/search?q=${q}&t=${long}&a=${long}&img=${long}`);
+    mocks.pathname = '/search';
+    mocks.session = { data: null, isPending: false };
+    try {
+      render();
+      expect(mocks.replace).toHaveBeenCalledWith(
+        `/login?callbackURL=${encodeURIComponent('/search?q=Artista%20Brano')}`,
+      );
+    } finally {
+      window.history.replaceState(null, '', '/');
+    }
+  });
+
+  it('senza una ricerca utilizzabile: solo il percorso', () => {
+    window.history.replaceState(null, '', `/radio?x=${'~'.repeat(10)}`);
+    mocks.pathname = '/radio';
+    mocks.session = { data: null, isPending: false };
+    try {
+      render();
+      expect(mocks.replace).toHaveBeenCalledWith('/login?callbackURL=%2Fradio');
     } finally {
       window.history.replaceState(null, '', '/');
     }

@@ -14,9 +14,11 @@ const baseMetadata: Metadata = {
 };
 
 /**
- * Un brano condiviso dal player (/search?q=…&t=…&a=…&img=…): titolo e scheda con la copertina per
- * l'anteprima del link su WhatsApp, Telegram, X, Facebook (vedi search/anteprima.png). Solo
- * metadati: nessun dato letto qui, la pagina resta la ricerca di sempre.
+ * Un brano condiviso dal player (/search?q=…&t=…&a=…&au=…): titolo e scheda per l'anteprima del
+ * link su WhatsApp, Telegram, X, Facebook (vedi search/anteprima.jpg). Solo i parametri: nessun
+ * dato letto qui, la pagina resta la ricerca di sempre. Titolo e artista sono testo del link già
+ * ripulito (sharedSongFromParams, niente indirizzi web); l'immagine è l'indirizzo canonico della
+ * scheda, lo stesso che allega il player (con un id Audius, i dati della scheda arrivano da Audius).
  */
 export async function generateMetadata({
   searchParams,
@@ -25,9 +27,16 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const song = sharedSongFromParams(await searchParams);
   if (!song) return baseMetadata;
-  const title = song.artist ? `${song.title} · ${song.artist}` : song.title;
+  const name = song.title || 'Musica su Solco';
+  const title = song.title && song.artist ? `${song.title} · ${song.artist}` : name;
   const description = 'Ascoltalo su Solco: musica, radio dal vivo e podcast in un solo player.';
-  const image = { url: songPreviewImagePath(song), width: 1200, height: 630, alt: title };
+  const image = {
+    url: songPreviewImagePath(song),
+    type: 'image/jpeg',
+    width: 1200,
+    height: 630,
+    alt: title,
+  };
   return {
     title,
     description,
