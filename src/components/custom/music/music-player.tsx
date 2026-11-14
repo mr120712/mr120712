@@ -3283,6 +3283,16 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                 <SkipForward aria-hidden="true" />
               </button>
               <button
+                className={`${styles.miniSkip} ${styles.miniAutoplay}`}
+                type="button"
+                onClick={toggleAutoplay}
+                aria-pressed={autoplay}
+                aria-label="Autoplay continuo: a coda finita continua con brani consigliati"
+                title="Autoplay continuo"
+              >
+                <InfinityIcon aria-hidden="true" />
+              </button>
+              <button
                 className={styles.miniSkip}
                 type="button"
                 onClick={stopPlayback}

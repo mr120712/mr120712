@@ -375,4 +375,33 @@ describe('player Solco Pro', () => {
     );
     expect(container.querySelector('audio')?.getAttribute('src')).toBeNull();
   });
+
+  it('il mini player ha il pulsante Autoplay continuo, che si accende e si salva', async () => {
+    window.localStorage.removeItem('solco:autoplay');
+    const container = await mount();
+    const start = [...container.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent === 'Avvia brano pubblico',
+    );
+    if (!start) throw new Error('Pulsante del brano pubblico non trovato.');
+    await act(async () => {
+      start.click();
+      await Promise.resolve();
+    });
+
+    const mini = container.querySelector('aside[aria-label="Player musicale Solco"]');
+    if (!mini) throw new Error('Mini player non trovato.');
+    const autoplay = mini.querySelector<HTMLButtonElement>(
+      'button[aria-label^="Autoplay continuo"]',
+    );
+    if (!autoplay) throw new Error('Pulsante Autoplay nel mini player non trovato.');
+    expect(autoplay.getAttribute('aria-pressed')).toBe('false');
+
+    await act(async () => {
+      autoplay.click();
+      await Promise.resolve();
+    });
+    expect(window.localStorage.getItem('solco:autoplay')).toBe('1');
+    expect(autoplay.getAttribute('aria-pressed')).toBe('true');
+    window.localStorage.removeItem('solco:autoplay');
+  });
 });

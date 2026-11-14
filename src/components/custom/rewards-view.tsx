@@ -12,6 +12,7 @@ import { apiFetch } from '@/lib/api-client';
 import { useSession } from '@/lib/auth-client';
 import { REWARDS, referralProgress } from '@/lib/business/rewards';
 import { type RewardsSummary, RewardsSummarySchema } from '@/lib/contracts/rewards';
+import { inviteUrlForCode } from '@/lib/public-links';
 import styles from './rewards-view.module.css';
 
 const reasonLabels: Record<string, string> = {
@@ -107,7 +108,8 @@ export function RewardsView() {
     );
   }
 
-  const inviteUrl = summary ? `${window.location.origin}/invito/${summary.code}` : '';
+  // Sempre il sito ufficiale (www.solcomusic.online), anche se la pagina è aperta da un altro dominio.
+  const inviteUrl = summary ? inviteUrlForCode(summary.code) : '';
   const share = async () => {
     const text =
       'Ascolta musica, radio e podcast con me su Solco: con questo invito ricevi 1 mese di Premium gratis.';

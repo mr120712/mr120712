@@ -538,6 +538,15 @@
   color: var(--primary);
 }
 
+/* Autoplay continuo nel mini player: spento = attenuato, acceso = colore primario (come il full). */
+.miniAutoplay {
+  color: var(--muted-foreground);
+}
+
+.miniAutoplay[aria-pressed="true"] {
+  color: var(--primary);
+}
+
 .miniControl:disabled,
 .miniSkip:disabled,
 .control:disabled,

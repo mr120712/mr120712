@@ -43,11 +43,11 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-describe('il bot è collegato a solcomusic.online (non al canonical del sito)', () => {
-  it('webhook, link di invito e menu usano solcomusic.online', () => {
-    expect(telegramWebhookUrl()).toBe('https://solcomusic.online/api/telegram/webhook');
-    expect(inviteLinkForCode('ABC123')).toBe('https://solcomusic.online/invito/ABC123');
-    expect(telegramMenuUrl()).toBe('https://solcomusic.online');
+describe('il bot è collegato a www.solcomusic.online (non al canonical del sito)', () => {
+  it('webhook, link di invito e menu usano www (il dominio nudo fa 308, Telegram non lo segue)', () => {
+    expect(telegramWebhookUrl()).toBe('https://www.solcomusic.online/api/telegram/webhook');
+    expect(inviteLinkForCode('ABC123')).toBe('https://www.solcomusic.online/invito/ABC123');
+    expect(telegramMenuUrl()).toBe('https://www.solcomusic.online');
   });
 });
 

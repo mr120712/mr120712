@@ -2,14 +2,16 @@
 // utilità del link invito.
 import 'server-only';
 import { env } from '@/lib/env';
+import { inviteUrlForCode, publicRewardsUrl } from '@/lib/public-links';
 
 /**
- * Dominio pubblico a cui è COLLEGATO il bot: webhook, link di invito e pulsanti dei messaggi usano
- * QUESTO, non il canonical del sito (siteUrl / NEXT_PUBLIC_APP_URL). Così il bot resta puntato sul
- * deploy funzionante (solcomusic.online) anche se il canonical del sito è un altro dominio.
- * Override con la variabile d'ambiente TELEGRAM_PUBLIC_URL se un giorno cambia.
+ * Dominio a cui è COLLEGATO il bot: webhook, Mini App e pulsanti di ascolto usano QUESTO, non il
+ * canonical del sito (siteUrl / NEXT_PUBLIC_APP_URL). Override con TELEGRAM_PUBLIC_URL.
+ * Default www.solcomusic.online: il dominio nudo solcomusic.online risponde 308 → www e Telegram NON
+ * segue i redirect sul webhook. I link d'INVITO invece usano sempre il sito pubblico
+ * (src/lib/public-links.ts), qualunque sia questo valore.
  */
-const BOT_PUBLIC_URL = (process.env.TELEGRAM_PUBLIC_URL ?? 'https://solcomusic.online').replace(
+const BOT_PUBLIC_URL = (process.env.TELEGRAM_PUBLIC_URL ?? 'https://www.solcomusic.online').replace(
   /\/+$/,
   '',
 );
@@ -47,9 +49,12 @@ export function isTelegramBotConfigured(): boolean {
   return Boolean(env.TELEGRAM_BOT_TOKEN);
 }
 
-/** Link di invito pubblico per un codice referral (imposta il cookie e porta alla registrazione). */
+/**
+ * Link di invito pubblico per un codice referral (imposta il cookie e porta alla registrazione).
+ * Sempre sul sito ufficiale (www.solcomusic.online), indipendente dall'host del webhook.
+ */
 export function inviteLinkForCode(code: string): string {
-  return `${BOT_PUBLIC_URL}/invito/${code}`;
+  return inviteUrlForCode(code);
 }
 
 /** Esito della diagnostica del bot: nessun dato sensibile (mai il token). */
@@ -446,7 +451,7 @@ export function inviteKeyboard(inviteLink: string, chatType: string | null) {
       [openSolcoButton(chatType)],
       [
         { text: '📲 Condividi l’invito', url: shareUrl },
-        { text: '🎁 I tuoi premi', url: `${BOT_PUBLIC_URL}/premi` },
+        { text: '🎁 I tuoi premi', url: publicRewardsUrl() },
       ],
     ],
   };
