@@ -1,141 +1,141 @@
 // @polsia:user-owned — landing pubblica mostrata su "/" a chi NON è loggato (il muro di login
-// reindirizza le altre rotte). Hero con il video dell'app e un pulsante di accesso ben visibile.
+// reindirizza le altre rotte). Compatta: titolo, accesso ben visibile e piani subito sotto, senza
+// video. In alto il menu "Lingua" (italiano, inglese, spagnolo, francese, tedesco, portoghese).
 'use client';
 
+import { Globe } from 'lucide-react';
 import Link from 'next/link';
-import { useEffect, useRef } from 'react';
+import { type ChangeEvent, useEffect, useState } from 'react';
 import { getSolcoProPricing } from '@/lib/business/solco-pro-pricing';
+import {
+  DEFAULT_LANDING_LOCALE,
+  formatLandingPrice,
+  isLandingLocale,
+  LANDING_LOCALE_STORAGE_KEY,
+  LANDING_LOCALES,
+  LANDING_MESSAGES,
+  type LandingLocale,
+  type LandingPlanId,
+  resolveLandingLocale,
+} from '@/lib/i18n/landing';
 import styles from './landing-page.module.css';
 
-/** Riassunto breve dei vantaggi per piano (i dettagli completi sono su /piani dopo l'accesso). */
-const PLAN_SUMMARY: Record<string, { tagline: string; perks: string[]; featured?: boolean }> = {
-  free: {
-    tagline: 'Per iniziare',
-    perks: ['40 ascolti al mese', 'Radio e YouTube senza limiti', 'Libreria e playlist'],
-  },
-  premium: {
-    tagline: 'Il più scelto',
-    perks: ['Ascolti illimitati', 'Cerca con l’AI', 'Ascolto in background illimitato'],
-    featured: true,
-  },
-  'premium-plus': {
-    tagline: 'Per chi vuole di più',
-    perks: ['Tutto Premium', 'Statistiche avanzate e temi extra', 'Creazione di brani'],
-  },
-  family: {
-    tagline: 'Per tutta la famiglia',
-    perks: ['Tutti i vantaggi Premium', 'Fino a 6 account', 'Un unico abbonamento'],
-  },
-};
+/** Il piano consigliato (evidenziato). */
+const FEATURED_PLAN: LandingPlanId = 'premium';
 
-function formatEuro(cents: number): string {
-  if (cents === 0) return 'Gratis';
-  return `€${(cents / 100).toFixed(2).replace('.', ',')}`;
+function readStoredLocale(): string | null {
+  try {
+    return window.localStorage.getItem(LANDING_LOCALE_STORAGE_KEY);
+  } catch {
+    return null;
+  }
 }
 
-/** Parole della striscia scorrevole "virale" sotto l'hero. */
-const MARQUEE = [
-  'Musica',
-  'Radio dal vivo',
-  'Podcast',
-  'Classifiche',
-  'In background',
-  'Offline',
-  'Gratis',
-];
+/**
+ * Scelta fatta in questa visita: vale anche se la landing viene rimontata (es. la sessione viene
+ * ricontrollata) e quando lo storage non è disponibile (navigazione privata).
+ */
+let chosenThisVisit: LandingLocale | null = null;
+
+/** Lingua iniziale: scelta di questa visita, ?lang=, la scelta salvata, il browser (client). */
+function initialLocale(): LandingLocale {
+  if (typeof window === 'undefined') return DEFAULT_LANDING_LOCALE;
+  if (chosenThisVisit) return chosenThisVisit;
+  return resolveLandingLocale({
+    param: new URLSearchParams(window.location.search).get('lang'),
+    stored: readStoredLocale(),
+    browser: typeof navigator !== 'undefined' ? (navigator.languages ?? [navigator.language]) : [],
+  });
+}
 
 export function LandingPage() {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const bgVideoRef = useRef<HTMLVideoElement>(null);
+  const [locale, setLocale] = useState<LandingLocale>(initialLocale);
+  const t = LANDING_MESSAGES[locale];
   const { plans } = getSolcoProPricing();
 
+  // <html lang> segue la lingua mostrata (lettori di schermo, traduttori, sillabazione); tornando
+  // all'app (dopo l'accesso) si ripristina quella dell'app.
   useEffect(() => {
-    const videos = [videoRef.current, bgVideoRef.current].filter(
-      (video): video is HTMLVideoElement => Boolean(video),
-    );
-    const reduce =
-      typeof window !== 'undefined' &&
-      typeof window.matchMedia === 'function' &&
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    for (const video of videos) {
-      // muted via proprietà: alcuni browser ignorano l'attributo e bloccano l'autoplay.
-      video.muted = true;
-      try {
-        if (reduce) {
-          video.pause();
-          continue;
-        }
-        const started = video.play?.();
-        if (started && typeof started.catch === 'function') started.catch(() => undefined);
-      } catch {
-        // play()/pause() non disponibili (jsdom) o autoplay bloccato: il poster resta visibile.
-      }
+    const root = document.documentElement;
+    const previous = root.getAttribute('lang');
+    root.setAttribute('lang', locale);
+    return () => {
+      if (previous) root.setAttribute('lang', previous);
+      else root.removeAttribute('lang');
+    };
+  }, [locale]);
+
+  const changeLocale = (event: ChangeEvent<HTMLSelectElement>) => {
+    const next = event.target.value;
+    if (!isLandingLocale(next)) return;
+    chosenThisVisit = next;
+    setLocale(next);
+    try {
+      window.localStorage.setItem(LANDING_LOCALE_STORAGE_KEY, next);
+    } catch {
+      // Storage non disponibile: la scelta vale per questa visita (chosenThisVisit).
     }
-  }, []);
+    // Un ?lang= nel link non deve riportare indietro la lingua appena scelta.
+    try {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('lang')) {
+        url.searchParams.set('lang', next);
+        window.history.replaceState(window.history.state, '', url);
+      }
+    } catch {
+      // URL non aggiornabile: la scelta resta comunque in chosenThisVisit.
+    }
+  };
 
   return (
     <main className={styles.page}>
       <section className={styles.hero}>
-        {/* Sfondo: copia SFOCATA del video che riempie tutto lo schermo. */}
-        <video
-          ref={bgVideoRef}
-          className={styles.bgBlur}
-          src="/landing/intro.mp4"
-          poster="/landing/intro-poster.jpg"
-          autoPlay
-          muted
-          loop
-          playsInline
-          preload="metadata"
-          aria-hidden="true"
-          tabIndex={-1}
-        />
-        {/* Video INTERO centrato sopra lo sfondo sfocato (nessun ritaglio). */}
-        <video
-          ref={videoRef}
-          className={styles.frontVideo}
-          src="/landing/intro.mp4"
-          poster="/landing/intro-poster.jpg"
-          autoPlay
-          muted
-          loop
-          playsInline
-          preload="metadata"
-          aria-hidden="true"
-          tabIndex={-1}
-        />
-        <div className={styles.scrim} aria-hidden="true" />
-
         <div className={styles.heroContent}>
           <header className={styles.topbar}>
             <span className={styles.brand}>Solco</span>
-            <Link className={styles.topLogin} href="/login">
-              Accedi
-            </Link>
+            <div className={styles.topActions}>
+              <label className={styles.language}>
+                <Globe aria-hidden="true" className={styles.languageIcon} />
+                <span className={styles.srOnly}>{t.languageLabel}</span>
+                <select
+                  className={styles.languageSelect}
+                  value={locale}
+                  onChange={changeLocale}
+                  aria-label={t.languageLabel}
+                >
+                  {LANDING_LOCALES.map((option) => (
+                    <option key={option.code} value={option.code} lang={option.code}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Link className={styles.topLogin} href="/login">
+                {t.login}
+              </Link>
+            </div>
           </header>
 
           <div className={styles.copy}>
-            <span className={styles.kicker}>Musica · Radio dal vivo · Podcast</span>
+            <span className={styles.kicker}>{t.kicker}</span>
             <h1 className={styles.title}>
-              Tutta la musica.
+              {t.titleLine1}
               <br />
-              <span className={styles.titleAccent}>Un solo player.</span>
+              <span className={styles.titleAccent}>{t.titleLine2}</span>
             </h1>
-            <p className={styles.lead}>
-              Brani, radio dal vivo e podcast in un unico posto. Gratis. Accedi e parti.
-            </p>
+            <p className={styles.lead}>{t.lead}</p>
             <div className={styles.actions}>
               <Link className={styles.primary} href="/signup">
-                Inizia gratis
+                {t.ctaStart}
               </Link>
               <Link className={styles.secondary} href="/login">
-                Accedi
+                {t.ctaLogin}
               </Link>
             </div>
             <div className={styles.marquee} aria-hidden="true">
               <div className={styles.marqueeTrack}>
                 {[0, 1].flatMap((set) =>
-                  MARQUEE.map((word) => (
+                  t.marquee.map((word) => (
                     <span key={`${set}-${word}`} className={styles.marqueeItem}>
                       {word}
                     </span>
@@ -144,80 +144,70 @@ export function LandingPage() {
               </div>
             </div>
             <p className={styles.legal}>
-              Accedendo accetti i <Link href="/terms">Termini</Link> e la{' '}
-              <Link href="/privacy">Privacy</Link>.
+              {t.legal.before}
+              <Link href="/terms">{t.legal.terms}</Link>
+              {t.legal.middle}
+              <Link href="/privacy">{t.legal.privacy}</Link>
+              {t.legal.after}
+              {t.appLanguageNote ? ` ${t.appLanguageNote}` : null}
             </p>
           </div>
         </div>
-
-        <a className={styles.scrollCue} href="#landing-plans-heading" aria-label="Scopri i piani">
-          <span>Scopri i piani</span>
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path
-              d="M6 9l6 6 6-6"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </a>
       </section>
 
       <div className={styles.inner}>
         <section className={styles.plans} aria-labelledby="landing-plans-heading">
           <div className={styles.plansHead}>
-            <p className={styles.eyebrow}>PIANI</p>
+            <p className={styles.eyebrow}>{t.plansEyebrow}</p>
             <h2 id="landing-plans-heading" className={styles.plansTitle}>
-              Scegli il tuo piano
+              {t.plansTitle}
             </h2>
-            <p className={styles.plansLead}>
-              Inizia gratis, passa a Premium quando vuoi. Prezzi in euro, al mese.
-            </p>
+            <p className={styles.plansLead}>{t.plansLead}</p>
           </div>
           <div className={styles.planGrid}>
             {plans.map((plan) => {
-              const summary = PLAN_SUMMARY[plan.id];
+              const summary = Object.hasOwn(t.plans, plan.id)
+                ? t.plans[plan.id as LandingPlanId]
+                : undefined;
+              const featured = plan.id === FEATURED_PLAN;
               const free = plan.monthlyEuroCents === 0;
               return (
                 <div
                   key={plan.id}
                   className={
-                    summary?.featured
-                      ? `${styles.planCard} ${styles.planFeatured}`
-                      : styles.planCard
+                    featured ? `${styles.planCard} ${styles.planFeatured}` : styles.planCard
                   }
                 >
-                  {summary?.featured ? <span className={styles.planBadge}>Consigliato</span> : null}
+                  {featured ? <span className={styles.planBadge}>{t.recommended}</span> : null}
                   <p className={styles.planName}>{plan.name}</p>
                   {summary?.tagline ? (
                     <p className={styles.planTagline}>{summary.tagline}</p>
                   ) : null}
                   <p className={styles.planPrice}>
-                    <strong>{formatEuro(plan.monthlyEuroCents)}</strong>
-                    {free ? null : <span className={styles.planPer}>/mese</span>}
+                    <strong>{formatLandingPrice(plan.monthlyEuroCents, locale)}</strong>
+                    {free ? null : <span className={styles.planPer}>{t.perMonth}</span>}
                   </p>
                   {free ? null : (
-                    <p className={styles.planYear}>o {formatEuro(plan.annualEuroCents)}/anno</p>
+                    <p className={styles.planYear}>
+                      {t.perYear(formatLandingPrice(plan.annualEuroCents, locale))}
+                    </p>
                   )}
                   <ul className={styles.planPerks}>
                     {(summary?.perks ?? []).map((perk) => (
                       <li key={perk}>{perk}</li>
                     ))}
                   </ul>
-                  <Link
-                    className={summary?.featured ? styles.planCtaPrimary : styles.planCta}
-                    href="/login"
-                  >
-                    {free ? 'Inizia gratis' : 'Accedi e abbonati'}
+                  <Link className={featured ? styles.planCtaPrimary : styles.planCta} href="/login">
+                    {free ? t.planCtaFree : t.planCtaPaid}
                   </Link>
                 </div>
               );
             })}
           </div>
           <p className={styles.plansNote}>
-            Al primo abbonamento hai <strong>10 giorni di Premium gratis</strong>. Puoi disdire
-            quando vuoi.
+            {t.note.before}
+            <strong>{t.note.strong}</strong>
+            {t.note.after}
           </p>
         </section>
       </div>
