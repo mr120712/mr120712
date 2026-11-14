@@ -5,7 +5,9 @@
 //   /start | /codice | /invito → se già collegato, rimanda il codice; altrimenti spiega come collegare
 //   /help → cosa fa il bot
 import 'server-only';
+import { timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
+import { enforceRateLimit } from '@/lib/business/rate-limit.server';
 import { readJsonLimited } from '@/lib/business/request-body.server';
 import { ensureReferralCode } from '@/lib/business/rewards.server';
 import {
@@ -103,11 +105,19 @@ async function handleUpdate(
   );
 }
 
+/** Confronto del secret in tempo COSTANTE (niente timing leak sul segreto del webhook). */
+function secretMatches(provided: string | null, expected: string): boolean {
+  if (!provided) return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  return a.length === b.length && a.length > 0 && timingSafeEqual(a, b);
+}
+
 export async function POST(request: Request) {
   const secret = env.TELEGRAM_WEBHOOK_SECRET;
   // Senza bot/secret configurati il webhook non esiste; con secret sbagliato è non autorizzato.
   if (!isTelegramBotConfigured() || !secret) return new NextResponse(null, { status: 404 });
-  if (request.headers.get('x-telegram-bot-api-secret-token') !== secret) {
+  if (!secretMatches(request.headers.get('x-telegram-bot-api-secret-token'), secret)) {
     return new NextResponse(null, { status: 401 });
   }
 
@@ -133,7 +143,10 @@ export async function POST(request: Request) {
   const chatType = typeof message?.chat?.type === 'string' ? message.chat.type : null;
 
   try {
-    await handleUpdate(chatId, text, username, chatType);
+    // Anti-spam per chat: oltre la soglia si scarta in silenzio (200, nessun retry di Telegram,
+    // niente scritture DB né invii). Fail-open su errore del limiter.
+    const limited = await enforceRateLimit('telegram.webhook', `tg:${chatId}`);
+    if (!limited) await handleUpdate(chatId, text, username, chatType);
   } catch {
     // Mai propagare verso Telegram.
   }

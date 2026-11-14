@@ -14,9 +14,11 @@ const mocks = vi.hoisted(() => ({
   deleteMany: vi.fn(async () => ({})),
   upsert: vi.fn(async () => ({})),
   findUnique: vi.fn(),
+  enforceRateLimit: vi.fn(),
 }));
 
 vi.mock('@/lib/env', () => ({ env: mocks.env }));
+vi.mock('@/lib/business/rate-limit.server', () => ({ enforceRateLimit: mocks.enforceRateLimit }));
 vi.mock('@/lib/business/telegram-bot.server', () => ({
   sendTelegramMessage: mocks.send,
   isTelegramBotConfigured: () => mocks.configured,
@@ -70,6 +72,7 @@ beforeEach(() => {
   mocks.ensureCode.mockResolvedValue('ABC123');
   mocks.findUnique.mockResolvedValue(null);
   mocks.verify.mockReturnValue(null);
+  mocks.enforceRateLimit.mockResolvedValue(null);
 });
 
 describe('POST /api/telegram/webhook (bot)', () => {
@@ -87,6 +90,21 @@ describe('POST /api/telegram/webhook (bot)', () => {
   it('401 con secret header errato', async () => {
     expect((await POST(req(msg('/codice'), 'altro'))).status).toBe(401);
     expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it('401 con secret di lunghezza diversa (confronto a tempo costante non lancia)', async () => {
+    expect((await POST(req(msg('/codice'), 'x'))).status).toBe(401);
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it('oltre il rate-limit per chat: scarta (200, nessuna elaborazione)', async () => {
+    mocks.enforceRateLimit.mockResolvedValue(new Response('slow down', { status: 429 }));
+    mocks.findUnique.mockResolvedValue({ userId: 'user-1' });
+    const res = await POST(req(msg('/codice')));
+    expect(res.status).toBe(200);
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.ensureCode).not.toHaveBeenCalled();
+    expect(mocks.enforceRateLimit).toHaveBeenCalledWith('telegram.webhook', 'tg:123');
   });
 
   it('/codice da utente collegato: invia il codice con tastiera invito in HTML', async () => {

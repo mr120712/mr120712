@@ -63,6 +63,12 @@ export const ACTION_RATE_LIMITS = {
     { requests: 3, windowMs: 600_000 },
     { requests: 20, windowMs: 86_400_000 },
   ],
+  // Comandi in arrivo al webhook del bot, PER CHAT: anti-spam. Oltre la soglia l'aggiornamento è
+  // scartato (niente scritture DB né invii verso Telegram), così una chat non può martellare il bot.
+  'telegram.webhook': [
+    { requests: 20, windowMs: 60_000 },
+    { requests: 300, windowMs: 86_400_000 },
+  ],
   'solco.pro.write': [
     { requests: 20, windowMs: 60_000 },
     { requests: 200, windowMs: 86_400_000 },
@@ -389,6 +395,7 @@ const actionLabels: Record<RateLimitAction, string> = {
   'monitor.run': 'i controlli automatici',
   'monitor.run.admin': 'i controlli manuali',
   'telegram.announce.admin': 'gli annunci su Telegram',
+  'telegram.webhook': 'i comandi al bot Telegram',
   'solco.pro.write': 'le modifiche a Solco Pro',
   'listening.write': 'le modifiche agli ascolti',
   'music.ai_search': 'le ricerche con l’AI',
