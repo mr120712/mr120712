@@ -9,6 +9,16 @@ export const SHARED_PLAYLIST_OWNER_FALLBACK = 'un ascoltatore Solco';
 /** In UTF-16 units, the unit zod's .max() counts in SharedPlaylistSchema. */
 export const SHARED_PLAYLIST_OWNER_MAX_LENGTH = 30;
 
+/**
+ * Titolo (og:title, twitter:title), descrizione e testo alternativo della scheda di una playlist
+ * condivisa: la pagina (playlist/[shareId]/page.tsx) e l'anteprima per i bot in modalità attacco
+ * (uam-preview.ts) usano gli stessi, così lo stesso link ha la stessa anteprima.
+ */
+export const SHARED_PLAYLIST_TITLE = 'Playlist condivisa';
+export const SHARED_PLAYLIST_DESCRIPTION =
+  'Una playlist condivisa su Solco: ascoltala gratis e salvala nella tua Libreria.';
+export const SHARED_PLAYLIST_IMAGE_ALT = 'Playlist condivisa su Solco';
+
 export function isShareId(value: unknown): value is string {
   return typeof value === 'string' && SHARE_ID_PATTERN.test(value);
 }

@@ -152,6 +152,39 @@ describe('loadOgCover', () => {
     });
     expect(cover).toBeNull();
   });
+
+  it('blur sfoca la copertina dopo il ritaglio (quiz: nessuna scritta leggibile)', async () => {
+    // Strisce bianche e nere di 8 px: nitide hanno un contrasto altissimo.
+    const size = 256;
+    const raw = Buffer.alloc(size * size * 3);
+    for (let pixel = 0; pixel < size * size; pixel += 1) {
+      raw.fill(Math.floor((pixel % size) / 8) % 2 === 0 ? 0 : 255, pixel * 3, pixel * 3 + 3);
+    }
+    const stripes = new Uint8Array(
+      await sharp(raw, { raw: { width: size, height: size, channels: 3 } })
+        .png()
+        .toBuffer(),
+    );
+    const load = (blur?: number) =>
+      loadOgCover('https://node.example/c.png', 200, {
+        fetcher: async () => imageResponse(stripes, 'image/png'),
+        ...(blur === undefined ? {} : { blur }),
+      });
+    const contrast = async (dataUrl: string | null) => {
+      const bytes = Buffer.from(String(dataUrl).split(',')[1] ?? '', 'base64');
+      return (await sharp(bytes).greyscale().stats()).channels[0]?.stdev ?? 0;
+    };
+    const plain = await contrast(await load());
+    expect(plain).toBeGreaterThan(100);
+    const blurred = await load(28);
+    expect((await decoded(blurred)).width).toBe(200);
+    expect(await contrast(blurred)).toBeLessThan(plain / 3);
+    // Valori senza senso: nessuna sfocatura (0, negativi, NaN) o limitata (enorme), mai un errore.
+    for (const value of [0, -5, Number.NaN]) {
+      expect(await contrast(await load(value)), String(value)).toBeGreaterThan(100);
+    }
+    expect(await contrast(await load(1e9))).toBeLessThan(plain / 3);
+  });
 });
 
 describe('renderOgCardJpeg', () => {

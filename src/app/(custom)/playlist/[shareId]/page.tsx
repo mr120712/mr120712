@@ -3,11 +3,14 @@
 // e la pagina non viene indicizzata.
 import type { Metadata } from 'next';
 import { SharedPlaylistView } from '@/components/custom/music/shared-playlist-view';
-import { isShareId, sharedPlaylistImagePath } from '@/lib/music/playlist-share';
-
-const title = 'Playlist condivisa';
-const description =
-  'Una playlist condivisa su Solco: ascoltala gratis e salvala nella tua Libreria.';
+import {
+  SHARED_PLAYLIST_DESCRIPTION as description,
+  isShareId,
+  SHARED_PLAYLIST_IMAGE_ALT,
+  sharedPlaylistImagePath,
+  sharedPlaylistPath,
+  SHARED_PLAYLIST_TITLE as title,
+} from '@/lib/music/playlist-share';
 
 export async function generateMetadata({
   params,
@@ -17,6 +20,9 @@ export async function generateMetadata({
   const { shareId } = await params;
   // The preview image is drawn by ./anteprima.jpg/route.tsx (name, first name, Audius covers).
   const image = isShareId(shareId) ? sharedPlaylistImagePath(shareId) : null;
+  // og:url: il percorso canonico della playlist (metadataBase lo rende assoluto), lo stesso
+  // dell'anteprima in modalità attacco (uam-preview.ts).
+  const url = isShareId(shareId) ? sharedPlaylistPath(shareId) : null;
   return {
     title,
     description,
@@ -25,6 +31,7 @@ export async function generateMetadata({
       type: 'music.playlist',
       title,
       description,
+      ...(url ? { url } : {}),
       ...(image
         ? {
             images: [
@@ -33,7 +40,7 @@ export async function generateMetadata({
                 type: 'image/jpeg',
                 width: 1200,
                 height: 630,
-                alt: 'Playlist condivisa su Solco',
+                alt: SHARED_PLAYLIST_IMAGE_ALT,
               },
             ],
           }

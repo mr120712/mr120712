@@ -7,7 +7,8 @@
 //   virgolette, iniziale al posto della copertina) e ripulito da indirizzi web;
 // - senza parametri: la scheda generica di Solco.
 // Un solo indirizzo per scheda: parametri in più, in un altro ordine, con testo non pulito o con
-// segmenti vuoti ("t=A&") ricevono un 308 verso l'indirizzo canonico (songPreviewImagePath),
+// segmenti vuoti ("t=A&", solo dove l'URL arriva grezzo: vedi hasEmptySegments) ricevono un 308
+// verso l'indirizzo canonico (songPreviewImagePath),
 // confrontando i parametri decodificati, mai la codifica (i crawler la cambiano e si girerebbe in
 // tondo). Titolo e artista Audius passano dallo stesso filtro degli indirizzi web. Stesso indirizzo
 // = stessa immagine: un giorno sulla CDN. Una lettura Audius non riuscita, una copertina che non
@@ -208,6 +209,13 @@ function sameParams(left: URLSearchParams, right: URLSearchParams) {
  * La query grezza ha segmenti vuoti ("t=A&", "&t=A", "t=A&&b", o un "?" da solo): URLSearchParams
  * li ignora, ma per la CDN sono indirizzi diversi. Nessun crawler li produce partendo dal canonico,
  * quindi reindirizzarli non può girare in tondo.
+ * LIMITE (verificato con `next start`): il server Node di Next ricostruisce request.url dalla
+ * query già letta prima di chiamare questa rotta (dal suo codice, lo stesso vale per il proxy
+ * senza skipProxyUrlNormalize), quindi i segmenti vuoti e le varianti di codifica (`+`, `%74`)
+ * qui non arrivano: quegli indirizzi ricevono la scheda in cache come il canonico. Il controllo
+ * resta per i runtime che passano l'URL grezzo. Il costo resta sotto il limite per IP «share.og»:
+ * il testo libero di t= dà comunque indirizzi canonici sempre nuovi, quindi le varianti non
+ * permettono disegni in più.
  */
 function hasEmptySegments(url: URL) {
   const href = url.href.split('#')[0] ?? '';

@@ -61,6 +61,14 @@ export const HomeTrackSchema = z.object({
 });
 export type HomeTrack = z.infer<typeof HomeTrackSchema>;
 
+/**
+ * Lo stesso brano con `artworkUrl` obbligatorio (null = nessuna copertina), per i contratti che lo
+ * incorporano (ricerca globale): forma identica in ingresso e in uscita, il server la manda sempre.
+ */
+export const HomeTrackResultSchema = HomeTrackSchema.extend({
+  artworkUrl: homeTrackArtworkUrl.nullable(),
+});
+
 /** Una sezione musicale: i brani di una cartella dello store (la radice è "In evidenza"). */
 export const HomeTrackSectionSchema = z.object({
   id: z.string().max(1024),

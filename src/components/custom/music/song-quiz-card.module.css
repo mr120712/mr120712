@@ -1,0 +1,226 @@
+/* @polsia:user-owned — pagina e carta del quiz musicale condiviso (/quiz). Mobile first (390px):
+   una colonna, carta a tutta larghezza; i colori arrivano dai token del tema. */
+.page {
+  display: grid;
+  gap: 20px;
+  width: min(calc(100% - 32px), 560px);
+  margin: 0 auto;
+  padding: 20px 0 48px;
+}
+
+.header {
+  display: grid;
+  gap: 4px;
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+}
+
+.pageTitle {
+  margin: 0;
+  font-family: var(--font-display), sans-serif;
+  font-size: clamp(26px, 6vw, 36px);
+  font-weight: 650;
+  letter-spacing: -0.04em;
+}
+
+.lead {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+/* La carta: <details>. Chiusa mostra il fronte (la domanda), aperta il retro (la risposta). */
+.card {
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: linear-gradient(150deg, var(--secondary), var(--muted));
+  color: var(--foreground);
+  box-shadow: 0 20px 44px -28px color-mix(in srgb, var(--foreground) 55%, transparent);
+}
+
+.card[open] {
+  background: linear-gradient(
+    150deg,
+    color-mix(in srgb, var(--primary) 22%, var(--secondary)),
+    var(--muted)
+  );
+}
+
+.front {
+  display: grid;
+  min-height: 300px;
+  align-content: space-between;
+  gap: 24px;
+  padding: 24px;
+  border-radius: inherit;
+  cursor: pointer;
+  list-style: none;
+}
+
+.front::-webkit-details-marker {
+  display: none;
+}
+
+.front::marker {
+  content: "";
+}
+
+.front:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+.card[open] > .front {
+  min-height: 0;
+  padding-bottom: 0;
+}
+
+.frontTopic,
+.backTopic {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.question {
+  font-family: var(--font-display), sans-serif;
+  font-size: clamp(24px, 7vw, 32px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.songTitle {
+  color: var(--primary);
+}
+
+.flip {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-self: start;
+  gap: 8px;
+  padding: 0 18px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.flip svg {
+  width: 18px;
+  height: 18px;
+}
+
+.card[open] .flip {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--foreground);
+}
+
+/* Aperta: il fronte si riduce al pulsante per tornare alla domanda. */
+.card[open] .frontTopic,
+.card[open] .question,
+.card[open] .whenClosed,
+.card:not([open]) .whenOpen {
+  display: none;
+}
+
+.back {
+  display: grid;
+  gap: 10px;
+  padding: 20px 24px 24px;
+}
+
+.answer {
+  margin: 0;
+  font-family: var(--font-display), sans-serif;
+  font-size: clamp(30px, 9vw, 44px);
+  font-weight: 750;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.songLine {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+/* Senza JavaScript: i link diretti ai social al posto del menu «Sfida un amico». */
+.shareFallback {
+  margin: 4px 0 0;
+  color: var(--muted-foreground);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.shareFallback a {
+  color: var(--foreground);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.invalid {
+  display: grid;
+  gap: 10px;
+  padding: 24px;
+  border: 1px dashed var(--border);
+  border-radius: 20px;
+}
+
+.invalidTitle {
+  margin: 0;
+  font-family: var(--font-display), sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.invalidText {
+  margin: 0;
+  color: var(--muted-foreground);
+  line-height: 1.5;
+}
+
+/* La rotazione solo se il movimento è consentito: con reduced motion la risposta compare e basta. */
+@media (prefers-reduced-motion: no-preference) {
+  .card {
+    transition: background 0.35s ease;
+  }
+
+  .card[open] {
+    animation: quiz-flip 0.45s cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+}
+
+@keyframes quiz-flip {
+  from {
+    transform: perspective(1200px) rotateY(-90deg);
+  }
+
+  to {
+    transform: perspective(1200px) rotateY(0deg);
+  }
+}

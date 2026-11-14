@@ -20,6 +20,7 @@ import {
   isHomeAudioBlob,
   isHomeImageBlob,
   isHomeTracksConfigured,
+  listHomeTrackCatalog,
   listHomeTrackSections,
   listHomeTracks,
   trackNameFromPathname,
@@ -285,5 +286,50 @@ describe('sezioni, artista e copertine', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('listHomeTrackCatalog (ricerca globale)', () => {
+  it('tutti i brani come in Home (stessa copertina e streamUrl) più i file chiesti per nome', async () => {
+    const store = [
+      blob('Pop/A - Uno.mp3', `${PRIVATE}/Pop/A%20-%20Uno.mp3`, '2026-01-01T00:00:00.000Z'),
+      blob('Pop/cover.jpg', `${PUBLIC}/Pop/cover.jpg`, '2026-01-01T00:00:00.000Z'),
+      blob('Due.mp3', `${PUBLIC}/Due.mp3`, '2026-02-01T00:00:00.000Z'),
+      blob('diritti.json', `${PRIVATE}/diritti.json`, '2026-03-01T00:00:00.000Z'),
+      blob('altro.json', `${PRIVATE}/altro.json`, '2026-03-01T00:00:00.000Z'),
+      blob('public-uploads/x.mp3', `${PUBLIC}/public-uploads/x.mp3`, '2026-04-01T00:00:00.000Z'),
+    ];
+    mocks.list.mockResolvedValue(page(store));
+    const catalog = await listHomeTrackCatalog(['diritti.json']);
+    mocks.list.mockResolvedValue(page(store));
+    const home = await listHomeTrackSections();
+
+    expect(catalog?.complete).toBe(true);
+    expect(catalog?.tracks.map((track) => track.id)).toEqual(['Due.mp3', 'Pop/A - Uno.mp3']);
+    // Ogni brano è identico a quello della Home.
+    const homeItems = home.sections.flatMap((section) => section.items);
+    for (const track of catalog?.tracks ?? []) {
+      expect(track).toEqual(homeItems.find((item) => item.id === track.id));
+    }
+    expect([...(catalog?.files.keys() ?? [])]).toEqual(['diritti.json']);
+    expect(catalog?.files.get('diritti.json')).toMatchObject({
+      pathname: 'diritti.json',
+      url: `${PRIVATE}/diritti.json`,
+      size: 1000,
+    });
+  });
+
+  it('segnala un elenco parziale (pagina successiva fallita) e null senza token', async () => {
+    mocks.list
+      .mockResolvedValueOnce(
+        page([blob('a.mp3', `${PUBLIC}/a.mp3`, '2026-01-01T00:00:00.000Z')], true, 'c1'),
+      )
+      .mockRejectedValueOnce(new Error('rete'));
+    const partial = await listHomeTrackCatalog(['diritti.json']);
+    expect(partial?.complete).toBe(false);
+    expect(partial?.tracks.map((track) => track.id)).toEqual(['a.mp3']);
+
+    mocks.token = undefined;
+    expect(await listHomeTrackCatalog()).toBeNull();
   });
 });

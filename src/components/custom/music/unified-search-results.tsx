@@ -1,10 +1,12 @@
-// @polsia:user-owned — Cerca unificata: UN solo campo interroga Audius, radio e podcast mentre si
-// digita (gratis, nessuna chiamata a YouTube) e aggiunge YouTube solo all'invio esplicito (Invio o
-// «Cerca»), senza mai bruciare la quota mentre si scrive. Mostra UN elenco misto, deduplicato e
-// ordinato per rilevanza con un piccolo distintivo di fonte per riga; ogni riga suona nel player
-// Solco. Quando la quota YouTube è finita resta l'avviso con i risultati salvati e il link «Cerca
-// su YouTube» (riusa youtube-search-notice). Chip-filtro opzionali (Tutto / Brani / Radio /
-// Podcast) restringono lo stesso elenco. Consuma UnifiedSearchResponseSchema via apiFetch.
+// @polsia:user-owned — Cerca unificata: UN solo campo interroga i brani in evidenza di Solco (solo
+// quelli con i diritti dichiarati), Audius, radio e podcast mentre si digita (gratis, nessuna
+// chiamata a YouTube) e aggiunge YouTube solo all'invio esplicito (Invio o «Cerca»), senza mai
+// bruciare la quota mentre si scrive. Mostra UN elenco misto, deduplicato e ordinato per rilevanza
+// con un piccolo distintivo di fonte per riga; ogni riga suona nel player Solco (i brani «In
+// evidenza» esattamente come in Home, con playHomeTrack). Quando la quota YouTube è finita resta
+// l'avviso con i risultati salvati e il link «Cerca su YouTube» (riusa youtube-search-notice).
+// Chip-filtro opzionali (Tutto / Brani / Radio / Podcast) restringono lo stesso elenco. Consuma
+// UnifiedSearchResponseSchema via apiFetch.
 'use client';
 
 import { ListMusic, Pause, Play, Search } from 'lucide-react';
@@ -15,7 +17,7 @@ import { AiMusicSearch } from '@/components/custom/music/ai-music-search';
 import { AudiusLicenseNotice } from '@/components/custom/music/audius-license-notice';
 import { FallbackArt } from '@/components/custom/music/fallback-art';
 import { ListenInSolco } from '@/components/custom/music/listen-in-solco';
-import { stationToTrack, videoToTrack } from '@/components/custom/music/live-tracks';
+import { playHomeTrack, stationToTrack, videoToTrack } from '@/components/custom/music/live-tracks';
 import {
   type MusicPlayerTrack,
   trackStreamPath,
@@ -30,8 +32,10 @@ import {
   youtubeStatusText,
 } from '@/components/custom/music/youtube-search-notice';
 import { apiFetch } from '@/lib/api-client';
-import type { AudiusTrackSearchResult } from '@/lib/contracts/music';
+import type { HomeTrack } from '@/lib/contracts/home-tracks';
+import type { AudiusTrackSearchResult, YouTubeVideoSearchResult } from '@/lib/contracts/music';
 import {
+  UNIFIED_FEATURED_PARAM,
   type UnifiedResult,
   type UnifiedSearchResponse,
   UnifiedSearchResponseSchema,
@@ -46,6 +50,7 @@ type Filter = 'all' | 'tracks' | 'radio' | 'podcast';
 const DEBOUNCE_MS = 350;
 
 const SOURCE_LABEL: Record<UnifiedResult['kind'], string> = {
+  featured: 'In evidenza',
   audius: 'Audius',
   youtube: 'YouTube',
   radio: 'Radio',
@@ -124,9 +129,14 @@ function youtubeState(response: UnifiedSearchResponse): YouTubeSearchState | nul
   });
 }
 
+/** Brani: catalogo Solco in evidenza, Audius e YouTube. */
+function isTrackResult(result: UnifiedResult): boolean {
+  return result.kind === 'featured' || result.kind === 'audius' || result.kind === 'youtube';
+}
+
 function matchesFilter(result: UnifiedResult, filter: Filter): boolean {
   if (filter === 'all') return true;
-  if (filter === 'tracks') return result.kind === 'audius' || result.kind === 'youtube';
+  if (filter === 'tracks') return isTrackResult(result);
   return result.kind === filter;
 }
 
@@ -191,6 +201,8 @@ export function UnifiedSearchResults({
     const params = new URLSearchParams({ q: query });
     // YouTube costa quota (search.list = 100 unità): il consenso viaggia SOLO all'invio.
     if (youtubeRequested) params.set('youtubeConsent', 'accepted');
+    // Questo client sa mostrare i brani in evidenza (tipo `featured`): il server li aggiunge solo così.
+    params.set(UNIFIED_FEATURED_PARAM, '1');
     apiFetch(`/api/music/search-all?${params.toString()}`, { schema: UnifiedSearchResponseSchema })
       .then((value) => {
         if (cancelled) return;
@@ -258,7 +270,7 @@ export function UnifiedSearchResults({
   const counts = useMemo(
     () => ({
       all: results.length,
-      tracks: results.filter((r) => r.kind === 'audius' || r.kind === 'youtube').length,
+      tracks: results.filter(isTrackResult).length,
       radio: results.filter((r) => r.kind === 'radio').length,
       podcast: results.filter((r) => r.kind === 'podcast').length,
     }),
@@ -272,6 +284,10 @@ export function UnifiedSearchResults({
   );
 
   // Code del player per sorgente, così «brano successivo» resta nell'elenco mostrato.
+  const featuredItems = useMemo(
+    () => results.flatMap((r): HomeTrack[] => (r.kind === 'featured' ? [r.track] : [])),
+    [results],
+  );
   const audiusQueue = useMemo(
     () =>
       results
@@ -313,6 +329,9 @@ export function UnifiedSearchResults({
     if (!track.playbackEligible) return;
     playTrack(audiusToPlayerTrack(track), audiusQueue);
   };
+  // Brano in evidenza: lo STESSO avvio della Home (stesso elemento, stesso percorso, stesse regole
+  // del player); la coda sono i brani in evidenza trovati.
+  const playFeatured = (item: HomeTrack) => playHomeTrack(player, item, featuredItems);
 
   const yt = response ? youtubeState(response) : null;
   const showNotice = yt?.kind === 'saved' || yt?.kind === 'blocked';
@@ -346,8 +365,8 @@ export function UnifiedSearchResults({
       <header>
         <h1 className={discover.pageTitle}>Cerca</h1>
         <p className={discover.lead}>
-          Un solo campo per brani, video, radio e podcast: i risultati arrivano insieme, ordinati e
-          senza doppioni.
+          Un solo campo per i brani in evidenza di Solco, brani, video, radio e podcast: i risultati
+          arrivano insieme, ordinati e senza doppioni.
         </p>
       </header>
 
@@ -370,8 +389,9 @@ export function UnifiedSearchResults({
         </button>
       </form>
       <p className={styles.hint}>
-        Mentre scrivi cerchiamo su Audius, radio e podcast. Premi Invio o «Cerca» per includere
-        anche YouTube (la query raggiunge Google). <Link href="/privacy">Privacy</Link>
+        Mentre scrivi cerchiamo fra i brani in evidenza, su Audius, radio e podcast. Premi Invio o
+        «Cerca» per includere anche YouTube (la query raggiunge Google).{' '}
+        <Link href="/privacy">Privacy</Link>
       </p>
 
       <AiMusicSearch initiallyOpen={initialAi} />
@@ -472,6 +492,7 @@ export function UnifiedSearchResults({
                       key={result.key}
                       result={result}
                       isPlayingNow={isPlayingNow}
+                      onPlayFeatured={playFeatured}
                       onPlayAudius={playAudius}
                       onPlayVideo={(video) => playTrack(videoToTrack(video), youtubeQueue)}
                       onPlayStation={(station) => playTrack(stationToTrack(station), radioQueue)}
@@ -516,26 +537,88 @@ function PlayButton({
   );
 }
 
+/** Lo stesso brano trovato anche su YouTube: azione secondaria sotto la voce, mai una riga a sé. */
+function YouTubeAlternative({
+  video,
+  isPlayingNow,
+  onPlayVideo,
+}: {
+  video: YouTubeVideoSearchResult;
+  isPlayingNow: (qualifiedId: string) => boolean;
+  onPlayVideo: (video: YouTubeVideoSearchResult) => void;
+}) {
+  // Suona nello stesso player: riflette lo stato come il pulsante primario.
+  const playing = isPlayingNow(`youtube:${video.videoId}`);
+  return (
+    <div className={styles.secondary}>
+      <button type="button" className={styles.secondaryBtn} onClick={() => onPlayVideo(video)}>
+        {playing ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}{' '}
+        {playing ? 'Metti in pausa su YouTube' : 'Ascolta su YouTube'}
+      </button>
+    </div>
+  );
+}
+
 function ResultRow({
   result,
   isPlayingNow,
+  onPlayFeatured,
   onPlayAudius,
   onPlayVideo,
   onPlayStation,
 }: {
   result: UnifiedResult;
   isPlayingNow: (qualifiedId: string) => boolean;
+  onPlayFeatured: (item: HomeTrack) => void;
   onPlayAudius: (track: AudiusTrackSearchResult) => void;
-  onPlayVideo: (video: Extract<UnifiedResult, { kind: 'youtube' }>['video']) => void;
+  onPlayVideo: (video: YouTubeVideoSearchResult) => void;
   onPlayStation: (station: Extract<UnifiedResult, { kind: 'radio' }>['station']) => void;
 }) {
+  if (result.kind === 'featured') {
+    const { track, youtubeAlternative } = result;
+    // Stesso id del player della Home (homeTrackToTrack): `upload:<pathname>`.
+    const playing = isPlayingNow(`upload:${track.id}`);
+    const byline = track.artist ?? 'Solco';
+    const stacked = youtubeAlternative ? ` ${styles.rowStacked}` : '';
+    return (
+      <li className={`${discover.row}${stacked}`} data-kind="featured">
+        <div className={discover.rowArt}>
+          <FallbackArt src={track.artworkUrl} label={track.title} size={104} />
+        </div>
+        <div className={styles.copy}>
+          <div className={styles.titleLine}>
+            <SourceBadge kind="featured" />
+            <strong className={styles.title} title={track.title}>
+              {track.title}
+            </strong>
+          </div>
+          <span className={styles.sub}>{byline}</span>
+          {youtubeAlternative ? (
+            <YouTubeAlternative
+              video={youtubeAlternative}
+              isPlayingNow={isPlayingNow}
+              onPlayVideo={onPlayVideo}
+            />
+          ) : null}
+        </div>
+        <div className={discover.rowActions}>
+          <PlayButton
+            playing={playing}
+            label={
+              playing
+                ? `Metti in pausa ${track.title} di ${byline}`
+                : `Riproduci ${track.title} di ${byline}`
+            }
+            onClick={() => onPlayFeatured(track)}
+          />
+        </div>
+      </li>
+    );
+  }
+
   if (result.kind === 'audius') {
     const { track, youtubeAlternative } = result;
     const playing = isPlayingNow(track.qualifiedId);
-    // L'alternativa su YouTube suona nello stesso player: riflette lo stato come il pulsante primario.
-    const altPlaying = youtubeAlternative
-      ? isPlayingNow(`youtube:${youtubeAlternative.videoId}`)
-      : false;
     const stacked = youtubeAlternative ? ` ${styles.rowStacked}` : '';
     return (
       <li className={`${discover.row}${stacked}`}>
@@ -556,16 +639,11 @@ function ResultRow({
               nella ricerca per fonte — un brano Audius non va riprodotto senza attribuzione. */}
           <AudiusLicenseNotice track={track} showTrackLink />
           {youtubeAlternative ? (
-            <div className={styles.secondary}>
-              <button
-                type="button"
-                className={styles.secondaryBtn}
-                onClick={() => onPlayVideo(youtubeAlternative)}
-              >
-                {altPlaying ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}{' '}
-                {altPlaying ? 'Metti in pausa su YouTube' : 'Ascolta su YouTube'}
-              </button>
-            </div>
+            <YouTubeAlternative
+              video={youtubeAlternative}
+              isPlayingNow={isPlayingNow}
+              onPlayVideo={onPlayVideo}
+            />
           ) : null}
         </div>
         <div className={discover.rowActions}>

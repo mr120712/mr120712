@@ -47,13 +47,27 @@ function plainTokens(value: string) {
   );
 }
 
-/** Artista e titolo da un video: "Artista - Titolo (Official Video)" oppure il canale. */
-export function parseVideoTitle(title: string, channelTitle: string) {
+/**
+ * Artista e titolo letti SOLO dal titolo del video ("Artista - Titolo (Official Video)"), o null
+ * se il titolo non nomina l'artista: in quel caso YouTube dà solo il canale, che può essere
+ * un'etichetta o chi ha caricato il video (quiz e flashcard non lo usano come risposta).
+ */
+export function videoTitleSong(title: string): { artist: string; title: string } | null {
   const parts = title.split(/\s[-–—|]\s/);
   if (parts.length >= 2 && parts[0] && parts[1]) {
     return { artist: parts[0].trim(), title: parts.slice(1).join(' ').trim() };
   }
-  return { artist: channelTitle.replace(/vevo$|\s*-\s*topic$/i, '').trim(), title: title.trim() };
+  return null;
+}
+
+/** Artista e titolo da un video: "Artista - Titolo (Official Video)" oppure il canale. */
+export function parseVideoTitle(title: string, channelTitle: string) {
+  return (
+    videoTitleSong(title) ?? {
+      artist: channelTitle.replace(/vevo$|\s*-\s*topic$/i, '').trim(),
+      title: title.trim(),
+    }
+  );
 }
 
 /** Testo da cercare su Audius e Jamendo. */

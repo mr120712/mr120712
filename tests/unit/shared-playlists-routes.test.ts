@@ -199,6 +199,7 @@ import {
   isShareableCoverUrl,
   sharedPlaylistCovers,
 } from '@/lib/music/shared-playlists.server';
+import { publicSiteUrl } from '@/lib/public-links';
 
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -344,7 +345,8 @@ describe('condivisione di una playlist (azioni share/unshare)', () => {
     const firstBody = await first.json();
     expect(first.status, JSON.stringify(firstBody)).toBe(200);
     expect(firstBody.shareId).toMatch(/^[A-Za-z0-9_-]{22}$/);
-    expect(firstBody.url).toBe(`https://solco.test/playlist/${firstBody.shareId}`);
+    // Sempre sul sito pubblico, non sull'host dell'app (NEXT_PUBLIC_APP_URL, qui solco.test).
+    expect(firstBody.url).toBe(`${publicSiteUrl()}/playlist/${firstBody.shareId}`);
     expect(first.headers.get('cache-control')).toContain('no-store');
     const listed = firstBody.collections.find((item: { id: string }) => item.id === playlist.id);
     expect(listed.shareId).toBe(firstBody.shareId);

@@ -2,8 +2,9 @@
 // Avvolge l'intera app (montato come wrapper più esterno in AppProviders): se non sei loggato e la
 // rotta non è pubblica, NON si monta nulla (né nav, né player, né pagina) e si viene reindirizzati
 // a /login. Pubbliche senza login: accesso/registrazione, pagine legali, i link CONDIVISI delle
-// playlist (così chi riceve un link lo può aprire) e la vetrina del Bot Solco (che invita all'accesso;
-// la ricerca e il limite restano imposti dall'API). L'enforcement vero dei dati resta lato API.
+// playlist e dei quiz musicali (così chi riceve un link lo può aprire) e la vetrina del Bot Solco
+// (che invita all'accesso; la ricerca e il limite restano imposti dall'API). L'enforcement vero
+// dei dati resta lato API.
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
@@ -45,6 +46,8 @@ const PUBLIC_EXACT = new Set([
   // Recupero password: chi l'ha dimenticata per definizione non è dentro.
   '/password-dimenticata',
   '/reimposta-password',
+  // Quiz musicale condiviso: chi riceve la sfida gira la carta senza un account.
+  '/quiz',
 ]);
 const PUBLIC_PREFIXES = [
   '/login/',
@@ -53,6 +56,7 @@ const PUBLIC_PREFIXES = [
   '/terms/',
   // Link PUBBLICI condivisi delle playlist (chi li riceve non ha per forza un account).
   '/playlist/',
+  '/quiz/',
 ];
 
 export function isPublicRoute(pathname: string): boolean {

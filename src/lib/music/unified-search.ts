@@ -1,12 +1,17 @@
 // @polsia:user-owned — fusione, ordinamento e deduplica dell'elenco misto della ricerca unificata.
 // Funzioni pure (nessun accesso a rete o DB): la route interroga ogni fonte con le funzioni già
 // esistenti e passa qui i risultati per costruire l'unico elenco ordinato. Testabili da sole.
+import type { HomeTrack } from '@/lib/contracts/home-tracks';
 import type { Podcast, RadioStation } from '@/lib/contracts/library';
 import type { AudiusTrackSearchResult, YouTubeVideoSearchResult } from '@/lib/contracts/music';
 import { UNIFIED_RANKED_LIMIT, type UnifiedResult } from '@/lib/contracts/unified-search';
 
-/** Priorità della fonte: spareggio quando due voci hanno la stessa rilevanza (Audius riproducibile prima). */
-const SOURCE_PRIORITY = { audius: 3, youtube: 2, radio: 1, podcast: 0 } as const;
+/**
+ * Priorità della fonte: spareggio quando due voci hanno la stessa rilevanza. Prima il catalogo di
+ * Solco (brani in evidenza con diritti dichiarati), poi Audius riproducibile. Resta sotto 10: il
+ * punteggio composito è rilevanza * 10 + priorità.
+ */
+const SOURCE_PRIORITY = { featured: 4, audius: 3, youtube: 2, radio: 1, podcast: 0 } as const;
 
 /** minuscolo, senza accenti e con spazi normalizzati: base comune per rilevanza e deduplica. */
 export function normalizeText(value: string): string {
@@ -31,6 +36,32 @@ export function relevanceScore(parts: readonly string[], query: string): number 
   }
   if (best < 40 && normalizeText(parts.join(' ')).includes(needle)) best = 40;
   return best;
+}
+
+/** Artista mostrato per un brano in evidenza senza artista nel nome del file (come nel player). */
+export const FEATURED_DEFAULT_ARTIST = 'Solco';
+
+/** "Artista - Titolo" (trattino, en o em dash fra spazi, come nei nomi dei file) → "Artista Titolo". */
+function withoutSeparators(value: string): string {
+  return value.replace(/\s+[-–—]\s+/g, ' ');
+}
+
+/**
+ * Rilevanza di un brano in evidenza: titolo e artista come le altre fonti, più "Artista Titolo"
+ * (anche scritto "Artista - Titolo", la convenzione dei nomi dei file; è anche la query dei link di
+ * condivisione del player, che senza artista usa "Solco"). La forma "Artista Titolo" è valutata da
+ * sola, così le parti non si mescolano. La usano SIA il filtro della fonte sia l'ordinamento, che
+ * quindi concordano. Non cambia relevanceScore delle altre fonti.
+ */
+export function featuredRelevance(
+  track: { title: string; artist: string | null },
+  query: string,
+): number {
+  const credited = track.artist?.trim() || FEATURED_DEFAULT_ARTIST;
+  return Math.max(
+    relevanceScore([track.title, track.artist ?? ''], query),
+    relevanceScore([withoutSeparators(`${credited} ${track.title}`)], withoutSeparators(query)),
+  );
 }
 
 // Parole di contorno nei titoli YouTube: non contano per decidere se è lo stesso brano.
@@ -93,8 +124,27 @@ export function isSameSong(
   return true;
 }
 
+/**
+ * Stesso brano fra un brano in evidenza e un brano Audius: entrambi hanno titolo e artista puliti
+ * (niente "Official Video" o nome del canale), quindi i token significativi devono coincidere in
+ * tutte e due le direzioni. Servono almeno 2 token, come per Audius/YouTube.
+ */
+export function isSameRecording(
+  left: { title: string; artist: string },
+  right: { title: string; artist: string },
+): boolean {
+  const leftTokens = new Set([...songTokens(left.title), ...songTokens(left.artist)]);
+  if (leftTokens.size < 2) return false;
+  const rightTokens = new Set([...songTokens(right.title), ...songTokens(right.artist)]);
+  if (rightTokens.size !== leftTokens.size) return false;
+  for (const token of leftTokens) if (!rightTokens.has(token)) return false;
+  return true;
+}
+
 export type UnifiedRankInput = {
   query: string;
+  /** Brani in evidenza già filtrati per diritti dichiarati (assenti per chi non li chiede). */
+  featuredTracks?: readonly HomeTrack[];
   audiusTracks: readonly AudiusTrackSearchResult[];
   youtubeVideos: readonly YouTubeVideoSearchResult[];
   stations: readonly RadioStation[];
@@ -103,27 +153,63 @@ export type UnifiedRankInput = {
 };
 
 /**
- * Costruisce l'elenco misto: deduplica i brani presenti sia su Audius che su YouTube (la voce
- * Audius resta e porta il video come alternativa; il video non compare una seconda volta), assegna
- * la rilevanza, ordina per rilevanza e poi per priorità di fonte (ordine originale come ultimo
- * spareggio, così l'ordine interno di ciascuna fonte è preservato).
+ * Costruisce l'elenco misto: deduplica i brani presenti in più fonti, assegna la rilevanza, ordina
+ * per rilevanza e poi per priorità di fonte (ordine originale come ultimo spareggio, così l'ordine
+ * interno di ciascuna fonte è preservato). Deduplica, dalla fonte più importante:
+ * - un brano in evidenza resta e porta come alternativa lo stesso brano su YouTube; lo stesso
+ *   brano su Audius non compare una seconda volta (solo se il brano in evidenza ha un artista);
+ * - un brano Audius resta e porta il video come alternativa; il video non compare una seconda volta.
+ * I doppioni restano comunque nelle sezioni per fonte (`sources`).
  */
 export function rankUnifiedResults(input: UnifiedRankInput): UnifiedResult[] {
   const matchedVideoIds = new Set<string>();
-  const audiusEntries = input.audiusTracks.map((track) => {
+  const findAlternative = (song: { title: string; artist: string }) => {
     const alternative = input.youtubeVideos.find(
       (video) =>
         !matchedVideoIds.has(video.videoId) &&
-        isSameSong(
-          { title: track.title, artist: track.artistName },
-          { title: video.title, channelTitle: video.channelTitle },
-        ),
+        isSameSong(song, { title: video.title, channelTitle: video.channelTitle }),
     );
     if (alternative) matchedVideoIds.add(alternative.videoId);
-    return { track, alternative: alternative ?? null };
+    return alternative ?? null;
+  };
+
+  // Prima il catalogo Solco: assorbe il video e il brano Audius dello stesso brano.
+  const absorbedAudiusIds = new Set<string>();
+  const featuredEntries = (input.featuredTracks ?? []).map((track) => {
+    // Senza artista il solo titolo non basta a dire "stesso brano" (il video di un altro artista
+    // con lo stesso titolo verrebbe assorbito e nascosto): nessuna alternativa, nessun doppione.
+    if (!track.artist?.trim()) return { track, alternative: null };
+    const song = { title: track.title, artist: track.artist };
+    const twin = input.audiusTracks.find(
+      (audius) =>
+        !absorbedAudiusIds.has(audius.id) &&
+        isSameRecording(song, { title: audius.title, artist: audius.artistName }),
+    );
+    if (twin) absorbedAudiusIds.add(twin.id);
+    return { track, alternative: findAlternative(song) };
   });
 
+  const audiusEntries = input.audiusTracks
+    .filter((track) => !absorbedAudiusIds.has(track.id))
+    .map((track) => ({
+      track,
+      alternative: findAlternative({ title: track.title, artist: track.artistName }),
+    }));
+
   const entries: Array<{ result: UnifiedResult; priority: number }> = [];
+
+  for (const { track, alternative } of featuredEntries) {
+    entries.push({
+      priority: SOURCE_PRIORITY.featured,
+      result: {
+        kind: 'featured',
+        key: `featured:${track.id}`,
+        score: featuredRelevance(track, input.query),
+        track,
+        youtubeAlternative: alternative,
+      },
+    });
+  }
 
   for (const { track, alternative } of audiusEntries) {
     entries.push({
@@ -139,7 +225,7 @@ export function rankUnifiedResults(input: UnifiedRankInput): UnifiedResult[] {
   }
 
   for (const video of input.youtubeVideos) {
-    if (matchedVideoIds.has(video.videoId)) continue; // già mostrato come alternativa di un brano Audius
+    if (matchedVideoIds.has(video.videoId)) continue; // già mostrato come alternativa di un brano
     entries.push({
       priority: SOURCE_PRIORITY.youtube,
       result: {

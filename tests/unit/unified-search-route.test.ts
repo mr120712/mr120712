@@ -1,6 +1,7 @@
 // @polsia:user-owned — GET /api/music/search-all: forma aggregata, YouTube escluso mentre si
 // digita (0 chiamate), quota YouTube finita con avviso e altre fonti intatte, deduplica fra fonti,
-// ordinamento, isolamento di una fonte in errore o oltre il tempo massimo, e cache.
+// ordinamento, isolamento di una fonte in errore o oltre il tempo massimo, e cache. I brani in
+// evidenza (fonte `featured`, solo con featured=1) sono provati a fondo in featured-search-route.
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,12 +12,16 @@ const mocks = vi.hoisted(() => ({
   enforceRateLimit: vi.fn(),
   getRateLimitIdentity: vi.fn(),
   getSession: vi.fn(),
+  searchFeaturedTracks: vi.fn(),
 }));
 
 vi.mock('server-only', () => ({}));
 vi.mock('@/lib/music/music-api.server', () => ({ searchMusic: mocks.searchMusic }));
 vi.mock('@/lib/music/radio-browser.server', () => ({ listStations: mocks.listStations }));
 vi.mock('@/lib/music/podcasts.server', () => ({ searchPodcasts: mocks.searchPodcasts }));
+vi.mock('@/lib/music/featured-search.server', () => ({
+  searchFeaturedTracks: mocks.searchFeaturedTracks,
+}));
 vi.mock('@/lib/auth', () => ({ auth: { api: { getSession: mocks.getSession } } }));
 vi.mock('@/lib/business/rate-limit.server', () => ({
   enforceRateLimit: mocks.enforceRateLimit,
@@ -161,6 +166,7 @@ beforeEach(() => {
   mocks.searchPodcasts
     .mockReset()
     .mockResolvedValue({ outcome: 'results', podcasts: [podcast('101')] });
+  mocks.searchFeaturedTracks.mockReset().mockResolvedValue({ outcome: 'no_results', tracks: [] });
 });
 
 describe('GET /api/music/search-all', () => {
@@ -348,6 +354,34 @@ describe('GET /api/music/search-all', () => {
     expect(mocks.enforceRateLimit).not.toHaveBeenCalled();
     // Con identità assente YouTube riceve comunque null (il budget lo gestisce).
     expect(mocks.searchMusic).toHaveBeenCalledWith('youtube', 'ambient', { youtubeIdentity: null });
+  });
+
+  it('senza featured=1 non interroga i brani in evidenza e la risposta resta quella di sempre', async () => {
+    const response = await request('ambient');
+    const raw = await response.json();
+
+    expect(mocks.searchFeaturedTracks).not.toHaveBeenCalled();
+    expect(raw.sources.featured).toBeUndefined();
+    expect(Object.keys(raw.sources).sort()).toEqual(['audius', 'podcasts', 'radio', 'youtube']);
+  });
+
+  it('con featured=1 aggiunge la fonte con il suo stato; in errore resta isolata', async () => {
+    const url = new URL('https://solco.test/api/music/search-all');
+    url.searchParams.set('q', 'ambient');
+    url.searchParams.set('featured', '1');
+    const ok = UnifiedSearchResponseSchema.parse(
+      await (await GET(new Request(url, { headers: { 'x-real-ip': ip } }))).json(),
+    );
+    expect(mocks.searchFeaturedTracks).toHaveBeenCalledWith('ambient', 8);
+    expect(ok.sources.featured).toEqual({ status: 'empty', tracks: [] });
+
+    mocks.searchFeaturedTracks.mockRejectedValue(new Error('Blob down'));
+    const failed = UnifiedSearchResponseSchema.parse(
+      await (await GET(new Request(url, { headers: { 'x-real-ip': ip } }))).json(),
+    );
+    expect(failed.sources.featured).toEqual({ status: 'unavailable', tracks: [] });
+    expect(failed.sources.audius.status).toBe('results');
+    expect(failed.sources.radio.status).toBe('results');
   });
 
   it('dichiara un limite di durata sopra il tempo massimo più lungo', async () => {

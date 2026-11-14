@@ -5,7 +5,9 @@
 //   oltre 2 MB anche senza Content-Length; la decodifica (sharp) rifiuta le immagini oltre circa
 //   16 megapixel prima di decodificarle (niente "bombe" piccole da scaricare ma enormi in memoria);
 //   poi la si ruota secondo l'EXIF, la si ritaglia al riquadro e la si ricodifica in JPEG.
-//   Qualsiasi errore: null (la scheda si disegna senza copertina).
+//   Su richiesta (blur) la si sfoca forte: la scheda del quiz mostra la copertina senza che
+//   si possa leggere il nome dell'artista scritto sopra. Qualsiasi errore: null (la scheda si
+//   disegna senza copertina).
 // - Scheda: next/og disegna un PNG, che si ricodifica in JPEG (mozjpeg, 4:4:4 perché il testo
 //   resti nitido): con una copertina fotografica il PNG pesava 400–600 KB, oltre ciò che WhatsApp
 //   accetta per l'immagine di anteprima (circa 300 KB).
@@ -23,6 +25,9 @@ export const MAX_OG_COVER_BYTES = 2 * 1024 * 1024;
 /** Circa 16 megapixel: una copertina Audius è al massimo 1000×1000. */
 const MAX_OG_COVER_PIXELS = 4096 * 4096;
 const COVER_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+/** Limiti della sfocatura (sigma di sharp: da 0,3; oltre 100 non serve e costa solo tempo). */
+const MIN_BLUR_SIGMA = 0.3;
+const MAX_BLUR_SIGMA = 100;
 
 type CoverFetch = (input: string, init: RequestInit) => Promise<Response>;
 
@@ -74,19 +79,25 @@ async function readCapped(
   return out;
 }
 
-/** Copertina ritagliata al riquadro e ricodificata in JPEG, o null se non è un'immagine valida. */
+/**
+ * Copertina ritagliata al riquadro (sfocata se `blur` è un sigma > 0) e ricodificata in JPEG, o
+ * null se non è un'immagine valida.
+ */
 async function coverJpeg(
   data: Uint8Array,
   box: number,
   background: string,
+  blur: number | undefined,
 ): Promise<Buffer | null> {
   try {
-    return await sharp(data, { limitInputPixels: MAX_OG_COVER_PIXELS })
+    let image = sharp(data, { limitInputPixels: MAX_OG_COVER_PIXELS })
       .rotate()
       .resize(box, box, { fit: 'cover' })
-      .flatten({ background })
-      .jpeg({ quality: 85, mozjpeg: true })
-      .toBuffer();
+      .flatten({ background });
+    if (blur !== undefined && Number.isFinite(blur) && blur > 0) {
+      image = image.blur(Math.min(MAX_BLUR_SIGMA, Math.max(MIN_BLUR_SIGMA, blur)));
+    }
+    return await image.jpeg({ quality: 85, mozjpeg: true }).toBuffer();
   } catch {
     return null;
   }
@@ -94,12 +105,13 @@ async function coverJpeg(
 
 /**
  * Scarica una copertina (URL già scelto dal server: dati Audius verificati) e la restituisce come
- * data URL JPEG di `box`×`box` pixel, pronta per next/og. null per qualsiasi problema.
+ * data URL JPEG di `box`×`box` pixel, pronta per next/og. `blur` (sigma di sharp, facoltativo)
+ * la sfoca dopo il ritaglio. null per qualsiasi problema.
  */
 export async function loadOgCover(
   src: string,
   box: number,
-  options: { background?: string; fetcher?: CoverFetch; timeoutMs?: number } = {},
+  options: { background?: string; blur?: number; fetcher?: CoverFetch; timeoutMs?: number } = {},
 ): Promise<string | null> {
   const fetcher: CoverFetch = options.fetcher ?? ssrfSafeFetch;
   const signal = AbortSignal.timeout(options.timeoutMs ?? COVER_TIMEOUT_MS);
@@ -120,7 +132,7 @@ export async function loadOgCover(
     }
     const data = await readCapped(response.body, MAX_OG_COVER_BYTES, signal);
     if (!data || data.byteLength === 0) return null;
-    const jpeg = await coverJpeg(data, box, options.background ?? '#000000');
+    const jpeg = await coverJpeg(data, box, options.background ?? '#000000', options.blur);
     return jpeg ? `data:image/jpeg;base64,${jpeg.toString('base64')}` : null;
   } catch {
     return null;

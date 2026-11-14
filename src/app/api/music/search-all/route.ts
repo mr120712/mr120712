@@ -4,11 +4,14 @@
 // stato, così una fonte lenta o in errore non blocca le altre. Riusa le funzioni di ricerca già
 // esistenti (incluso il budget YouTube con l'avviso quando la quota è finita): qui nulla cambia i
 // loro limiti. Restituisce un elenco unico ordinato e deduplicato più le sezioni per fonte.
+// Con `featured=1` (client che sanno mostrarli) aggiunge i brani in evidenza di Solco con i diritti
+// dichiarati in diritti.json (featured-search.server): fonte propria con tempo massimo e stato.
 import 'server-only';
 import { NextResponse } from 'next/server';
 import type { ZodType } from 'zod';
 import { auth } from '@/lib/auth';
 import { enforceRateLimit, getRateLimitIdentity } from '@/lib/business/rate-limit.server';
+import { type HomeTrack, HomeTrackResultSchema } from '@/lib/contracts/home-tracks';
 import {
   type Podcast,
   PodcastSchema,
@@ -30,12 +33,15 @@ import {
 import {
   UNIFIED_AUDIUS_LIST_LIMIT,
   UNIFIED_AUDIUS_TRACK_LIMIT,
+  UNIFIED_FEATURED_LIMIT,
+  UNIFIED_FEATURED_PARAM,
   UNIFIED_PODCAST_LIMIT,
   UNIFIED_RADIO_LIMIT,
   UnifiedSearchResponseSchema,
   type UnifiedSourceStatus,
 } from '@/lib/contracts/unified-search';
 import type { YouTubeSearchNotice } from '@/lib/contracts/youtube-search';
+import { searchFeaturedTracks } from '@/lib/music/featured-search.server';
 import { searchMusic } from '@/lib/music/music-api.server';
 import { searchPodcasts } from '@/lib/music/podcasts.server';
 import { listStations } from '@/lib/music/radio-browser.server';
@@ -51,6 +57,9 @@ const SOURCE_TIMEOUT_MS = {
   youtube: 10_000,
   radio: 9_000,
   podcasts: 6_500,
+  // L'indice è in cache: questo tempo conta solo quando va ricostruito (elenco Blob + diritti.json).
+  // Oltre, la ricostruzione prosegue e serve le ricerche successive.
+  featured: 6_000,
 } as const;
 /** Stazioni chieste per avere scelta dopo lo scarto dei doppioni; mostrate fino a UNIFIED_RADIO_LIMIT. */
 const RADIO_FETCH_LIMIT = 12;
@@ -71,6 +80,7 @@ type YouTubeSection = {
 };
 type RadioSection = { status: UnifiedSourceStatus; stations: RadioStation[] };
 type PodcastSection = { status: UnifiedSourceStatus; podcasts: Podcast[] };
+type FeaturedSection = { status: UnifiedSourceStatus; tracks: HomeTrack[] };
 
 /** Corsa fra il lavoro e il tempo massimo: alla scadenza (o in errore) torna il valore di riserva. */
 function withDeadline<T>(task: () => Promise<T>, ms: number, fallback: T): Promise<T> {
@@ -155,20 +165,33 @@ async function podcastSection(query: string): Promise<PodcastSection> {
 
 const PODCAST_UNAVAILABLE: PodcastSection = { status: 'unavailable', podcasts: [] };
 
+/** Brani in evidenza: solo quelli con i diritti dichiarati (il filtro è in featured-search). */
+async function featuredSection(query: string): Promise<FeaturedSection> {
+  const result = await searchFeaturedTracks(query, UNIFIED_FEATURED_LIMIT);
+  const tracks = validItems(HomeTrackResultSchema, result.tracks).slice(0, UNIFIED_FEATURED_LIMIT);
+  return { status: sectionStatus(result.outcome, tracks.length), tracks };
+}
+
+const FEATURED_UNAVAILABLE: FeaturedSection = { status: 'unavailable', tracks: [] };
+
 /**
  * Cache HTTP:
  * - con YouTube (dati per identità: quota personale/di connessione e avviso) mai in cache, così non
  *   si serve ad altri un "unavailable" YouTube né l'avviso di un altro ascoltatore;
  * - senza YouTube (Audius + radio + podcast, dati pubblici uguali per tutti) breve cache condivisa
- *   secondo le regole delle route di catalogo; niente cache se non c'è nulla da mostrare.
+ *   secondo le regole delle route di catalogo; niente cache se non c'è nulla da mostrare;
+ * - con brani in evidenza nella risposta al massimo 1 minuto in cache condivisa (niente cache nel
+ *   browser né stale-while-revalidate): un diritto revocato in diritti.json sparisce dalla ricerca
+ *   entro la finestra dell'indice (~5 minuti) più questo minuto.
  */
 function unifiedCacheControl(
   youtubeRequested: boolean,
   statuses: readonly UnifiedSourceStatus[],
+  featuredFound: boolean,
 ): string {
   if (youtubeRequested) return privateHeaders['Cache-Control'];
   if (!statuses.includes('results')) return 'no-store';
-  if (statuses.includes('unavailable')) return 'public, max-age=0, s-maxage=60';
+  if (featuredFound || statuses.includes('unavailable')) return 'public, max-age=0, s-maxage=60';
   return 'public, max-age=60, s-maxage=300, stale-while-revalidate=600';
 }
 
@@ -184,6 +207,9 @@ export async function GET(request: Request) {
   // YouTube costa quota (search.list = 100 unità): si interroga SOLO all'invio esplicito, mai mentre
   // si digita. Il flag di consenso è lo stesso della ricerca per fonte.
   const youtubeRequested = url.searchParams.get('youtubeConsent') === 'accepted';
+  // Le voci `featured` sono un tipo nuovo: solo i client che lo dichiarano le ricevono, così chi
+  // non le conosce (app o pagine meno recenti) continua a leggere la risposta di sempre.
+  const featuredRequested = url.searchParams.get(UNIFIED_FEATURED_PARAM) === '1';
 
   // L'identità (utente autenticato o IP d'ingresso) serve alla quota YouTube per persona e al
   // limite. Come le route di catalogo, senza un'identità affidabile (sviluppo locale) non si limita.
@@ -197,7 +223,7 @@ export async function GET(request: Request) {
     }
   }
 
-  const [audius, youtube, radio, podcasts] = await Promise.all([
+  const [audius, youtube, radio, podcasts, featured] = await Promise.all([
     withDeadline(() => audiusSection(query), SOURCE_TIMEOUT_MS.audius, AUDIUS_UNAVAILABLE),
     youtubeRequested
       ? withDeadline(
@@ -208,10 +234,14 @@ export async function GET(request: Request) {
       : Promise.resolve(YOUTUBE_SKIPPED),
     withDeadline(() => radioSection(query), SOURCE_TIMEOUT_MS.radio, RADIO_UNAVAILABLE),
     withDeadline(() => podcastSection(query), SOURCE_TIMEOUT_MS.podcasts, PODCAST_UNAVAILABLE),
+    featuredRequested
+      ? withDeadline(() => featuredSection(query), SOURCE_TIMEOUT_MS.featured, FEATURED_UNAVAILABLE)
+      : Promise.resolve(null),
   ]);
 
   const results = rankUnifiedResults({
     query,
+    featuredTracks: featured?.tracks ?? [],
     audiusTracks: audius.tracks.slice(0, UNIFIED_AUDIUS_TRACK_LIMIT),
     youtubeVideos: youtube.videos,
     stations: radio.stations,
@@ -233,15 +263,17 @@ export async function GET(request: Request) {
       youtube: { status: youtube.status, videos: youtube.videos },
       radio: { status: radio.status, stations: radio.stations },
       podcasts: { status: podcasts.status, podcasts: podcasts.podcasts },
+      ...(featured ? { featured: { status: featured.status, tracks: featured.tracks } } : {}),
     },
     ...(youtube.notice ? { youtube: youtube.notice } : {}),
   });
 
-  // Nelle regole di cache contano solo le fonti pubbliche; YouTube (per identità) forza no-store.
-  const cacheControl = unifiedCacheControl(youtubeRequested, [
-    audius.status,
-    radio.status,
-    podcasts.status,
-  ]);
+  // Nelle regole di cache contano solo le fonti pubbliche (i brani in evidenza sono uguali per
+  // tutti, come la Home); YouTube (per identità) forza no-store.
+  const cacheControl = unifiedCacheControl(
+    youtubeRequested,
+    [audius.status, radio.status, podcasts.status, ...(featured ? [featured.status] : [])],
+    featured?.status === 'results',
+  );
   return NextResponse.json(body, { headers: { 'Cache-Control': cacheControl } });
 }

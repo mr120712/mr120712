@@ -5,6 +5,7 @@ import {
   bestMatch,
   normalizeMusicText,
   parseVideoTitle,
+  videoTitleSong,
 } from '@/lib/music/background-match';
 
 const video = {
@@ -20,6 +21,21 @@ describe('ascolta in background: corrispondenza dei brani', () => {
       title: 'Notte Chiara (Official Video)',
     });
     expect(backgroundSearchQuery(video.title, video.channelTitle)).toBe('artista uno notte chiara');
+  });
+
+  it('videoTitleSong: artista solo dal titolo, mai dal canale', () => {
+    expect(videoTitleSong(video.title)).toEqual({
+      artist: 'Artista Uno',
+      title: 'Notte Chiara (Official Video)',
+    });
+    expect(videoTitleSong('Laura Pausini: La solitudine (Official Video)')).toBeNull();
+    expect(videoTitleSong('Hello lyrics')).toBeNull();
+    expect(videoTitleSong('Hello -  - Live')).toBeNull();
+    // Senza artista nel titolo parseVideoTitle ripiega sul canale (per la ricerca in background).
+    expect(parseVideoTitle('Hello lyrics', 'AdeleVEVO')).toEqual({
+      artist: 'Adele',
+      title: 'Hello lyrics',
+    });
   });
 
   it('sceglie lo stesso brano dello stesso artista', () => {

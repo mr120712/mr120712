@@ -176,19 +176,23 @@ export async function getAudiusShareCard(
 
 /**
  * La copertina (indicata da Audius) pronta per la scheda: data URL JPEG di `box`×`box`, o null.
- * Le copertine riuscite restano in memoria un'ora; quelle non riuscite si riprovano.
+ * `blur` la sfoca (sigma di sharp: la scheda del quiz non deve lasciar leggere l'artista); la
+ * versione sfocata e quella nitida sono voci diverse della memoria. Le copertine riuscite restano
+ * in memoria un'ora; quelle non riuscite si riprovano.
  */
 export async function getAudiusShareCover(
   coverUrl: string,
   box: number,
   background: string,
-  now = Date.now(),
+  options: { blur?: number; now?: number } = {},
 ): Promise<string | null> {
-  const key = `${box}|${background}|${coverUrl}`;
+  const now = options.now ?? Date.now();
+  const blur = options.blur && options.blur > 0 ? options.blur : 0;
+  const key = `${box}|${background}|${blur}|${coverUrl}`;
   const cached = covers.get(key);
   if (cached && cached.expiresAt > now) return cached.dataUrl;
   if (cached) covers.delete(key);
-  const dataUrl = await loadOgCover(coverUrl, box, { background });
+  const dataUrl = await loadOgCover(coverUrl, box, { background, ...(blur ? { blur } : {}) });
   if (dataUrl) {
     remember(covers, key, { dataUrl, expiresAt: Date.now() + COVER_TTL_MS }, MAX_COVER_ENTRIES);
   }

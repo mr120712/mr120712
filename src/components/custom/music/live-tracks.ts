@@ -29,6 +29,33 @@ export function homeTrackToTrack(track: HomeTrack): MusicPlayerTrack {
     playbackMode: 'upload',
   };
 }
+
+/** Quanto serve del player per avviare un brano in evidenza (useMusicPlayer() lo soddisfa). */
+type HomeTrackPlayer = {
+  currentTrack: { qualifiedId: string } | null;
+  togglePlayback: () => Promise<void>;
+  playTrack: (track: MusicPlayerTrack, streamPath: string, queue?: MusicPlayerTrack[]) => unknown;
+};
+
+/**
+ * L'UNICO modo di avviare un brano in evidenza, dalla Home come dalla ricerca: stesso elemento del
+ * player, stesso percorso di streaming (pubblico o proxy), quindi le stesse regole del player
+ * (accesso, conteggi). Se è già il brano corrente mette in pausa/riprende; altrimenti suona con
+ * `queueItems` come coda (in Home la sezione, nella ricerca i brani in evidenza trovati).
+ */
+export function playHomeTrack(
+  player: HomeTrackPlayer,
+  item: HomeTrack,
+  queueItems: readonly HomeTrack[],
+): void {
+  const track = homeTrackToTrack(item);
+  if (player.currentTrack?.qualifiedId === track.qualifiedId) {
+    void player.togglePlayback();
+    return;
+  }
+  void player.playTrack(track, track.streamUrl ?? '', queueItems.map(homeTrackToTrack));
+}
+
 /** Un brano della libreria pubblica → elemento del player (stream diretto dall'URL pubblico Blob). */
 export function publicUploadToTrack(upload: {
   id: string;

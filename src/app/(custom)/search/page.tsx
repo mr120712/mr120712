@@ -1,7 +1,11 @@
 // @polsia:user-owned
 import type { Metadata } from 'next';
 import { UnifiedSearchResults } from '@/components/custom/music/unified-search-results';
-import { sharedSongFromParams, songPreviewImagePath } from '@/lib/business/social-share';
+import {
+  sharedSongFromParams,
+  sharedSongPagePath,
+  songPreviewImagePath,
+} from '@/lib/business/social-share';
 
 type SearchParams = Promise<
   { q?: string | string[]; ai?: string | string[] } & Record<string, string | string[] | undefined>
@@ -28,6 +32,8 @@ export async function generateMetadata({
   const song = sharedSongFromParams(await searchParams);
   if (!song) return baseMetadata;
   const name = song.title || 'Musica su Solco';
+  // og:url: il link canonico del brano (metadataBase lo rende assoluto), come in uam-preview.ts.
+  const url = sharedSongPagePath(song);
   const title = song.title && song.artist ? `${song.title} · ${song.artist}` : name;
   const description = 'Ascoltalo su Solco: musica, radio dal vivo e podcast in un solo player.';
   const image = {
@@ -42,7 +48,13 @@ export async function generateMetadata({
     description,
     // Una ricerca resta fuori dai motori di ricerca anche quando arriva da un link condiviso.
     robots: { index: false, follow: true },
-    openGraph: { title, description, type: 'music.song', images: [image] },
+    openGraph: {
+      title,
+      description,
+      type: 'music.song',
+      ...(url ? { url } : {}),
+      images: [image],
+    },
     twitter: { card: 'summary_large_image', title, description, images: [image.url] },
   };
 }

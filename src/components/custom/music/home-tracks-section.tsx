@@ -7,7 +7,7 @@
 import { Pause, Play } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FallbackArt } from '@/components/custom/music/fallback-art';
-import { homeTrackToTrack } from '@/components/custom/music/live-tracks';
+import { playHomeTrack } from '@/components/custom/music/live-tracks';
 import { useMusicPlayer } from '@/components/custom/music/music-player';
 import { apiFetch } from '@/lib/api-client';
 import {
@@ -86,16 +86,10 @@ export function HomeTracksSection() {
     };
   }, [load]);
 
-  const play = (item: HomeTrack, section: HomeTrackSection) => {
-    const track = homeTrackToTrack(item);
-    if (player.currentTrack?.qualifiedId === track.qualifiedId) {
-      void player.togglePlayback();
-      return;
-    }
-    // La coda è la sezione: si ascolta la cartella, dal brano toccato in poi.
-    const queue = section.items.map(homeTrackToTrack);
-    void player.playTrack(track, track.streamUrl ?? '', queue);
-  };
+  // Stesso avvio della ricerca globale (playHomeTrack). La coda è la sezione: si ascolta la
+  // cartella, dal brano toccato in poi.
+  const play = (item: HomeTrack, section: HomeTrackSection) =>
+    playHomeTrack(player, item, section.items);
 
   // Si nasconde finché carica, in errore o se vuota: nessun ingombro in Home.
   if (state !== 'ready' || sections.length === 0) return null;

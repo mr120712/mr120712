@@ -39,6 +39,7 @@ import {
   songShareText,
   songShareUrl,
 } from '@/lib/business/social-share';
+import { QUIZ_SHARE_TITLE, songQuizShare } from '@/lib/business/song-quiz';
 import { HOME_TRACK_COVER_PREFIX } from '@/lib/contracts/home-tracks';
 import {
   AudiusPlaybackCheckSchema,
@@ -74,7 +75,7 @@ import {
   setAutoplay,
   useAutoplay,
 } from '@/lib/music/autoplay';
-import { parseVideoTitle } from '@/lib/music/background-match';
+import { parseVideoTitle, videoTitleSong } from '@/lib/music/background-match';
 import { setDataSaver, useDataSaver } from '@/lib/music/data-saver';
 import {
   createListeningClock,
@@ -2435,6 +2436,27 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
     return null;
   })();
+  // "Sfida un amico": il quiz del brano (/quiz), solo con titolo e artista. Il link porta la
+  // risposta codificata (mai leggibile nel testo, nel link o nell'anteprima); per un brano Audius
+  // anche il suo id, come "Condividi": la scheda la disegna il server leggendo il brano da Audius.
+  // Per un video YouTube solo se il titolo è «Artista - Titolo»: altrimenti l'artista di songSearch
+  // è il canale (un'etichetta, chi ha caricato il video), una risposta sbagliata o già scritta nel
+  // titolo. Stessa regola del mazzo dei tuoi ascolti (historyDeck).
+  const quizTarget = (() => {
+    if (!songSearch?.artist || !currentTrack) return null;
+    if (
+      isYouTubeTrack(currentTrack) &&
+      !currentTrack.importedFrom &&
+      !videoTitleSong(currentTrack.title)
+    ) {
+      return null;
+    }
+    return songQuizShare({
+      title: songSearch.title,
+      artist: songSearch.artist,
+      audiusId: audiusTrackIdFromQualifiedId(currentTrack.qualifiedId),
+    });
+  })();
   // The YouTube Music link opens the same video when the track is a YouTube video.
   const songSearchVideoId = currentTrack?.qualifiedId.startsWith('youtube:')
     ? currentTrack.qualifiedId.slice('youtube:'.length)
@@ -3606,6 +3628,18 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                       url={shareTarget.url}
                       imageUrl={shareTarget.imageUrl}
                       ariaLabel={`Condividi ${shareTarget.title}`}
+                      contentClassName={FULL_PLAYER_MENU}
+                    />
+                  ) : null}
+                  {quizTarget ? (
+                    <ShareMenu
+                      size="sm"
+                      label="Sfida un amico"
+                      title={QUIZ_SHARE_TITLE}
+                      text={quizTarget.text}
+                      url={quizTarget.url}
+                      imageUrl={quizTarget.imageUrl}
+                      ariaLabel={`Sfida un amico: chi interpreta ${quizTarget.title}?`}
                       contentClassName={FULL_PLAYER_MENU}
                     />
                   ) : null}

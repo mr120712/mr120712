@@ -1,7 +1,8 @@
 // @polsia:user-owned — flashcard musicali: mazzi (generi, ascolti, teoria) e ripasso con il
 // metodo Leitner (5 scatole). Funzioni pure: lo stato del ripasso vive nel browser.
+import { audiusTrackIdFromQualifiedId } from '@/lib/business/social-share';
 import type { HistoryEntry } from '@/lib/contracts/library';
-import { parseVideoTitle } from '@/lib/music/background-match';
+import { videoTitleSong } from '@/lib/music/background-match';
 import { genreCatalog, genreFamilies } from '@/lib/music/genre-catalog';
 
 export type Flashcard = {
@@ -10,6 +11,11 @@ export type Flashcard = {
   back: string;
   topic: string;
   link?: { href: string; label: string };
+  /**
+   * Il brano di una carta «Chi interpreta…?» (mazzo dei tuoi ascolti): serve a sfidare un amico
+   * con il quiz condivisibile (song-quiz). `audiusId` solo per i brani Audius.
+   */
+  song?: { title: string; artist: string; audiusId: string | null };
 };
 
 /** Genre quiz: the description on the front, the genre (and where to listen) on the back. */
@@ -37,9 +43,10 @@ export function historyDeck(history: HistoryEntry[], limit = 40): Flashcard[] {
     let title = entry.title.trim();
     let artist = entry.artistName.trim();
     if (entry.playbackMode === 'youtube') {
-      // YouTube gives the channel, not the artist: use "Artist - Title" when the title has it.
-      if (!/\s[-–—|]\s/.test(title)) continue;
-      const parsed = parseVideoTitle(title, artist);
+      // YouTube gives the channel, not the artist: use "Artist - Title" when the title has it
+      // (same rule as the player's "Sfida un amico").
+      const parsed = videoTitleSong(title);
+      if (!parsed) continue;
       title = parsed.title.replace(/\s*[([][^)\]]*[)\]]\s*/g, ' ').trim();
       artist = parsed.artist;
     }
@@ -52,6 +59,7 @@ export function historyDeck(history: HistoryEntry[], limit = 40): Flashcard[] {
       front: `Chi interpreta “${title}”?`,
       back: artist,
       topic: 'i tuoi ascolti',
+      song: { title, artist, audiusId: audiusTrackIdFromQualifiedId(entry.qualifiedId) },
     });
     if (cards.length >= limit) break;
   }

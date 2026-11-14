@@ -508,6 +508,7 @@ const STATIC_FILE_ROUTES = [
   /^\/brand\/[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+\.(?:svg|png)$/,
   /^\/search\/anteprima\.(?:png|jpg)$/,
   /^\/playlist\/[A-Za-z0-9_-]{22}\/anteprima\.(?:png|jpg)$/,
+  /^\/quiz\/anteprima\.jpg$/,
 ];
 
 /**

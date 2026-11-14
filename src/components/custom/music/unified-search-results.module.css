@@ -65,7 +65,7 @@ a.title:hover {
   white-space: nowrap;
 }
 
-/* Distintivo della fonte (Audius / YouTube / Radio / Podcast). */
+/* Distintivo della fonte (In evidenza / Audius / YouTube / Radio / Podcast). */
 .badge {
   flex: none;
   padding: 1px 7px;
@@ -77,6 +77,13 @@ a.title:hover {
   font-weight: 750;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+}
+
+/* «In evidenza»: catalogo di Solco (brani con diritti dichiarati), pieno per distinguerlo. */
+.badge[data-source="featured"] {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
 }
 
 .badge[data-source="audius"] {

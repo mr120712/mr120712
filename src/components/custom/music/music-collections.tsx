@@ -95,10 +95,13 @@ type ConfirmAction = {
   fallbackFocusId: string | null;
 };
 
-/** Public link of a shared playlist on the site the person is using. */
+/**
+ * Link pubblico di una playlist condivisa: sempre sul sito ufficiale (publicSiteUrl), come quello
+ * del server e del menu «Condividi sui social», qualunque sia l'host aperto (anteprime,
+ * *.vercel.app, localhost).
+ */
 function shareLinkFor(shareId: string) {
-  const path = sharedPlaylistPath(shareId);
-  return typeof window === 'undefined' ? path : new URL(path, window.location.origin).toString();
+  return publicShareUrl(sharedPlaylistPath(shareId));
 }
 
 /** Share sheet of the phone when there is one, otherwise the clipboard; a toast either way. */

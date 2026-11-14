@@ -207,6 +207,19 @@ export function sharedSongFromParams(params: ParamRecord): SharedSongCard | null
 }
 
 /**
+ * Percorso canonico della pagina di un brano condiviso (og:url di search/page.tsx e
+ * dell'anteprima in modalità attacco): il link ricostruito da songShareUrl, o null senza titolo
+ * (un link con il solo id Audius resta com'è).
+ */
+export function sharedSongPagePath(song: SharedSongCard | null): string | null {
+  if (!song?.title) return null;
+  const { pathname, search } = new URL(
+    songShareUrl(song.title, song.artist, undefined, song.audiusId),
+  );
+  return `${pathname}${search}`;
+}
+
+/**
  * Titolo o artista di un brano (anche letti da Audius, dove chiunque può caricare un brano) pronti
  * per la scheda: stesse regole del testo dei link, quindi nessun indirizzo web disegnato.
  */

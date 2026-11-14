@@ -32,6 +32,7 @@ vi.mock('next/image', () => ({ default: (props: { alt: string }) => <span>{props
 
 import { MusicCollections } from '@/components/custom/music/music-collections';
 import { MusicPlayerProvider } from '@/components/custom/music/music-player';
+import { publicSiteUrl } from '@/lib/public-links';
 
 const SHARE_ID = 'AbCdEfGhIjKlMnOpQrStUv';
 const SHARE_URL = `https://solco.test/playlist/${SHARE_ID}`;
@@ -479,7 +480,7 @@ describe('condividere una playlist dalla Libreria', () => {
     expect(container.textContent).toContain('Preferiti · 0 elementi');
   });
 
-  it('riapre il menu di una playlist già condivisa senza richiedere un nuovo link', async () => {
+  it('riapre il menu di una playlist già condivisa senza richiedere un nuovo link (sito pubblico)', async () => {
     shared = SHARE_ID;
     const share = vi.fn().mockResolvedValue(undefined);
     setNavigator('share', share);
@@ -489,7 +490,11 @@ describe('condividere una playlist dalla Libreria', () => {
     expect(mocks.apiFetch).not.toHaveBeenCalled();
     expect(share).toHaveBeenCalledWith({
       title: 'Brani misti',
-      url: `${window.location.origin}/playlist/${SHARE_ID}`,
+      url: `${publicSiteUrl()}/playlist/${SHARE_ID}`,
     });
+    // Il link mostrato sotto il nome è lo stesso, non l'host aperto (anteprime, localhost).
+    const shown = container.querySelector(`a[href$="/playlist/${SHARE_ID}"]`);
+    expect(shown?.getAttribute('href')).toBe(`${publicSiteUrl()}/playlist/${SHARE_ID}`);
+    expect(window.location.origin).not.toBe(publicSiteUrl());
   });
 });

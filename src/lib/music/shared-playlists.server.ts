@@ -3,6 +3,7 @@
 // Audius per l'anteprima social (mai miniature YouTube).
 import 'server-only';
 import { randomBytes } from 'node:crypto';
+import { publicShareUrl } from '@/lib/business/social-share';
 import { prisma } from '@/lib/db';
 import {
   MAX_ITEMS_PER_COLLECTION,
@@ -10,15 +11,15 @@ import {
 } from '@/lib/music/collections.server';
 import { isShareId, sharedPlaylistOwnerName, sharedPlaylistPath } from '@/lib/music/playlist-share';
 import { isShareableCoverUrl } from '@/lib/music/shareable-cover';
-import { siteUrl } from '@/lib/site';
 
 /** 16 byte da crypto in base64url: 22 caratteri, non indovinabili né enumerabili. */
 export function generateShareId() {
   return randomBytes(16).toString('base64url');
 }
 
+/** Il link da condividere: sempre sul sito pubblico (publicSiteUrl), come i link dei brani. */
 export function sharedPlaylistUrl(shareId: string) {
-  return `${siteUrl}${sharedPlaylistPath(shareId)}`;
+  return publicShareUrl(sharedPlaylistPath(shareId));
 }
 
 // No row id: the public page keys items by `source:sourceId` (unique in a collection).

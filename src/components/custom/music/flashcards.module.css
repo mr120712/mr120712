@@ -101,6 +101,18 @@
   font-weight: 600;
 }
 
+.challenge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.challengeHint {
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+
 .actions,
 .footerActions {
   display: flex;

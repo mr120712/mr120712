@@ -1,9 +1,14 @@
 // @polsia:user-owned — contratto della ricerca unificata (GET /api/music/search-all): una sola
-// query interroga Audius, YouTube (solo all'invio), radio e podcast. La risposta porta UN elenco
-// unico ordinato e deduplicato (`results`) PIÙ le sezioni per fonte (`sources`), così il client può
-// mostrare la vista mista o quella divisa per fonte. L'avviso YouTube (salvato/limite/resetsAt)
-// resta in cima come nella ricerca per fonte.
+// query interroga Audius, YouTube (solo all'invio), radio e podcast e — per i client che lo
+// chiedono con `featured=1` — i brani in evidenza di Solco con diritti dichiarati (diritti.json).
+// La risposta porta UN elenco unico ordinato e deduplicato (`results`) PIÙ le sezioni per fonte
+// (`sources`), così il client può mostrare la vista mista o quella divisa per fonte. L'avviso
+// YouTube (salvato/limite/resetsAt) resta in cima come nella ricerca per fonte.
+//
+// Compatibilità: le voci `featured` e `sources.featured` arrivano SOLO con `featured=1`. Un client
+// meno recente non lo manda e riceve la risposta di sempre (il suo schema non conosce il nuovo tipo).
 import { z } from 'zod';
+import { HomeTrackResultSchema } from '@/lib/contracts/home-tracks';
 import { PodcastSchema, RadioStationSchema } from '@/lib/contracts/library';
 import {
   AudiusAlbumSearchSchema,
@@ -23,6 +28,10 @@ export const UNIFIED_AUDIUS_LIST_LIMIT = 12;
 export const UNIFIED_YOUTUBE_VIDEO_LIMIT = 10;
 export const UNIFIED_RADIO_LIMIT = 8;
 export const UNIFIED_PODCAST_LIMIT = 8;
+/** Brani in evidenza (catalogo Solco con diritti dichiarati) per ricerca. */
+export const UNIFIED_FEATURED_LIMIT = 8;
+/** Parametro con cui il client dichiara di saper mostrare le voci `featured`. */
+export const UNIFIED_FEATURED_PARAM = 'featured';
 
 /**
  * Stato indipendente di ogni fonte:
@@ -30,6 +39,8 @@ export const UNIFIED_PODCAST_LIMIT = 8;
  * - `empty`: ha risposto senza nulla da mostrare;
  * - `unavailable`: errore, non configurata o oltre il tempo massimo;
  * - `skipped`: non interrogata (solo YouTube, mentre si digita, prima dell'invio).
+ * Per i brani in evidenza: `empty` anche quando nessun brano ha i diritti dichiarati (manifest
+ * assente o non valido), `unavailable` se Blob non è configurato o non risponde in tempo.
  */
 export const UnifiedSourceStatusSchema = z.enum(['results', 'empty', 'unavailable', 'skipped']);
 export type UnifiedSourceStatus = z.infer<typeof UnifiedSourceStatusSchema>;
@@ -40,8 +51,20 @@ export type UnifiedSourceStatus = z.infer<typeof UnifiedSourceStatusSchema>;
  * artista normalizzati), tenuto come azione secondaria invece di comparire due volte nell'elenco.
  * `score` è la rilevanza 0-100 (il client può mostrarla/filtrare); l'ordine finale usa anche la
  * priorità della fonte come spareggio.
+ *
+ * `featured` è un brano in evidenza del catalogo Solco (file dello store Blob con i diritti
+ * dichiarati in diritti.json), con gli stessi dati della Home (copertina, streamUrl): ha la
+ * priorità più alta a parità di rilevanza e assorbe lo stesso brano trovato su Audius o YouTube
+ * (il video resta come `youtubeAlternative`, come per Audius).
  */
 export const UnifiedResultSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('featured'),
+    key: z.string().min(1),
+    score: z.number(),
+    track: HomeTrackResultSchema,
+    youtubeAlternative: YouTubeVideoSearchResultSchema.nullable(),
+  }),
   z.object({
     kind: z.literal('audius'),
     key: z.string().min(1),
@@ -97,6 +120,13 @@ export const UnifiedSearchResponseSchema = z.object({
       status: UnifiedSourceStatusSchema,
       podcasts: z.array(PodcastSchema),
     }),
+    /** Brani in evidenza con diritti dichiarati: presente solo con `featured=1`. */
+    featured: z
+      .object({
+        status: UnifiedSourceStatusSchema,
+        tracks: z.array(HomeTrackResultSchema),
+      })
+      .optional(),
   }),
   /** Avviso YouTube (in tempo reale o salvato, con il limite che ha bloccato una ricerca nuova). */
   youtube: YouTubeSearchNoticeSchema.optional(),

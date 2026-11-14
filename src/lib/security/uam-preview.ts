@@ -6,11 +6,31 @@
 //
 // Nessuno script, nessuno stile, nessun render dell'app: solo testo scappato e URL assoluti. Gira
 // dentro il proxy (src/proxy.ts → uam-gate.ts): niente 'server-only', niente API solo Node, niente
-// React. Le immagini indicate (/opengraph-image, /search/anteprima.*, /playlist/<id>/anteprima.*)
-// sono escluse dal gate (isGateablePath in uam.ts), così il bot le può scaricare.
+// React. Le immagini indicate (/opengraph-image, /search/anteprima.*, /playlist/<id>/anteprima.*,
+// /quiz/anteprima.jpg) sono escluse dal gate (isGateablePath in uam.ts), così il bot le può
+// scaricare. Un quiz musicale (/quiz) mostra solo la domanda: mai l'artista, che è la risposta.
 import { siteDescription, siteName } from '@/lib/brand';
-import { sharedSongFromParams, songPreviewImagePath } from '@/lib/business/social-share';
-import { isShareId, sharedPlaylistImagePath } from '@/lib/music/playlist-share';
+import {
+  sharedSongFromParams,
+  sharedSongPagePath,
+  songPreviewImagePath,
+} from '@/lib/business/social-share';
+import {
+  QUIZ_DESCRIPTION,
+  QUIZ_GENERIC_TITLE,
+  quizPagePath,
+  quizPageTitle,
+  quizPreviewImagePath,
+  songQuizFromParams,
+} from '@/lib/business/song-quiz';
+import {
+  isShareId,
+  SHARED_PLAYLIST_DESCRIPTION,
+  SHARED_PLAYLIST_IMAGE_ALT,
+  SHARED_PLAYLIST_TITLE,
+  sharedPlaylistImagePath,
+  sharedPlaylistPath,
+} from '@/lib/music/playlist-share';
 
 export interface LinkPreview {
   title: string;
@@ -23,12 +43,12 @@ export interface LinkPreview {
   type: 'website' | 'music.song' | 'music.playlist';
 }
 
-/** Stessi testi dei metadati delle pagine (search/page.tsx, playlist/[shareId]/page.tsx). */
+/**
+ * Stessi testi dei metadati delle pagine (search/page.tsx; la playlist usa le costanti di
+ * playlist-share, condivise con playlist/[shareId]/page.tsx).
+ */
 const SONG_DESCRIPTION = 'Ascoltalo su Solco: musica, radio dal vivo e podcast in un solo player.';
 const SONG_FALLBACK_TITLE = 'Un brano su Solco';
-const PLAYLIST_TITLE = 'Playlist condivisa su Solco';
-const PLAYLIST_DESCRIPTION =
-  'Una playlist condivisa su Solco: ascoltala gratis e salvala nella tua Libreria.';
 
 /** Tutte le immagini di anteprima di Solco sono 1200×630. */
 const IMAGE_WIDTH = 1200;
@@ -104,20 +124,41 @@ function songLinkPreview(url: PreviewUrl, base: string, pageUrl: string): LinkPr
   // generico. Senza titolo né brano (immagine senza parametri): la scheda di Solco.
   if (!title && !imagePath.includes('?')) return null;
   const label = title ? (artist ? `${title} · ${artist}` : title) : SONG_FALLBACK_TITLE;
+  // og:url: lo stesso link canonico della pagina (search/page.tsx), altrimenti quello richiesto.
+  const canonical = sharedSongPagePath(song);
   return {
     title: label,
     description: SONG_DESCRIPTION,
     image: absolute(base, imagePath),
     imageAlt: label,
-    url: pageUrl,
+    url: canonical ? absolute(base, canonical) : pageUrl,
     type: 'music.song',
   };
 }
 
 /**
+ * Un quiz musicale (/quiz?c=…&au=…): gli stessi titolo, descrizione, immagine e og:url dei
+ * metadati della pagina (quiz/page.tsx), cioè la domanda e mai la risposta. Senza un quiz valido,
+ * la scheda generica del quiz.
+ */
+function quizLinkPreview(url: PreviewUrl, base: string): LinkPreview {
+  const quiz = songQuizFromParams(queryParams(url));
+  const title = quiz ? quizPageTitle(quiz.title) : QUIZ_GENERIC_TITLE;
+  return {
+    title,
+    description: QUIZ_DESCRIPTION,
+    image: absolute(base, quizPreviewImagePath(quiz)),
+    imageAlt: title,
+    url: absolute(base, quizPagePath(quiz)),
+    type: 'website',
+  };
+}
+
+/**
  * Titolo, descrizione e immagine dell'anteprima per l'URL richiesto: un brano condiviso
- * (/search con i parametri del brano), una playlist condivisa (/playlist/<shareId>) o, per ogni
- * altra pagina, la scheda generica di Solco. `base` è l'origine pubblica (senza slash finale).
+ * (/search con i parametri del brano), un quiz musicale (/quiz), una playlist condivisa
+ * (/playlist/<shareId>) o, per ogni altra pagina, la scheda generica di Solco. `base` è l'origine
+ * pubblica (senza slash finale).
  */
 export function linkPreviewFor(url: PreviewUrl, base: string): LinkPreview {
   const path = url.pathname.length > 1 ? url.pathname.replace(/\/+$/, '') || '/' : url.pathname;
@@ -127,14 +168,16 @@ export function linkPreviewFor(url: PreviewUrl, base: string): LinkPreview {
     return songLinkPreview(url, base, pageUrl) ?? siteLinkPreview(base, pageUrl);
   }
 
+  if (path === '/quiz') return quizLinkPreview(url, base);
+
   const shareId = PLAYLIST_PATH.exec(path)?.[1];
   if (shareId !== undefined && isShareId(shareId)) {
     return {
-      title: PLAYLIST_TITLE,
-      description: PLAYLIST_DESCRIPTION,
+      title: SHARED_PLAYLIST_TITLE,
+      description: SHARED_PLAYLIST_DESCRIPTION,
       image: absolute(base, sharedPlaylistImagePath(shareId)),
-      imageAlt: PLAYLIST_TITLE,
-      url: pageUrl,
+      imageAlt: SHARED_PLAYLIST_IMAGE_ALT,
+      url: absolute(base, sharedPlaylistPath(shareId)),
       type: 'music.playlist',
     };
   }

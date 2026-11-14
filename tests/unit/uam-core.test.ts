@@ -523,6 +523,13 @@ describe('isGateablePath', () => {
     '/search/x.png',
     '/search/anteprima.gif',
     '/search/anteprima.jpg/extra',
+    // Il quiz: solo la sua immagine JPEG è esente, la pagina passa dal gate.
+    '/quiz',
+    '/quiz/',
+    '/quiz/anteprima.png',
+    '/quiz/anteprima.jpg/extra',
+    '/quiz/x.jpg',
+    '/quizanteprima.jpg',
     '/invito/abc.js',
     '/ios/x.mobileconfig',
     '/fonts',
@@ -587,6 +594,7 @@ describe('isGateablePath', () => {
     '/brand/spotify/full-logo-green.svg',
     '/search/anteprima.png',
     '/search/anteprima.jpg',
+    '/quiz/anteprima.jpg',
     '/playlist/AbCdEfGhIjKlMnOpQrStUv/anteprima.png',
     '/playlist/Ab-_EfGhIjKlMnOpQrStUv/anteprima.jpg',
   ])('does not gate %s', (pathname) => {

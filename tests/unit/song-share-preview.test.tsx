@@ -49,6 +49,7 @@ import { GET as legacyPreview } from '@/app/(custom)/search/anteprima.png/route'
 import { generateMetadata } from '@/app/(custom)/search/page';
 import { songShareImagePath, songShareUrl } from '@/lib/business/social-share';
 import { clearAudiusShareCardCacheForTests } from '@/lib/music/audius-share-card.server';
+import { linkPreviewFor } from '@/lib/security/uam-preview';
 
 const CID = 'baeaaaiqsec3v4qj7c6afbm4jcuij6qqq4ycn5plde7u6lhldnierwopply35m';
 const AUDIUS_COVER = `https://audius-01.staked.cloud/content/${CID}/480x480.jpg`;
@@ -490,6 +491,26 @@ describe('metadati di /search per un brano condiviso', () => {
       JSON.stringify('/search/anteprima.jpg?t=Notte%20Chiara&a=Artista'),
     );
     expect(JSON.stringify(metadata)).not.toContain('evil');
+  });
+
+  it('og:url: il link canonico del brano, lo stesso della paginetta in modalità attacco', async () => {
+    const base = 'https://www.solcomusic.online';
+    for (const [title, artist, audiusId] of [
+      ['Albachiara', 'Vasco Rossi', null],
+      ['Luci basse', 'Artista Audius', TRACK_ID],
+      ['Radio Deejay', null, null],
+    ] as const) {
+      const link = songShareUrl(title, artist, base, audiusId);
+      const params = Object.fromEntries(new URL(link).searchParams);
+      const metadata = await generateMetadata({
+        searchParams: Promise.resolve({ ...params, fbclid: 'abc' }),
+      });
+      const url = (metadata.openGraph as { url?: string } | undefined)?.url;
+      // Relativo: metadataBase lo rende assoluto sulla stessa origine dell'app.
+      expect(url, title).toBe(link.slice(base.length));
+      const preview = linkPreviewFor(new URL(`${link}&fbclid=abc`), base);
+      expect(preview.url, title).toBe(link);
+    }
   });
 
   it('una ricerca normale resta com’è', async () => {

@@ -64,12 +64,25 @@ describe('isPublicRoute', () => {
       '/playlist/abc',
       '/login/x',
       '/bot',
+      '/quiz',
+      '/quiz/',
     ]) {
       expect(isPublicRoute(p)).toBe(true);
     }
   });
   it('protette: home e funzionalità', () => {
-    for (const p of ['/', '/search', '/radio', '/podcasts', '/library', '/pubblica', '/premi']) {
+    for (const p of [
+      '/',
+      '/search',
+      '/radio',
+      '/podcasts',
+      '/library',
+      '/pubblica',
+      '/premi',
+      '/flashcards',
+      '/quizzone',
+      '/quiz-segreto',
+    ]) {
       expect(isPublicRoute(p)).toBe(false);
     }
   });
@@ -78,6 +91,14 @@ describe('isPublicRoute', () => {
 describe('RequireLogin', () => {
   it('rotta pubblica senza sessione → mostra il contenuto', () => {
     mocks.pathname = '/login';
+    render();
+    expect(container.textContent).toContain('CONTENUTO_PROTETTO');
+    expect(mocks.replace).not.toHaveBeenCalled();
+  });
+
+  it('quiz musicale condiviso senza sessione → la carta si vede, nessun rimando al login', () => {
+    mocks.pathname = '/quiz';
+    mocks.session = { data: null, isPending: true };
     render();
     expect(container.textContent).toContain('CONTENUTO_PROTETTO');
     expect(mocks.replace).not.toHaveBeenCalled();

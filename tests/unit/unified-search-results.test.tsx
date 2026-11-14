@@ -1,7 +1,8 @@
 // @polsia:user-owned — Cerca unificata (client): mentre si digita si cercano Audius + radio +
 // podcast SENZA toccare YouTube; all'invio si aggiunge YouTube una sola volta. L'elenco è misto,
 // deduplicato e filtrabile; ogni riga suona nel player; quando la quota YouTube è finita resta
-// l'avviso con il link «Cerca su YouTube» e le altre fonti.
+// l'avviso con il link «Cerca su YouTube» e le altre fonti. I brani «In evidenza» (catalogo Solco
+// con diritti dichiarati) si mostrano con distintivo e copertina e suonano ESATTAMENTE come in Home.
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -11,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   playTrack: vi.fn(),
   togglePlayback: vi.fn(),
   replace: vi.fn(),
+  currentTrack: null as { qualifiedId: string } | null,
 }));
 
 vi.mock('@/lib/api-client', () => ({ apiFetch: mocks.apiFetch }));
@@ -28,17 +30,21 @@ vi.mock('next/link', () => ({
 }));
 vi.mock('@/components/custom/music/music-player', () => ({
   useMusicPlayer: () => ({
-    currentTrack: null,
+    currentTrack: mocks.currentTrack,
     status: 'idle',
     playTrack: mocks.playTrack,
     togglePlayback: mocks.togglePlayback,
   }),
   trackStreamPath: (track: { qualifiedId: string }) => `/stream/${track.qualifiedId}`,
 }));
-vi.mock('@/components/custom/music/fallback-art', () => ({ FallbackArt: () => null }));
+vi.mock('@/components/custom/music/fallback-art', () => ({
+  FallbackArt: ({ src }: { src: string | null }) => <span data-art={src ?? ''} />,
+}));
 vi.mock('@/components/custom/music/ai-music-search', () => ({ AiMusicSearch: () => null }));
 vi.mock('@/components/custom/music/listen-in-solco', () => ({ ListenInSolco: () => null }));
 
+import { HomeTracksSection } from '@/components/custom/music/home-tracks-section';
+import { homeTrackToTrack } from '@/components/custom/music/live-tracks';
 import { UnifiedSearchResults } from '@/components/custom/music/unified-search-results';
 
 const RESETS_AT = '2026-11-12T08:00:00.000Z';
@@ -231,6 +237,7 @@ beforeEach(() => {
   mocks.playTrack.mockReset();
   mocks.togglePlayback.mockReset();
   mocks.replace.mockReset();
+  mocks.currentTrack = null;
   respondWith(withYouTube);
 });
 
@@ -486,5 +493,172 @@ describe('Cerca unificata: accessibilità', () => {
     expect(live).toHaveLength(1);
     expect(live[0]?.getAttribute('aria-live')).toBe('polite');
     expect(live[0]?.textContent).toContain('risultati per “caruso”');
+  });
+});
+
+// Brano in evidenza (file privato nello store Blob, servito dal proxy), con il video dello stesso
+// brano come alternativa; un secondo brano in evidenza per la coda.
+const featuredTrack = {
+  id: 'Cantautori/Lucio Dalla - Caruso.mp3',
+  title: 'Caruso',
+  artist: 'Lucio Dalla',
+  streamUrl: `/api/music/home-tracks/stream?p=${encodeURIComponent('Cantautori/Lucio Dalla - Caruso.mp3')}`,
+  durationSeconds: 0,
+  artworkUrl: `/api/music/home-tracks/cover?p=${encodeURIComponent('Cantautori/cover.jpg')}`,
+};
+const featuredTrack2 = {
+  id: 'Strumentale - Caruso al piano.mp3',
+  title: 'Caruso al piano',
+  artist: null,
+  streamUrl:
+    'https://store.public.blob.vercel-storage.com/Strumentale%20-%20Caruso%20al%20piano.mp3',
+  durationSeconds: 0,
+  artworkUrl: null,
+};
+const withFeatured = {
+  ...typingResponse,
+  results: [
+    {
+      kind: 'featured',
+      key: `featured:${featuredTrack.id}`,
+      score: 100,
+      track: featuredTrack,
+      youtubeAlternative: altVideo,
+    },
+    {
+      kind: 'featured',
+      key: `featured:${featuredTrack2.id}`,
+      score: 70,
+      track: featuredTrack2,
+      youtubeAlternative: null,
+    },
+    radioEntry,
+    podcastEntry,
+  ],
+  sources: {
+    ...typingResponse.sources,
+    featured: { status: 'results', tracks: [featuredTrack, featuredTrack2] },
+  },
+};
+
+describe('Cerca unificata: brani in evidenza', () => {
+  it('ogni richiesta dichiara di saper mostrare i brani in evidenza (featured=1)', async () => {
+    respondWith(withFeatured, withFeatured);
+    const container = await mount('caruso');
+    await submitForm(container);
+    await flush();
+    expect(urlCalls().length).toBeGreaterThanOrEqual(2);
+    for (const url of urlCalls()) expect(url).toContain('featured=1');
+  });
+
+  it('mostra distintivo «In evidenza», copertina, titolo e artista; conta fra i Brani', async () => {
+    respondWith(withFeatured, withFeatured);
+    const container = await mount('caruso');
+
+    const row = container.querySelector('li[data-kind="featured"]');
+    expect(row).not.toBeNull();
+    expect(row?.querySelector('[data-source="featured"]')?.textContent).toBe('In evidenza');
+    expect(row?.querySelector('[data-art]')?.getAttribute('data-art')).toBe(
+      featuredTrack.artworkUrl,
+    );
+    expect(row?.textContent).toContain('Caruso');
+    expect(row?.textContent).toContain('Lucio Dalla');
+    // Senza artista: «Solco», come in Home.
+    expect(container.querySelectorAll('li[data-kind="featured"]')[1]?.textContent).toContain(
+      'Solco',
+    );
+
+    await act(async () => {
+      chip(container, 'Brani')?.click();
+    });
+    expect(rows(container)).toHaveLength(2);
+    expect(chip(container, 'Brani')?.textContent).toContain('2');
+  });
+
+  it('suona con lo STESSO avvio della Home: stesso brano del player, stesso percorso, coda dei brani in evidenza', async () => {
+    respondWith(withFeatured, withFeatured);
+    const container = await mount('caruso');
+    await act(async () => {
+      button(container, 'Riproduci Caruso di Lucio Dalla')?.click();
+    });
+
+    expect(mocks.playTrack).toHaveBeenCalledTimes(1);
+    const [track, path, queue] = mocks.playTrack.mock.calls[0] ?? [];
+    expect(track).toEqual(homeTrackToTrack(featuredTrack));
+    expect(path).toBe(featuredTrack.streamUrl);
+    expect(queue).toEqual([homeTrackToTrack(featuredTrack), homeTrackToTrack(featuredTrack2)]);
+    // Riproduzione «upload» del player come in Home (stesse regole: niente percorso inventato).
+    expect(track).toMatchObject({
+      qualifiedId: `upload:${featuredTrack.id}`,
+      playbackMode: 'upload',
+      sourceLabel: 'In evidenza',
+    });
+  });
+
+  it('parità con la Home: la stessa chiamata al player dalla Home e dalla ricerca', async () => {
+    const homeResponse = {
+      items: [featuredTrack],
+      sections: [{ id: 'Cantautori', title: 'Cantautori', items: [featuredTrack] }],
+    };
+    mocks.apiFetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.startsWith('/api/music/home-tracks')
+          ? homeResponse
+          : {
+              ...withFeatured,
+              results: [withFeatured.results[0]],
+              sources: {
+                ...withFeatured.sources,
+                featured: { status: 'results', tracks: [featuredTrack] },
+              },
+            },
+      ),
+    );
+
+    const home = document.createElement('div');
+    document.body.append(home);
+    const homeRoot = createRoot(home);
+    roots.push(homeRoot);
+    await act(async () => homeRoot.render(<HomeTracksSection />));
+    await flush();
+    await act(async () => {
+      button(home, 'Riproduci Caruso di Lucio Dalla')?.click();
+    });
+
+    const search = await mount('caruso');
+    await act(async () => {
+      button(search, 'Riproduci Caruso di Lucio Dalla')?.click();
+    });
+
+    expect(mocks.playTrack).toHaveBeenCalledTimes(2);
+    const [fromHome, fromSearch] = mocks.playTrack.mock.calls;
+    expect(fromSearch).toEqual(fromHome);
+  });
+
+  it('sul brano già in corso mette in pausa/riprende, come in Home', async () => {
+    mocks.currentTrack = { qualifiedId: `upload:${featuredTrack.id}` };
+    respondWith(withFeatured, withFeatured);
+    const container = await mount('caruso');
+    await act(async () => {
+      button(container, 'Riproduci Caruso di Lucio Dalla')?.click();
+    });
+    expect(mocks.togglePlayback).toHaveBeenCalledTimes(1);
+    expect(mocks.playTrack).not.toHaveBeenCalled();
+  });
+
+  it('il video dello stesso brano resta come «Ascolta su YouTube», senza una riga a sé', async () => {
+    respondWith(withFeatured, withFeatured);
+    const container = await mount('caruso');
+    expect(rows(container)).toHaveLength(4);
+    const row = container.querySelector('li[data-kind="featured"]');
+    const secondary = [...(row?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find((b) =>
+      b.textContent?.includes('Ascolta su YouTube'),
+    );
+    await act(async () => {
+      secondary?.click();
+    });
+    expect(mocks.playTrack.mock.calls.map((call) => call[0].qualifiedId)).toEqual([
+      'youtube:alt1111alt1',
+    ]);
   });
 });

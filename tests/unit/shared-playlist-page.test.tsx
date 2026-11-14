@@ -55,6 +55,7 @@ import { GET as previewImage } from '@/app/(custom)/playlist/[shareId]/anteprima
 import { GET as legacyPreview } from '@/app/(custom)/playlist/[shareId]/anteprima.png/route';
 import { generateMetadata } from '@/app/(custom)/playlist/[shareId]/page';
 import PrivacyPage from '@/app/(custom)/privacy/page';
+import { linkPreviewFor } from '@/lib/security/uam-preview';
 
 const SHARE_ID = 'AbCdEfGhIjKlMnOpQrStUv';
 const IMAGE_PATH = `/playlist/${SHARE_ID}/anteprima.jpg`;
@@ -176,6 +177,24 @@ describe('pagina /playlist/[shareId]', () => {
     expect(JSON.stringify(metadata.openGraph)).toContain('"image/jpeg"');
     expect(JSON.stringify(metadata.twitter)).toContain(`"${IMAGE_PATH}"`);
     expect(JSON.stringify(metadata)).not.toContain('Viaggio');
+  });
+
+  it('stessa anteprima della paginetta per i bot in modalità attacco (titolo, testo, og:url)', async () => {
+    const metadata = await generateMetadata({ params: Promise.resolve({ shareId: SHARE_ID }) });
+    const og = metadata.openGraph as {
+      title?: string;
+      description?: string;
+      url?: string;
+      images?: Array<{ alt?: string }>;
+    };
+    const base = 'https://www.solcomusic.online';
+    const preview = linkPreviewFor(new URL(`/playlist/${SHARE_ID}`, base), base);
+    expect(og.title).toBe(preview.title);
+    expect(og.description).toBe(preview.description);
+    expect(og.images?.[0]?.alt).toBe(preview.imageAlt);
+    // Relativo: metadataBase lo rende assoluto sulla stessa origine dell'app.
+    expect(og.url).toBe(`/playlist/${SHARE_ID}`);
+    expect(`${base}${og.url}`).toBe(preview.url);
   });
 
   it('senza un id valido non punta a nessuna immagine', async () => {

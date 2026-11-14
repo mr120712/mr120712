@@ -2,8 +2,12 @@
 // configurazione, attivo con UAM_MODE + UAM_SECRET, mai sulle API, e la CSP resta sempre.
 import { NextRequest } from 'next/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { sharedSongFromParams, songPreviewImagePath } from '@/lib/business/social-share';
-import { sharedPlaylistImagePath } from '@/lib/music/playlist-share';
+import {
+  sharedSongFromParams,
+  sharedSongPagePath,
+  songPreviewImagePath,
+} from '@/lib/business/social-share';
+import { SHARED_PLAYLIST_TITLE, sharedPlaylistImagePath } from '@/lib/music/playlist-share';
 import { ipPrefix, issueClearance, UAM_COOKIE, uaHash } from '@/lib/security/uam';
 import { proxy } from '@/proxy';
 
@@ -189,7 +193,8 @@ describe('proxy: bot delle anteprime in modalità attacco', () => {
     const song = sharedSongFromParams({ q: 'Mina Grande', t: 'Grande grande grande', a: 'Mina' });
     expect(meta(html, 'og:title')).toBe('Grande grande grande · Mina');
     expect(meta(html, 'og:image')).toBe(`${SITE}${songPreviewImagePath(song)}`);
-    expect(meta(html, 'og:url')).toBe(`${SITE}${path}`);
+    // og:url: il link canonico del brano, lo stesso della pagina /search (search/page.tsx).
+    expect(meta(html, 'og:url')).toBe(`${SITE}${sharedSongPagePath(song)}`);
     expect(meta(html, 'twitter:card')).toBe('summary_large_image');
     expect(meta(html, 'robots')).toBe('noindex');
     expect(html).not.toContain('<script');
@@ -204,7 +209,8 @@ describe('proxy: bot delle anteprime in modalità attacco', () => {
     );
     expect(response.status).toBe(200);
     const html = await response.text();
-    expect(meta(html, 'og:title')).toBe('Playlist condivisa su Solco');
+    // Lo stesso og:title della pagina (playlist/[shareId]/page.tsx).
+    expect(meta(html, 'og:title')).toBe(SHARED_PLAYLIST_TITLE);
     expect(meta(html, 'og:image')).toBe(`${SITE}${sharedPlaylistImagePath(SHARE_ID)}`);
     expect(meta(html, 'og:url')).toBe(`${SITE}/playlist/${SHARE_ID}`);
   });

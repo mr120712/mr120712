@@ -149,7 +149,7 @@ export function homeTrackStreamPath(pathname: string): string {
 }
 
 /** Un oggetto su un host *.public.blob… è pubblico: riproducibile direttamente dal CDN. */
-function isPublicBlobUrl(url: string): boolean {
+export function isPublicBlobUrl(url: string): boolean {
   try {
     return new URL(url).hostname.endsWith('.public.blob.vercel-storage.com');
   } catch {
@@ -223,10 +223,23 @@ export function sectionTitleFromDirectory(directory: string, full = false): stri
 
 type ListedBlob = Awaited<ReturnType<typeof list>>['blobs'][number];
 
+/** Un oggetto dello store chiesto per nome (es. il manifest diritti.json della ricerca). */
+export type HomeStoreFile = { pathname: string; url: string; size: number; uploadedAt: Date };
+
+type CollectedBlobs = {
+  audio: ListedBlob[];
+  images: ListedBlob[];
+  /** Gli oggetti con un pathname fra quelli chiesti (`wanted`), se presenti nello store. */
+  named: ListedBlob[];
+  /** True se lo store è stato elencato fino in fondo (niente errore, scadenza o tetto di pagine). */
+  complete: boolean;
+};
+
 /** Raccoglie brani e immagini dello store (paginando), esclusi gli upload degli utenti. */
 async function collectHomeBlobs(
   token: string,
-): Promise<{ audio: ListedBlob[]; images: ListedBlob[] }> {
+  wanted: ReadonlySet<string> = new Set(),
+): Promise<CollectedBlobs> {
   // list() torna UNA pagina per volta (max 1000, ordinata per pathname). Gli upload degli utenti
   // vivono nello stesso store: senza paginare, oltre i 1000 oggetti un brano in evidenza potrebbe
   // sparire e l'ordine "più recenti prima" sarebbe sbagliato. Si pagina con il cursore raccogliendo
@@ -239,6 +252,8 @@ async function collectHomeBlobs(
   const deadline = Date.now() + LIST_DEADLINE_MS;
   const audio: ListedBlob[] = [];
   const images: ListedBlob[] = [];
+  const named: ListedBlob[] = [];
+  let complete = false;
   try {
     let cursor: string | undefined;
     let page = 0;
@@ -256,14 +271,16 @@ async function collectHomeBlobs(
       for (const blob of result.blobs) {
         if (isHomeAudioBlob(blob.pathname)) audio.push(blob);
         else if (isHomeImageBlob(blob.pathname)) images.push(blob);
+        else if (wanted.has(blob.pathname)) named.push(blob);
       }
       cursor = result.hasMore ? result.cursor : undefined;
       page += 1;
+      if (!cursor) complete = true;
     } while (cursor && page < MAX_PAGES);
   } catch {
     // Degrada: si usa quanto raccolto finora (anche niente).
   }
-  return { audio, images };
+  return { audio, images, named, complete };
 }
 
 function abortAfter(ms: number): AbortSignal | undefined {
@@ -392,4 +409,44 @@ export async function listHomeTrackSections(): Promise<HomeTracksListing> {
 /** Solo l'elenco piatto dei brani in evidenza, dal più recente (vedi listHomeTrackSections). */
 export async function listHomeTracks(): Promise<HomeTrack[]> {
   return (await listHomeTrackSections()).items;
+}
+
+export type HomeTrackCatalog = {
+  /** TUTTI i brani in evidenza dello store (senza i tetti della Home), dal più recente. */
+  tracks: HomeTrack[];
+  /** Gli oggetti chiesti per nome (`files`) presenti nello store, per pathname. */
+  files: Map<string, HomeStoreFile>;
+  /** True se lo store è stato elencato fino in fondo; false = elenco parziale o fallito. */
+  complete: boolean;
+};
+
+/**
+ * Catalogo completo dei brani in evidenza per la ricerca (featured-search.server): ogni brano è
+ * costruito ESATTAMENTE come in Home (stessa copertina, stesso streamUrl pubblico o del proxy), così
+ * la riproduzione è identica. Con `files` raccoglie nello stesso elenco anche oggetti chiesti per
+ * nome (es. "diritti.json"), senza una seconda scansione. null se Blob non è configurato. Non fa
+ * mai throw. Non tocca listHomeTrackSections: la Home resta com'è.
+ */
+export async function listHomeTrackCatalog(
+  files: readonly string[] = [],
+): Promise<HomeTrackCatalog | null> {
+  const token = env.BLOB_READ_WRITE_TOKEN;
+  if (!token) return null;
+
+  const { audio, images, named, complete } = await collectHomeBlobs(token, new Set(files));
+  const artworkFor = artworkResolver(images);
+  const tracks = [...audio]
+    .sort(newestFirst)
+    .map((blob) => toHomeTrack(blob, artworkFor(blob)))
+    .filter((item): item is HomeTrack => item !== null);
+  const found = new Map<string, HomeStoreFile>();
+  for (const blob of named) {
+    found.set(blob.pathname, {
+      pathname: blob.pathname,
+      url: blob.url,
+      size: blob.size,
+      uploadedAt: blob.uploadedAt,
+    });
+  }
+  return { tracks, files: found, complete };
 }

@@ -1,11 +1,14 @@
 // @polsia:user-owned — Flashcard musicali: generi, i tuoi ascolti, teoria e storia. Il ripasso
-// (metodo Leitner) è salvato solo in questo browser.
+// (metodo Leitner) è salvato solo in questo browser. Le carte dei tuoi ascolti si possono mandare
+// a un amico come quiz (/quiz): nel testo e nell'anteprima c'è solo la domanda, mai l'artista.
+// /flashcards?mazzo=<id> apre quel mazzo (es. «Crea la tua sfida» del quiz → i tuoi ascolti).
 'use client';
 
 import { Check, Layers, RotateCcw, Shuffle, X } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLibrary } from '@/components/custom/music/library-context';
+import { ShareMenu } from '@/components/custom/share-menu';
 import { Button } from '@/components/ui/button';
 import {
   cardsToStudy,
@@ -16,6 +19,7 @@ import {
   historyDeck,
   masteredCount,
 } from '@/lib/business/flashcards';
+import { QUIZ_CREATE_PATH, QUIZ_SHARE_TITLE, songQuizShare } from '@/lib/business/song-quiz';
 import { theoryCards } from '@/lib/music/flashcard-theory';
 import styles from './flashcards.module.css';
 
@@ -25,6 +29,16 @@ const DECKS = [
   { id: 'teoria', label: 'Teoria e storia' },
 ] as const;
 type DeckId = (typeof DECKS)[number]['id'];
+
+/** Il mazzo chiesto dal link (?mazzo=ascolti), o null. Letto dopo il montaggio: niente SSR. */
+function deckFromLocation(): DeckId | null {
+  try {
+    const wanted = new URLSearchParams(window.location.search).get('mazzo');
+    return DECKS.find((item) => item.id === wanted)?.id ?? null;
+  } catch {
+    return null;
+  }
+}
 
 const STORAGE_PREFIX = 'solco.flashcards.v1.';
 
@@ -55,6 +69,11 @@ function shuffled<T>(items: T[]) {
   return copy;
 }
 
+/** Il quiz di una carta con un brano: link, testo senza la risposta e scheda di anteprima. */
+function quizChallenge(card: Flashcard | undefined) {
+  return card?.song ? songQuizShare(card.song) : null;
+}
+
 export function FlashcardsView() {
   const library = useLibrary();
   const [deck, setDeck] = useState<DeckId>('generi');
@@ -82,10 +101,16 @@ export function FlashcardsView() {
   );
 
   useEffect(() => {
+    const wanted = deckFromLocation();
+    if (wanted) setDeck(wanted);
+  }, []);
+
+  useEffect(() => {
     start(false);
   }, [start]);
 
   const current = queue[0];
+  const challenge = quizChallenge(current);
 
   const grade = (knew: boolean) => {
     if (!current) return;
@@ -137,8 +162,8 @@ export function FlashcardsView() {
 
       {deck === 'ascolti' && !library.signedIn ? (
         <p className={styles.empty}>
-          <Link href="/login?callbackURL=%2Fflashcards">Accedi</Link> per creare le carte dai brani
-          che ascolti.
+          <Link href={`/login?callbackURL=${encodeURIComponent(QUIZ_CREATE_PATH)}`}>Accedi</Link>{' '}
+          per creare le carte dai brani che ascolti.
         </p>
       ) : deck === 'ascolti' && cards.length < 3 ? (
         <p className={styles.empty}>
@@ -166,6 +191,22 @@ export function FlashcardsView() {
             <p className={styles.link}>
               <Link href={current.link.href}>{current.link.label} →</Link>
             </p>
+          ) : null}
+          {challenge ? (
+            <div className={styles.challenge}>
+              <ShareMenu
+                size="sm"
+                label="Sfida un amico"
+                ariaLabel="Sfida un amico con questa carta"
+                title={QUIZ_SHARE_TITLE}
+                text={challenge.text}
+                url={challenge.url}
+                imageUrl={challenge.imageUrl}
+              />
+              <span className={styles.challengeHint}>
+                Riceve la domanda: la risposta resta nascosta finché non gira la carta.
+              </span>
+            </div>
           ) : null}
           <div className={styles.actions}>
             <Button type="button" variant="outline" onClick={() => grade(false)}>
