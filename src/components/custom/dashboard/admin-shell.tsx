@@ -6,10 +6,12 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { useEffect } from 'react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { signOut, useSession } from '@/lib/auth-client';
+import { useSession } from '@/lib/auth-client';
 import { resolveAdminAccess } from '@/lib/business/admin-account-policy';
+import { SIGN_OUT_FAILED_MESSAGE, signOutAndStopMusic } from '@/lib/music/player-session';
 import { AdminNav } from './admin-nav';
 
 export interface AdminShellProps {
@@ -30,8 +32,7 @@ export function AdminShell({ children }: AdminShellProps) {
   }, [isPending, router, session?.user]);
 
   async function handleSignOut() {
-    await signOut();
-    router.replace('/login');
+    if (!(await signOutAndStopMusic('/login'))) toast.error(SIGN_OUT_FAILED_MESSAGE);
   }
 
   if (access === 'loading') {

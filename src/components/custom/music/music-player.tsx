@@ -107,6 +107,7 @@ import {
   usePlaybackSpeed,
 } from '@/lib/music/playback-speed';
 import { failureLink, failureMessage, showsFreePlayCounter } from '@/lib/music/player-messages';
+import { PLAYER_STORAGE_KEY, STOP_PLAYER_EVENT } from '@/lib/music/player-session';
 import {
   continuesInRun,
   type PendingRunMove,
@@ -248,7 +249,7 @@ export function isOpenStream(track: Pick<MusicPlayerTrack, 'playbackMode'>) {
   );
 }
 
-const STORAGE_KEY = 'solco.player.v1';
+const STORAGE_KEY = PLAYER_STORAGE_KEY;
 const MAX_RECONNECTS = 3;
 /** On-demand streams (Audius, Jamendo, podcast): one immediate retry after a network drop. */
 const MAX_MEDIA_RETRIES = 1;
@@ -1305,8 +1306,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   // player sulle rotte pubbliche (es. /login, dove porta "Esci" dalla dashboard), quindi senza
   // questo l'audio continuerebbe a suonare dopo l'uscita. La musica richiede comunque l'accesso e
   // la route di streaming ricontrolla sessione e quota a ogni richiesta: qui fermiamo l'elemento.
-  const { data: authSession, isPending: authPending } = useSession();
+  const { data: authSession, isPending: authPending, error: authError } = useSession();
   const authUserId = authSession?.user?.id ?? null;
+  // Sessione nota: risposta del server ricevuta (con o senza utente). Un errore di rete al primo
+  // caricamento lascia `data` vuoto: in quel caso non si può sapere di chi sia la coda salvata.
+  const authKnown = !authPending && (authUserId !== null || !authError);
   const previousUserIdRef = useRef<string | null>(null);
   const authResolvedRef = useRef(false);
   useEffect(() => {
@@ -1320,6 +1324,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     previousUserIdRef.current = authUserId;
     authResolvedRef.current = true;
   }, [authUserId, authPending, stopPlayback]);
+
+  // "Esci" (signOutAndStopMusic): fermati subito, PRIMA che la sessione cambi e prima che il muro di
+  // login smonti il player. stopPlayback dimentica anche la coda salvata e svuota la Media Session.
+  useEffect(() => {
+    const stop = () => stopPlayback();
+    window.addEventListener(STOP_PLAYER_EVENT, stop);
+    return () => window.removeEventListener(STOP_PLAYER_EVENT, stop);
+  }, [stopPlayback]);
 
   // First statement of a tap that will start audio after a network wait (see MusicPlayerValue).
   // Only unlocks the element: the 'playback' session is declared right before play(), so a search
@@ -2857,18 +2869,30 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('online', resume);
   }, [currentTrack, playCurrentTrack, previewEnded, status]);
 
-  // Restore the last queue (paused) after a reload or when reopening the app.
+  // Restore the last queue (paused) after a reload or when reopening the app — only for the account
+  // that saved it. Waits for the session: a guest (e.g. on /login after "Esci") or another account
+  // never sees the previous listener's queue, and the stale copy is deleted.
   useEffect(() => {
-    if (restoredRef.current || process.env.NODE_ENV === 'test') return;
+    if (restoredRef.current || process.env.NODE_ENV === 'test' || !authKnown) return;
     restoredRef.current = true;
-    let saved: { queue?: unknown; index?: unknown; position?: unknown } | null = null;
+    let saved: { owner?: unknown; queue?: unknown; index?: unknown; position?: unknown } | null =
+      null;
     try {
       saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? 'null');
     } catch {
       // Corrupt or unavailable storage: start empty.
       return;
     }
-    if (!saved || !Array.isArray(saved.queue) || saved.queue.length === 0) return;
+    if (!saved) return;
+    if (authUserId === null || saved.owner !== authUserId) {
+      try {
+        window.localStorage.removeItem(STORAGE_KEY);
+      } catch {
+        // Storage unavailable: nothing to clear.
+      }
+      return;
+    }
+    if (!Array.isArray(saved.queue) || saved.queue.length === 0) return;
     if (typeof saved.index !== 'number') return;
     const savedQueue = saved.queue as MusicPlayerTrack[];
     const savedPosition = typeof saved.position === 'number' ? saved.position : null;
@@ -2902,17 +2926,18 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       if (!restored || request !== playRequestRef.current || currentTrackRef.current) return;
       apply(restored.items, restored.index, restored.sameTrack ? savedPosition : null);
     });
-  }, []);
+  }, [authKnown, authUserId]);
 
-  // Save queue and position (throttled to whole seconds).
+  // Save queue and position (throttled to whole seconds), tagged with the account it belongs to.
   const savedSecond = Math.floor(elapsedSeconds / 5);
   // biome-ignore lint/correctness/useExhaustiveDependencies: saves every 5 s of progress, not every tick.
   useEffect(() => {
-    if (!restoredRef.current || !currentTrack || queueIndex < 0) return;
+    if (!restoredRef.current || !currentTrack || queueIndex < 0 || !authUserId) return;
     try {
       window.localStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({
+          owner: authUserId,
           // A local file is saved as its id only (see persistedQueueItem): its tags stay in
           // IndexedDB, and nothing of this queue is ever sent to the server.
           queue: queue
@@ -3028,10 +3053,19 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     queueIndex,
   ]);
 
-  // Unmounted: no handler or pending reconnect may point at a dead player.
+  // Unmounted: no handler or pending reconnect may point at a dead player, and nothing keeps
+  // sounding (e.g. the login wall unmounts the provider after the session ends).
+  const releaseAudioRef = useRef(releaseAudio);
+  releaseAudioRef.current = releaseAudio;
   useEffect(
     () => () => {
+      playRequestRef.current += 1;
       clearTimer(reconnectTimerRef);
+      try {
+        releaseAudioRef.current();
+      } catch {
+        // Elements already gone.
+      }
       const session = mediaSessionOrNull();
       if (!session) return;
       for (const action of MEDIA_SESSION_ACTIONS) {

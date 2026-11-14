@@ -25,6 +25,7 @@ import {
   trackStreamPath,
   useMusicPlayer,
 } from '@/components/custom/music/music-player';
+import { PLAYER_STORAGE_KEY, STOP_PLAYER_EVENT } from '@/lib/music/player-session';
 
 const song: MusicPlayerTrack = {
   qualifiedId: `song:${'a'.repeat(32)}`,
@@ -109,5 +110,55 @@ describe('player: logout', () => {
     });
     // Il player si è svuotato: nessun brano corrente.
     expect(container.querySelector('[data-testid="current"]')?.textContent).toBe('');
+  });
+
+  it('"Esci" ferma subito il player, prima che la sessione cambi, e dimentica la coda', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        String(url).startsWith('/api/music/resolve-song')
+          ? new Response(
+              JSON.stringify({
+                video: {
+                  videoId: 'ddddddddddd',
+                  title: 'Strada Nuova',
+                  channelTitle: 'Band Finta - Topic',
+                  thumbnailUrl: null,
+                },
+              }),
+              { status: 200 },
+            )
+          : new Response(JSON.stringify({ premium: false, signedIn: true, allowed: true }), {
+              status: 200,
+            }),
+      ),
+    );
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    roots.push(root);
+    await act(async () =>
+      root.render(
+        <MusicPlayerProvider>
+          <Probe />
+        </MusicPlayerProvider>,
+      ),
+    );
+    await act(async () => {
+      container.querySelector('button')?.click();
+      for (let i = 0; i < 5; i += 1) await Promise.resolve();
+    });
+    expect(container.querySelector('[data-testid="current"]')?.textContent).toBe(
+      'youtube:ddddddddddd',
+    );
+    window.localStorage.setItem(PLAYER_STORAGE_KEY, JSON.stringify({ owner: 'u1', queue: [] }));
+
+    // La sessione è ancora valida: è il pulsante "Esci" a fermare il player.
+    await act(async () => {
+      window.dispatchEvent(new Event(STOP_PLAYER_EVENT));
+      for (let i = 0; i < 5; i += 1) await Promise.resolve();
+    });
+    expect(container.querySelector('[data-testid="current"]')?.textContent).toBe('');
+    expect(window.localStorage.getItem(PLAYER_STORAGE_KEY)).toBeNull();
   });
 });

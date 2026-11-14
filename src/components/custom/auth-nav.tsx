@@ -4,8 +4,10 @@
 import { UserRound } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { signOut, useSession } from '@/lib/auth-client';
+import { useSession } from '@/lib/auth-client';
+import { SIGN_OUT_FAILED_MESSAGE, signOutAndStopMusic } from '@/lib/music/player-session';
 
 export function AuthNav({ className }: { className?: string }) {
   const { data: session, isPending } = useSession();
@@ -48,8 +50,7 @@ export function AuthNav({ className }: { className?: string }) {
         size="sm"
         type="button"
         onClick={async () => {
-          await signOut();
-          window.location.assign('/');
+          if (!(await signOutAndStopMusic('/'))) toast.error(SIGN_OUT_FAILED_MESSAGE);
         }}
       >
         Esci

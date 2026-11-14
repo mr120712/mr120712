@@ -13,6 +13,7 @@ import {
   ACCOUNT_DELETION_CONFIRMATION,
   AccountDeletionResponseSchema,
 } from '@/lib/contracts/account-deletion';
+import { stopPlayerAndForget } from '@/lib/music/player-session';
 
 export function AccountDeletionPanel() {
   const [confirmation, setConfirmation] = useState('');
@@ -26,6 +27,8 @@ export function AccountDeletionPanel() {
         body: JSON.stringify({ confirmation }),
         schema: AccountDeletionResponseSchema,
       });
+      // Account eliminato (sessioni comprese): musica ferma e coda dimenticata, poi via.
+      stopPlayerAndForget();
       await signOut().catch(() => undefined);
       window.location.assign('/');
     } catch {
