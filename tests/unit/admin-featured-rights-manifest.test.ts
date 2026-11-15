@@ -184,6 +184,8 @@ describe('diagnoseRightsManifestText: un motivo per ogni regola delle voci', () 
   it('più problemi nella stessa voce: tutti, senza ripetizioni', () => {
     const reasons = reasonsFor({ file: SONG, licenza: 'cc-by-nc', titolare: '', testo: 1, z: 0 });
     expect(reasons).toEqual([
+      // Stesso file della voce valida n. 1: nel dubbio testo e copia offline restano spenti.
+      'nomina lo stesso file della voce n. 1: finché non la correggi o la togli, testo e copia offline di quel file restano spenti (nel dubbio si esclude)',
       'licenza non accettata: cc-by-nc (uso non commerciale)',
       'titolare mancante o troppo lungo (da 1 a 120 caratteri)',
       '"testo" deve essere true o false (senza virgolette)',

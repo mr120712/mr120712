@@ -31,9 +31,20 @@ export const OfflineAttributionSchema = z.object({
 });
 export type OfflineAttribution = z.infer<typeof OfflineAttributionSchema>;
 
+/** Le fonti di una copia offline scaricata dal server. */
+export const OFFLINE_DOWNLOAD_SOURCES = [
+  'audius-download',
+  'podcast-download',
+  'featured-download',
+] as const;
+export type OfflineDownloadSource = (typeof OFFLINE_DOWNLOAD_SOURCES)[number];
+
 export const OfflineDownloadMetaSchema = z.object({
-  source: z.enum(['audius-download', 'podcast-download']),
-  /** Chiave stabile anti-duplicato (id Audius o 'podcastId~episodeKey'). */
+  source: z.enum(OFFLINE_DOWNLOAD_SOURCES),
+  /**
+   * Chiave stabile anti-duplicato (id Audius, 'podcastId~episodeKey' o 'featured:<shareId>' per un
+   * brano in evidenza: l'id opaco del link diretto, mai il percorso nello store).
+   */
   downloadKey: z.string().min(1).max(300),
   title: z.string().min(1).max(400),
   artist: z.string().min(1).max(300).nullable(),
@@ -52,3 +63,35 @@ export const OfflineDownloadErrorSchema = z.object({
   retryAfterSeconds: z.number().int().positive().optional(),
 });
 export type OfflineDownloadError = z.infer<typeof OfflineDownloadErrorSchema>;
+
+// ─── Copie offline dei brani in evidenza: verifica dei permessi ──────────────────────────────
+// POST /api/music/featured/offline-status: «La tua musica» chiede, quando è online, quali copie
+// offline dei brani in evidenza sono ANCORA consentite da diritti.json. Manda SOLO gli id opachi
+// (shareId) delle sue copie in evidenza, mai altri dati dei file sul dispositivo.
+
+/** Id al massimo per richiesta (il client divide in lotti). */
+export const FEATURED_OFFLINE_STATUS_MAX_IDS = 100;
+
+/** Prefisso della chiave anti-duplicato di una copia di un brano in evidenza. */
+export const FEATURED_DOWNLOAD_KEY_PREFIX = 'featured:';
+
+const FeaturedOfflineIdSchema = z.string().regex(/^[A-Za-z0-9_-]{22}$/, 'Id non valido.');
+
+export const FeaturedOfflineStatusRequestSchema = z
+  .object({
+    ids: z.array(FeaturedOfflineIdSchema).min(1).max(FEATURED_OFFLINE_STATUS_MAX_IDS),
+  })
+  .strict();
+export type FeaturedOfflineStatusRequest = z.infer<typeof FeaturedOfflineStatusRequestSchema>;
+
+export const FeaturedOfflineStatusResponseSchema = z.object({
+  /** Gli id chiesti la cui copia offline è ancora consentita. */
+  permitted: z.array(FeaturedOfflineIdSchema).max(FEATURED_OFFLINE_STATUS_MAX_IDS),
+  /**
+   * Gli id chiesti la cui copia NON è più consentita (revocata, voce tolta o non valida, brano non
+   * più nello store, "offline": false): il client toglie quelle copie dal dispositivo. Un id che
+   * non compare in nessuno dei due elenchi resta com'è.
+   */
+  revoked: z.array(FeaturedOfflineIdSchema).max(FEATURED_OFFLINE_STATUS_MAX_IDS),
+});
+export type FeaturedOfflineStatusResponse = z.infer<typeof FeaturedOfflineStatusResponseSchema>;

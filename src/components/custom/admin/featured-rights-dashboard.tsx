@@ -1,6 +1,7 @@
 // @polsia:user-owned — pagina /admin/diritti-testi: diagnosi dei "brani in evidenza" (store Vercel
 // Blob). Per ogni brano dice se è ricercabile (voce valida in diritti.json) e, per i brani
-// dichiarati con "testo": true, se il testo c'è e da dove viene. Mostra lo stato di diritti.json
+// dichiarati con "testo": true, se il testo c'è e da dove viene; per ogni brano dichiarato anche se
+// la COPIA OFFLINE è consentita e perché (licenza, "offline", doppioni). Mostra lo stato di diritti.json
 // con le voci scartate o ignorate e il perché, più una guida. Legge solo /api/admin/featured-rights.
 // È una DIAGNOSI: la risposta non contiene MAI il testo dei brani e non ci sono scorciatoie per
 // dichiarare brani in blocco: solo "Copia percorso" del singolo file.
@@ -139,7 +140,8 @@ export type TrackFilter =
   | 'undeclared'
   | 'lyrics_on'
   | 'lyrics_found'
-  | 'lyrics_missing';
+  | 'lyrics_missing'
+  | 'offline';
 
 const FILTERS: ReadonlyArray<{
   id: TrackFilter;
@@ -161,6 +163,7 @@ const FILTERS: ReadonlyArray<{
     test: (track) =>
       track.testo && (track.lyrics.status === 'none' || track.lyrics.status === 'error'),
   },
+  { id: 'offline', label: 'Copia offline', test: (track) => track.offline?.allowed === true },
 ];
 
 function formatCount(value: number) {
@@ -451,6 +454,11 @@ function SummaryTiles({ data }: { data: AdminFeaturedRights }) {
         detail={lyricsDetail || 'Su quelli con testo attivo'}
       />
       <MetricCard
+        label="Copia offline"
+        value={formatCount(summary.offlineAllowed ?? 0)}
+        detail="Dichiarati scaricabili in «La tua musica»"
+      />
+      <MetricCard
         label="Problemi nel manifest"
         value={
           manifest.status === 'valid'
@@ -625,6 +633,14 @@ function GuidePanel({ defaultOpen }: { defaultOpen: boolean }) {
             <li>
               <code>"testo"</code>: facoltativo, <code>true</code> o <code>false</code> senza
               virgolette. Con <code>true</code> il player mostra il testo.
+            </li>
+            <li>
+              <code>"offline"</code>: facoltativo, <code>true</code> o <code>false</code>. Decide la
+              copia offline («Scarica offline» in «La tua musica»): con licenza <code>propria</code>{' '}
+              o Creative Commons è consentita salvo <code>"offline": false</code>; con{' '}
+              <code>licenza</code> (contratto) serve <code>"offline": true</code>, solo se il
+              contratto copre anche il download. Una revoca toglie le copie dai dispositivi alla
+              verifica successiva; un diritti.json non valido le toglie tutte.
             </li>
           </ul>
           <div className={styles.warning}>
@@ -801,6 +817,41 @@ function TracksEmptyState({ store }: { store: AdminFeaturedRights['store'] }) {
 
 function licenceLabel(licenza: string | null) {
   return licenza ? (LICENCE_LABELS[licenza] ?? licenza) : '—';
+}
+
+/** In breve, per la scheda del brano: se la copia offline vale e da che cosa dipende. */
+export function offlineLabel(offline: FeaturedRightsTrack['offline']): string {
+  if (!offline) return '—';
+  if (offline.offBy !== null) return 'spenta (voci in disaccordo)';
+  switch (offline.basis) {
+    case 'licence_default':
+      return 'consentita (dalla licenza)';
+    case 'opt_in':
+      return 'consentita ("offline": true)';
+    case 'opt_out':
+      return 'spenta ("offline": false)';
+    default:
+      return 'spenta (licenza senza "offline": true)';
+  }
+}
+
+/** Perché la copia offline vale (o no), in una frase per l'amministratore. */
+export function offlineExplanation(track: FeaturedRightsTrack): string | null {
+  const offline = track.offline;
+  if (!track.declared || !offline) return null;
+  if (offline.offBy !== null) {
+    return `Copia offline spenta: le voci di questo file in diritti.json non sono d’accordo e la voce n. ${formatCount(offline.offBy)} non la consente (serve il permesso in tutte le voci dello stesso file).`;
+  }
+  switch (offline.basis) {
+    case 'licence_default':
+      return `Copia offline consentita dalla licenza (${licenceLabel(track.licenza)}): gli ascoltatori con un account possono salvarla in «La tua musica». Per toglierla metti "offline": false.`;
+    case 'opt_in':
+      return 'Copia offline consentita esplicitamente ("offline": true): gli ascoltatori con un account possono salvarla in «La tua musica».';
+    case 'opt_out':
+      return 'Copia offline spenta ("offline": false): il brano si ascolta solo in streaming e le copie già salvate vengono tolte dai dispositivi alla verifica successiva.';
+    default:
+      return 'Copia offline spenta: con la licenza "licenza" (contratto) serve "offline": true, da mettere solo se il contratto copre anche il download.';
+  }
 }
 
 function linesText(count: number) {
@@ -1719,6 +1770,7 @@ function TrackItem({
     .filter(Boolean)
     .join(', ');
   const lyricsNote = lyricsExplanation(track);
+  const offlineNote = offlineExplanation(track);
   return (
     <li>
       <article className={styles.track} aria-labelledby={titleId}>
@@ -1749,6 +1801,13 @@ function TrackItem({
               <StatusBadge>Non dichiarato</StatusBadge>
             )}
             <LyricsBadge track={track} />
+            {track.offline ? (
+              track.offline.allowed ? (
+                <StatusBadge tone="positive">Copia offline</StatusBadge>
+              ) : (
+                <StatusBadge>Solo streaming</StatusBadge>
+              )
+            ) : null}
           </div>
           <dl className={styles.fields}>
             <div>
@@ -1763,9 +1822,16 @@ function TrackItem({
               <dt>File di testo accanto</dt>
               <dd>{sidecars || 'nessuno'}</dd>
             </div>
+            {track.offline ? (
+              <div>
+                <dt>Copia offline</dt>
+                <dd>{offlineLabel(track.offline)}</dd>
+              </div>
+            ) : null}
           </dl>
           <p className={styles.explanation}>{searchExplanation(track, manifestStatus)}</p>
           {lyricsNote ? <p className={styles.explanation}>{lyricsNote}</p> : null}
+          {offlineNote ? <p className={styles.explanation}>{offlineNote}</p> : null}
           {track.transcription ? (
             <LyricsTranscription
               track={track}

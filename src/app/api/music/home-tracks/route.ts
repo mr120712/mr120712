@@ -5,8 +5,9 @@
 // diretto «Condividi» /evidenza/<shareId>) SOLO se il brano stesso è dichiarato; ogni sezione porta
 // `sectionId` e `declaredCount` («Mostra tutti (N)», pagina /cartella/<sectionId>) SOLO se la sua
 // cartella ha almeno un brano dichiarato (N = brani dichiarati: mai quelli non dichiarati), altrimenti
-// null. Lo dice l'indice in cache della ricerca (featured-search.server), mai un elenco in più a ogni
-// richiesta. Per il resto la Home resta com'è (stessi brani, sezioni, tetti e ordine).
+// null. Ogni brano DICHIARATO porta anche `offline` (copia offline consentita da diritti.json o solo
+// streaming); i non dichiarati non hanno il campo. Lo dice l'indice in cache della ricerca
+// (featured-search.server), mai un elenco in più a ogni richiesta. Per il resto la Home resta com'è (stessi brani, sezioni, tetti e ordine).
 //
 // Elenco e versione vengono dallo STESSO elenco condiviso dello store (featured-catalog.server,
 // ~30 secondi per istanza): nessuna list() a ogni richiesta, qualunque sia il numero di ascoltatori.
@@ -74,12 +75,19 @@ function withinGrace<T>(promise: Promise<T | null>, ms: number): Promise<T | nul
   return Promise.race([promise.catch(() => null), deadline]).finally(() => clearTimeout(timer));
 }
 
-/** Link all'artista (artisti dichiarati) e link diretto (SOLO brani dichiarati); null = nessuno. */
+/**
+ * Link all'artista (artisti dichiarati), link diretto e permesso della copia offline (SOLO brani
+ * dichiarati: per gli altri `offline` non c'è nemmeno); null = nessuno.
+ */
 function withLinks(tracks: readonly HomeTrack[], links: FeaturedHomeLinks | null) {
-  return linkDeclaredArtists(tracks, links?.artists ?? null).map((track) => ({
-    ...track,
-    shareId: links?.shareIds.get(track.id) ?? null,
-  }));
+  return linkDeclaredArtists(tracks, links?.artists ?? null).map((track) => {
+    const offline = links?.offline?.get(track.id);
+    return {
+      ...track,
+      shareId: links?.shareIds.get(track.id) ?? null,
+      ...(offline === undefined ? {} : { offline }),
+    };
+  });
 }
 
 /**

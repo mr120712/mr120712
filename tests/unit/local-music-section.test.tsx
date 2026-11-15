@@ -1112,3 +1112,43 @@ describe('Libreria', () => {
     expect(main?.querySelector('[role="tablist"]')).not.toBeNull();
   });
 });
+
+describe('copie offline dei brani in evidenza', () => {
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('distintivo «In evidenza» e attribuzione dal registro delle copie (nessuna rete)', async () => {
+    window.localStorage.setItem(
+      'solco:featured-offline-copies:v1',
+      JSON.stringify({
+        v: 1,
+        copies: [
+          {
+            localId: trackB.id,
+            featuredId: 'AAAAAAAAAAAAAAAAAAAAAA',
+            savedAt: 1,
+            attribution: {
+              sourceName: 'Solco · In evidenza',
+              sourceUrl: null,
+              licenseName: 'Creative Commons Attribuzione (CC BY)',
+              licenseUrl: 'https://creativecommons.org/licenses/by/4.0/deed.it',
+              creditLine: '© Banda Due',
+            },
+          },
+        ],
+      }),
+    );
+    await renderSection();
+    const row = container.querySelector<HTMLLIElement>(`li[data-local-id="${trackB.id}"]`);
+    expect(row?.textContent).toContain('In evidenza');
+    expect(row?.textContent).toContain('© Banda Due');
+    const licence = row?.querySelector<HTMLAnchorElement>(
+      'a[href="https://creativecommons.org/licenses/by/4.0/deed.it"]',
+    );
+    expect(licence?.textContent).toContain('Creative Commons Attribuzione (CC BY)');
+    // Le altre righe restano file locali, senza distintivo né crediti.
+    const other = container.querySelector<HTMLLIElement>(`li[data-local-id="${trackA.id}"]`);
+    expect(other?.textContent).not.toContain('In evidenza');
+  });
+});

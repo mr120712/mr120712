@@ -6,8 +6,9 @@
 // (li filtra il server: GET /api/music/featured/sections/<id>), al massimo 500. La riproduzione è la
 // stessa della Home (playHomeTrack: stesso elemento del player, stesso percorso di streaming, stesse
 // regole). Stati: caricamento, nessun brano (404), errore con «Riprova». Ogni riga con `shareId` ha
-// accanto il suo «Condividi» (link diretto /evidenza/<id>). Elenco, coda, link alla Home e
-// scheletro sono gli stessi della pagina d'artista (featured-track-list.tsx).
+// accanto il suo «Condividi» (link diretto /evidenza/<id>) e, se la copia offline è consentita,
+// «Scarica offline»; «Scarica la cartella per offline» salva i soli brani consentiti. Elenco, coda,
+// link alla Home e scheletro sono gli stessi della pagina d'artista (featured-track-list.tsx).
 'use client';
 
 import { FolderOpen, Play, RotateCcw, Shuffle } from 'lucide-react';
@@ -16,6 +17,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   FeaturedBackLink,
   FeaturedListSkeleton,
+  FeaturedOfflineDownload,
   FeaturedTrackList,
   featuredLoadFailure,
   playFeaturedQueue,
@@ -171,6 +173,14 @@ export function FeaturedSectionView({ sectionId }: { sectionId: string }) {
           </div>
         </div>
       </header>
+
+      {/* Solo i brani con la copia offline consentita; gli altri restano «solo streaming». */}
+      <FeaturedOfflineDownload
+        tracks={tracks}
+        label={heading}
+        scope="questa cartella"
+        actionLabel="Scarica la cartella per offline"
+      />
 
       <FeaturedTrackList
         player={player}

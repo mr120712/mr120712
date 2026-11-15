@@ -85,6 +85,13 @@
 // DICHIARATI dal più recente (al massimo 500). Un brano non dichiarato non è mai elencato né
 // contato in N; una cartella senza brani dichiarati non ha id (nessun link, 404). Stessa
 // costruzione e stessa cache: nessun elenco dello store in più.
+//
+// E dice, per ogni brano DICHIARATO, se la sua voce consente la COPIA OFFLINE (`offline` del brano,
+// regola in offline-eligibility: licenza + "offline", doppioni conservativi): lo leggono la Home,
+// le pagine d'artista e di sezione e la verifica delle copie già salvate (getFeaturedOfflineStatus).
+// Il download vero (resolveFeaturedOfflineDownload) risolve l'id SOLO da questo indice (mai un
+// percorso o un URL del client) e poi RILEGGE diritti.json dallo store a ogni richiesta: una revoca
+// vale subito per i nuovi download, anche prima che l'indice si ricostruisca.
 import 'server-only';
 import { FEATURED_ARTIST_TRACK_LIMIT, type FeaturedArtist } from '@/lib/contracts/featured-artists';
 import type { HomeTrack } from '@/lib/contracts/home-tracks';
@@ -105,7 +112,9 @@ import { clearFeaturedCatalogGenerationForTests } from '@/lib/music/featured-cat
 import {
   declaredTrackEntries,
   lyricsDeclared,
+  offlineDeclared,
   RIGHTS_MANIFEST_PATHNAME,
+  type RightsEntry,
   readRightsManifest,
 } from '@/lib/music/featured-rights.server';
 import { isFeaturedSectionId } from '@/lib/music/featured-sections';
@@ -122,6 +131,10 @@ import {
   isPublicBlobUrl,
   lyricsSidecarMatcher,
 } from '@/lib/music/home-tracks.server';
+import {
+  type FeaturedOfflineBasis,
+  featuredOfflinePermission,
+} from '@/lib/music/offline-eligibility';
 import { featuredRelevance } from '@/lib/music/unified-search';
 
 /**
@@ -150,7 +163,10 @@ export type FeaturedLyricsSource = {
 export type FeaturedIndex = {
   /** false = Blob non configurato o non leggibile: la fonte è "unavailable", non "vuota". */
   available: boolean;
-  /** Solo i brani con diritti dichiarati, dal più recente (con `artistSlug` del principale). */
+  /**
+   * Solo i brani con diritti dichiarati, dal più recente (con `artistSlug` del principale e
+   * `offline`: se la voce consente la copia offline).
+   */
   tracks: HomeTrack[];
   /** Solo i brani dichiarati con "testo": true, per pathname. */
   lyrics: ReadonlyMap<string, FeaturedLyricsSource>;
@@ -203,6 +219,8 @@ export type FeaturedHomeLinks = {
    * per le cartelle con almeno un brano dichiarato.
    */
   sections: ReadonlyMap<string, FeaturedHomeSectionLink>;
+  /** pathname → copia offline consentita (true) o solo streaming (false), SOLO brani dichiarati. */
+  offline: ReadonlyMap<string, boolean>;
   /** La versione del catalogo per cui è stato costruito l'indice (la Home la confronta con la sua). */
   version: string;
   /**
@@ -337,10 +355,21 @@ async function buildIndex(token: string, state: FeaturedCatalogState): Promise<B
   }
   // Ogni brano dichiarato ha la pagina del suo artista principale (il brano stesso la riempie) e,
   // con la condivisione accesa, il suo link diretto. SOLO i dichiarati: mai l'elenco completo.
+  // Ogni brano dichiarato dice anche se la sua voce consente la copia offline (doppioni già
+  // risolti dal parser in modo conservativo).
   const { tracks, shares } = withShareIds(
-    catalog.tracks
-      .filter((track) => declared.has(track.id))
-      .map((track) => ({ ...track, artistSlug: primaryArtistSlug(track.artist) })),
+    catalog.tracks.flatMap((track) => {
+      const entry = declared.get(track.id);
+      return entry
+        ? [
+            {
+              ...track,
+              artistSlug: primaryArtistSlug(track.artist),
+              offline: offlineDeclared(entry),
+            },
+          ]
+        : [];
+    }),
   );
   // Artisti: SOLO dai brani dichiarati (mai dall'elenco completo dello store).
   const artists = groupFeaturedArtists(tracks);
@@ -521,10 +550,13 @@ export async function loadFeaturedHomeLinks(
         sections.set(section.key, { id: section.id, count: section.tracks.length });
       }
     }
+    const offline = new Map<string, boolean>();
+    for (const track of index.tracks) offline.set(track.id, track.offline === true);
     return {
       artists: new Set(index.artists.keys()),
       shareIds,
       sections,
+      offline,
       version: entry.version,
       manifestPublic: entry.manifestPublic,
     };
@@ -594,5 +626,120 @@ export async function getFeaturedLyricsSource(
     return index.lyrics.get(pathname) ?? null;
   } catch {
     return null;
+  }
+}
+
+/** Esito della risoluzione di un download offline di un brano in evidenza (per shareId). */
+export type FeaturedOfflineLookup =
+  | {
+      outcome: 'allowed';
+      /** Il brano dell'indice (stessi dati della Home). */
+      track: HomeTrack;
+      /** La voce di diritti.json ATTUALE (riletta dallo store) che consente la copia. */
+      entry: RightsEntry;
+      /** Dove leggere l'audio: pubblico (CDN) o privato (token), e la sua dimensione se nota. */
+      audio: { pathname: string; public: boolean; size: number | null };
+    }
+  /** Dichiarato, ma la voce ATTUALE non consente la copia offline. */
+  | { outcome: 'not_permitted'; track: HomeTrack; basis: FeaturedOfflineBasis }
+  /**
+   * not_found: id malformato, sconosciuto, di un brano non (più) dichiarato o con la condivisione
+   * spenta (stessa risposta per tutti); unavailable: Blob non configurato o non leggibile, o
+   * diritti.json non leggibile in questo momento.
+   */
+  | { outcome: 'not_found' | 'unavailable' };
+
+/**
+ * Il download offline del brano dichiarato `shareId`. L'id si risolve SOLO dall'indice dei brani
+ * dichiarati (mai un percorso dello store o un URL scelto dal client); poi diritti.json si RILEGGE
+ * dallo store (lettura fresca, stesse regole del parser e dello stesso elenco) e il permesso si
+ * ricalcola sulla voce attuale: una revoca vale subito, senza aspettare la ricostruzione
+ * dell'indice. Manifest assente, non valido o voce tolta → not_found; lettura fallita →
+ * unavailable. Mai throw.
+ */
+export async function resolveFeaturedOfflineDownload(
+  shareId: string,
+): Promise<FeaturedOfflineLookup> {
+  if (!isFeaturedShareId(shareId)) return { outcome: 'not_found' };
+  const token = env.BLOB_READ_WRITE_TOKEN;
+  if (!token) return { outcome: 'unavailable' };
+  try {
+    const state = await loadFeaturedCatalogState();
+    const { index } = await indexFor(token, state);
+    const track = index.shares.get(shareId);
+    if (!track) return { outcome: index.available ? 'not_found' : 'unavailable' };
+
+    // Ricontrollo sul manifest ATTUALE: stesso elenco dell'indice (brani e diritti.json), ma il
+    // contenuto di diritti.json riletto adesso dallo store.
+    const catalog = homeTrackCatalogFromListing(state.listing, [RIGHTS_MANIFEST_PATHNAME]);
+    const manifestFile = catalog.files.get(RIGHTS_MANIFEST_PATHNAME) ?? null;
+    if (!manifestFile && !catalog.complete) return { outcome: 'unavailable' };
+    const rights = await readRightsManifest(token, manifestFile);
+    if (rights.status === 'unavailable') return { outcome: 'unavailable' };
+    // Assente, non valido o troppo grande: nessun brano è dichiarato (come un id sconosciuto).
+    if (rights.status !== 'ok') return { outcome: 'not_found' };
+    const entry = declaredTrackEntries(
+      rights.entries,
+      catalog.tracks.map((item) => item.id),
+    ).get(track.id);
+    if (!entry) return { outcome: 'not_found' };
+
+    const permission = featuredOfflinePermission(entry);
+    if (!permission.allowed) return { outcome: 'not_permitted', track, basis: permission.basis };
+    return {
+      outcome: 'allowed',
+      track,
+      entry,
+      audio: {
+        pathname: track.id,
+        // Come l'indice (e il player): stream diretto dal CDN = file pubblico.
+        public: /^https:\/\//.test(track.streamUrl),
+        size: catalog.audioSizes?.get(track.id) ?? null,
+      },
+    };
+  } catch {
+    return { outcome: 'unavailable' };
+  }
+}
+
+/** Esito della verifica delle copie offline già salvate. */
+export type FeaturedOfflineStatus =
+  | { outcome: 'ok'; permitted: string[]; revoked: string[] }
+  /** Blob non configurato o non leggibile: non si sa, le copie restano. */
+  | { outcome: 'unavailable' };
+
+/**
+ * Quali copie offline (per shareId) sono ancora consentite: un id dichiarato con `offline` true è
+ * permesso; uno sconosciuto, non più dichiarato o con la copia offline spenta è revocato (con
+ * l'elenco dello store incompleto, solo quelli con la copia spenta: l'assenza non è certa). Stesso
+ * indice in cache della ricerca (segue la versione del catalogo: di solito ~30-90 secondi, al più
+ * ~6 minuti). Indice non disponibile → 'unavailable' (le copie restano: offline-first). Mai throw.
+ */
+export async function getFeaturedOfflineStatus(
+  ids: readonly string[],
+): Promise<FeaturedOfflineStatus> {
+  const token = env.BLOB_READ_WRITE_TOKEN;
+  if (!token) return { outcome: 'unavailable' };
+  try {
+    const state = await loadFeaturedCatalogState();
+    // Elenco dello store fallito o degradato (dati parziali): un brano mancante potrebbe esserci
+    // ancora, quindi non si revoca nulla adesso (si riprova alla verifica successiva).
+    if (state.degraded || state.listing.failed) return { outcome: 'unavailable' };
+    const { index } = await indexFor(token, state);
+    if (!index.available) return { outcome: 'unavailable' };
+    // Elenco fermo al tetto di pagine (riuscito ma INCOMPLETO): un id assente dall'indice potrebbe
+    // essere un brano dichiarato oltre il tetto, quindi non è né permesso né revocato (la copia
+    // resta com'è). Si revocano solo gli id che l'indice conosce con la copia offline spenta.
+    const complete = state.listing.complete;
+    const permitted: string[] = [];
+    const revoked: string[] = [];
+    for (const id of new Set(ids)) {
+      const track = isFeaturedShareId(id) ? index.shares.get(id) : undefined;
+      if (track?.offline === true) permitted.push(id);
+      else if (track || complete) revoked.push(id);
+    }
+    return { outcome: 'ok', permitted, revoked };
+  } catch {
+    return { outcome: 'unavailable' };
   }
 }

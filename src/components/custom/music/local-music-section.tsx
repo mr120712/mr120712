@@ -13,6 +13,12 @@
 // modulo: tornando in Libreria a metà importazione l'avanzamento resta e l'elenco si aggiorna.
 // Il controllo del supporto avviene dopo il montaggio (sul server IndexedDB non esiste): l'HTML
 // iniziale mostra solo titolo, spiegazione e attesa.
+//
+// Le copie offline dei "brani in evidenza" («Scarica offline») si riconoscono dal registro sul
+// dispositivo (featured-offline-copies, solo localStorage): distintivo «In evidenza» e attribuzione
+// (titolare, licenza, link alla licenza per le Creative Commons). La verifica dei permessi, che fa
+// rete, sta fuori da questa sezione (featured-offline-sync, avviata in ogni pagina da
+// featured-offline-sync-mount e dalla Libreria).
 'use client';
 
 import {
@@ -40,7 +46,12 @@ import {
 } from 'react';
 import { toast } from 'sonner';
 import { DownloadedTrackCredit } from '@/components/custom/music/downloaded-track-credit';
+import {
+  type FeaturedOfflineCopy,
+  featuredCopiesByLocalId,
+} from '@/components/custom/music/featured-offline-copies';
 import { localTrackToPlayerTrack } from '@/components/custom/music/local-tracks';
+import type { MusicPlayerTrack } from '@/components/custom/music/music-player';
 import { useOptionalMusicPlayer } from '@/components/custom/music/music-player';
 import { subscribeLocalMusicChanged } from '@/components/custom/music/offline-download';
 import {
@@ -133,6 +144,33 @@ export const SKIP_REASON_LABELS: Record<LocalSkipReason, string> = {
   quota: 'spazio esaurito',
   error: 'errore',
 };
+
+/** Fonte mostrata per una copia di un brano in evidenza senza attribuzione salvata. */
+const FEATURED_COPY_SOURCE_LABEL = 'Solco · In evidenza';
+
+const NO_FEATURED_COPIES: ReadonlyMap<string, FeaturedOfflineCopy> = new Map();
+
+/**
+ * Il brano del player per un file della libreria; una copia di un brano in evidenza porta anche la
+ * sua attribuzione (fonte, titolare, licenza) fra i crediti, come le copie Audius.
+ */
+export function localTrackForPlayer(
+  track: LocalTrack,
+  copy: FeaturedOfflineCopy | null | undefined,
+): MusicPlayerTrack {
+  const item = localTrackToPlayerTrack(track);
+  if (!copy) return item;
+  const attribution = copy.attribution;
+  const credits = [
+    attribution?.creditLine ?? null,
+    attribution?.licenseName ? `Licenza: ${attribution.licenseName}` : null,
+  ].filter((entry): entry is string => Boolean(entry));
+  return {
+    ...item,
+    sourceLabel: attribution?.sourceName ?? FEATURED_COPY_SOURCE_LABEL,
+    credits: credits.length > 0 ? credits : undefined,
+  };
+}
 
 function countLabel(count: number): string {
   return count === 1 ? '1 brano' : `${count} brani`;
@@ -381,6 +419,8 @@ type RowProps = {
   playing: boolean;
   durationSeconds: number | null;
   canPlay: boolean;
+  /** La copia di un brano in evidenza registrata per questa riga, o null. */
+  featuredCopy: FeaturedOfflineCopy | null;
   onPlay: (track: LocalTrack) => void;
   onRemove: (track: LocalTrack, index: number) => void;
 };
@@ -394,13 +434,21 @@ const LocalTrackRow = memo(function LocalTrackRow({
   playing,
   durationSeconds,
   canPlay,
+  featuredCopy,
   onPlay,
   onRemove,
 }: RowProps) {
   const source = localTrackSource(track);
-  const attribution = localTrackAttribution(track);
-  const sourceBadge =
-    source === 'audius-download' ? 'Audius' : source === 'podcast-download' ? 'Podcast' : null;
+  // Copia di un brano in evidenza: attribuzione dalla libreria se la conosce, altrimenti dal
+  // registro delle copie.
+  const attribution = localTrackAttribution(track) ?? featuredCopy?.attribution ?? null;
+  const sourceBadge = featuredCopy
+    ? 'In evidenza'
+    : source === 'audius-download'
+      ? 'Audius'
+      : source === 'podcast-download'
+        ? 'Podcast'
+        : null;
   const meta = [track.artist, track.album].filter(Boolean).join(' · ') || 'Artista sconosciuto';
   const duration = formatTrackDuration(durationSeconds);
   const playLabel = current
@@ -445,7 +493,11 @@ const LocalTrackRow = memo(function LocalTrackRow({
           {current ? <span className="sr-only"> · in riproduzione</span> : null}
         </span>
         {/* Attribuzione dei brani scaricati (Audius: avviso OML + link; podcast: show). */}
-        <DownloadedTrackCredit source={source} attribution={attribution} title={track.title} />
+        <DownloadedTrackCredit
+          source={featuredCopy ? 'featured-download' : source}
+          attribution={attribution}
+          title={track.title}
+        />
       </div>
       <span className={styles.duration}>{spokenDuration}</span>
       <div className={styles.rowActions}>
@@ -489,6 +541,8 @@ type ListProps = {
   /** What the player knows of the current local item's duration (for files saved without one). */
   currentDuration: number | null;
   canPlay: boolean;
+  /** Le copie dei brani in evidenza per id della libreria (registro sul dispositivo). */
+  featuredCopies: ReadonlyMap<string, FeaturedOfflineCopy>;
   onPlay: (track: LocalTrack) => void;
   onRemove: (track: LocalTrack, index: number) => void;
   listRef: RefObject<HTMLOListElement | null>;
@@ -503,6 +557,7 @@ const LocalTrackList = memo(function LocalTrackList({
   playing,
   currentDuration,
   canPlay,
+  featuredCopies,
   onPlay,
   onRemove,
   listRef,
@@ -526,6 +581,7 @@ const LocalTrackList = memo(function LocalTrackList({
             playing={current && playing}
             durationSeconds={track.durationSeconds ?? (current ? currentDuration : null)}
             canPlay={canPlay}
+            featuredCopy={featuredCopies.get(track.id) ?? null}
             onPlay={onPlay}
             onRemove={onRemove}
           />
@@ -543,6 +599,8 @@ export function LocalMusicSection() {
 
   const [phase, setPhase] = useState<Phase>('checking');
   const [tracks, setTracks] = useState<LocalTrack[]>([]);
+  const [featuredCopies, setFeaturedCopies] =
+    useState<ReadonlyMap<string, FeaturedOfflineCopy>>(NO_FEATURED_COPIES);
   const [stats, setStats] = useState<LocalMusicUsage | null>(null);
   const [covers, setCovers] = useState<Record<string, string>>({});
   // Rows near the screen (IntersectionObserver); null: no observer, the first rows count.
@@ -583,6 +641,8 @@ export function LocalMusicSection() {
       const [list, measured] = await Promise.all([listTracks(), usage().catch(() => null)]);
       if (!aliveRef.current || seq !== loadSeqRef.current) return;
       setTracks(list);
+      // Il registro delle copie dei brani in evidenza (solo localStorage, nessuna rete).
+      setFeaturedCopies(featuredCopiesByLocalId());
       setStats(measured);
       setPhase('ready');
     } catch (error) {
@@ -829,17 +889,18 @@ export function LocalMusicSection() {
         void current.togglePlayback();
         return;
       }
-      const queue = tracks.map(localTrackToPlayerTrack);
+      const queue = tracks.map((entry) => localTrackForPlayer(entry, featuredCopies.get(entry.id)));
       const item =
-        queue.find((entry) => entry.qualifiedId === qualifiedId) ?? localTrackToPlayerTrack(track);
+        queue.find((entry) => entry.qualifiedId === qualifiedId) ??
+        localTrackForPlayer(track, featuredCopies.get(track.id));
       void current.playTrack(item, '', queue);
     },
-    [tracks],
+    [tracks, featuredCopies],
   );
 
   const playQueue = (order: readonly LocalTrack[]) => {
     const current = playerRef.current;
-    const queue = order.map(localTrackToPlayerTrack);
+    const queue = order.map((entry) => localTrackForPlayer(entry, featuredCopies.get(entry.id)));
     const first = queue[0];
     if (!current || !first) return;
     void current.playTrack(first, '', queue);
@@ -1056,6 +1117,7 @@ export function LocalMusicSection() {
                 playing={playerPlaying}
                 currentDuration={currentDuration}
                 canPlay={player !== null}
+                featuredCopies={featuredCopies}
                 onPlay={playFrom}
                 onRemove={removeOne}
                 listRef={listRef}

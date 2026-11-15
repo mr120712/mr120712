@@ -3,19 +3,36 @@
 // restano solo in streaming.
 //
 // Fonti consentite: i file locali dell'ascoltatore (già sul dispositivo, nulla da scaricare), i brani
-// Audius che l'artista ha reso scaricabili sotto la Open Music License, e le enclosure degli episodi
-// podcast. Non si scarica MAI da YouTube, dalla radio o da Jamendo: quelli restano online con una nota.
+// Audius che l'artista ha reso scaricabili sotto la Open Music License, le enclosure degli episodi
+// podcast e i brani in evidenza DICHIARATI in diritti.json con il permesso della copia offline
+// (`offline` true nelle risposte del server, ricontrollato dalla rotta a ogni download). Non si
+// scarica MAI da YouTube, dalla radio o da Jamendo: quelli restano online con una nota.
+//
+// Una copia di un brano in evidenza si registra anche in featured-offline-copies (id opaco +
+// attribuzione), così «La tua musica» la attribuisce e la verifica dei permessi la può revocare: se
+// il registro non è scrivibile la copia non si salva (fail closed).
 //
 // Il download vero e proprio passa SEMPRE da una rotta same-origin del server (richiede il login, è
 // limitata, SSRF-safe, con tetto di 50 MB e conteggio solo a byte confermati). Qui il client chiama la
 // rotta, valida l'header dei metadati con OfflineDownloadMetaSchema, e salva il Blob con addDownloadedTrack.
 // I binari (come le rotte di streaming) NON passano da apiFetch, che fa res.json().
 
+import {
+  type CopyStorage,
+  canRememberFeaturedCopies,
+  forgetFeaturedCopies,
+  readFeaturedCopies,
+  rememberFeaturedCopy,
+} from '@/components/custom/music/featured-offline-copies';
+import type { HomeTrack } from '@/lib/contracts/home-tracks';
 import type { MusicCollectionItem } from '@/lib/contracts/music';
 import {
+  FEATURED_DOWNLOAD_KEY_PREFIX,
   OFFLINE_DOWNLOAD_META_HEADER,
   OfflineDownloadErrorSchema,
+  type OfflineDownloadMeta,
   OfflineDownloadMetaSchema,
+  type OfflineDownloadSource,
 } from '@/lib/contracts/offline';
 import {
   DOWNLOADABLE_SOURCE_MAX,
@@ -24,9 +41,14 @@ import {
 import {
   type AddDownloadedResult,
   type DownloadedTrackInput,
+  type DownloadedTrackSource,
   addDownloadedTrack as defaultAddDownloaded,
+  getTrack as defaultGetTrack,
+  removeTrack as defaultRemoveTrack,
+  type LocalTrack,
 } from '@/lib/local-music';
-import { OFFLINE_INELIGIBLE_REASONS } from '@/lib/music/offline-eligibility';
+import { FEATURED_SHARE_API_PREFIX, isFeaturedShareId } from '@/lib/music/featured-share';
+import { OFFLINE_INELIGIBLE_REASONS, offlineEligibility } from '@/lib/music/offline-eligibility';
 
 /** Nota breve mostrata sopra gli elementi che restano online. */
 export const OFFLINE_ONLINE_ONLY_NOTE =
@@ -68,7 +90,12 @@ const OFFLINE_STORE_FAIL = 'Non è stato possibile salvarlo su questo dispositiv
 /** La rotta di download da chiamare per un elemento scaricabile. */
 export type OfflineDownloadEndpoint =
   | { kind: 'audius'; trackId: string }
-  | { kind: 'podcast'; podcastId: string; episodeKey: string };
+  | { kind: 'podcast'; podcastId: string; episodeKey: string }
+  /** Brano in evidenza dichiarato: l'id opaco del link diretto (mai il percorso nello store). */
+  | { kind: 'featured'; shareId: string };
+
+/** La fonte delle copie dei brani in evidenza nell'header della rotta. */
+const FEATURED_META_SOURCE: OfflineDownloadSource = 'featured-download';
 
 /** Un elemento che si può provare a scaricare (Audius scaricabile o episodio podcast). */
 export type OfflineDownloadTarget = {
@@ -98,6 +125,9 @@ export type OfflinePlan = {
 export function offlineDownloadPath(endpoint: OfflineDownloadEndpoint): string {
   if (endpoint.kind === 'audius') {
     return `/api/music/audius/tracks/${encodeURIComponent(endpoint.trackId)}/download`;
+  }
+  if (endpoint.kind === 'featured') {
+    return `${FEATURED_SHARE_API_PREFIX}${encodeURIComponent(endpoint.shareId)}/download`;
   }
   return `/api/music/podcasts/${encodeURIComponent(endpoint.podcastId)}/episodes/${encodeURIComponent(
     endpoint.episodeKey,
@@ -139,6 +169,55 @@ export function collectionDownloadPlan(items: readonly MusicCollectionItem[]): O
     }
   }
   return { downloadable, onlineOnly, resolvable };
+}
+
+/**
+ * Il bersaglio «Scarica offline» di un brano in evidenza, SOLO se il server ha detto che la sua
+ * voce di diritti.json consente la copia offline (`offline` true) e il brano ha il suo id opaco;
+ * null altrimenti (nessun pulsante).
+ */
+export function featuredDownloadTarget(
+  track: Pick<HomeTrack, 'id' | 'title' | 'shareId' | 'offline'>,
+): OfflineDownloadTarget | null {
+  if (track.offline !== true || !track.shareId || !isFeaturedShareId(track.shareId)) return null;
+  return {
+    id: track.id,
+    title: track.title,
+    endpoint: { kind: 'featured', shareId: track.shareId },
+  };
+}
+
+/**
+ * Divide i brani in evidenza di una pagina (cartella, artista) in scaricabili (copia offline
+ * consentita) e solo-streaming, con il motivo in italiano. Nessun brano non dichiarato arriva qui
+ * (il server non li manda in queste pagine); un brano senza permesso o senza id resta online.
+ */
+export function featuredDownloadPlan(
+  tracks: readonly Pick<HomeTrack, 'id' | 'title' | 'shareId' | 'offline'>[],
+): OfflinePlan {
+  const downloadable: OfflineDownloadTarget[] = [];
+  const onlineOnly: OfflineOnlineOnlyItem[] = [];
+  for (const track of tracks) {
+    const target = featuredDownloadTarget(track);
+    if (target) {
+      downloadable.push(target);
+      continue;
+    }
+    const eligibility = offlineEligibility({
+      source: 'featured-track',
+      // Con il permesso ma senza id (condivisione spenta): non si può scaricare.
+      offline: track.offline === true ? null : track.offline,
+    });
+    onlineOnly.push({
+      id: track.id,
+      title: track.title,
+      reason:
+        eligibility.kind === 'online-only'
+          ? eligibility.reason
+          : OFFLINE_INELIGIBLE_REASONS.featuredUnavailable,
+    });
+  }
+  return { downloadable, onlineOnly, resolvable: [] };
 }
 
 /** Esito della ricerca di versioni scaricabili per i brani importati. */
@@ -224,7 +303,41 @@ export type OfflineDownloadOutcome =
 export type OfflineDownloadDeps = {
   fetcher?: typeof fetch;
   addDownloaded?: (input: DownloadedTrackInput) => Promise<AddDownloadedResult>;
+  /** Toglie dal dispositivo una copia che non si è potuta registrare (solo brani in evidenza). */
+  removeDownloaded?: (id: string) => Promise<void>;
+  /** Il registro delle copie dei brani in evidenza (localStorage; uno finto nei test). */
+  copyStorage?: CopyStorage | null;
+  /** Legge un brano della libreria sul dispositivo (per sapere se una copia c'è ancora). */
+  getLocalTrack?: (id: string) => Promise<LocalTrack | null>;
 };
+
+/**
+ * True se su questo dispositivo c'è GIÀ la copia offline del brano in evidenza `shareId`: voce nel
+ * registro e file ancora nella libreria. Una voce il cui file non c'è più si dimentica (si potrà
+ * riscaricare). Nessuna rete; mai throw (nel dubbio false: si riscarica, il server decide).
+ */
+export async function featuredCopySaved(
+  shareId: string,
+  deps: Pick<OfflineDownloadDeps, 'copyStorage' | 'getLocalTrack'> = {},
+): Promise<boolean> {
+  const copies = readFeaturedCopies(deps.copyStorage).filter((copy) => copy.featuredId === shareId);
+  if (copies.length === 0) return false;
+  const readTrack = deps.getLocalTrack ?? defaultGetTrack;
+  const gone: string[] = [];
+  for (const copy of copies) {
+    let track: LocalTrack | null;
+    try {
+      track = await readTrack(copy.localId);
+    } catch {
+      // Libreria illeggibile adesso: non si dimentica nulla.
+      return false;
+    }
+    if (track?.id === copy.localId) return true;
+    gone.push(copy.localId);
+  }
+  forgetFeaturedCopies(gone, deps.copyStorage);
+  return false;
+}
 
 function decodeMetaHeader(value: string | null): unknown {
   if (!value) throw new Error('header mancante');
@@ -290,6 +403,21 @@ export async function downloadOne(
 ): Promise<OfflineDownloadOutcome> {
   const fetcher = deps.fetcher ?? fetch;
   const addDownloaded = deps.addDownloaded ?? defaultAddDownloaded;
+  const featured = target.endpoint.kind === 'featured';
+  const copyStorage = deps.copyStorage;
+  // Una copia di un brano in evidenza deve restare revocabile: senza registro scrivibile non si
+  // chiede nemmeno il file (e non si consuma un download del giorno).
+  if (featured && !canRememberFeaturedCopies(copyStorage)) {
+    return { status: 'failed', target, message: OFFLINE_STORE_FAIL };
+  }
+  // Copia già sul dispositivo: nessuna richiesta (non si consuma un download del giorno né si
+  // ritrasferisce il file). La verifica dei permessi la toglie se viene revocata.
+  if (
+    target.endpoint.kind === 'featured' &&
+    (await featuredCopySaved(target.endpoint.shareId, deps))
+  ) {
+    return { status: 'already', target };
+  }
 
   let response: Response;
   try {
@@ -303,12 +431,23 @@ export async function downloadOne(
 
   if (!response.ok) return mapErrorResponse(target, response);
 
-  let meta: ReturnType<typeof OfflineDownloadMetaSchema.parse>;
+  let meta: OfflineDownloadMeta;
   try {
     meta = OfflineDownloadMetaSchema.parse(
       decodeMetaHeader(response.headers.get(OFFLINE_DOWNLOAD_META_HEADER)),
     );
   } catch {
+    return { status: 'failed', target, message: OFFLINE_GENERIC_FAIL };
+  }
+  // Una copia di un brano in evidenza si salva SOLO dalla sua rotta, con la sua chiave (e quindi
+  // sempre registrata per la revoca); nessun'altra rotta può salvare una copia "in evidenza".
+  const featuredMeta = meta.source === FEATURED_META_SOURCE;
+  if (
+    featured !== featuredMeta ||
+    (target.endpoint.kind === 'featured' &&
+      meta.downloadKey !== `${FEATURED_DOWNLOAD_KEY_PREFIX}${target.endpoint.shareId}`)
+  ) {
+    void response.body?.cancel().catch(() => undefined);
     return { status: 'failed', target, message: OFFLINE_GENERIC_FAIL };
   }
 
@@ -325,7 +464,10 @@ export async function downloadOne(
     result = await addDownloaded({
       blob,
       downloadKey: meta.downloadKey,
-      source: meta.source,
+      // La libreria sul dispositivo (src/lib/local-music) non elenca ancora 'featured-download'
+      // fra le sue fonti: il record la conserva com'è (dedupe per fonte + chiave), e finché non la
+      // riconosce identità e attribuzione stanno nel registro delle copie (qui sotto).
+      source: meta.source as DownloadedTrackSource,
       title: meta.title,
       artist: meta.artist,
       album: meta.album,
@@ -335,6 +477,22 @@ export async function downloadOne(
     });
   } catch {
     return { status: 'failed', target, message: OFFLINE_STORE_FAIL };
+  }
+  if (featured && target.endpoint.kind === 'featured' && result.ok) {
+    const remembered = rememberFeaturedCopy(
+      {
+        localId: result.track.id,
+        featuredId: target.endpoint.shareId,
+        attribution: meta.attribution,
+        savedAt: Date.now(),
+      },
+      copyStorage,
+    );
+    if (!remembered) {
+      // Non revocabile = non si tiene: la copia appena salvata si toglie dal dispositivo.
+      await (deps.removeDownloaded ?? defaultRemoveTrack)(result.track.id).catch(() => undefined);
+      return { status: 'failed', target, message: OFFLINE_STORE_FAIL };
+    }
   }
   return mapAddResult(target, result);
 }

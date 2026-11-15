@@ -136,6 +136,25 @@
   display: inline-flex;
 }
 
+/* Riga con «Scarica offline» (copia offline consentita): stessi due spazi, le azioni insieme. */
+.row[data-downloadable="true"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* «Scarica … per offline» della pagina, fra l'intestazione e l'elenco. */
+.offline {
+  margin-block: 0.25rem 1rem;
+}
+
+.rowActions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+}
+
 /* Tutta la riga è il pulsante: un tocco suona il brano (o lo mette in pausa se è in corso). */
 .rowButton {
   display: grid;

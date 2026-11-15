@@ -1,5 +1,7 @@
 // @polsia:user-owned — "Scarica il permesso": risoluzione e scaricamento SSRF-safe dei soli brani
-// consentiti (Audius scaricabile, enclosure podcast). Niente YouTube, radio o Jamendo qui.
+// consentiti (Audius scaricabile, enclosure podcast; i brani in evidenza dichiarati con il permesso
+// della copia offline usano limiti e risposte da qui, la lettura dallo store è in
+// featured-offline.server). Niente YouTube, radio o Jamendo qui.
 //
 // Garanzie comuni: solo HTTPS, nessun host privato (riusa assertPublicHttpsUrl), timeout,
 // reindirizzamenti limitati e corpo limitato (MAX_DOWNLOAD_BYTES). L'URL non è mai scelto
@@ -110,6 +112,8 @@ const DOWNLOAD_PRIVATE_HEADERS = {
   'Cache-Control': 'private, no-store, no-cache, must-revalidate',
   Pragma: 'no-cache',
   'X-Content-Type-Options': 'nosniff',
+  // Un file scaricato (o un suo errore) non va mai indicizzato dai motori di ricerca.
+  'X-Robots-Tag': 'noindex, nofollow',
 } as const;
 
 /** Risposta di errore JSON delle rotte di download (private, con Retry-After se presente). */

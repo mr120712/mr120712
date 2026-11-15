@@ -9,6 +9,7 @@ import { type FormEvent, useState, useSyncExternalStore } from 'react';
 import { toast } from 'sonner';
 import { AiOrganize } from '@/components/custom/music/ai-organize';
 import { FallbackArt } from '@/components/custom/music/fallback-art';
+import { useFeaturedOfflineSync } from '@/components/custom/music/featured-offline-sync';
 import { useLibrary } from '@/components/custom/music/library-context';
 import { savedStationToStation } from '@/components/custom/music/live-tracks';
 import { LocalMusicSection } from '@/components/custom/music/local-music-section';
@@ -382,6 +383,9 @@ export function LibraryView() {
   // Link diretto a una raccolta (dalla ricerca): apre la scheda Playlist su quella raccolta.
   const focusPlaylist = searchParams.get(LIBRARY_PLAYLIST_PARAM);
   const online = useOnline();
+  // Copie offline dei brani in evidenza: da online si verifica che siano ancora consentite e si
+  // tolgono quelle revocate (la sezione «La tua musica» resta senza rete).
+  useFeaturedOfflineSync();
 
   return (
     <main className={styles.page}>

@@ -6,14 +6,20 @@
 // di dimensione raggiunti (messaggio dal server); niente di scaricabile in questa playlist (una nota).
 // I brani già scaricati non vengono riscaricati (anti-duplicato nello store) e non servono per
 // riprodurli offline: il download è l'azione protetta, non l'ascolto.
+//
+// Lo stesso pulsante serve le pagine dei "brani in evidenza" (cartella /cartella/<id> e artista
+// /artista/<slug>): `scope`, `actionLabel` e `onlineOnlyNote` adattano i testi («Scarica la cartella
+// per offline», «solo streaming»); il piano lo costruisce featuredDownloadPlan con i soli brani che
+// il server dichiara scaricabili.
 'use client';
 
-import { CheckCircle2, Download, Info } from 'lucide-react';
+import { CheckCircle2, Download, Info, Loader2 } from 'lucide-react';
 import Link from 'next/link';
-import { useCallback, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   downloadOne,
+  featuredCopySaved,
   notifyLocalMusicChanged,
   OFFLINE_LOGIN_REQUIRED_MESSAGE,
   OFFLINE_ONLINE_ONLY_NOTE,
@@ -25,6 +31,7 @@ import {
   offlineSavedCount,
   resolveDownloadableSongs,
   runOfflineDownloadBatch,
+  subscribeLocalMusicChanged,
 } from '@/components/custom/music/offline-download';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -37,6 +44,9 @@ export function OfflineDownloadButton({
   plan,
   signedIn,
   onSaved,
+  scope = 'questa playlist',
+  actionLabel = 'Scarica per offline',
+  onlineOnlyNote = OFFLINE_ONLINE_ONLY_NOTE,
 }: {
   /** Nome della playlist/sezione, per le etichette accessibili. */
   label: string;
@@ -45,6 +55,12 @@ export function OfflineDownloadButton({
   signedIn: boolean;
   /** Chiamato dopo che almeno un brano è stato salvato, per aggiornare la Libreria. */
   onSaved?: () => void;
+  /** Di che cosa si parla nelle note («questa playlist», «questa cartella», «questo artista»). */
+  scope?: string;
+  /** Testo del pulsante a riposo (il numero dei brani scaricabili si aggiunge da sé). */
+  actionLabel?: string;
+  /** Nota sopra l'elenco dei brani che restano solo in streaming. */
+  onlineOnlyNote?: string;
 }) {
   const { downloadable, onlineOnly, resolvable } = plan;
   const [phase, setPhase] = useState<Phase>('idle');
@@ -112,9 +128,9 @@ export function OfflineDownloadButton({
       <div className={styles.wrap}>
         <p className={styles.note}>
           <Info aria-hidden="true" />
-          <span>Nessun brano di questa playlist si può scaricare per l’ascolto offline.</span>
+          <span>Nessun brano di {scope} si può scaricare per l’ascolto offline.</span>
         </p>
-        <OnlineOnlyList id={onlineOnlyId} items={onlineOnly} />
+        <OnlineOnlyList id={onlineOnlyId} items={onlineOnly} note={onlineOnlyNote} />
       </div>
     );
   }
@@ -123,6 +139,15 @@ export function OfflineDownloadButton({
   const resolving = phase === 'resolving';
   const busy = running || resolving || undefined;
   const count = downloadable.length;
+  const buttonText = resolving
+    ? 'Cerco versioni scaricabili…'
+    : running
+      ? 'Scarico…'
+      : phase === 'done'
+        ? 'Scarica di nuovo'
+        : resolvable.length > 0
+          ? actionLabel
+          : `${actionLabel} (${count})`;
 
   return (
     <div className={styles.wrap}>
@@ -137,28 +162,22 @@ export function OfflineDownloadButton({
             aria-busy={busy}
             aria-disabled={busy}
             aria-describedby={onlineOnly.length > 0 ? onlineOnlyId : undefined}
-            aria-label={`Scarica per l’ascolto offline i brani consentiti di ${label}`}
+            // Il nome accessibile COMINCIA con il testo visibile (WCAG 2.5.3): chi usa la voce può
+            // dire quello che vede; il resto dice di quale playlist/cartella/artista si parla.
+            aria-label={`${buttonText}: i brani consentiti di ${label}`}
             onClick={() => {
               if (!busy) void run();
             }}
           >
             <Download aria-hidden="true" />
-            {resolving
-              ? 'Cerco versioni scaricabili…'
-              : running
-                ? 'Scarico…'
-                : phase === 'done'
-                  ? 'Scarica di nuovo'
-                  : resolvable.length > 0
-                    ? 'Scarica per offline'
-                    : `Scarica per offline (${count})`}
+            {buttonText}
           </Button>
         ) : (
           <p className={styles.note}>
             <Info aria-hidden="true" />
             <span>
-              <Link href="/login">Accedi</Link> per scaricare i brani consentiti di questa playlist
-              e ascoltarli offline.
+              <Link href="/login">Accedi</Link> per scaricare i brani consentiti di {scope} e
+              ascoltarli offline.
             </span>
           </p>
         )}
@@ -196,7 +215,9 @@ export function OfflineDownloadButton({
         </p>
       ) : null}
 
-      {onlineOnly.length > 0 ? <OnlineOnlyList id={onlineOnlyId} items={onlineOnly} /> : null}
+      {onlineOnly.length > 0 ? (
+        <OnlineOnlyList id={onlineOnlyId} items={onlineOnly} note={onlineOnlyNote} />
+      ) : null}
     </div>
   );
 }
@@ -270,15 +291,39 @@ export function SingleOfflineDownloadButton({
   size = 'sm',
   variant = 'outline',
   className,
+  iconOnly = false,
 }: {
   target: OfflineDownloadTarget;
   signedIn: boolean;
   size?: 'sm' | 'default';
   variant?: 'outline' | 'ghost' | 'secondary';
   className?: string;
+  /** Solo l'icona (righe e copertine compatte): il nome accessibile resta quello completo. */
+  iconOnly?: boolean;
 }) {
   const [state, setState] = useState<'idle' | 'running' | 'saved' | 'done'>('idle');
   const runningRef = useRef(false);
+  const featuredShareId = target.endpoint.kind === 'featured' ? target.endpoint.shareId : null;
+
+  // Brano in evidenza già salvato su questo dispositivo: il pulsante parte (e torna) «Offline» senza
+  // richieste; se la copia sparisce (rimossa, revocata) torna «Scarica». Solo dopo il montaggio
+  // (localStorage e IndexedDB non esistono sul server).
+  useEffect(() => {
+    if (!featuredShareId) return;
+    let active = true;
+    const check = () => {
+      void featuredCopySaved(featuredShareId).then((saved) => {
+        if (!active || runningRef.current) return;
+        setState((current) => (saved ? 'saved' : current === 'saved' ? 'idle' : current));
+      });
+    };
+    check();
+    const unsubscribe = subscribeLocalMusicChanged(check);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [featuredShareId]);
 
   const run = useCallback(async () => {
     if (runningRef.current) return;
@@ -307,43 +352,94 @@ export function SingleOfflineDownloadButton({
 
   const running = state === 'running';
   return (
-    <Button
-      type="button"
-      variant={state === 'saved' ? 'secondary' : variant}
-      size={size}
-      className={className}
-      aria-busy={running || undefined}
-      aria-disabled={running || state === 'saved' || undefined}
-      aria-label={
-        state === 'saved'
-          ? `${target.title} è nella tua Libreria per l’ascolto offline`
-          : `Scarica ${target.title} per l’ascolto offline`
-      }
-      onClick={() => {
-        if (!running && state !== 'saved') void run();
-      }}
-    >
-      {state === 'saved' ? <CheckCircle2 aria-hidden="true" /> : <Download aria-hidden="true" />}
-      {state === 'saved' ? 'Offline' : running ? 'Scarico…' : 'Scarica'}
-    </Button>
+    <>
+      <Button
+        type="button"
+        variant={state === 'saved' ? 'secondary' : variant}
+        size={iconOnly ? 'icon' : size}
+        className={className}
+        title={
+          iconOnly
+            ? state === 'saved'
+              ? 'Disponibile offline'
+              : running
+                ? 'Scarico…'
+                : 'Scarica offline'
+            : undefined
+        }
+        aria-busy={running || undefined}
+        aria-disabled={running || state === 'saved' || undefined}
+        aria-label={
+          state === 'saved'
+            ? `${target.title} è nella tua Libreria per l’ascolto offline`
+            : running
+              ? `Scarico ${target.title}…`
+              : `Scarica ${target.title} per l’ascolto offline`
+        }
+        onClick={() => {
+          if (!running && state !== 'saved') void run();
+        }}
+      >
+        {state === 'saved' ? (
+          <CheckCircle2 aria-hidden="true" />
+        ) : running ? (
+          // Ruota solo senza «riduci movimento»; l'icona cambia comunque.
+          <Loader2 aria-hidden="true" className="motion-safe:animate-spin" />
+        ) : (
+          <Download aria-hidden="true" />
+        )}
+        {iconOnly ? null : state === 'saved' ? 'Offline' : running ? 'Scarico…' : 'Scarica'}
+      </Button>
+      {/* L'inizio del download si annuncia subito (il file può richiedere decine di secondi); */}
+      {/* la fine la annuncia il toast. */}
+      <output className="sr-only" aria-live="polite">
+        {running ? `Scarico ${target.title}…` : ''}
+      </output>
+    </>
   );
 }
 
-function OnlineOnlyList({ id, items }: { id: string; items: OfflinePlan['onlineOnly'] }) {
+/** Fino a quanti brani l'elenco dei soli-streaming resta aperto; oltre si apre a richiesta. */
+export const ONLINE_ONLY_OPEN_MAX = 5;
+
+function OnlineOnlyList({
+  id,
+  items,
+  note,
+}: {
+  id: string;
+  items: OfflinePlan['onlineOnly'];
+  note: string;
+}) {
+  const count = items.length;
+  // Lo stesso motivo per tutti (es. i brani in evidenza senza copia offline): detto una volta sola.
+  const shared = items.every((item) => item.reason === items[0]?.reason)
+    ? (items[0]?.reason ?? null)
+    : null;
   return (
-    <div id={id} className={styles.onlineOnly}>
-      <p className={styles.onlineOnlyLead}>
+    <div className={styles.onlineOnly}>
+      {/* Frase breve (è la descrizione del pulsante): la nota e quanti brani restano online. */}
+      <p id={id} className={styles.onlineOnlyLead}>
         <Info aria-hidden="true" />
-        <span>{OFFLINE_ONLINE_ONLY_NOTE}</span>
+        <span>
+          {note}{' '}
+          {count === 1
+            ? '(1 brano resta solo in streaming)'
+            : `(${count} brani restano solo in streaming)`}
+        </span>
       </p>
-      <ul className={styles.onlineOnlyList}>
-        {items.map((item) => (
-          <li key={item.id}>
-            <strong>{item.title}</strong>
-            <span>{item.reason}</span>
-          </li>
-        ))}
-      </ul>
+      <details className={styles.onlineOnlyDetails} open={count <= ONLINE_ONLY_OPEN_MAX}>
+        <summary>{count === 1 ? 'Mostra il brano' : `Mostra i ${count} brani`}</summary>
+        {shared ? <p className={styles.onlineOnlyReason}>{shared}</p> : null}
+        <ul className={styles.onlineOnlyList}>
+          {items.map((item) => (
+            <li key={item.id}>
+              <strong>{item.title}</strong>
+              {shared ? null : <span>{item.reason}</span>}
+            </li>
+          ))}
+        </ul>
+      </details>
     </div>
   );
 }

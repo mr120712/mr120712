@@ -1,12 +1,20 @@
 // @polsia:user-owned — attribuzione di un brano SCARICATO ("Scarica il permesso") nella Libreria e, se
 // serve, nel player. Per un brano Audius mostra copyright, la Audius Open Music License (OML §1.5) e il
-// link al brano; per un episodio podcast mostra lo show e il credito. Per i file locali non compare
-// nulla (nessuna attribuzione). I link si aprono in una nuova scheda, in modo sicuro.
+// link al brano; per un episodio podcast mostra lo show e il credito; per la copia offline di un
+// brano in evidenza il titolare e, per le Creative Commons, la licenza con il link al suo testo. Per
+// i file locali non compare nulla (nessuna attribuzione). I link si aprono in una nuova scheda, in modo sicuro.
 import type { LocalTrackAttribution, LocalTrackSource } from '@/lib/local-music';
 import styles from './downloaded-track-credit.module.css';
 
+/**
+ * La fonte di un brano della Libreria per i crediti: quelle della libreria sul dispositivo più la
+ * copia offline di un "brano in evidenza" (riconosciuta dal registro delle copie).
+ */
+export type CreditSource = LocalTrackSource | 'featured-download';
+
 /** Testo accanto al link al brano/episodio, in base alla fonte. */
-function sourceLinkLabel(source: LocalTrackSource): string {
+function sourceLinkLabel(source: CreditSource): string {
+  if (source === 'featured-download') return 'Brano su Solco';
   return source === 'audius-download' ? 'Brano su Audius' : 'Episodio originale';
 }
 
@@ -15,7 +23,7 @@ export function DownloadedTrackCredit({
   attribution,
   title,
 }: {
-  source: LocalTrackSource;
+  source: CreditSource;
   attribution: LocalTrackAttribution | null;
   /** Titolo del brano, solo per l'etichetta accessibile del link. */
   title?: string;

@@ -1,7 +1,7 @@
 // @polsia:user-owned — contratto della pagina admin «Diritti e testi» (/admin/diritti-testi): la
 // route GET /api/admin/featured-rights e la pagina importano gli stessi schemi. È una DIAGNOSI dei
-// "brani in evidenza": dice perché un brano è (o non è) ricercabile e se il suo testo è
-// disponibile, ma NON contiene mai il testo di un brano, nemmeno una riga: per il testo c'è solo
+// "brani in evidenza": dice perché un brano è (o non è) ricercabile, se il suo testo è
+// disponibile e se la copia offline è consentita, ma NON contiene mai il testo di un brano, nemmeno una riga: per il testo c'è solo
 // la fonte, il tipo e il numero di righe. Tutti gli oggetti sono `strict`: un campo in più (per
 // esempio le righe del testo aggiunte per sbaglio) fa fallire il parse sul server e sul client.
 import { z } from 'zod';
@@ -91,6 +91,24 @@ const LyricsNotFoundSchema = z
 
 export const FeaturedRightsLyricsSchema = z.union([LyricsFoundSchema, LyricsNotFoundSchema]);
 
+/**
+ * Copia offline di un brano DICHIARATO («Scarica offline»): se la voce che vale la consente e
+ * perché. licence_default = licenza propria o Creative Commons senza "offline"; opt_in =
+ * "offline": true; opt_out = "offline": false (scritto, o messo da un doppione: vedi `offBy`);
+ * licence_needs_opt_in = licenza "licenza" senza "offline": true.
+ */
+export const FeaturedRightsOfflineSchema = z
+  .object({
+    allowed: z.boolean(),
+    basis: z.enum(['licence_default', 'opt_in', 'opt_out', 'licence_needs_opt_in']),
+    /**
+     * Copia spenta perché le voci dello stesso file non sono d'accordo: posizione (da 1) della voce
+     * che non la consente. null negli altri casi.
+     */
+    offBy: z.number().int().positive().nullable(),
+  })
+  .strict();
+
 export const FeaturedRightsTrackSchema = z
   .object({
     /** Pathname esatto del file audio nello store (quello da scrivere in "file"). */
@@ -123,6 +141,8 @@ export const FeaturedRightsTrackSchema = z
      * oltre 25 MB secondo l'elenco dello store (limite di OpenAI).
      */
     transcription: z.enum(['ready', 'unsupported_format', 'too_large']).optional(),
+    /** Copia offline: presente SOLO per i brani dichiarati (gli altri non si scaricano mai). */
+    offline: FeaturedRightsOfflineSchema.optional(),
   })
   .strict();
 
@@ -157,6 +177,8 @@ export const AdminFeaturedRightsSchema = z
         lyricsNotShown: CountSchema,
         /** Voci di diritti.json scartate o ignorate. */
         manifestProblems: CountSchema,
+        /** Brani dichiarati con la copia offline consentita (anche oltre quelli mostrati). */
+        offlineAllowed: CountSchema.optional(),
       })
       .strict(),
     tracks: z.array(FeaturedRightsTrackSchema).max(FEATURED_RIGHTS_MAX_TRACKS),
@@ -176,6 +198,7 @@ export type FeaturedRightsManifest = z.infer<typeof FeaturedRightsManifestSchema
 export type FeaturedRightsLyrics = z.infer<typeof FeaturedRightsLyricsSchema>;
 export type FeaturedRightsTrack = z.infer<typeof FeaturedRightsTrackSchema>;
 export type FeaturedRightsTranscription = NonNullable<FeaturedRightsTrack['transcription']>;
+export type FeaturedRightsOffline = z.infer<typeof FeaturedRightsOfflineSchema>;
 export type AdminFeaturedRights = z.infer<typeof AdminFeaturedRightsSchema>;
 
 /**

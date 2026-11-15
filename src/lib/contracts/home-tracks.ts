@@ -95,6 +95,14 @@ export const HomeTrackSchema = z.object({
    * link (anche con la condivisione spenta o dai server meno recenti).
    */
   shareId: FeaturedShareIdSchema.nullable().optional(),
+  /**
+   * Copia offline («Scarica offline» in «La tua musica»), SOLO per i brani DICHIARATI in
+   * diritti.json: true = la voce la consente (licenza propria/Creative Commons senza
+   * "offline": false, oppure "offline": true), false = solo streaming. Calcolato dal server sul
+   * manifest; assente per i brani non dichiarati (e dai server meno recenti) = nessun download.
+   * Il permesso vero lo ricontrolla la rotta di download a ogni richiesta.
+   */
+  offline: z.boolean().optional(),
 });
 export type HomeTrack = z.infer<typeof HomeTrackSchema>;
 

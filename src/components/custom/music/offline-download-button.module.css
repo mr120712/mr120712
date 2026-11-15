@@ -112,3 +112,34 @@
   color: var(--foreground);
   font-weight: 600;
 }
+
+/* Elenco dei soli-streaming: richiudibile (le cartelle possono averne centinaia). */
+.onlineOnlyDetails {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.onlineOnlyDetails > summary {
+  cursor: pointer;
+  width: fit-content;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--foreground);
+  border-radius: calc(var(--radius) - 2px);
+}
+
+.onlineOnlyDetails > summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.onlineOnlyDetails[open] > summary {
+  margin-bottom: 0.3rem;
+}
+
+.onlineOnlyReason {
+  margin: 0 0 0.3rem;
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+}

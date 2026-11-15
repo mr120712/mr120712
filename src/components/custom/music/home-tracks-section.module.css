@@ -88,6 +88,15 @@
   display: inline-flex;
 }
 
+/* «Scarica offline» (copia offline consentita): sulla copertina, nell'angolo opposto. */
+.download {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  z-index: 1;
+  display: inline-flex;
+}
+
 .cardButton {
   display: grid;
   width: 100%;

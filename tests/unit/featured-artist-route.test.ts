@@ -235,7 +235,8 @@ describe('GET /api/music/featured/artists/<slug>', () => {
     const home = (await listHomeTrackSections()).sections.flatMap((section) => section.items);
     for (const track of body.tracks) {
       const inHome = home.find((item) => item.id === track.id);
-      expect(track).toEqual({ ...inHome, artistSlug: 'lucio-dalla' });
+      // Più il permesso della copia offline (licenza propria: consentita).
+      expect(track).toEqual({ ...inHome, artistSlug: 'lucio-dalla', offline: true });
     }
     expect(body.tracks[0]).toMatchObject({
       streamUrl: `/api/music/home-tracks/stream?p=${encodeURIComponent(DECLARED_1)}`,

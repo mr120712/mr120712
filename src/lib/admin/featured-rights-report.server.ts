@@ -12,6 +12,9 @@
 // lettura fallita in cache si ricontrolla a ogni "Aggiorna", dopo i brani mai controllati.
 // Se l'elenco (anche in cache) non ha diritti.json, o lo dà oltre 256 KB, lo si chiede allo store
 // per nome (head): un manifest appena caricato o ridotto vale subito, senza un nuovo elenco.
+// Per ogni brano DICHIARATO dice anche se la COPIA OFFLINE («Scarica offline») è consentita e
+// perché (licenza, "offline": true/false, licenza "licenza" senza "offline": true, doppione):
+// stesse regole del parser e della rotta di download.
 // Per la trascrizione IA (Whisper) dice solo SE si può usare (`transcriptionAvailable`: chiave
 // OpenAI e store presenti) e, per i SOLI brani dichiarati con "testo": true, se formato e
 // dimensione sono accettati (`transcription`); gli altri brani non hanno il campo. Il permesso
@@ -35,6 +38,8 @@ import {
 import {
   diagnoseRightsManifest,
   lyricsDeclared,
+  offlineBasis,
+  offlineDeclared,
   RIGHTS_MANIFEST_MAX_BYTES,
   RIGHTS_MANIFEST_PATHNAME,
 } from '@/lib/music/featured-rights.server';
@@ -309,11 +314,13 @@ export async function buildFeaturedRightsReport(
   let declared = 0;
   let declaredWithLyrics = 0;
   let lyricsNotShown = 0;
+  let offlineAllowed = 0;
   for (const [position, track] of catalog.tracks.entries()) {
     const entry = diagnosis.declared.get(track.id);
     const testo = entry ? lyricsDeclared(entry) : false;
     if (entry) declared += 1;
     if (testo) declaredWithLyrics += 1;
+    if (entry && offlineDeclared(entry)) offlineAllowed += 1;
     if (position >= FEATURED_RIGHTS_MAX_TRACKS) {
       if (testo) lyricsNotShown += 1;
       continue;
@@ -338,6 +345,14 @@ export async function buildFeaturedRightsReport(
       },
       lyrics: { status: 'not_checked' },
     };
+    // Copia offline: solo per i brani dichiarati (stessa regola della rotta di download).
+    if (entry) {
+      row.offline = {
+        allowed: offlineDeclared(entry),
+        basis: offlineBasis(entry),
+        offBy: diagnosis.offlineOffBy.get(track.id) ?? null,
+      };
+    }
     rows.push(row);
     // Il testo si cerca SOLO per i brani dichiarati con "testo": true (come fa il player).
     if (!entry || !testo) continue;
@@ -398,6 +413,7 @@ export async function buildFeaturedRightsReport(
       lyricsSkipped: count(['skipped']),
       lyricsNotShown,
       manifestProblems: diagnosis.problems.length,
+      offlineAllowed,
     },
     tracks: rows,
     tracksTruncated: catalog.tracks.length > rows.length,

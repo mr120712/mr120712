@@ -5,13 +5,26 @@
 // «Casuale», link alla Home, scheletro di caricamento e lettura degli errori dell'API. Stessi stili
 // della pagina d'artista (featured-artist-view.module.css) e stessa riproduzione della Home
 // (playHomeTrack: stesso elemento del player, stesso percorso di streaming, stesse regole).
+// Accanto alle righe dei brani la cui voce di diritti.json consente la copia offline (il server
+// manda `offline` true) c'è anche «Scarica offline» (salva il brano in «La tua musica»); gli altri
+// nessun pulsante. Senza accesso il pulsante spiega che serve accedere.
 'use client';
 
 import { ArrowLeft, Pause, Play } from 'lucide-react';
 import Link from 'next/link';
+import { useMemo } from 'react';
 import { FallbackArt } from '@/components/custom/music/fallback-art';
 import { FeaturedShareButton } from '@/components/custom/music/featured-share-button';
+import { useLibrary } from '@/components/custom/music/library-context';
 import { homeTrackToTrack, playHomeTrack } from '@/components/custom/music/live-tracks';
+import {
+  featuredDownloadPlan,
+  featuredDownloadTarget,
+} from '@/components/custom/music/offline-download';
+import {
+  OfflineDownloadButton,
+  SingleOfflineDownloadButton,
+} from '@/components/custom/music/offline-download-button';
 import { Button } from '@/components/ui/button';
 import type { HomeTrack } from '@/lib/contracts/home-tracks';
 import styles from './featured-artist-view.module.css';
@@ -23,6 +36,8 @@ export type FeaturedListPlayer = FeaturedQueuePlayer & { status: string };
 
 /** «Condividi» di una riga: tondo, discreto, grande quanto l'icona di riproduzione. */
 const ROW_SHARE_BUTTON = 'size-9 rounded-full text-muted-foreground hover:text-foreground';
+/** «Scarica offline» di una riga: come «Condividi». */
+const ROW_DOWNLOAD_BUTTON = 'size-9 rounded-full text-muted-foreground hover:text-foreground';
 
 /** «1 brano» / «N brani». */
 export function songCount(count: number): string {
@@ -57,6 +72,47 @@ export function playFeaturedQueue(player: FeaturedQueuePlayer, queue: readonly H
     return;
   }
   playHomeTrack(player, first, queue);
+}
+
+/** Nota sopra i brani di una cartella/artista che restano solo in streaming. */
+export const FEATURED_STREAMING_ONLY_NOTE =
+  'Solo streaming: per questi brani il titolare non ha concesso la copia offline.';
+
+/**
+ * «Scarica … per offline» di una pagina (cartella o artista): scarica nella Libreria SOLO i brani
+ * che il server dichiara scaricabili (`offline` true, ricontrollato dalla rotta a ogni download) e
+ * elenca gli altri come «solo streaming» con il motivo. Nessun pulsante se nessun brano della pagina
+ * ha la copia offline. Senza accesso: la nota con il link per accedere.
+ */
+export function FeaturedOfflineDownload({
+  tracks,
+  label,
+  scope,
+  actionLabel,
+}: {
+  tracks: readonly HomeTrack[];
+  /** Nome della cartella o dell'artista, per l'etichetta accessibile. */
+  label: string;
+  /** «questa cartella» / «questo artista». */
+  scope: string;
+  /** Testo del pulsante, es. «Scarica la cartella per offline». */
+  actionLabel: string;
+}) {
+  const { signedIn } = useLibrary();
+  const plan = useMemo(() => featuredDownloadPlan(tracks), [tracks]);
+  if (plan.downloadable.length === 0) return null;
+  return (
+    <div className={styles.offline}>
+      <OfflineDownloadButton
+        label={label}
+        plan={plan}
+        signedIn={signedIn}
+        scope={scope}
+        actionLabel={actionLabel}
+        onlineOnlyNote={FEATURED_STREAMING_ONLY_NOTE}
+      />
+    </div>
+  );
 }
 
 /** «Torna alla Home» (un <Button asChild><Link/></Button>). */
@@ -123,6 +179,7 @@ export function FeaturedTrackList({
   /** Classe in più per ogni riga (es. rendering differito negli elenchi lunghi). */
   rowClassName?: string;
 }) {
+  const { signedIn } = useLibrary();
   const nowPlaying =
     player.status === 'playing'
       ? tracks.find((track) => player.currentTrack?.qualifiedId === `upload:${track.id}`)
@@ -148,12 +205,15 @@ export function FeaturedTrackList({
             : current
               ? `Riprendi ${track.title} di ${byline}`
               : `Riproduci ${track.title} di ${byline}`;
+          // «Scarica offline»: solo se il server ha detto che la copia offline è consentita.
+          const download = featuredDownloadTarget(track);
           return (
             <li
               key={track.id}
               className={rowClass}
               data-current={current ? 'true' : undefined}
               data-shareable={track.shareId ? 'true' : undefined}
+              data-downloadable={download ? 'true' : undefined}
             >
               <button
                 type="button"
@@ -186,13 +246,30 @@ export function FeaturedTrackList({
                   {playing ? <Pause /> : <Play />}
                 </span>
               </button>
-              {/* Link diretto «Condividi» (brani dichiarati): accanto alla riga, mai dentro il
-                  pulsante che la suona. */}
-              <FeaturedShareButton
-                track={track}
-                className={styles.rowShare}
-                buttonClassName={ROW_SHARE_BUTTON}
-              />
+              {/* «Scarica offline» e link diretto «Condividi» (brani dichiarati): accanto alla riga,
+                  mai dentro il pulsante che la suona. */}
+              {download ? (
+                <span className={styles.rowActions}>
+                  <SingleOfflineDownloadButton
+                    target={download}
+                    signedIn={signedIn}
+                    variant="ghost"
+                    iconOnly
+                    className={ROW_DOWNLOAD_BUTTON}
+                  />
+                  <FeaturedShareButton
+                    track={track}
+                    className={styles.rowShare}
+                    buttonClassName={ROW_SHARE_BUTTON}
+                  />
+                </span>
+              ) : (
+                <FeaturedShareButton
+                  track={track}
+                  className={styles.rowShare}
+                  buttonClassName={ROW_SHARE_BUTTON}
+                />
+              )}
             </li>
           );
         })}

@@ -34,6 +34,13 @@
 //         "licenza": "cc-by",
 //         "titolare": "Strumentale",
 //         "prova": "https://creativecommons.org/licenses/by/4.0/"
+//       },
+//       {
+//         "file": "Novità/Band - Remix.mp3",
+//         "licenza": "licenza",
+//         "titolare": "Etichetta Srl",
+//         "prova": "Contratto n. 43: streaming e download offline",
+//         "offline": true
 //       }
 //     ]
 //   }
@@ -64,10 +71,38 @@
 //   Il file .lrc/.txt va caricato come PRIVATO (UTF-8, al massimo 64 KB); non compare mai fra i
 //   brani o le copertine della Home. Una revoca ("testo" tolto o false) vale di solito entro
 //   ~30-90 secondi (cambia la versione del catalogo), al più ~5 minuti.
+// - "offline": facoltativo, true o false. Decide la COPIA OFFLINE («Scarica offline»: l'ascoltatore
+//   con un account salva il brano in «La tua musica» sul suo dispositivo, con l'attribuzione):
+//     · licenza "propria", "cc0", "cc-by", "cc-by-sa", "cc-by-nd" → consentita, salvo "offline": false;
+//     · licenza "licenza" (contratto con terzi) → consentita SOLO con "offline": true: una licenza
+//       di streaming non comprende per forza il download, quindi mettilo solo se il contratto copre
+//       anche la copia offline;
+//     · "offline": false → mai, qualunque sia la licenza.
+//   Un brano NON dichiarato (assente, voce non valida, manifest assente o non valido) non si scarica
+//   mai, da nessuna parte (pulsanti, API, cartella, artista, link diretto, player). Per le Creative
+//   Commons la copia porta in «La tua musica» titolare, nome della licenza e link al testo della
+//   licenza: il link è "prova" se è un indirizzo creativecommons.org della stessa licenza (es.
+//   https://creativecommons.org/licenses/by/4.0/), altrimenti la versione 4.0. La rotta di download
+//   ricontrolla questo manifest (letto di nuovo dallo store) a OGNI download. Senza "testo": true
+//   la copia NON porta il testo incorporato nel file (i tag del testo si tolgono prima dell'invio; se
+//   non si riesce a toglierlo, quel brano resta solo in streaming). Le copie già salvate si
+//   ricontrollano quando l'ascoltatore apre Solco da online (qualunque pagina): un brano revocato
+//   ("offline": false, voce tolta, licenza cambiata in "licenza" senza "offline": true) sparisce dai
+//   dispositivi di solito entro ~30-90 secondi dalla revoca, al più ~6 minuti (stessi tempi della
+//   ricerca). Un
+//   diritti.json NON valido o assente = nessun brano dichiarato: anche le copie offline vengono
+//   tolte alla verifica successiva (nel dubbio si esclude), quindi controllalo nella pagina admin
+//   prima di caricarlo. Una copia su un dispositivo che resta sempre offline non si può revocare
+//   finché non torna online.
 // - Nessun altro campo: un campo in più rende NON valida quella voce (o tutto il manifest, se è al
 //   primo livello). Una voce non valida viene ignorata da sola, le altre restano; una voce ripetuta
 //   conta una volta (vale la prima), ma il testo si mostra solo se TUTTE le voci di quel file
-//   hanno "testo": true.
+//   hanno "testo": true, e la copia offline vale solo se TUTTE le voci di quel file la consentono.
+//   Per REVOCARE aggiungendo una voce in fondo, scrivila COMPLETA (file, licenza, titolare e
+//   "offline": false o "testo": false). Una voce NON valida che nomina lo stesso file di una voce
+//   valida (es. {"file": …, "offline": false} senza licenza, o "offline": "false" fra virgolette)
+//   spegne comunque testo e copia offline di quel file, nel dubbio, finché non la correggi o la
+//   togli: il brano resta dichiarato e la pagina admin indica la voce.
 // - Tempi (cache): diritti.json fa parte della versione del catalogo (featured-catalog.server),
 //   quindi una REVOCA vale nella ricerca di solito entro ~30-90 secondi, comunque mai oltre i ~6
 //   minuti di prima, con il manifest privato; da pubblico si aggiunge la propagazione del CDN. Un
@@ -89,6 +124,11 @@ import {
   isPublicBlobUrl,
   isSafeBlobPathname,
 } from '@/lib/music/home-tracks.server';
+import {
+  FEATURED_RIGHTS_LICENCES,
+  type FeaturedOfflineBasis,
+  featuredOfflinePermission,
+} from '@/lib/music/offline-eligibility';
 
 /** Nome del manifest, nella radice dello store Blob. */
 export const RIGHTS_MANIFEST_PATHNAME = 'diritti.json';
@@ -99,15 +139,11 @@ const MANIFEST_DEADLINE_MS = 4000;
 /** Tetto alle voci (256 KB ne contengono comunque poche migliaia). */
 const MAX_ENTRIES = 5000;
 
-/** Licenze accettate. Mai le Creative Commons non commerciali (NC). */
-export const RIGHTS_LICENSES = [
-  'propria',
-  'licenza',
-  'cc0',
-  'cc-by',
-  'cc-by-sa',
-  'cc-by-nd',
-] as const;
+/**
+ * Licenze accettate. Mai le Creative Commons non commerciali (NC). Lo stesso elenco della regola
+ * della copia offline (offline-eligibility), così le due non possono divergere.
+ */
+export const RIGHTS_LICENSES = FEATURED_RIGHTS_LICENCES;
 
 const RightsEntrySchema = z
   .object({
@@ -117,6 +153,8 @@ const RightsEntrySchema = z
     prova: z.string().trim().max(300).optional(),
     // Testo del brano mostrabile nel player: solo con true (assente = false, manifest vecchi validi).
     testo: z.boolean().optional(),
+    // Copia offline: assente = regola della licenza, true = concessa, false = mai (vedi sopra).
+    offline: z.boolean().optional(),
   })
   .strict();
 export type RightsEntry = z.infer<typeof RightsEntrySchema>;
@@ -124,6 +162,22 @@ export type RightsEntry = z.infer<typeof RightsEntrySchema>;
 /** True solo se la voce dichiara esplicitamente i diritti sul TESTO del brano ("testo": true). */
 export function lyricsDeclared(entry: Pick<RightsEntry, 'testo'>): boolean {
   return entry.testo === true;
+}
+
+/**
+ * True se la voce (che vale) consente la COPIA OFFLINE del brano: la regola è
+ * featuredOfflinePermission (licenza + "offline"); i doppioni l'hanno già spenta con
+ * "offline": false se anche una sola voce dello stesso file non la consente.
+ */
+export function offlineDeclared(entry: Pick<RightsEntry, 'licenza' | 'offline'>): boolean {
+  return featuredOfflinePermission(entry).allowed;
+}
+
+/** Perché la voce consente (o no) la copia offline (per la pagina admin «Diritti e testi»). */
+export function offlineBasis(
+  entry: Pick<RightsEntry, 'licenza' | 'offline'>,
+): FeaturedOfflineBasis {
+  return featuredOfflinePermission(entry).basis;
 }
 
 const RightsManifestSchema = z
@@ -162,10 +216,17 @@ function parseManifestStructure(text: string): ManifestStructure {
 
 /** Che cosa ha deciso il parser per una voce di "brani" (lo legge solo la diagnosi admin). */
 type EntryVerdict =
-  /** Voce tenuta: è `entries[position]` (con "testo" eventualmente spento da un doppione). */
+  /**
+   * Voce tenuta: è `entries[position]` (con "testo" e "offline" eventualmente spenti da un
+   * doppione); `entry` è la voce COM'È SCRITTA.
+   */
   | { kind: 'kept'; entry: RightsEntry; position: number }
-  /** Scartata: `issues` dello schema, oppure vuoto = schema valido ma percorso non ammesso. */
-  | { kind: 'invalid'; issues: readonly z.ZodIssue[] }
+  /**
+   * Scartata: `issues` dello schema, oppure vuoto = schema valido ma percorso non ammesso.
+   * `position`: la voce tenuta dello STESSO file (forma NFC), a cui questa voce non valida ha
+   * spento testo e copia offline; assente se nessuna voce valida nomina quel file.
+   */
+  | { kind: 'invalid'; issues: readonly z.ZodIssue[]; position?: number }
   /** Doppione (stessa forma NFC) della voce tenuta in `entries[position]`. */
   | { kind: 'duplicate'; entry: RightsEntry; position: number };
 
@@ -180,6 +241,12 @@ function collectRightsEntries(
   // Forma NFC del file → posizione della voce tenuta in `entries`.
   const seen = new Map<string, number>();
   const entries: RightsEntry[] = [];
+  // Voci non valide che nominano comunque un file (forma NFC → loro indici in "brani"): se una
+  // voce valida dichiara lo stesso file, testo e copia offline di quel file si spengono (sotto).
+  const doubtful = new Map<string, number[]>();
+  // Le decisioni si comunicano a `observe` alla fine, nell'ordine del manifest, quando si sa già
+  // quale voce tenuta una voce non valida contraddice.
+  const verdicts: Array<{ index: number; row: unknown; verdict: EntryVerdict }> = [];
   let skipped = 0;
   for (let index = 0; index < brani.length; index += 1) {
     const row = brani[index];
@@ -188,25 +255,74 @@ function collectRightsEntries(
     // barre rovesciate, caratteri di controllo, upload degli utenti o file non audio.
     if (!parsed.success || !isHomeAudioBlob(parsed.data.file)) {
       skipped += 1;
-      observe?.(index, row, { kind: 'invalid', issues: parsed.success ? [] : parsed.error.issues });
+      const file =
+        typeof row === 'object' && row !== null ? (row as { file?: unknown }).file : undefined;
+      if (typeof file === 'string' && file.length > 0 && file.length <= 1024) {
+        const key = file.normalize('NFC');
+        doubtful.set(key, [...(doubtful.get(key) ?? []), index]);
+      }
+      verdicts.push({
+        index,
+        row,
+        verdict: { kind: 'invalid', issues: parsed.success ? [] : parsed.error.issues },
+      });
       continue;
     }
     const key = parsed.data.file.normalize('NFC');
     const keptAt = seen.get(key);
     if (keptAt !== undefined) {
       // Voce ripetuta (anche solo nella forma Unicode): conta la prima, ma il TESTO vale solo se
-      // TUTTE le voci di quel file dicono "testo": true. Nel dubbio si esclude, qualunque sia
-      // l'ordine: una voce aggiunta in fondo con "testo": false revoca il testo.
-      const kept = entries[keptAt];
+      // TUTTE le voci di quel file dicono "testo": true, e la COPIA OFFLINE solo se TUTTE la
+      // consentono (ognuna con la sua licenza e il suo "offline"). Nel dubbio si esclude,
+      // qualunque sia l'ordine: una voce aggiunta in fondo con "testo": false o "offline": false
+      // revoca il testo o la copia offline (se è scritta male, vedi le voci "dubbie" qui sotto).
+      let kept = entries[keptAt];
       if (kept && kept.testo === true && parsed.data.testo !== true) {
-        entries[keptAt] = { ...kept, testo: false };
+        kept = { ...kept, testo: false };
       }
-      observe?.(index, row, { kind: 'duplicate', entry: parsed.data, position: keptAt });
+      if (kept && offlineDeclared(kept) && !offlineDeclared(parsed.data)) {
+        kept = { ...kept, offline: false };
+      }
+      if (kept) entries[keptAt] = kept;
+      verdicts.push({
+        index,
+        row,
+        verdict: { kind: 'duplicate', entry: parsed.data, position: keptAt },
+      });
       continue;
     }
     seen.set(key, entries.length);
-    observe?.(index, row, { kind: 'kept', entry: parsed.data, position: entries.length });
+    verdicts.push({
+      index,
+      row,
+      verdict: { kind: 'kept', entry: parsed.data, position: entries.length },
+    });
     entries.push(parsed.data);
+  }
+  // Una voce NON valida sullo stesso file di una voce valida (es. una revoca scritta a metà,
+  // {"file": …, "offline": false} senza licenza, o "offline": "false" fra virgolette): nel dubbio
+  // si esclude, in qualunque ordine. Testo e copia offline di quel file restano spenti finché la
+  // voce non viene corretta o tolta; il brano resta dichiarato (ricerca, Home, streaming).
+  const contradicted = new Map<number, number>();
+  for (const [key, indexes] of doubtful) {
+    const keptAt = seen.get(key);
+    const kept = keptAt === undefined ? undefined : entries[keptAt];
+    if (keptAt === undefined || !kept) continue;
+    let next = kept;
+    if (next.testo === true) next = { ...next, testo: false };
+    if (offlineDeclared(next)) next = { ...next, offline: false };
+    entries[keptAt] = next;
+    for (const index of indexes) contradicted.set(index, keptAt);
+  }
+  if (observe) {
+    for (const { index, row, verdict } of verdicts) {
+      const position = contradicted.get(index);
+      observe(
+        index,
+        row,
+        verdict.kind === 'invalid' && position !== undefined ? { ...verdict, position } : verdict,
+      );
+    }
   }
   return { entries, skipped };
 }
@@ -442,6 +558,11 @@ export type RightsManifestDiagnosis = {
    * quando un'altra voce dello stesso file dice "testo": true (le voci non sono d'accordo).
    */
   lyricsOffBy: Map<string, number>;
+  /**
+   * Pathname dichiarato → posizione (da 1) della voce che spegne la COPIA OFFLINE, quando la voce
+   * tenuta la consentirebbe ma un doppione dello stesso file no (le voci non sono d'accordo).
+   */
+  offlineOffBy: Map<string, number>;
 };
 
 function emptyDiagnosis(status: RightsManifestStatus, reasons: string[]): RightsManifestDiagnosis {
@@ -453,6 +574,7 @@ function emptyDiagnosis(status: RightsManifestStatus, reasons: string[]): Rights
     problems: [],
     declared: new Map(),
     lyricsOffBy: new Map(),
+    offlineOffBy: new Map(),
   };
 }
 
@@ -663,6 +785,9 @@ function entryIssueReasons(issues: readonly z.ZodIssue[], row: unknown): string[
       case 'testo':
         reasons.push('"testo" deve essere true o false (senza virgolette)');
         break;
+      case 'offline':
+        reasons.push('"offline" deve essere true o false (senza virgolette)');
+        break;
       default:
         reasons.push(`campo ${shownName(String(field))} non valido`);
     }
@@ -751,12 +876,32 @@ export function diagnoseRightsManifestText(
   const keptIndex = new Map<number, number>();
   const anyLyrics = new Map<number, boolean>();
   const firstWithoutLyrics = new Map<number, number>();
+  // Copia offline: la voce tenuta (com'è scritta) la consente? E la prima voce che non la consente.
+  const keptOffline = new Map<number, boolean>();
+  const firstWithoutOffline = new Map<number, number>();
   for (const { index, verdict } of verdicts) {
-    if (verdict.kind === 'invalid') continue;
-    if (verdict.kind === 'kept') keptIndex.set(verdict.position, index + 1);
+    if (verdict.kind === 'invalid') {
+      // Una voce non valida sullo stesso file di una voce tenuta spegne testo e copia offline
+      // (stessa regola del parser): conta come una voce che non li concede.
+      if (verdict.position === undefined) continue;
+      if (!firstWithoutLyrics.has(verdict.position)) {
+        firstWithoutLyrics.set(verdict.position, index + 1);
+      }
+      if (!firstWithoutOffline.has(verdict.position)) {
+        firstWithoutOffline.set(verdict.position, index + 1);
+      }
+      continue;
+    }
+    if (verdict.kind === 'kept') {
+      keptIndex.set(verdict.position, index + 1);
+      keptOffline.set(verdict.position, offlineDeclared(verdict.entry));
+    }
     if (verdict.entry.testo === true) anyLyrics.set(verdict.position, true);
     else if (!firstWithoutLyrics.has(verdict.position)) {
       firstWithoutLyrics.set(verdict.position, index + 1);
+    }
+    if (!offlineDeclared(verdict.entry) && !firstWithoutOffline.has(verdict.position)) {
+      firstWithoutOffline.set(verdict.position, index + 1);
     }
   }
   // Testo spento dal disaccordo fra le voci dello stesso file (stessa regola del parser).
@@ -767,6 +912,14 @@ export function diagnoseRightsManifestText(
     if (position === undefined || entry.testo === true || !anyLyrics.get(position)) continue;
     const by = firstWithoutLyrics.get(position);
     if (by !== undefined) lyricsOffBy.set(pathname, by);
+  }
+  // Copia offline spenta da un doppione (stessa regola del parser): la voce tenuta la consentiva.
+  const offlineOffBy = new Map<string, number>();
+  for (const [pathname, entry] of declared) {
+    const position = positionOf.get(entry);
+    if (position === undefined || offlineDeclared(entry) || !keptOffline.get(position)) continue;
+    const by = firstWithoutOffline.get(position);
+    if (by !== undefined) offlineOffBy.set(pathname, by);
   }
 
   const problems: RightsEntryProblem[] = [];
@@ -791,6 +944,11 @@ export function diagnoseRightsManifestText(
       ) {
         reasons.push(pathReason(file));
       }
+      if (verdict.position !== undefined) {
+        reasons.unshift(
+          `nomina lo stesso file della voce n. ${keptIndex.get(verdict.position) ?? '?'}: finché non la correggi o la togli, testo e copia offline di quel file restano spenti (nel dubbio si esclude)`,
+        );
+      }
       problems.push({
         index: index + 1,
         file: writtenFile(row),
@@ -808,6 +966,11 @@ export function diagnoseRightsManifestText(
       if (anyLyrics.get(verdict.position) && kept?.testo !== true) {
         reasons.push(
           'le voci dello stesso file non sono d’accordo su "testo": il testo resta spento (serve "testo": true in tutte)',
+        );
+      }
+      if (keptOffline.get(verdict.position) && kept && !offlineDeclared(kept)) {
+        reasons.push(
+          'le voci dello stesso file non sono d’accordo sulla copia offline: resta spenta (serve il permesso in tutte)',
         );
       }
       problems.push({
@@ -847,6 +1010,7 @@ export function diagnoseRightsManifestText(
     problems,
     declared,
     lyricsOffBy,
+    offlineOffBy,
   };
 }
 

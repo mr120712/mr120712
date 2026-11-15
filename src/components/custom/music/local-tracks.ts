@@ -8,10 +8,19 @@
 // La coda salvata nel browser (localStorage) tiene di un brano locale solo l'id: titolo, artista e
 // album si rileggono da IndexedDB al ripristino, così "Rimuovi" nella libreria li cancella davvero
 // dal dispositivo; un brano che non c'è più si toglie dalla coda.
+//
+// Le copie offline dei "brani in evidenza" («Scarica offline») si riconoscono dal loro registro sul
+// dispositivo (featured-offline-copies): nel player portano la loro fonte e attribuzione e non
+// valgono mai come file dell'ascoltatore (quindi niente pannello "Testo", vedi lyrics-target.ts),
+// da qualunque parte partano (Libreria, scheda in Home, coda ripristinata).
+import { featuredCopyFor } from '@/components/custom/music/featured-offline-copies';
 import type { MusicPlayerTrack } from '@/components/custom/music/music-player';
 import { type LocalTrack, localTrackAttribution, localTrackSource } from '@/lib/local-music';
 
 export const LOCAL_SOURCE_LABEL = 'La tua musica';
+
+/** Fonte di una copia di un brano in evidenza salvata senza attribuzione. */
+export const FEATURED_COPY_SOURCE_LABEL = 'Solco · In evidenza';
 
 export const LOCAL_MISSING_MESSAGE =
   'Il file non è più su questo dispositivo: aggiungilo di nuovo da La tua musica.';
@@ -52,6 +61,26 @@ function downloadSourceLinkLabel(source: 'audius-download' | 'podcast-download')
  */
 export function localTrackToPlayerTrack(track: LocalTrack): MusicPlayerTrack {
   const source = localTrackSource(track);
+  const featured = featuredCopyFor(track.id);
+  if (featured) {
+    const attribution = featured.attribution;
+    const credits = [
+      attribution?.creditLine ?? null,
+      attribution?.licenseName ? `Licenza: ${attribution.licenseName}` : null,
+    ].filter((entry): entry is string => Boolean(entry));
+    return {
+      qualifiedId: `local:${track.id}`,
+      title: track.title,
+      artistName: track.artist ?? '',
+      album: track.album,
+      artworkUrl: null,
+      sourceLabel: attribution?.sourceName ?? FEATURED_COPY_SOURCE_LABEL,
+      sourceUrl: null,
+      durationSeconds: track.durationSeconds,
+      playbackMode: 'local',
+      credits: credits.length > 0 ? credits : undefined,
+    };
+  }
   if (source === 'local') {
     return {
       qualifiedId: `local:${track.id}`,

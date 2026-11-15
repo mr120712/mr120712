@@ -4,7 +4,8 @@
 // diritti dichiarati in diritti.json (li filtra il server: GET /api/music/featured/artists/<slug>).
 // La riproduzione è la stessa della Home (playHomeTrack: stesso elemento del player, stesso
 // percorso di streaming, stesse regole). Stati: caricamento, nessun brano, errore con «Riprova».
-// Ogni riga con `shareId` ha accanto il suo «Condividi» (link diretto /evidenza/<id>). Elenco,
+// Ogni riga con `shareId` ha accanto il suo «Condividi» (link diretto /evidenza/<id>) e, se la copia
+// offline è consentita, «Scarica offline»; «Scarica i brani per offline» salva i soli consentiti. Elenco,
 // coda, link alla Home e scheletro sono condivisi con la pagina «Mostra tutti» di una sezione
 // (featured-track-list.tsx).
 'use client';
@@ -15,6 +16,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   FeaturedBackLink,
   FeaturedListSkeleton,
+  FeaturedOfflineDownload,
   FeaturedTrackList,
   featuredLoadFailure,
   playFeaturedQueue,
@@ -164,6 +166,14 @@ export function FeaturedArtistView({ slug }: { slug: string }) {
           </div>
         </div>
       </header>
+
+      {/* Solo i brani con la copia offline consentita; gli altri restano «solo streaming». */}
+      <FeaturedOfflineDownload
+        tracks={tracks}
+        label={artist.name}
+        scope="questo artista"
+        actionLabel="Scarica i brani per offline"
+      />
 
       <FeaturedTrackList
         player={player}

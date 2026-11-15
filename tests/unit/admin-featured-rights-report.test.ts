@@ -316,6 +316,7 @@ describe('buildFeaturedRightsReport: brani e diritti', () => {
       lyricsSkipped: 0,
       lyricsNotShown: 0,
       manifestProblems: 2,
+      offlineAllowed: 3,
     });
   });
 });
