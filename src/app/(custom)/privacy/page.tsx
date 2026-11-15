@@ -244,6 +244,16 @@ export default function PrivacyPage() {
               .
             </p>
             <p>
+              Crea playlist con l’AI (inclusa in Premium): quando chiedi una proposta all’AI, la
+              descrizione che scrivi, oppure l’artista o il brano di partenza, l’atmosfera scelta e
+              i titoli dei brani già nella bozza vengono inviati ad Anthropic (modello Claude)
+              tramite la sua API per proporre altri brani. Non inviamo il tuo nome, la tua email o
+              altri dati dell’account. Solco non conserva la richiesta né la risposta: la bozza
+              resta solo nel tuo browser (nella scheda aperta) finché non la salvi come playlist
+              nella Libreria, dove resta finché non la elimini o elimini l’account. I brani proposti
+              dall’AI vengono cercati su YouTube solo quando li ascolti.
+            </p>
+            <p>
               Spotify: dalla Libreria puoi collegare il tuo account Spotify per trasferire in Solco
               le tue playlist e i brani salvati. Solco chiede a Spotify solo i permessi di lettura
               delle playlist, comprese quelle collaborative, e dei brani salvati

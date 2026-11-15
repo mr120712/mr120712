@@ -139,6 +139,25 @@ export const ACTION_RATE_LIMITS = {
     { requests: 3, windowMs: 86_400_000 },
   ],
   'ai.organize.global': [{ requests: 30, windowMs: 86_400_000 }],
+  // «Crea playlist»: ogni proposta legge il catalogo Audius (una o due richieste, in cache per 10
+  // minuti) e non tocca mai YouTube. Largo per l'uso vero (Sostituisci, Aggiungi altri), ferma gli
+  // script che svuoterebbero il budget Audius condiviso.
+  'playlist.engine.suggest': [
+    { requests: 20, windowMs: 60_000 },
+    { requests: 300, windowMs: 86_400_000 },
+  ],
+  // Le proposte con l'AI sono richieste a Claude a pagamento: poche al minuto e 30 al giorno per
+  // account, più un tetto giornaliero per l'intera app.
+  'playlist.engine.ai': [
+    { requests: 4, windowMs: 60_000 },
+    { requests: 30, windowMs: 86_400_000 },
+  ],
+  'playlist.engine.ai.global': [{ requests: 400, windowMs: 86_400_000 }],
+  // Salvataggio di una bozza di «Crea playlist» come playlist della Libreria (una scrittura sola).
+  'playlist.engine.save': [
+    { requests: 10, windowMs: 600_000 },
+    { requests: 60, windowMs: 86_400_000 },
+  ],
   // Generatore di annunci TikTok con Claude 5.5 (azione admin): ogni call è una richiesta a pagamento.
   // Qualche tentativo al minuto per admin, un tetto giornaliero, più un tetto app-wide.
   'tiktok.announce.admin': [
@@ -493,6 +512,10 @@ const actionLabels: Record<RateLimitAction, string> = {
   'music.ai_search.global': 'le ricerche con l’AI di oggi',
   'ai.organize': 'l’organizzazione con l’AI',
   'ai.organize.global': 'le organizzazioni con l’AI di oggi',
+  'playlist.engine.suggest': 'le proposte di «Crea playlist»',
+  'playlist.engine.ai': 'le playlist proposte dall’AI',
+  'playlist.engine.ai.global': 'le playlist proposte dall’AI di oggi',
+  'playlist.engine.save': 'il salvataggio delle playlist create',
   'tiktok.announce.admin': 'gli annunci TikTok con l’AI',
   'tiktok.announce.global': 'gli annunci TikTok con l’AI di oggi',
   'tiktok.publish.admin': 'le pubblicazioni su TikTok',

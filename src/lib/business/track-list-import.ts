@@ -51,6 +51,15 @@ function clean(value: string | undefined | null) {
     .slice(0, MAX_FIELD);
 }
 
+/**
+ * La stessa pulizia dei campi dell'importazione (niente caratteri di controllo né surrogati
+ * isolati, spazi compattati, al massimo 200 caratteri), per chi riceve titoli e artisti già
+ * separati (il motore «Crea playlist»).
+ */
+export function cleanTrackField(value: string | undefined | null) {
+  return clean(value);
+}
+
 function normalizeName(value: string) {
   return value
     .normalize('NFKD')

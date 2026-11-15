@@ -30,8 +30,8 @@ function isUniqueViolation(error: unknown) {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2002';
 }
 
-/** Dati di un item "song" per una collection (per create/mirror). */
-function songItemData(track: ImportedTrack, createdAt: Date) {
+/** Dati di un item "song" per una collection (per create/mirror e per «Crea playlist»). */
+export function songItemData(track: ImportedTrack, createdAt: Date) {
   return {
     source: 'song',
     sourceId: songSourceId(track.title, track.artist),

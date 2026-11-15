@@ -3,7 +3,7 @@
 'use client';
 
 import { zodResolver } from '@hookform/resolvers/zod';
-import { PenLine, Share2 } from 'lucide-react';
+import { PenLine, Share2, Sparkles } from 'lucide-react';
 import Image from 'next/image';
 import Link from 'next/link';
 import {
@@ -857,7 +857,18 @@ export function MusicCollections({
       )}
 
       <form className={styles.createPlaylist} onSubmit={(event) => void createPlaylist(event)}>
-        <label htmlFor="playlist-name">Crea una playlist</label>
+        {/* «Crea playlist facile» per primo e come azione principale: è il modo più semplice. */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <Button asChild>
+            <Link href="/crea-playlist">
+              <Sparkles aria-hidden="true" /> Crea playlist facile
+            </Link>
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            Descrivila, parti da un brano o scegli l’atmosfera: la playlist arriva già piena.
+          </span>
+        </div>
+        <label htmlFor="playlist-name">Oppure crea una playlist vuota</label>
         <div>
           <input
             id="playlist-name"
@@ -867,7 +878,7 @@ export function MusicCollections({
             placeholder="Nome playlist"
             required
           />
-          <Button type="submit" disabled={!name.trim()}>
+          <Button type="submit" variant="outline" disabled={!name.trim()}>
             Crea playlist
           </Button>
         </div>

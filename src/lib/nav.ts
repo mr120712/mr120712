@@ -49,6 +49,15 @@ export const navItems: NavItem[] = [
   { label: 'Podcast', href: '/podcasts', group: 'primary', order: 2 },
   { label: 'Libreria', href: '/library', group: 'primary', order: 3 },
   { label: 'Statistiche', href: '/statistiche', group: 'primary', requiresAuth: true, order: 3 },
+  // «Crea playlist»: la creazione guidata (descrizione, brano di partenza o atmosfera). Solo con
+  // l'accesso: la pagina salva nella Libreria.
+  {
+    label: 'Crea playlist',
+    href: '/crea-playlist',
+    group: 'primary',
+    requiresAuth: true,
+    order: 3,
+  },
   { label: 'Record Pool', href: '/pool', group: 'primary', order: 2 },
   { label: 'Classici', href: '/classici', group: 'primary', order: 2 },
   ...(publicUploadsEnabled() ? [PUBLIC_LIBRARY_ITEM] : []),

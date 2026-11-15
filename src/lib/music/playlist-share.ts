@@ -48,7 +48,7 @@ function graphemes(text: string): string[] {
 }
 
 /** At most `max` UTF-16 units, cut only between whole graphemes (never half an emoji). */
-function clipToUtf16Length(text: string, max: number) {
+export function clipToUtf16Length(text: string, max: number) {
   let clipped = '';
   for (const grapheme of graphemes(text)) {
     if (clipped.length + grapheme.length > max) break;
