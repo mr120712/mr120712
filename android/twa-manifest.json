@@ -1,6 +1,6 @@
 {
   "packageId": "app.solcomusic.solco",
-  "host": "solcomusic.vercel.app",
+  "host": "www.solcomusic.online",
   "name": "Solco",
   "launcherName": "Solco",
   "display": "standalone",
@@ -13,8 +13,8 @@
   "backgroundColor": "#000000",
   "enableNotifications": false,
   "startUrl": "/",
-  "iconUrl": "https://solcomusic.vercel.app/solco-android-icon.svg",
-  "maskableIconUrl": "https://solcomusic.vercel.app/solco-android-icon.svg",
+  "iconUrl": "https://www.solcomusic.online/solco-android-icon.svg",
+  "maskableIconUrl": "https://www.solcomusic.online/solco-android-icon.svg",
   "splashScreenFadeOutDuration": 300,
   "signingKey": {
     "path": "./.keys/solco-release-key.jks",
@@ -32,7 +32,7 @@
   "enableSiteSettingsShortcut": true,
   "isChromeOSOnly": false,
   "isMetaQuest": false,
-  "fullScopeUrl": "https://solcomusic.vercel.app/",
+  "fullScopeUrl": "https://www.solcomusic.online/",
   "minSdkVersion": 24,
   "orientation": "default",
   "fingerprints": [],

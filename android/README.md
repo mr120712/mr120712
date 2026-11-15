@@ -1,6 +1,6 @@
 # Solco per Android
 
-L'app è una Trusted Web Activity: all'avvio apre `https://solcomusic.app/` nel browser Android, a schermo intero quando il dominio riconosce la firma dell'APK. Le pagine e le API restano quelle del sito Solco, quindi account, catalogo, diario, assistenza e piani continuano a usare i servizi già configurati. I collegamenti interni restano nel flusso Solco; quelli esterni passano al browser o all'app Android associata. Il tasto Indietro segue la cronologia del browser.
+L'app è una Trusted Web Activity: all'avvio apre `https://www.solcomusic.online/` nel browser Android, a schermo intero quando il dominio riconosce la firma dell'APK. Le pagine e le API restano quelle del sito Solco, quindi account, catalogo, diario, assistenza e piani continuano a usare i servizi già configurati. I collegamenti interni restano nel flusso Solco; quelli esterni passano al browser o all'app Android associata. Il tasto Indietro segue la cronologia del browser.
 
 Il file `../public/.well-known/assetlinks.json` collega il dominio al package Android e al certificato usato per firmare l'APK. Il file `../public/solco-android-icon.svg` fornisce l'icona Solco per il launcher e la schermata iniziale.
 

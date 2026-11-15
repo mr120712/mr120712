@@ -4,7 +4,7 @@ Stato al **8 novembre 2026**. Questa è una verifica e preparazione locale: non 
 
 ## Pronto nel repository
 
-- Il progetto Android è una Trusted Web Activity (TWA) diretta a `https://solcomusic.app/`.
+- Il progetto Android è una Trusted Web Activity (TWA) diretta a `https://www.solcomusic.online/` (dal 15 novembre 2026; l'APK 1.1.0 pubblicato apriva ancora `https://solcomusic.vercel.app/` e va ricompilato).
 - `android/app/build.gradle` e `android/twa-manifest.json` indicano package `app.solcomusic.solco`, `minSdk 24`, `targetSdk 36`, `versionName 1.0.0` e `versionCode 1`. La policy Play consultata richiede API 36 o superiore per nuove app e aggiornamenti dal 31 agosto 2026; il target attuale soddisfa il requisito odierno. Ricontrollarlo prima della pubblicazione.
 - `android/store_icon.png` è un PNG RGBA 512×512, 16.463 byte. È l’unica grafica per lo store che esisteva prima di questa preparazione.
 - Ho aggiunto `android/store-assets/feature-graphic.png` (1024×500, PNG RGB senza alpha) e sei schermate locali: quattro immagini telefono 1080×1920 e due tablet 1920×1200, tutte JPEG. Mostrano l’home, il catalogo, album e artista reali restituiti dal catalogo e i relativi dettagli. Il feature graphic usa l’icona e i colori già presenti in Solco.

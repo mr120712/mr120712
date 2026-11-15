@@ -22,7 +22,7 @@ plugins {
 
 def twaManifest = [
     applicationId: 'app.solcomusic.solco',
-    hostName: 'solcomusic.vercel.app', // The domain being opened in the TWA.
+    hostName: 'www.solcomusic.online', // The domain being opened in the TWA.
     launchUrl: '/', // The start path for the TWA. Must be relative to the domain.
     name: 'Solco', // The application name.
     launcherName: 'Solco', // The name shown on the Android Launcher.
@@ -108,7 +108,7 @@ android {
 
         
             // This is used by Meta Quest.
-            resValue "string", "fullScopeUrl", 'https://solcomusic.app/'
+            resValue "string", "fullScopeUrl", 'https://www.solcomusic.online/'
         
 
         
