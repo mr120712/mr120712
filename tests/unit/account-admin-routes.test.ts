@@ -51,7 +51,7 @@ const grant = {
   revokedAt: null,
   status: 'pending' as const,
   account: null,
-  owner: false,
+  seeded: false,
 };
 const account = {
   id: 'user-1',

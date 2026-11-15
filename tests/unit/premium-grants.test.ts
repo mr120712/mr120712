@@ -24,6 +24,7 @@ const store = vi.hoisted(() => {
       if (condition && typeof condition === 'object' && !(condition instanceof Date)) {
         const ops = condition as Row;
         if ('in' in ops) return (ops.in as unknown[]).includes(row[field]);
+        if ('contains' in ops) return String(row[field] ?? '').includes(String(ops.contains));
         throw new Error(`operatore non supportato: ${Object.keys(ops).join(',')}`);
       }
       return row[field] === condition;
@@ -126,20 +127,22 @@ vi.mock('@/lib/business/iap/entitlement.server', () => ({
 }));
 vi.mock('@/lib/require-auth', () => ({ getSessionUser: vi.fn() }));
 
-import { REQUESTED_ADMIN_EMAIL } from '@/lib/business/admin-account-policy';
 import { hasPremiumAccess } from '@/lib/business/premium-access.server';
 import {
-  ensureOwnerPremiumGrant,
-  formatOwnerStatus,
+  ensureSeededPremiumGrants,
+  formatSeededStatus,
   grantPremiumToEmail,
   hasEmailPremiumGrant,
   listPremiumGrants,
   normalizeGrantEmail,
-  OWNER_GRANT_EMAIL,
-  ownerAccountStatus,
   revokePremiumGrant,
+  SEEDED_GRANT_EMAILS,
+  seededAccountStatus,
 } from '@/lib/business/premium-grants.server';
 import { PremiumGrantSchema } from '@/lib/contracts/account-admin';
+
+/** L'account con il Premium illimitato predefinito (per ora l'unico). */
+const SEEDED = SEEDED_GRANT_EMAILS[0] as string;
 
 function user(id: string, email: string, emailVerified: boolean, extra: Row = {}) {
   store.tables.user?.push({ id, name: `Nome ${id}`, email, emailVerified, role: 'user', ...extra });
@@ -193,22 +196,23 @@ describe('hasEmailPremiumGrant', () => {
   });
 });
 
-describe('concessione del proprietario all’avvio', () => {
-  it('creata una volta per l’email del proprietario, mai riattivata se revocata', async () => {
-    expect(OWNER_GRANT_EMAIL).toBe(REQUESTED_ADMIN_EMAIL.toLowerCase());
-    await ensureOwnerPremiumGrant();
-    await ensureOwnerPremiumGrant();
+describe('concessione predefinita all’avvio', () => {
+  it('creata una volta per l’email predefinita, mai riattivata se revocata', async () => {
+    // Per ora un solo account, su richiesta del proprietario.
+    expect(SEEDED_GRANT_EMAILS).toEqual(['francescorogantini9@gmail.com']);
+    await ensureSeededPremiumGrants();
+    await ensureSeededPremiumGrants();
     expect(store.tables.premiumAccessGrant).toHaveLength(1);
     const [row] = store.tables.premiumAccessGrant ?? [];
-    expect(row).toMatchObject({ email: OWNER_GRANT_EMAIL, createdBy: 'avvio', revokedAt: null });
+    expect(row).toMatchObject({ email: SEEDED, createdBy: 'avvio', revokedAt: null });
     if (row) row.revokedAt = new Date('2026-11-12T00:00:00.000Z');
-    await ensureOwnerPremiumGrant();
+    await ensureSeededPremiumGrants();
     expect(store.tables.premiumAccessGrant?.[0]?.revokedAt).toBeInstanceOf(Date);
   });
 
-  it('l’account del proprietario creato DOPO (accesso con Google) ha subito il Premium', async () => {
-    await ensureOwnerPremiumGrant();
-    user('owner', OWNER_GRANT_EMAIL, true, { role: 'admin' });
+  it('l’account predefinito (accesso con Google, NON admin) ha il Premium anche se nato dopo', async () => {
+    await ensureSeededPremiumGrants();
+    user('owner', SEEDED, true, { role: 'user' });
     expect(await hasEmailPremiumGrant('owner')).toBe(true);
     expect(await hasPremiumAccess('owner')).toBe(true);
   });
@@ -225,7 +229,7 @@ describe('concedere, revocare, elencare', () => {
     expect(pending).toMatchObject({
       status: 'pending',
       account: null,
-      owner: false,
+      seeded: false,
       note: 'Amico del progetto',
     });
 
@@ -259,19 +263,19 @@ describe('concedere, revocare, elencare', () => {
     expect(await revokePremiumGrant('inesistente')).toBeNull();
   });
 
-  it('stati nell’elenco: attiva, in attesa, email non verificata, revocata; proprietario segnato', async () => {
-    await ensureOwnerPremiumGrant();
-    user('owner', OWNER_GRANT_EMAIL, true);
+  it('stati nell’elenco: attiva, in attesa, email non verificata, revocata; predefinita segnata', async () => {
+    await ensureSeededPremiumGrants();
+    user('owner', SEEDED, true);
     user('nv', 'nonverificata@example.com', false);
     grant('nonverificata@example.com');
     grant('nessuno@example.com');
     grant('revocata@example.com', new Date('2026-11-10T00:00:00.000Z'));
     const items = await listPremiumGrants();
     const byEmail = Object.fromEntries(items.map((item) => [item.email, item]));
-    expect(byEmail[OWNER_GRANT_EMAIL]).toMatchObject({ status: 'active', owner: true });
+    expect(byEmail[SEEDED]).toMatchObject({ status: 'active', seeded: true });
     expect(byEmail['nonverificata@example.com']).toMatchObject({
       status: 'unverified',
-      owner: false,
+      seeded: false,
     });
     expect(byEmail['nessuno@example.com']).toMatchObject({ status: 'pending', account: null });
     expect(byEmail['revocata@example.com']).toMatchObject({ status: 'revoked' });
@@ -279,44 +283,57 @@ describe('concedere, revocare, elencare', () => {
   });
 });
 
-describe('stato del proprietario nei log', () => {
-  it('account assente: lo dice, senza email', async () => {
-    await ensureOwnerPremiumGrant();
-    const line = formatOwnerStatus(await ownerAccountStatus());
+describe('stato dell’account predefinito nei log', () => {
+  it('account assente: lo dice, senza email, con il numero di amministratori', async () => {
+    await ensureSeededPremiumGrants();
+    const line = formatSeededStatus(await seededAccountStatus());
     expect(line).toContain('account non ancora creato');
     expect(line).toContain('Premium illimitato attivo');
+    expect(line).toContain('amministratori in totale: 0');
     expect(line).not.toContain('@');
   });
 
-  it('account con Google, verificato e admin: Premium in vigore e UID', async () => {
-    await ensureOwnerPremiumGrant();
-    user('owner', OWNER_GRANT_EMAIL, true, { role: 'admin' });
+  it('account con Google e verificato, NON amministratore: Premium in vigore e UID', async () => {
+    await ensureSeededPremiumGrants();
+    user('owner', SEEDED, true, { role: 'user' });
     store.tables.account?.push({ userId: 'owner', providerId: 'google' });
     store.tables.userUid?.push({ userId: 'owner', uid: 'SOL-7K2M-9QXD' });
-    const status = await ownerAccountStatus();
+    const status = await seededAccountStatus();
     expect(status).toEqual({
       account: true,
       emailVerified: true,
-      admin: true,
+      admin: false,
       google: true,
       premium: 'attivo',
       uid: 'SOL-7K2M-9QXD',
+      admins: 0,
     });
-    const line = formatOwnerStatus(status);
+    const line = formatSeededStatus(status);
+    expect(line).toContain('[solco] Premium illimitato predefinito: account presente');
+    expect(line).toContain('amministratore no');
     expect(line).toContain('Premium illimitato attivo (in vigore)');
     expect(line).toContain('UID SOL-7K2M-9QXD');
+    expect(line).toContain('amministratori in totale: 0');
     expect(line).not.toContain('@');
     expect(line).not.toContain('owner');
   });
 
+  it('conta gli amministratori di tutto il database (anche in un elenco di ruoli)', async () => {
+    user('a1', 'a1@example.com', true, { role: 'admin' });
+    user('a2', 'a2@example.com', true, { role: 'user,admin' });
+    user('u1', 'u1@example.com', true, { role: 'user' });
+    expect((await seededAccountStatus()).admins).toBe(2);
+  });
+
   it('email non verificata: in attesa della verifica', () => {
-    const line = formatOwnerStatus({
+    const line = formatSeededStatus({
       account: true,
       emailVerified: false,
-      admin: true,
+      admin: false,
       google: false,
       premium: 'attivo',
       uid: null,
+      admins: 0,
     });
     expect(line).toContain('in attesa della verifica');
     expect(line).toContain('UID non ancora assegnato');

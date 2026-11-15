@@ -1,6 +1,6 @@
 // @polsia:user-owned — «Gestione account» lato client: carica concessioni e account, mostra lo stato
 // di ogni concessione (attiva, in attesa del primo accesso, email non verificata, revocata,
-// proprietario) e di ogni account (UID copiabile, Premium per fonte o Free, verifica, ruolo, blocco,
+// predefinita) e di ogni account (UID copiabile, Premium per fonte o Free, verifica, ruolo, blocco,
 // accesso); concedere manda email e nota e aggiorna l'elenco, un errore di campo resta accanto al
 // campo (aria-invalid), revocare chiama DELETE ?id=; la ricerca e le pagine richiedono l'elenco
 // giusto. La riga «UID» del profilo mostra l'UID e lo copia.
@@ -23,13 +23,13 @@ import { AccountManagementPanel } from '@/components/custom/admin/account-manage
 const GRANTS = [
   {
     id: 'g-owner',
-    email: 'proprietario@example.com',
-    note: 'Proprietario di Solco: Premium illimitato',
+    email: 'predefinito@example.com',
+    note: 'Premium illimitato concesso dal proprietario',
     createdAt: '2026-11-15T10:00:00.000Z',
     revokedAt: null,
     status: 'active',
-    account: { uid: 'SOL-7K2M-9QXD', name: 'Proprietario' },
-    owner: true,
+    account: { uid: 'SOL-7K2M-9QXD', name: 'Ascoltatore' },
+    seeded: true,
   },
   {
     id: 'g-pending',
@@ -39,7 +39,7 @@ const GRANTS = [
     revokedAt: null,
     status: 'pending',
     account: null,
-    owner: false,
+    seeded: false,
   },
   {
     id: 'g-unverified',
@@ -49,7 +49,7 @@ const GRANTS = [
     revokedAt: null,
     status: 'unverified',
     account: { uid: 'SOL-AAAA-BBBB', name: 'Non verificata' },
-    owner: false,
+    seeded: false,
   },
   {
     id: 'g-revoked',
@@ -59,7 +59,7 @@ const GRANTS = [
     revokedAt: '2026-11-13T10:00:00.000Z',
     status: 'revoked',
     account: null,
-    owner: false,
+    seeded: false,
   },
 ];
 
@@ -129,7 +129,7 @@ function serve(overrides: Partial<Record<'grants' | 'accounts', unknown>> = {}) 
             revokedAt: null,
             status: 'pending',
             account: null,
-            owner: false,
+            seeded: false,
           },
         };
       }
@@ -171,13 +171,13 @@ afterEach(() => {
 });
 
 describe('Premium illimitato', () => {
-  it('stato di ogni concessione, proprietario e UID dell’account', async () => {
+  it('stato di ogni concessione, concessione predefinita e UID dell’account', async () => {
     const container = await mount(<AccountManagementPanel />);
     const list = container.querySelector('ul[aria-label="Concessioni del Premium illimitato"]');
     const rows = [...(list?.querySelectorAll(':scope > li') ?? [])];
     expect(rows).toHaveLength(4);
     expect(rows[0]?.textContent).toContain('Attivo');
-    expect(rows[0]?.textContent).toContain('Proprietario');
+    expect(rows[0]?.textContent).toContain('Predefinito');
     expect(rows[0]?.textContent).toContain('SOL-7K2M-9QXD');
     expect(rows[1]?.textContent).toContain('In attesa del primo accesso');
     expect(rows[2]?.textContent).toContain('Email non verificata');

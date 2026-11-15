@@ -32,7 +32,7 @@ export async function seed(): Promise<void> {
 
   const [
     { prisma },
-    { normalizePersistedAdminRoles, REQUESTED_ADMIN_EMAIL },
+    { demoteRevokedAdmins, normalizePersistedAdminRoles, REQUESTED_ADMIN_EMAIL },
     { announceBuildIfNew },
   ] = await Promise.all([
     import('@/lib/db'),
@@ -40,10 +40,13 @@ export async function seed(): Promise<void> {
     import('@/lib/business/build-announcement.server'),
   ]);
 
-  const requestedAdmin = await prisma.user.findUnique({
-    where: { email: REQUESTED_ADMIN_EMAIL },
-    select: { id: true },
-  });
+  // Amministratore designato per email (nessuno, se REQUESTED_ADMIN_EMAIL è null).
+  const requestedAdmin = REQUESTED_ADMIN_EMAIL
+    ? await prisma.user.findUnique({
+        where: { email: REQUESTED_ADMIN_EMAIL },
+        select: { id: true },
+      })
+    : null;
 
   await normalizePersistedAdminRoles(
     {
@@ -51,20 +54,22 @@ export async function seed(): Promise<void> {
     },
     requestedAdmin?.id,
   );
+  // Account a cui il ruolo admin è stato tolto: tornano utenti normali (dopo la promozione sopra).
+  await demoteRevokedAdmins({ updateMany: (args) => prisma.user.updateMany(args) });
 
-  // Gestione account: l'UID leggibile a ogni account che non l'ha ancora e il Premium illimitato del
-  // proprietario (REQUESTED_ADMIN_EMAIL: vale solo con l'email verificata, es. accesso con Google).
+  // Gestione account: l'UID leggibile a ogni account che non l'ha ancora e il Premium illimitato
+  // predefinito (SEEDED_GRANT_EMAILS: vale solo con l'email verificata, es. accesso con Google).
   // Nei log solo lo stato, mai l'email. Best-effort: non deve mai impedire l'avvio del server.
   try {
     const [{ backfillAccountUids }, grants] = await Promise.all([
       import('@/lib/account/uid.server'),
       import('@/lib/business/premium-grants.server'),
     ]);
-    await grants.ensureOwnerPremiumGrant();
+    await grants.ensureSeededPremiumGrants();
     const created = await backfillAccountUids();
-    const status = await grants.ownerAccountStatus();
+    const status = await grants.seededAccountStatus();
     // biome-ignore lint/suspicious/noConsole: riga di stato all'avvio, senza email né id interni.
-    console.info(`${grants.formatOwnerStatus(status)}; UID assegnati ora: ${created}`);
+    console.info(`${grants.formatSeededStatus(status)}; UID assegnati ora: ${created}`);
   } catch (error) {
     // biome-ignore lint/suspicious/noConsole: solo il nome dell'errore, nessun dettaglio.
     console.warn(

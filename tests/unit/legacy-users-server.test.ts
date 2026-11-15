@@ -122,7 +122,6 @@ import {
   importLegacyBatch,
   previewLegacyImport,
 } from '@/lib/admin/legacy-users.server';
-import { REQUESTED_ADMIN_EMAIL } from '@/lib/business/admin-account-policy';
 import {
   LegacyImportPostResponseSchema,
   LegacyUsersDiagnosticSchema,
@@ -669,15 +668,13 @@ describe('anteprima e trasferimento', () => {
   });
 
   it('identità che il sito promuove ad admin: email mai create, id mai riusato', async () => {
-    scenario.users.push(
-      legacyUser('u-old-7', REQUESTED_ADMIN_EMAIL.toUpperCase(), { emailVerified: false }),
-    );
-    scenario.accounts.push(legacyAccount('u-old-7', 'credential', { password: GOOD_HASH }));
+    // Nessun admin designato per email (REQUESTED_ADMIN_EMAIL null): restano l'email di
+    // POLSIA_OWNER_EMAIL e l'id di ADMIN_USER_ID.
     const env = { ...ENV, POLSIA_OWNER_EMAIL: 'ANNA@example.com', ADMIN_USER_ID: 'u-old-3' };
     const data = await diagnoseLegacyUsers({ env, now: NOW });
     if (!data.ok) throw new Error(data.failure.code);
     const group = data.value.groups.find((g) => g.envVars.includes('OLD_DATABASE_URL'));
-    expect(group?.stats).toMatchObject({ reservedAdmin: 2, importable: 3 });
+    expect(group?.stats).toMatchObject({ reservedAdmin: 1, importable: 3 });
 
     const result = await previewLegacyImport(group?.source ?? '', { env, now: NOW });
     if (!result.ok) throw new Error(result.failure.code);
@@ -687,14 +684,12 @@ describe('anteprima e trasferimento', () => {
     });
     const emails = current.tables.users.map((u) => u.email.toLowerCase());
     expect(emails).not.toContain('anna@example.com');
-    expect(emails).not.toContain(REQUESTED_ADMIN_EMAIL);
     const carla = current.tables.users.find((u) => u.email === 'carla@example.com');
     expect(carla?.id).toBeTruthy();
     expect(carla?.id).not.toBe('u-old-3');
     const created = current.tables.users.filter((u) => u.name !== 'Attuale');
     expect(created).toHaveLength(3);
     expect(created.every((u) => u.role === 'user')).toBe(true);
-    expect(current.tables.imports.map((r) => r.legacyUserId)).not.toContain('u-old-7');
   });
 
   it('identità riservata configurata dopo l’anteprima: il lotto non la crea (piano più piccolo)', async () => {

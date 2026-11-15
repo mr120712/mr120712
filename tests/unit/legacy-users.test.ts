@@ -605,15 +605,18 @@ describe('piano di trasferimento', () => {
   });
 
   it('identità che il sito promuove ad admin da solo: email saltate, id mai tenuto', async () => {
-    const reserved = reservedAdminIdentities({
-      POLSIA_OWNER_EMAIL: ' Proprietario@Example.com ',
-      ADMIN_USER_ID: ' id-admin ',
-    });
-    expect([...reserved.emails].sort()).toEqual(
-      [REQUESTED_ADMIN_EMAIL, 'proprietario@example.com'].sort(),
+    // Il meccanismo, con un'email designata di prova (in produzione oggi nessuna).
+    const DESIGNATED = 'admin-designato@example.com';
+    const reserved = reservedAdminIdentities(
+      { POLSIA_OWNER_EMAIL: ' Proprietario@Example.com ', ADMIN_USER_ID: ' id-admin ' },
+      DESIGNATED,
     );
+    expect([...reserved.emails].sort()).toEqual([DESIGNATED, 'proprietario@example.com'].sort());
     expect([...reserved.ids]).toEqual(['id-admin']);
-    expect([...reservedAdminIdentities({}).emails]).toEqual([REQUESTED_ADMIN_EMAIL]);
+    expect([...reservedAdminIdentities({}, DESIGNATED).emails]).toEqual([DESIGNATED]);
+    // Nessun admin designato per email (REQUESTED_ADMIN_EMAIL null): nessuna email riservata.
+    expect(REQUESTED_ADMIN_EMAIL).toBeNull();
+    expect(reservedAdminIdentities({}).emails.size).toBe(0);
     expect(reservedAdminIdentities({}).ids.size).toBe(0);
 
     const plan = buildLegacyPlan(
@@ -621,7 +624,7 @@ describe('piano di trasferimento', () => {
         users: [
           // Email dell'admin richiesto, in maiuscolo, NON verificata, con password compatibile.
           legacyUser('richiesto', {
-            email: REQUESTED_ADMIN_EMAIL.toUpperCase(),
+            email: DESIGNATED.toUpperCase(),
             emailVerified: false,
           }),
           legacyUser('proprietario', { email: 'PROPRIETARIO@example.com', role: 'admin' }),
@@ -640,7 +643,7 @@ describe('piano di trasferimento', () => {
     );
     expect(plan.toImport.map((p) => p.legacyId)).toEqual(['id-admin', 'normale']);
     expect(plan.counts).toMatchObject({ reservedAdmin: 2, importable: 2, adminsToDemote: 0 });
-    expect(JSON.stringify(plan.toImport)).not.toContain(REQUESTED_ADMIN_EMAIL);
+    expect(JSON.stringify(plan.toImport)).not.toContain(DESIGNATED);
 
     // L'id riservato non viene tenuto: nessun hook lo riconosce come l'admin designato.
     const kept = plan.toImport.find((p) => p.legacyId === 'id-admin');
@@ -653,7 +656,7 @@ describe('piano di trasferimento', () => {
     ).toBe('user');
 
     // Il seed promuove la riga con l'email richiesta: nessuna riga creata, nessuna promozione.
-    const created = plan.toImport.find((p) => p.user.email === REQUESTED_ADMIN_EMAIL);
+    const created = plan.toImport.find((p) => p.user.email === DESIGNATED);
     const updates: unknown[] = [];
     await normalizePersistedAdminRoles(
       { updateMany: async (args) => updates.push(args) },

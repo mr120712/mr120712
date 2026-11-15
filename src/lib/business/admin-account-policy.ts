@@ -11,7 +11,26 @@ export type AdminIdentity = {
 
 export type AdminAccessState = 'loading' | 'unauthenticated' | 'forbidden' | 'authorized';
 
-export const REQUESTED_ADMIN_EMAIL = 'francescorogantini9@gmail.com';
+/**
+ * Email dell'amministratore designato: l'account con questa email VERIFICATA diventa admin alla
+ * registrazione e a ogni avvio del server (seed). null = nessun amministratore designato per email.
+ * Dal 15/11/2026, su richiesta del proprietario, nessuno: l'account precedente non è più
+ * amministratore (vedi REVOKED_ADMIN_EMAILS) e ha solo il Premium illimitato
+ * (src/lib/business/premium-grants.server.ts). Per un nuovo admin si mette qui la sua email.
+ */
+export const REQUESTED_ADMIN_EMAIL: string | null = null;
+
+/**
+ * Account che NON devono essere amministratori: all'avvio il loro ruolo torna "user" e alla
+ * registrazione non diventano mai admin, qualunque altra regola dica.
+ */
+export const REVOKED_ADMIN_EMAILS: readonly string[] = ['francescorogantini9@gmail.com'];
+
+/** true per un'email a cui il ruolo admin è stato tolto (confronto senza maiuscole e spazi). */
+export function isRevokedAdminEmail(email: string | null | undefined): boolean {
+  const normalized = email?.trim().toLowerCase();
+  return Boolean(normalized) && REVOKED_ADMIN_EMAILS.includes(normalized as string);
+}
 
 type RoleFilter = { id: string };
 
@@ -22,12 +41,15 @@ export type RoleUpdateStore = {
 export function resolveInitialSignupRole(
   identity: AdminIdentity,
   designatedAdminUserId: string | undefined,
+  requestedAdminEmail: string | null = REQUESTED_ADMIN_EMAIL,
 ): AccountRole {
+  // Un account a cui il ruolo è stato tolto non torna admin per nessuna via.
+  if (isRevokedAdminEmail(identity.email)) return 'user';
   const trustedUserId = designatedAdminUserId?.trim();
 
   return identity.emailVerified === true &&
     ((trustedUserId !== undefined && identity.id === trustedUserId) ||
-      identity.email === REQUESTED_ADMIN_EMAIL)
+      (requestedAdminEmail !== null && identity.email === requestedAdminEmail))
     ? 'admin'
     : 'user';
 }
@@ -40,6 +62,22 @@ export async function normalizePersistedAdminRoles(
   if (!id) return;
 
   await store.updateMany({ where: { id }, data: { role: 'admin' } });
+}
+
+export type RoleDemotionStore = {
+  updateMany: (args: {
+    where: { email: { in: string[] } };
+    data: { role: AccountRole };
+  }) => Promise<unknown>;
+};
+
+/** All'avvio: gli account di REVOKED_ADMIN_EMAILS tornano utenti normali (idempotente). */
+export async function demoteRevokedAdmins(store: RoleDemotionStore): Promise<void> {
+  if (REVOKED_ADMIN_EMAILS.length === 0) return;
+  await store.updateMany({
+    where: { email: { in: [...REVOKED_ADMIN_EMAILS] } },
+    data: { role: 'user' },
+  });
 }
 
 export function resolveAdminAccess(

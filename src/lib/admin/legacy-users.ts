@@ -755,17 +755,20 @@ export type CurrentState = {
 
 /**
  * Identità che il sito promuove ad admin per conto suo: l'email di REQUESTED_ADMIN_EMAIL (seed
- * a ogni avvio, anche senza email verificata), POLSIA_OWNER_EMAIL (hook di better-auth) e l'id di
- * ADMIN_USER_ID (hook dell'app). Un account trasferito con una di queste identità diventerebbe
- * admin senza che nessuno lo decida: le email vengono saltate («da gestire a mano») e l'id non
- * viene mai tenuto.
+ * a ogni avvio, anche senza email verificata; nessuna se è null), POLSIA_OWNER_EMAIL (hook di
+ * better-auth) e l'id di ADMIN_USER_ID (hook dell'app). Un account trasferito con una di queste
+ * identità diventerebbe admin senza che nessuno lo decida: le email vengono saltate («da gestire a
+ * mano») e l'id non viene mai tenuto. `requestedAdminEmail` si cambia solo nei test.
  */
-export function reservedAdminIdentities(env: Record<string, string | undefined>): {
+export function reservedAdminIdentities(
+  env: Record<string, string | undefined>,
+  requestedAdminEmail: string | null = REQUESTED_ADMIN_EMAIL,
+): {
   emails: Set<string>;
   ids: Set<string>;
 } {
   const emails = new Set<string>();
-  for (const value of [REQUESTED_ADMIN_EMAIL, env.POLSIA_OWNER_EMAIL]) {
+  for (const value of [requestedAdminEmail, env.POLSIA_OWNER_EMAIL]) {
     const email = value?.trim().toLowerCase();
     if (email) emails.add(email);
   }

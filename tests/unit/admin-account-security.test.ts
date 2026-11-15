@@ -8,8 +8,11 @@ vi.mock('server-only', () => ({}));
 
 import { authConfig } from '@/lib/auth-config';
 import {
+  demoteRevokedAdmins,
+  isRevokedAdminEmail,
   normalizePersistedAdminRoles,
   REQUESTED_ADMIN_EMAIL,
+  REVOKED_ADMIN_EMAILS,
   type RoleUpdateStore,
   resolveAdminAccess,
   resolveInitialSignupRole,
@@ -21,6 +24,10 @@ vi.mock('@/lib/db', () => ({
 
 const bestmr12UserId = 'better-auth-user-id-for-bestmr12';
 const requestedUserId = 'better-auth-user-id-for-requested-admin';
+/** Email di prova per il meccanismo dell'admin designato per email (oggi nessuno in produzione). */
+const DESIGNATED_EMAIL = 'admin-designato@example.com';
+/** L'account a cui il proprietario ha tolto il ruolo di amministratore (15/11/2026). */
+const REVOKED_EMAIL = 'francescorogantini9@gmail.com';
 
 describe('identità autorizzate per il ruolo amministratore', () => {
   it('riconosce l’ID Better Auth configurato e l’email richiesta solo dopo verifica', () => {
@@ -32,8 +39,9 @@ describe('identità autorizzate per il ruolo amministratore', () => {
     ).toBe('admin');
     expect(
       resolveInitialSignupRole(
-        { id: requestedUserId, email: REQUESTED_ADMIN_EMAIL, emailVerified: true },
+        { id: requestedUserId, email: DESIGNATED_EMAIL, emailVerified: true },
         bestmr12UserId,
+        DESIGNATED_EMAIL,
       ),
     ).toBe('admin');
   });
@@ -52,10 +60,49 @@ describe('identità autorizzate per il ruolo amministratore', () => {
     ).toBe('user');
     expect(
       resolveInitialSignupRole(
-        { id: requestedUserId, email: REQUESTED_ADMIN_EMAIL, emailVerified: false },
+        { id: requestedUserId, email: DESIGNATED_EMAIL, emailVerified: false },
         bestmr12UserId,
+        DESIGNATED_EMAIL,
       ),
     ).toBe('user');
+  });
+});
+
+describe('nessun amministratore designato per email; ruolo tolto a un account', () => {
+  it('REQUESTED_ADMIN_EMAIL è null: nessuna email diventa admin da sola', () => {
+    expect(REQUESTED_ADMIN_EMAIL).toBeNull();
+    for (const email of [REVOKED_EMAIL, DESIGNATED_EMAIL, 'chiunque@example.com']) {
+      expect(
+        resolveInitialSignupRole({ id: 'nuovo-utente', email, emailVerified: true }, undefined),
+      ).toBe('user');
+    }
+  });
+
+  it('l’account a cui è stato tolto il ruolo non torna admin per nessuna via', () => {
+    expect(REVOKED_ADMIN_EMAILS).toEqual([REVOKED_EMAIL]);
+    expect(isRevokedAdminEmail(REVOKED_EMAIL)).toBe(true);
+    expect(isRevokedAdminEmail('  FrancescoRogantini9@Gmail.com ')).toBe(true);
+    expect(isRevokedAdminEmail('francescorogantini9+altro@gmail.com')).toBe(false);
+    expect(isRevokedAdminEmail(undefined)).toBe(false);
+    // Né come email designata né come id designato.
+    expect(
+      resolveInitialSignupRole(
+        { id: 'id-francesco', email: REVOKED_EMAIL, emailVerified: true },
+        'id-francesco',
+        REVOKED_EMAIL,
+      ),
+    ).toBe('user');
+  });
+
+  it('all’avvio il suo ruolo torna «user» (una scrittura, idempotente)', async () => {
+    const updateMany = vi.fn(async () => ({ count: 1 }));
+    await demoteRevokedAdmins({ updateMany });
+    await demoteRevokedAdmins({ updateMany });
+    expect(updateMany).toHaveBeenCalledTimes(2);
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { email: { in: [REVOKED_EMAIL] } },
+      data: { role: 'user' },
+    });
   });
 });
 
@@ -70,7 +117,7 @@ describe('normalizzazione persistente dei ruoli', () => {
       },
       {
         id: requestedUserId,
-        email: REQUESTED_ADMIN_EMAIL,
+        email: DESIGNATED_EMAIL,
         emailVerified: true,
         role: 'user',
       },

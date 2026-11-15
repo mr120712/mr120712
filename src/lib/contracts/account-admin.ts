@@ -104,8 +104,8 @@ export const PremiumGrantSchema = z
       .object({ uid: AccountUidSchema.nullable(), name: z.string().max(400) })
       .strict()
       .nullable(),
-    /** true per la concessione del proprietario di Solco (creata all'avvio). */
-    owner: z.boolean(),
+    /** true per una concessione predefinita (creata all'avvio, SEEDED_GRANT_EMAILS). */
+    seeded: z.boolean(),
   })
   .strict();
 export type PremiumGrant = z.infer<typeof PremiumGrantSchema>;

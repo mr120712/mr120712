@@ -5,13 +5,13 @@
 //   la verifica; mai per gli account col numero di telefono (email segnaposto);
 // - può essere concesso prima che l'account esista: si attiva al primo accesso con quell'email;
 // - nessuna scadenza; una concessione revocata resta salvata (revokedAt) e non torna da sola.
-// La concessione del proprietario di Solco (REQUESTED_ADMIN_EMAIL, la stessa email che diventa
-// amministratore) la crea l'avvio del server (src/lib/seed.ts) se manca. hasPremiumAccess la legge
-// come ogni altra fonte; le statistiche admin la contano come fonte «Illimitato».
+// Le concessioni PREDEFINITE (SEEDED_GRANT_EMAILS: per ora un solo account, su richiesta del
+// proprietario) le crea l'avvio del server (src/lib/seed.ts) se mancano; sono slegate dal ruolo di
+// amministratore. hasPremiumAccess le legge come ogni altra fonte; le statistiche admin le contano
+// come fonte «Illimitato».
 import 'server-only';
 import type { PrismaClient } from '@prisma/client';
 import { ensureAccountUids } from '@/lib/account/uid.server';
-import { REQUESTED_ADMIN_EMAIL } from '@/lib/business/admin-account-policy';
 import { isPhoneAccountEmail } from '@/lib/business/phone-auth';
 import type { PremiumGrant, PremiumGrantStatus } from '@/lib/contracts/account-admin';
 import { prisma } from '@/lib/db';
@@ -23,12 +23,17 @@ export function normalizeGrantEmail(value: string): string {
   return value.normalize('NFC').trim().toLowerCase();
 }
 
-/** L'email del proprietario di Solco (amministratore designato). */
-export const OWNER_GRANT_EMAIL = normalizeGrantEmail(REQUESTED_ADMIN_EMAIL);
-/** Nota della concessione del proprietario. */
-export const OWNER_GRANT_NOTE = 'Proprietario di Solco: Premium illimitato';
-/** createdBy della concessione creata all'avvio. */
-export const OWNER_GRANT_CREATOR = 'avvio';
+/**
+ * Email con il Premium illimitato PREDEFINITO, creato all'avvio se manca. Per ora (15/11/2026, su
+ * richiesta del proprietario) solo questo account, che accede con Google; non è amministratore.
+ */
+export const SEEDED_GRANT_EMAILS: readonly string[] = ['francescorogantini9@gmail.com'].map(
+  normalizeGrantEmail,
+);
+/** Nota delle concessioni predefinite. */
+export const SEEDED_GRANT_NOTE = 'Premium illimitato concesso dal proprietario';
+/** createdBy delle concessioni create all'avvio. */
+export const SEEDED_GRANT_CREATOR = 'avvio';
 
 /**
  * true se l'utente ha un Premium illimitato concesso per la sua email VERIFICATA e non revocato.
@@ -50,12 +55,17 @@ export async function hasEmailPremiumGrant(
   return grant !== null && grant.revokedAt === null;
 }
 
-/** All'avvio: la concessione del proprietario, se manca (mai riattivata se l'admin l'ha revocata). */
-export async function ensureOwnerPremiumGrant(
+/** All'avvio: le concessioni predefinite che mancano (mai riattivate se l'admin le ha revocate). */
+export async function ensureSeededPremiumGrants(
   db: Pick<GrantDb, 'premiumAccessGrant'> = prisma,
 ): Promise<void> {
+  if (SEEDED_GRANT_EMAILS.length === 0) return;
   await db.premiumAccessGrant.createMany({
-    data: [{ email: OWNER_GRANT_EMAIL, note: OWNER_GRANT_NOTE, createdBy: OWNER_GRANT_CREATOR }],
+    data: SEEDED_GRANT_EMAILS.map((email) => ({
+      email,
+      note: SEEDED_GRANT_NOTE,
+      createdBy: SEEDED_GRANT_CREATOR,
+    })),
     skipDuplicates: true,
   });
 }
@@ -76,7 +86,7 @@ function grantStatus(row: GrantRow, account: GrantAccount | undefined): PremiumG
   return account.emailVerified === true ? 'active' : 'unverified';
 }
 
-/** Le concessioni come le vede la pagina admin: stato, account collegato (con UID) e proprietario. */
+/** Le concessioni come le vede la pagina admin: stato, account collegato (con UID), predefinita. */
 async function describeGrants(rows: readonly GrantRow[], db: GrantDb): Promise<PremiumGrant[]> {
   if (rows.length === 0) return [];
   const accounts = await db.user.findMany({
@@ -98,7 +108,7 @@ async function describeGrants(rows: readonly GrantRow[], db: GrantDb): Promise<P
       revokedAt: row.revokedAt ? row.revokedAt.toISOString() : null,
       status: grantStatus(row, account),
       account: account ? { uid: uids.get(account.id) ?? null, name: account.name } : null,
-      owner: row.email === OWNER_GRANT_EMAIL,
+      seeded: SEEDED_GRANT_EMAILS.includes(row.email),
     };
   });
 }
@@ -158,26 +168,33 @@ export async function revokePremiumGrant(
   return described ?? null;
 }
 
-/** Stato dell'account del proprietario, per la riga nei log dell'avvio (MAI l'email). */
-export type OwnerAccountStatus = {
+/**
+ * Stato dell'account con il Premium illimitato predefinito (il primo di SEEDED_GRANT_EMAILS) e
+ * numero di amministratori, per la riga nei log dell'avvio (MAI l'email).
+ */
+export type SeededAccountStatus = {
   account: boolean;
   emailVerified: boolean;
   admin: boolean;
   google: boolean;
   premium: 'attivo' | 'revocato' | 'assente';
   uid: string | null;
+  /** Account con il ruolo admin (anche in un elenco di ruoli), in tutto il database. */
+  admins: number;
 };
 
-export async function ownerAccountStatus(db: GrantDb = prisma): Promise<OwnerAccountStatus> {
-  const [user, grant] = await Promise.all([
+export async function seededAccountStatus(db: GrantDb = prisma): Promise<SeededAccountStatus> {
+  const email = SEEDED_GRANT_EMAILS[0] ?? '';
+  const [user, grant, admins] = await Promise.all([
     db.user.findUnique({
-      where: { email: OWNER_GRANT_EMAIL },
+      where: { email },
       select: { id: true, emailVerified: true, role: true },
     }),
     db.premiumAccessGrant.findUnique({
-      where: { email: OWNER_GRANT_EMAIL },
+      where: { email },
       select: { revokedAt: true },
     }),
+    db.user.count({ where: { role: { contains: 'admin' } } }),
   ]);
   const [google, uid] = user
     ? await Promise.all([
@@ -193,23 +210,25 @@ export async function ownerAccountStatus(db: GrantDb = prisma): Promise<OwnerAcc
     google: google > 0,
     premium: grant ? (grant.revokedAt ? 'revocato' : 'attivo') : 'assente',
     uid: uid?.uid ?? null,
+    admins,
   };
 }
 
 const yesNo = (value: boolean) => (value ? 'sì' : 'no');
 
 /** La riga dei log: niente email né id interni, solo lo stato (e l'UID leggibile). */
-export function formatOwnerStatus(status: OwnerAccountStatus): string {
+export function formatSeededStatus(status: SeededAccountStatus): string {
+  const admins = `amministratori in totale: ${status.admins}`;
   if (!status.account) {
-    return `[solco] proprietario: account non ancora creato (si crea al primo accesso con Google), Premium illimitato ${status.premium}`;
+    return `[solco] Premium illimitato predefinito: account non ancora creato (si crea al primo accesso con Google), Premium illimitato ${status.premium}; ${admins}`;
   }
   const premiumActive = status.premium === 'attivo' && status.emailVerified;
-  return [
-    '[solco] proprietario: account presente',
+  return `${[
+    '[solco] Premium illimitato predefinito: account presente',
     `email verificata ${yesNo(status.emailVerified)}`,
     `accesso Google ${yesNo(status.google)}`,
     `amministratore ${yesNo(status.admin)}`,
     `Premium illimitato ${status.premium}${status.premium === 'attivo' ? (premiumActive ? ' (in vigore)' : ' (in attesa della verifica dell’email)') : ''}`,
     `UID ${status.uid ?? 'non ancora assegnato'}`,
-  ].join(', ');
+  ].join(', ')}; ${admins}`;
 }

@@ -152,7 +152,7 @@ function GrantRow({
         <p className={styles.email}>{grant.email}</p>
         <div className={styles.badges}>
           <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
-          {grant.owner ? <StatusBadge tone="info">Proprietario</StatusBadge> : null}
+          {grant.seeded ? <StatusBadge tone="info">Predefinito</StatusBadge> : null}
         </div>
         <p className={styles.muted}>{status.hint}</p>
         {grant.account ? (
