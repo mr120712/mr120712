@@ -4,12 +4,15 @@
 // indirizzi solo https su audio.com; il contratto rifiuta uno stream con una licenza non
 // riproducibile o per una cover; l'elemento del player porta l'attribuzione, suona con lo stream
 // diretto dei file pubblici e ha un id proprio, `audiocom:<id>` (accesso e conteggio Free), in cui
-// confluiscono anche gli id storici `upload:audiocom~<id>`.
+// confluiscono anche gli id storici `upload:audiocom~<id>`. Lo stream può venire anche dal CDN di
+// Muse Group (s3.ustatik.com, host esatto, solo per l'audio) con un link firmato che scade: vicino
+// alla scadenza non è più riproducibile in Solco.
 import { describe, expect, it } from 'vitest';
 import { audioComToPlayerTrack } from '@/components/custom/music/audiocom-tracks';
 import { type AudioComTrack, AudioComTrackSchema } from '@/lib/contracts/audiocom';
 import {
   AUDIOCOM_LICENSE_VALUES,
+  AUDIOCOM_STREAM_PLAY_MARGIN_MS,
   type AudioComLicense,
   audioComEmbedUrl,
   audioComIdFromQualifiedId,
@@ -19,12 +22,14 @@ import {
   audioComLicenseShortLabel,
   audioComPageUrl,
   audioComQualifiedId,
+  audioComStreamExpiresAt,
   audioComStreamUrl,
   currentAudioComQualifiedId,
   isAudioComHost,
   isAudioComPageUrl,
   isAudioComPlayable,
   isAudioComPlayableLicense,
+  isAudioComStreamFresh,
   normalizeAudioComLicense,
 } from '@/lib/music/audiocom-license';
 
@@ -130,6 +135,19 @@ describe('indirizzi solo https su audio.com', () => {
     expect(audioComImageUrl('https://cdn.example/a.jpg')).toBeNull();
   });
 
+  it('stream dal CDN di Muse Group: solo s3.ustatik.com esatto, solo per l’audio', () => {
+    const cdn = 'https://s3.ustatik.com/audio.com.audio/2025/a.mp3?X-Amz-Expires=518400';
+    expect(audioComStreamUrl(cdn)).toBe(cdn);
+    expect(audioComStreamUrl('https://S3.USTATIK.COM/a.mp3')).toBe('https://s3.ustatik.com/a.mp3');
+    expect(audioComStreamUrl('https://x.s3.ustatik.com/a.mp3')).toBeNull();
+    expect(audioComStreamUrl('https://evils3.ustatik.com/a.mp3')).toBeNull();
+    expect(audioComStreamUrl('https://s3.ustatik.com.evil.example/a.mp3')).toBeNull();
+    expect(audioComStreamUrl('http://s3.ustatik.com/a.mp3')).toBeNull();
+    expect(audioComStreamUrl('https://s3.ustatik.com:444/a.mp3')).toBeNull();
+    expect(audioComImageUrl('https://s3.ustatik.com/a.jpg')).toBeNull();
+    expect(isAudioComPageUrl('https://s3.ustatik.com/anna/audio/notturno')).toBe(false);
+  });
+
   it('pagina del brano e player ufficiale costruiti da parti validate', () => {
     expect(audioComPageUrl('anna-rossi', 'notturno')).toBe(
       'https://audio.com/anna-rossi/audio/notturno',
@@ -206,5 +224,43 @@ describe('id del brano nel player e nel registro degli ascolti', () => {
     expect(currentAudioComQualifiedId('upload:Pop/A - B.mp3')).toBe('upload:Pop/A - B.mp3');
     expect(currentAudioComQualifiedId('upload:audiocom~abc')).toBe('upload:audiocom~abc');
     expect(currentAudioComQualifiedId('audius:track')).toBe('audius:track');
+  });
+});
+
+describe('link firmato dello stream: scadenza', () => {
+  const now = Date.UTC(2026, 10, 15, 16, 0, 0);
+  /** Link firmato alle `signedAt` (aaaammggThhmmssZ) e valido `seconds` secondi. */
+  const signed = (signedAt: string, seconds: number) =>
+    `https://s3.ustatik.com/audio.com.audio/a.mp3?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=${signedAt}&X-Amz-Expires=${seconds}&X-Amz-Signature=abc`;
+
+  it('scadenza = X-Amz-Date + X-Amz-Expires; senza firma leggibile nessuna scadenza', () => {
+    expect(audioComStreamExpiresAt(signed('20261115T150000Z', 518_400))).toBe(
+      Date.UTC(2026, 10, 15, 15, 0, 0) + 518_400_000,
+    );
+    expect(audioComStreamExpiresAt(STREAM)).toBeNull();
+    expect(audioComStreamExpiresAt(signed('2026-11-15', 600))).toBeNull();
+    expect(audioComStreamExpiresAt(signed('20261115T150000Z', -5))).toBeNull();
+    expect(audioComStreamExpiresAt('non un url')).toBeNull();
+  });
+
+  it('fresco solo oltre il margine; uno stream senza scadenza vale sempre', () => {
+    // Firmato un'ora fa per 6 giorni: resta quasi tutto.
+    expect(isAudioComStreamFresh(signed('20261115T150000Z', 518_400), 6 * 3_600_000, now)).toBe(
+      true,
+    );
+    // Firmato un'ora fa per 2 ore: resta un'ora, meno delle 6 ore del margine del server.
+    expect(isAudioComStreamFresh(signed('20261115T150000Z', 7_200), 6 * 3_600_000, now)).toBe(
+      false,
+    );
+    // Scaduto.
+    expect(isAudioComStreamFresh(signed('20261115T150000Z', 600), 0, now)).toBe(false);
+    expect(isAudioComStreamFresh(STREAM, AUDIOCOM_STREAM_PLAY_MARGIN_MS, now)).toBe(true);
+  });
+
+  it('un brano CC con link quasi scaduto torna al player ufficiale', () => {
+    const track = (streamUrl: string) => ({ license: 'cc-0', category: 'music', streamUrl });
+    expect(isAudioComPlayable(track(signed('20261115T150000Z', 518_400)), now)).toBe(true);
+    // Restano 20 minuti, meno dei 30 del margine del client.
+    expect(isAudioComPlayable(track(signed('20261115T150000Z', 4_800)), now)).toBe(false);
   });
 });

@@ -4,9 +4,11 @@
 // - Solo `types=audio` e solo la prima pagina (10 risultati: audio.com non ne dà di più per pagina);
 //   si tengono le categorie musicali (music, cover, beats).
 // - Ogni campo è validato con zod (campi sconosciuti ammessi, voce anomala scartata da sola); gli
-//   indirizzi valgono solo se https su audio.com o un suo sottodominio (audiocom-license.ts). Lo
-//   stream si tiene SOLO per le licenze riproducibili in Solco (CC0, CC BY, BY-SA, BY-ND) e mai
-//   per le cover (la licenza di chi carica non copre la canzone originale).
+//   indirizzi valgono solo se https su audio.com o un suo sottodominio, e per l'audio anche sul CDN
+//   di Muse Group (s3.ustatik.com: audiocom-license.ts). Lo stream si tiene SOLO per le licenze
+//   riproducibili in Solco (CC0, CC BY, BY-SA, BY-ND), mai per le cover (la licenza di chi carica
+//   non copre la canzone originale) e mai se il link firmato scade entro 6 ore (le cache e un lungo
+//   ascolto non devono mai arrivare a un link scaduto: allora il player ufficiale).
 // - Cache in memoria per query normalizzata: ~10 minuti con risultati, ~1 minuto senza risultati o
 //   con un errore di audio.com; al più 500 voci (si toglie la meno usata). Ricerche uguali
 //   contemporanee condividono una sola richiesta. NON vanno in cache gli esiti che non dipendono
@@ -41,13 +43,14 @@ import {
   recordAudioComError,
 } from '@/lib/music/audiocom-connection.server';
 import {
+  AUDIOCOM_STREAM_SERVE_MARGIN_MS,
   audioComImageUrl,
   audioComPageUrl,
   audioComStreamUrl,
   isAudioComStreamAllowed,
+  isAudioComStreamFresh,
   normalizeAudioComLicense,
 } from '@/lib/music/audiocom-license';
-import { noteRejectedAudioComStream } from '@/lib/music/audiocom-stream-diagnostics';
 import { normalizeText } from '@/lib/music/unified-search';
 
 export const AUDIOCOM_SEARCH_URL = `${AUDIOCOM_API_ORIGIN}/v1/search`;
@@ -124,11 +127,13 @@ export function toAudioComTrack(hit: unknown): AudioComTrack | null {
   if (!KEPT_CATEGORIES.has(category)) return null;
   const license = normalizeAudioComLicense(raw.license);
   const durationMs = raw.play?.duration ?? 0;
-  // Lo stream arriva al client SOLO con una licenza riproducibile in Solco e mai per una cover.
-  const streamAllowed = isAudioComStreamAllowed({ license, category });
-  const streamUrl = streamAllowed ? audioComStreamUrl(raw.play?.url) : null;
-  // DIAGNOSTICA TEMPORANEA: motivo e host di uno stream scartato (audiocom-stream-diagnostics.ts).
-  if (streamAllowed && streamUrl === null) noteRejectedAudioComStream(raw.play?.url);
+  // Lo stream arriva al client SOLO con una licenza riproducibile in Solco, mai per una cover e mai
+  // se il link firmato scade entro AUDIOCOM_STREAM_SERVE_MARGIN_MS (allora il player ufficiale).
+  const stream = isAudioComStreamAllowed({ license, category })
+    ? audioComStreamUrl(raw.play?.url)
+    : null;
+  const streamUrl =
+    stream && isAudioComStreamFresh(stream, AUDIOCOM_STREAM_SERVE_MARGIN_MS) ? stream : null;
   const candidate = {
     id: raw.id,
     title: cleanText(raw.title, 300),

@@ -18,6 +18,13 @@ export const YOUTUBE_QUEUE_UNPLAYABLE_MESSAGE = 'Nessun video della coda è ripr
  * Brano di audio.com il cui permesso il server non ha confermato (rete, registro degli ascolti non
  * disponibile): l'audio non parte, perché nessuna route di stream lo ricontrollerebbe dopo.
  */
+/**
+ * Brano di audio.com il cui link firmato (CDN di audio.com) è scaduto o sta per scadere: una coda
+ * salvata o una pagina rimasta aperta a lungo. Cercandolo di nuovo arriva un link valido.
+ */
+export const AUDIOCOM_STREAM_EXPIRED_MESSAGE =
+  'Il link di questo brano di audio.com è scaduto: cercalo di nuovo per ascoltarlo.';
+
 export const PLAY_PERMIT_UNCONFIRMED_MESSAGE =
   'Non è stato possibile verificare l’ascolto: nessun audio è partito. Riprova tra poco.';
 

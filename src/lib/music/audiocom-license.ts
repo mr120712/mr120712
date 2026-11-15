@@ -16,8 +16,11 @@
 // un altro autore, quindi una CC BY non basta per eseguirla in un servizio a pagamento. Si
 // ascoltano nel player ufficiale di audio.com, come le licenze non ammesse.
 //
-// Indirizzi: solo https, senza credenziali né porte, su audio.com o un suo sottodominio
-// (es. s3.audio.com per l'audio). Ogni altro valore dall'API viene scartato.
+// Indirizzi: solo https, senza credenziali né porte, su audio.com o un suo sottodominio. Per il
+// SOLO audio (`play.url`) vale anche il CDN di Muse Group, la società di audio.com, da cui l'API
+// lo dà davvero: `s3.ustatik.com` (host esatto), con un link S3 firmato che scade (X-Amz-Expires,
+// visto: 6 giorni). Un link vicino alla scadenza non si usa: vedi isAudioComStreamFresh. Ogni altro
+// valore dall'API viene scartato.
 
 export const AUDIOCOM_LICENSES = [
   'none',
@@ -141,8 +144,57 @@ export function audioComHttpsUrl(raw: unknown): string | null {
   return url && isAudioComHost(url.hostname) ? url.toString() : null;
 }
 
-/** Stream dell'audio (`play.url`): solo https su audio.com o sottodominio. */
-export const audioComStreamUrl = audioComHttpsUrl;
+/**
+ * Host del CDN di Muse Group (la società di audio.com) da cui l'API dà lo stream (`play.url`):
+ * ammessi SOLO per l'audio, mai per copertine o pagine. Host esatti, niente sottodomini.
+ */
+export const AUDIOCOM_STREAM_CDN_HOSTS: ReadonlySet<string> = new Set(['s3.ustatik.com']);
+
+/**
+ * Stream dell'audio (`play.url`): solo https su audio.com (o un sottodominio) o sul CDN di Muse
+ * Group (AUDIOCOM_STREAM_CDN_HOSTS). Il link firmato resta com'è (parametri compresi).
+ */
+export function audioComStreamUrl(raw: unknown): string | null {
+  const url = parseHttps(raw);
+  if (!url) return null;
+  const host = url.hostname.toLowerCase();
+  return isAudioComHost(host) || AUDIOCOM_STREAM_CDN_HOSTS.has(host) ? url.toString() : null;
+}
+
+/**
+ * Margine minimo prima della scadenza perché il SERVER mandi uno stream ai client: copre le cache
+ * (ricerca ~10 min, CDN fino a ~15 min, sezioni della Home fino a 1 ora) e un lungo ascolto.
+ */
+export const AUDIOCOM_STREAM_SERVE_MARGIN_MS = 6 * 60 * 60_000;
+/** Margine minimo perché il CLIENT avvii uno stream (pagina rimasta aperta, coda salvata). */
+export const AUDIOCOM_STREAM_PLAY_MARGIN_MS = 30 * 60_000;
+
+/**
+ * Scadenza (ms dall'epoch) di uno stream con link S3 firmato (X-Amz-Date + X-Amz-Expires), oppure
+ * null se il link non è firmato o la scadenza non si legge (allora vale come senza scadenza).
+ */
+export function audioComStreamExpiresAt(raw: unknown): number | null {
+  const url = parseHttps(raw);
+  if (!url) return null;
+  const date = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/.exec(
+    url.searchParams.get('X-Amz-Date') ?? '',
+  );
+  const seconds = url.searchParams.get('X-Amz-Expires') ?? '';
+  if (!date || !/^\d{1,7}$/.test(seconds)) return null;
+  const part = (index: number) => Number(date[index] ?? 0);
+  const signedAt = Date.UTC(part(1), part(2) - 1, part(3), part(4), part(5), part(6));
+  return Number.isFinite(signedAt) ? signedAt + Number(seconds) * 1000 : null;
+}
+
+/** true se lo stream vale ancora per più di `marginMs` (uno stream senza scadenza vale sempre). */
+export function isAudioComStreamFresh(
+  raw: unknown,
+  marginMs: number = AUDIOCOM_STREAM_PLAY_MARGIN_MS,
+  now: number = Date.now(),
+): boolean {
+  const expiresAt = audioComStreamExpiresAt(raw);
+  return expiresAt === null || expiresAt - now > marginMs;
+}
 /**
  * Copertina (`image`, può essere vuota): solo https su audio.com o sottodominio, così il browser
  * dell'ascoltatore non viene mai mandato verso host scelti da altri.
@@ -198,15 +250,22 @@ export function isAudioComStreamAllowed(track: { license: string; category: stri
 }
 
 /**
- * Riproducibile nel player di Solco: licenza ammessa, non una cover E stream https valido su
- * audio.com.
+ * Riproducibile nel player di Solco: licenza ammessa, non una cover E stream https valido (audio.com
+ * o il suo CDN) che non stia per scadere (pagina rimasta aperta a lungo: allora il player ufficiale).
  */
-export function isAudioComPlayable(track: {
-  license: string;
-  category: string;
-  streamUrl: string | null;
-}): boolean {
-  return isAudioComStreamAllowed(track) && audioComStreamUrl(track.streamUrl) !== null;
+export function isAudioComPlayable(
+  track: {
+    license: string;
+    category: string;
+    streamUrl: string | null;
+  },
+  now: number = Date.now(),
+): boolean {
+  return (
+    isAudioComStreamAllowed(track) &&
+    audioComStreamUrl(track.streamUrl) !== null &&
+    isAudioComStreamFresh(track.streamUrl, AUDIOCOM_STREAM_PLAY_MARGIN_MS, now)
+  );
 }
 
 /**

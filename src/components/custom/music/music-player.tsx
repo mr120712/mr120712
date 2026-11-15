@@ -74,7 +74,11 @@ import {
   primeMediaElement,
   releasePlaybackSession,
 } from '@/lib/music/audio-session';
-import { currentAudioComQualifiedId } from '@/lib/music/audiocom-license';
+import {
+  audioComIdFromQualifiedId,
+  currentAudioComQualifiedId,
+  isAudioComStreamFresh,
+} from '@/lib/music/audiocom-license';
 import {
   AUTOPLAY_BATCH,
   selectAutoplayCandidates,
@@ -122,6 +126,7 @@ import {
   usePlaybackSpeed,
 } from '@/lib/music/playback-speed';
 import {
+  AUDIOCOM_STREAM_EXPIRED_MESSAGE,
   failureLink,
   failureMessage,
   OFFLINE_RESUME_MESSAGE,
@@ -571,6 +576,9 @@ export function trackStreamPath(track: MusicPlayerTrack) {
   }
   if (track.playbackMode === 'upload') {
     const stream = track.streamUrl ?? '';
+    // audio.com: lo stream è un link firmato del CDN che scade (X-Amz-Expires). Scaduto o quasi →
+    // nessun percorso, così una coda salvata o una pagina rimasta aperta non prova un link morto.
+    if (isAudioComTrack(track) && !isAudioComStreamFresh(stream)) return null;
     // Due casi: brano pubblico (upload utente o file in evidenza reso pubblico) → URL CDN https
     // diretto; brano in evidenza PRIVATO → percorso same-origin del proxy che lo serve dal server.
     if (/^https:\/\//.test(stream)) return stream;
@@ -584,6 +592,14 @@ export function trackStreamPath(track: MusicPlayerTrack) {
   }
   if (track.playbackMode !== 'solco' || !track.albumId || !safeId.test(track.albumId)) return null;
   return `/api/music/albums/${encodeURIComponent(track.albumId)}/tracks/${encodeURIComponent(match[1])}/stream`;
+}
+
+/** Brano di audio.com (id `audiocom:<id>` o quello storico `upload:audiocom~<id>`). */
+function isAudioComTrack(track: Pick<MusicPlayerTrack, 'qualifiedId'>) {
+  return (
+    typeof track.qualifiedId === 'string' &&
+    audioComIdFromQualifiedId(currentAudioComQualifiedId(track.qualifiedId)) !== null
+  );
 }
 
 /** Brano Audius (dal trending) → traccia del player, per l'autoplay continuo. */
@@ -1481,7 +1497,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       if (!safePath || !trackStreamPath(track)) {
         releaseAudio();
         setStatus('error');
-        setErrorMessage('Il brano non ha un percorso Audius verificabile.');
+        setErrorMessage(
+          isAudioComTrack(track)
+            ? AUDIOCOM_STREAM_EXPIRED_MESSAGE
+            : 'Il brano non ha un percorso Audius verificabile.',
+        );
         return false;
       }
       // Local files: the player makes (and revokes) their covers itself, and they link nowhere.

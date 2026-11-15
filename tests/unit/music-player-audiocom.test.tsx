@@ -577,3 +577,24 @@ describe('le altre fonti non cambiano', () => {
     expect(container.textContent).not.toContain('Ascolti gratuiti questo mese');
   });
 });
+
+describe('link di audio.com scaduto', () => {
+  const amzDate = (ago: number) =>
+    new Date(Date.now() - ago)
+      .toISOString()
+      .replace(/[-:]/g, '')
+      .replace(/\.\d{3}/, '');
+  const withStream = (url: string): MusicPlayerTrack => ({ ...alba, streamUrl: url });
+
+  it('nessun percorso per un link scaduto o quasi; quelli validi suonano', () => {
+    const fresh = `https://s3.ustatik.com/a.mp3?X-Amz-Date=${amzDate(3_600_000)}&X-Amz-Expires=518400`;
+    const expired = `https://s3.ustatik.com/a.mp3?X-Amz-Date=${amzDate(7 * 86_400_000)}&X-Amz-Expires=518400`;
+    expect(trackStreamPath(withStream(fresh))).toBe(fresh);
+    expect(trackStreamPath(withStream(expired))).toBeNull();
+    expect(
+      trackStreamPath({ ...withStream(expired), qualifiedId: 'upload:audiocom~111' }),
+    ).toBeNull();
+    // Un file pubblico non ha scadenze: invariato.
+    expect(trackStreamPath(publicUpload)).toBe(publicUpload.streamUrl);
+  });
+});

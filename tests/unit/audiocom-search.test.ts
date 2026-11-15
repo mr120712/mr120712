@@ -421,3 +421,43 @@ describe('limiti configurati', () => {
     ]);
   });
 });
+
+describe('stream dal CDN di audio.com (link S3 firmato)', () => {
+  /** Data AWS (aaaammggThhmmssZ) di `ms` millisecondi fa. */
+  const amzDate = (ago: number) =>
+    new Date(Date.now() - ago)
+      .toISOString()
+      .replace(/[-:]/g, '')
+      .replace(/\.\d{3}/, '');
+  const hit = (url: string) => ({
+    type: 'audio',
+    model: {
+      id: '1871803593412229',
+      title: 'Ambient',
+      slug: 'ambient',
+      username: 'ian-naji',
+      author_name: 'Ian Naji',
+      category: 'music',
+      license: 'cc-0',
+      is_listed: true,
+      play: { url, duration: 133_000 },
+    },
+  });
+  const signed = (ago: number, seconds: number) =>
+    `https://s3.ustatik.com/audio.com.audio/a.mp3?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=${amzDate(ago)}&X-Amz-Expires=${seconds}&X-Amz-Signature=abc`;
+
+  it('un link firmato valido per giorni arriva al client così com’è', () => {
+    const url = signed(3_600_000, 518_400);
+    expect(parseAudioComSearch([hit(url)])?.[0]?.streamUrl).toBe(url);
+  });
+
+  it('un link che scade entro 6 ore non arriva al client (player ufficiale)', () => {
+    const tracks = parseAudioComSearch([hit(signed(3_600_000, 4 * 3_600))]);
+    expect(tracks).toHaveLength(1);
+    expect(tracks?.[0]?.streamUrl).toBeNull();
+  });
+
+  it('un altro host resta scartato', () => {
+    expect(parseAudioComSearch([hit('https://cdn.example.net/a.mp3')])?.[0]?.streamUrl).toBeNull();
+  });
+});
