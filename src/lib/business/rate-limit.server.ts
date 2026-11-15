@@ -386,6 +386,29 @@ function retryableTransactionError(error: unknown): boolean {
   return error.code === 'P2034' || error.code === 'P2002';
 }
 
+/**
+ * Tentativi della transazione quando richieste CONCORRENTI della stessa identità si scontrano sulla
+ * stessa riga (P2034: conflitto di scrittura o deadlock; P2002: due prime righe insieme). Succede
+ * davvero: una Home apre ~20 copertine nello stesso istante. Con 4 tentativi immediati alcune
+ * richieste finivano in 503 (copertine sostituite dalla lettera); così si riprova con attese brevi,
+ * crescenti e sparpagliate a caso, e il conteggio resta esatto (stessa transazione Serializable).
+ */
+export const RATE_LIMIT_TRANSACTION_ATTEMPTS = 8;
+
+/**
+ * Attesa prima del tentativo successivo al numero `attempt` (0 = dopo il primo fallimento): tetto
+ * 20, 40, 80, 160, 320, 400… ms, poi un valore a caso tra metà tetto e il tetto, così le richieste
+ * scontrate non riprovano tutte nello stesso istante. In tutto al più ~1,4 s, solo sotto conflitto.
+ */
+export function rateLimitRetryDelayMs(attempt: number, random: () => number = Math.random): number {
+  const ceiling = Math.min(400, 20 * 2 ** attempt);
+  return Math.round(ceiling / 2 + random() * (ceiling / 2));
+}
+
+function waitBeforeRetry(attempt: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, rateLimitRetryDelayMs(attempt)));
+}
+
 function unavailableDecision(): RateLimitDecision {
   return {
     allowed: false,
@@ -416,7 +439,7 @@ export async function consumeRateLimit(
   const identityHash = createHash('sha256').update(identity).digest('hex');
   const limits = ACTION_RATE_LIMITS[action];
 
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  for (let attempt = 0; attempt < RATE_LIMIT_TRANSACTION_ATTEMPTS; attempt += 1) {
     try {
       return await prisma.$transaction(
         async (transaction) => {
@@ -443,7 +466,11 @@ export async function consumeRateLimit(
         { isolationLevel: 'Serializable' },
       );
     } catch (error) {
-      if (attempt < 3 && retryableTransactionError(error)) continue;
+      // Solo un conflitto tra richieste concorrenti si riprova; ogni altro errore: 503 (mai via libera).
+      if (attempt < RATE_LIMIT_TRANSACTION_ATTEMPTS - 1 && retryableTransactionError(error)) {
+        await waitBeforeRetry(attempt);
+        continue;
+      }
       return unavailableDecision();
     }
   }
@@ -466,7 +493,7 @@ export async function releaseRateLimit(
   if (!identity) return;
   const identityHash = createHash('sha256').update(identity).digest('hex');
 
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  for (let attempt = 0; attempt < RATE_LIMIT_TRANSACTION_ATTEMPTS; attempt += 1) {
     try {
       await prisma.$transaction(
         async (transaction) => {
@@ -488,7 +515,10 @@ export async function releaseRateLimit(
       );
       return;
     } catch (error) {
-      if (attempt < 3 && retryableTransactionError(error)) continue;
+      if (attempt < RATE_LIMIT_TRANSACTION_ATTEMPTS - 1 && retryableTransactionError(error)) {
+        await waitBeforeRetry(attempt);
+        continue;
+      }
       return;
     }
   }
