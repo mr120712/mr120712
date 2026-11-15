@@ -47,7 +47,7 @@ import {
 } from '../../scripts/monitor/browser-check';
 import { PUBLIC_PAGES as SITE_CHECK_PAGES } from '../../scripts/monitor/check-site';
 
-const BASE = 'https://solcomusic.vercel.app';
+const BASE = 'https://www.solcomusic.online';
 
 const PROBE_OK: PageProbe = {
   hasVisibleMain: true,
