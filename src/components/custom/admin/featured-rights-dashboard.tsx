@@ -96,6 +96,7 @@ import {
   whisperLanguageCode,
 } from '@/lib/contracts/lyrics-transcription';
 import { applyServerErrors } from '@/lib/forms';
+import { homeTrackNameEntryJson, homeTrackNamesManifestJson } from '@/lib/music/home-track-names';
 import { parseLyrics } from '@/lib/music/lyrics';
 import styles from './featured-rights-dashboard.module.css';
 
@@ -697,8 +698,10 @@ function GuidePanel({ defaultOpen }: { defaultOpen: boolean }) {
           </pre>
           <ul>
             <li>
-              <code>"file"</code>: il percorso <strong>esatto</strong> del file (usa “Copia
-              percorso” qui sotto); una voce per un file che non c’è viene ignorata.
+              <code>"file"</code>: il percorso <strong>esatto</strong> del file; una voce per un
+              file che non c’è viene ignorata. Per non sbagliarlo usa «Copia voce titoli» accanto al
+              brano (la voce pronta, con il nome attuale da correggere) o «Copia tutti i titoli» in
+              cima all’elenco (un titoli.json completo da correggere e caricare).
             </li>
             <li>
               <code>"titolo"</code> e <code>"artista"</code>: facoltativi (almeno uno), al massimo
@@ -754,6 +757,20 @@ function TracksPanel({ data }: { data: AdminFeaturedRights }) {
     <Panel
       title="Brani in evidenza"
       description="Tutti i file audio dello store, come li vede la Home, dal più recente. Un brano non dichiarato resta in Home ma non si trova cercando."
+      actions={
+        data.tracks.length > 0 ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void copyTitlesManifest(data.tracks, data.tracksTruncated)}
+            aria-label={`Copia tutti i titoli: un titoli.json con ${plural(data.tracks.length, 'brano', 'brani')}`}
+          >
+            <ClipboardCopy aria-hidden="true" />
+            Copia tutti i titoli
+          </Button>
+        ) : null
+      }
     >
       {data.tracks.length === 0 ? (
         <TracksEmptyState store={data.store} />
@@ -1021,14 +1038,45 @@ function LyricsBadge({ track }: { track: FeaturedRightsTrack }) {
   );
 }
 
-async function copyPath(pathname: string) {
+async function copyText(text: string, done: string, failed: string) {
   try {
     if (!navigator.clipboard?.writeText) throw new Error('clipboard_unavailable');
-    await navigator.clipboard.writeText(pathname);
-    toast.success('Percorso copiato.');
+    await navigator.clipboard.writeText(text);
+    toast.success(done);
   } catch {
-    toast.error('Copia non riuscita: seleziona il percorso e copialo a mano.');
+    toast.error(failed);
   }
+}
+
+function copyPath(pathname: string) {
+  return copyText(
+    pathname,
+    'Percorso copiato.',
+    'Copia non riuscita: seleziona il percorso e copialo a mano.',
+  );
+}
+
+/**
+ * La voce di titoli.json di UN brano (percorso esatto, nome e artista attuali), da incollare in
+ * "brani" e correggere. Solo titoli e artisti: nessun campo dei diritti.
+ */
+function copyTitlesEntry(track: FeaturedRightsTrack) {
+  return copyText(
+    homeTrackNameEntryJson(track),
+    'Voce di titoli.json copiata: incollala dentro "brani" e correggi titolo e artista.',
+    'Copia non riuscita: scrivi la voce a mano con il percorso del brano.',
+  );
+}
+
+/** Un titoli.json completo con tutti i brani elencati (al più i 5000 più recenti). */
+function copyTitlesManifest(tracks: readonly FeaturedRightsTrack[], truncated: boolean) {
+  return copyText(
+    homeTrackNamesManifestJson(tracks),
+    `titoli.json copiato con ${plural(tracks.length, 'brano', 'brani')}${
+      truncated ? ' (solo i più recenti: l’elenco è troncato)' : ''
+    }: salvalo, correggi titoli e artisti e caricalo nella radice dello store.`,
+    'Copia non riuscita: riprova, oppure usa «Copia voce titoli» brano per brano.',
+  );
 }
 
 // ─── Trascrizione con l'IA (solo brani dichiarati con "testo": true) ────────────────────────────
@@ -1844,6 +1892,16 @@ function TrackItem({
             >
               <ClipboardCopy aria-hidden="true" />
               Copia percorso
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              aria-label={`Copia voce titoli di ${name}`}
+              onClick={() => void copyTitlesEntry(track)}
+            >
+              <ClipboardCopy aria-hidden="true" />
+              Copia voce titoli
             </Button>
           </div>
         </div>

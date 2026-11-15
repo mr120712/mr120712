@@ -147,3 +147,33 @@ export function applyHomeTrackNames<T extends { id: string; title: string; artis
     };
   });
 }
+
+/** Un brano come lo mostra la pagina admin: percorso esatto e nome attuale (anche già personalizzato). */
+export type HomeTrackNameSource = { pathname: string; title: string; artist: string | null };
+
+/** La voce di titoli.json per un brano, pronta da incollare: nome attuale, artista "" se manca. */
+export function homeTrackNameEntry(track: HomeTrackNameSource): {
+  file: string;
+  titolo: string;
+  artista: string;
+} {
+  return {
+    file: track.pathname,
+    titolo: track.title.slice(0, TITLE_MAX_LENGTH),
+    artista: (track.artist ?? '').slice(0, ARTIST_MAX_LENGTH),
+  };
+}
+
+/** Una voce in JSON su una riga (da incollare dentro "brani"). */
+export function homeTrackNameEntryJson(track: HomeTrackNameSource): string {
+  return JSON.stringify(homeTrackNameEntry(track));
+}
+
+/** Un titoli.json completo con una voce per ogni brano, da salvare e poi correggere a mano. */
+export function homeTrackNamesManifestJson(tracks: readonly HomeTrackNameSource[]): string {
+  return `${JSON.stringify(
+    { versione: 1, brani: tracks.slice(0, TITLES_MAX_ENTRIES).map(homeTrackNameEntry) },
+    null,
+    2,
+  )}\n`;
+}

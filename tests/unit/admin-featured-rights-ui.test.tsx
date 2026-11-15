@@ -26,6 +26,7 @@ import {
   AdminFeaturedRightsSchema,
   type FeaturedRightsTrack,
 } from '@/lib/contracts/admin-featured-rights';
+import { parseHomeTrackNames } from '@/lib/music/home-track-names';
 
 const NOW = new Date('2026-11-14T14:30:00.000Z');
 const ENDPOINT = '/api/admin/featured-rights';
@@ -423,12 +424,62 @@ describe('pagina diritti e testi: filtri, ricerca e copia', () => {
     );
   });
 
+  it('"Copia voce titoli" copia la voce di titoli.json del brano: percorso esatto, nome attuale, mai i diritti', async () => {
+    mocks.apiFetch.mockImplementation(respond(report()));
+    const container = await mount();
+    const copy = article(container, 'Autrice — Città').querySelector<HTMLButtonElement>(
+      'button[aria-label="Copia voce titoli di Autrice — Città"]',
+    );
+    if (!copy) throw new Error('Pulsante «Copia voce titoli» non trovato.');
+    await click(copy);
+    expect(writeText).toHaveBeenCalledTimes(1);
+    const text = writeText.mock.calls[0]?.[0] as string;
+    expect(JSON.parse(text)).toEqual({
+      file: 'Cantautori/Autrice - Città.mp3',
+      titolo: 'Città',
+      artista: 'Autrice',
+    });
+    expect(text).not.toMatch(/licenza|titolare/);
+    expect(mocks.toast.success).toHaveBeenCalledWith(
+      'Voce di titoli.json copiata: incollala dentro "brani" e correggi titolo e artista.',
+    );
+  });
+
+  it('"Copia tutti i titoli" copia un titoli.json valido con tutti i brani elencati, senza campi dei diritti', async () => {
+    const data = report();
+    mocks.apiFetch.mockImplementation(respond(data));
+    const container = await mount();
+    const copy = [...container.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('Copia tutti i titoli'),
+    );
+    if (!copy) throw new Error('Pulsante «Copia tutti i titoli» non trovato.');
+    await click(copy);
+    const text = writeText.mock.calls[0]?.[0] as string;
+    const parsed = parseHomeTrackNames(text);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.entries).toBe(data.tracks.length);
+    expect(parsed.skipped).toBe(0);
+    for (const track of data.tracks) {
+      expect(parsed.names.get(track.pathname.normalize('NFC'))).toEqual({
+        title: track.title,
+        artist: track.artist ?? null,
+      });
+    }
+    expect(text).not.toMatch(/licenza|titolare|propria/);
+    expect(mocks.toast.success).toHaveBeenCalledWith(
+      expect.stringContaining('titoli.json copiato'),
+    );
+  });
+
   it('nessuna scorciatoia per dichiarare: niente "dichiara tutti", "genera" o voci pronte', async () => {
     mocks.apiFetch.mockImplementation(respond(report()));
     const container = await mount();
     const buttons = [...container.querySelectorAll('button')].map((button) => button.textContent);
     for (const text of buttons) {
-      expect(text).not.toMatch(/dichiara tutt|genera|aggiungi a diritti|copia voce|copia json/i);
+      expect(text).not.toMatch(
+        /dichiara tutt|genera|aggiungi a diritti|copia voce diritti|copia dichiaraz|copia json/i,
+      );
     }
     // I soli JSON mostrati sono i due esempi fissi della guida (diritti.json e titoli.json), non
     // voci costruite dai brani dello store.
