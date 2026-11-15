@@ -668,7 +668,7 @@ describe('anteprima e trasferimento', () => {
   });
 
   it('identità che il sito promuove ad admin: email mai create, id mai riusato', async () => {
-    // Nessun admin designato per email (REQUESTED_ADMIN_EMAIL null): restano l'email di
+    // Oltre all'email dell'admin designato (REQUESTED_ADMIN_EMAIL, assente da questi dati), l'email di
     // POLSIA_OWNER_EMAIL e l'id di ADMIN_USER_ID.
     const env = { ...ENV, POLSIA_OWNER_EMAIL: 'ANNA@example.com', ADMIN_USER_ID: 'u-old-3' };
     const data = await diagnoseLegacyUsers({ env, now: NOW });

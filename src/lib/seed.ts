@@ -32,7 +32,13 @@ export async function seed(): Promise<void> {
 
   const [
     { prisma },
-    { demoteRevokedAdmins, normalizePersistedAdminRoles, REQUESTED_ADMIN_EMAIL },
+    {
+      demoteRevokedAdmins,
+      formatRequestedAdminStatus,
+      normalizePersistedAdminRoles,
+      REQUESTED_ADMIN_EMAIL,
+      requestedAdminIdToPromote,
+    },
     { announceBuildIfNew },
   ] = await Promise.all([
     import('@/lib/db'),
@@ -40,11 +46,12 @@ export async function seed(): Promise<void> {
     import('@/lib/business/build-announcement.server'),
   ]);
 
-  // Amministratore designato per email (nessuno, se REQUESTED_ADMIN_EMAIL è null).
+  // Amministratore designato per email (nessuno, se REQUESTED_ADMIN_EMAIL è null): diventa admin
+  // solo con l'email VERIFICATA (requestedAdminIdToPromote).
   const requestedAdmin = REQUESTED_ADMIN_EMAIL
     ? await prisma.user.findUnique({
         where: { email: REQUESTED_ADMIN_EMAIL },
-        select: { id: true },
+        select: { id: true, emailVerified: true },
       })
     : null;
 
@@ -52,8 +59,12 @@ export async function seed(): Promise<void> {
     {
       updateMany: (args) => prisma.user.updateMany(args),
     },
-    requestedAdmin?.id,
+    requestedAdminIdToPromote(requestedAdmin),
   );
+  if (REQUESTED_ADMIN_EMAIL) {
+    // biome-ignore lint/suspicious/noConsole: riga di stato all'avvio, senza email né id.
+    console.info(formatRequestedAdminStatus(requestedAdmin));
+  }
   // Account a cui il ruolo admin è stato tolto: tornano utenti normali (dopo la promozione sopra).
   await demoteRevokedAdmins({ updateMany: (args) => prisma.user.updateMany(args) });
 

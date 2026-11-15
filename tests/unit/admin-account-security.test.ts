@@ -9,11 +9,13 @@ vi.mock('server-only', () => ({}));
 import { authConfig } from '@/lib/auth-config';
 import {
   demoteRevokedAdmins,
+  formatRequestedAdminStatus,
   isRevokedAdminEmail,
   normalizePersistedAdminRoles,
   REQUESTED_ADMIN_EMAIL,
   REVOKED_ADMIN_EMAILS,
   type RoleUpdateStore,
+  requestedAdminIdToPromote,
   resolveAdminAccess,
   resolveInitialSignupRole,
 } from '@/lib/business/admin-account-policy';
@@ -24,8 +26,10 @@ vi.mock('@/lib/db', () => ({
 
 const bestmr12UserId = 'better-auth-user-id-for-bestmr12';
 const requestedUserId = 'better-auth-user-id-for-requested-admin';
-/** Email di prova per il meccanismo dell'admin designato per email (oggi nessuno in produzione). */
+/** Email di prova per il meccanismo dell'admin designato per email. */
 const DESIGNATED_EMAIL = 'admin-designato@example.com';
+/** L'amministratore designato dal proprietario (15/11/2026): il suo account. */
+const OWNER_ADMIN_EMAIL = 'bestmr12@icloud.com';
 /** L'account a cui il proprietario ha tolto il ruolo di amministratore (15/11/2026). */
 const REVOKED_EMAIL = 'francescorogantini9@gmail.com';
 
@@ -68,13 +72,50 @@ describe('identità autorizzate per il ruolo amministratore', () => {
   });
 });
 
-describe('nessun amministratore designato per email; ruolo tolto a un account', () => {
-  it('REQUESTED_ADMIN_EMAIL è null: nessuna email diventa admin da sola', () => {
-    expect(REQUESTED_ADMIN_EMAIL).toBeNull();
-    for (const email of [REVOKED_EMAIL, DESIGNATED_EMAIL, 'chiunque@example.com']) {
+describe('amministratore designato: l’account del proprietario; ruolo tolto a un account', () => {
+  it('admin solo l’account del proprietario e solo con l’email verificata', () => {
+    expect(REQUESTED_ADMIN_EMAIL).toBe(OWNER_ADMIN_EMAIL);
+    expect(
+      resolveInitialSignupRole(
+        { id: 'nuovo-utente', email: OWNER_ADMIN_EMAIL, emailVerified: true },
+        undefined,
+      ),
+    ).toBe('admin');
+    expect(
+      resolveInitialSignupRole(
+        { id: 'nuovo-utente', email: OWNER_ADMIN_EMAIL, emailVerified: false },
+        undefined,
+      ),
+    ).toBe('user');
+    for (const email of [
+      REVOKED_EMAIL,
+      DESIGNATED_EMAIL,
+      'chiunque@example.com',
+      'bestmr12+altro@icloud.com',
+      'bestmr12@icloud.com.example.com',
+    ]) {
       expect(
         resolveInitialSignupRole({ id: 'nuovo-utente', email, emailVerified: true }, undefined),
       ).toBe('user');
+    }
+  });
+
+  it('all’avvio si promuove solo un account con l’email verificata; lo stato non ha l’email', () => {
+    expect(requestedAdminIdToPromote(null)).toBeUndefined();
+    expect(requestedAdminIdToPromote({ id: 'id-owner', emailVerified: false })).toBeUndefined();
+    expect(requestedAdminIdToPromote({ id: 'id-owner', emailVerified: true })).toBe('id-owner');
+
+    const lines = [
+      formatRequestedAdminStatus(null),
+      formatRequestedAdminStatus({ id: 'id-owner', emailVerified: false }),
+      formatRequestedAdminStatus({ id: 'id-owner', emailVerified: true }),
+    ];
+    expect(lines[0]).toContain('account non ancora creato');
+    expect(lines[1]).toContain('email verificata no, amministratore no');
+    expect(lines[2]).toContain('email verificata sì, amministratore sì');
+    for (const line of lines) {
+      expect(line).not.toContain('@');
+      expect(line).not.toContain('id-owner');
     }
   });
 

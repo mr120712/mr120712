@@ -14,11 +14,11 @@ export type AdminAccessState = 'loading' | 'unauthenticated' | 'forbidden' | 'au
 /**
  * Email dell'amministratore designato: l'account con questa email VERIFICATA diventa admin alla
  * registrazione e a ogni avvio del server (seed). null = nessun amministratore designato per email.
- * Dal 15/11/2026, su richiesta del proprietario, nessuno: l'account precedente non è più
- * amministratore (vedi REVOKED_ADMIN_EMAILS) e ha solo il Premium illimitato
- * (src/lib/business/premium-grants.server.ts). Per un nuovo admin si mette qui la sua email.
+ * Dal 15/11/2026, su richiesta del proprietario, è il suo account (in minuscolo, come lo salva
+ * better-auth). L'account precedente non è più amministratore (vedi REVOKED_ADMIN_EMAILS) e ha solo
+ * il Premium illimitato (src/lib/business/premium-grants.server.ts).
  */
-export const REQUESTED_ADMIN_EMAIL: string | null = null;
+export const REQUESTED_ADMIN_EMAIL: string | null = 'bestmr12@icloud.com';
 
 /**
  * Account che NON devono essere amministratori: all'avvio il loro ruolo torna "user" e alla
@@ -52,6 +52,34 @@ export function resolveInitialSignupRole(
       (requestedAdminEmail !== null && identity.email === requestedAdminEmail))
     ? 'admin'
     : 'user';
+}
+
+/** Lo stato dell'account dell'amministratore designato, letto all'avvio (seed). */
+export type RequestedAdminAccount = { id: string; emailVerified: boolean };
+
+/**
+ * L'id da promuovere ad admin all'avvio: solo un account con l'email VERIFICATA. Chi registrasse
+ * l'indirizzo senza poterlo verificare non diventa admin.
+ */
+export function requestedAdminIdToPromote(
+  account: RequestedAdminAccount | null | undefined,
+): string | undefined {
+  return account?.emailVerified === true ? account.id : undefined;
+}
+
+/**
+ * Riga di stato all'avvio per l'amministratore designato, senza email né id: se l'account c'è, se
+ * l'email è verificata e quindi se ora è amministratore.
+ */
+export function formatRequestedAdminStatus(
+  account: RequestedAdminAccount | null | undefined,
+): string {
+  if (!account) {
+    return '[solco] Amministratore designato: account non ancora creato (diventa amministratore alla registrazione con l’email verificata)';
+  }
+  return account.emailVerified === true
+    ? '[solco] Amministratore designato: account presente, email verificata sì, amministratore sì'
+    : '[solco] Amministratore designato: account presente, email verificata no, amministratore no (serve la verifica dell’email)';
 }
 
 export async function normalizePersistedAdminRoles(

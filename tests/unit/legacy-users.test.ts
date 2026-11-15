@@ -605,7 +605,7 @@ describe('piano di trasferimento', () => {
   });
 
   it('identità che il sito promuove ad admin da solo: email saltate, id mai tenuto', async () => {
-    // Il meccanismo, con un'email designata di prova (in produzione oggi nessuna).
+    // Il meccanismo, con un'email designata di prova.
     const DESIGNATED = 'admin-designato@example.com';
     const reserved = reservedAdminIdentities(
       { POLSIA_OWNER_EMAIL: ' Proprietario@Example.com ', ADMIN_USER_ID: ' id-admin ' },
@@ -614,10 +614,12 @@ describe('piano di trasferimento', () => {
     expect([...reserved.emails].sort()).toEqual([DESIGNATED, 'proprietario@example.com'].sort());
     expect([...reserved.ids]).toEqual(['id-admin']);
     expect([...reservedAdminIdentities({}, DESIGNATED).emails]).toEqual([DESIGNATED]);
-    // Nessun admin designato per email (REQUESTED_ADMIN_EMAIL null): nessuna email riservata.
-    expect(REQUESTED_ADMIN_EMAIL).toBeNull();
-    expect(reservedAdminIdentities({}).emails.size).toBe(0);
+    // In produzione l'admin designato per email è l'account del proprietario: la sua email è riservata.
+    expect(REQUESTED_ADMIN_EMAIL).toBe('bestmr12@icloud.com');
+    expect([...reservedAdminIdentities({}).emails]).toEqual(['bestmr12@icloud.com']);
     expect(reservedAdminIdentities({}).ids.size).toBe(0);
+    // Senza email designata: nessuna email riservata.
+    expect(reservedAdminIdentities({}, null).emails.size).toBe(0);
 
     const plan = buildLegacyPlan(
       {
