@@ -7,10 +7,12 @@ import { useRouter } from 'next/navigation';
 import type { ReactNode } from 'react';
 import { useEffect } from 'react';
 import { toast } from 'sonner';
+import { EmailVerification } from '@/components/custom/email-verification';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { useSession } from '@/lib/auth-client';
 import { resolveAdminAccess } from '@/lib/business/admin-account-policy';
+import { needsEmailVerification } from '@/lib/business/phone-auth';
 import { SIGN_OUT_FAILED_MESSAGE, signOutAndStopMusic } from '@/lib/music/player-session';
 import { AdminNav } from './admin-nav';
 
@@ -70,6 +72,10 @@ export function AdminShell({ children }: AdminShellProps) {
               <p className="text-sm text-muted-foreground">
                 Serve un account autorizzato con un indirizzo già verificato.
               </p>
+              {/* L'amministratore designato diventa admin appena conferma l'email (link qui sotto). */}
+              {needsEmailVerification(user) && user.email ? (
+                <EmailVerification email={user.email} callbackURL="/admin" />
+              ) : null}
             </>
           )}
           <Button asChild variant="outline">

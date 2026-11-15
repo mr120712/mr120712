@@ -1,5 +1,6 @@
 // @polsia:user-owned — profile view supplied by better-auth. Per un account Premium: anello e stellina
 // sull'avatar, badge «⭐ Premium» accanto al nome e la fonte nella riga «Piano» (GET /api/account/premium).
+// Con l'email non ancora verificata, sotto l'email il pulsante per farsi rimandare il link.
 'use client';
 
 import Link from 'next/link';
@@ -8,13 +9,14 @@ import { AccountDeletionPanel } from '@/components/custom/account-deletion-panel
 import { AccountPlanRow } from '@/components/custom/account-plan-row';
 import { AccountUidRow } from '@/components/custom/account-uid-row';
 import { CommunitySettingsPanel } from '@/components/custom/community/community-settings';
+import { EmailVerification } from '@/components/custom/email-verification';
 import { PremiumAvatarRing, PremiumBadge } from '@/components/custom/premium-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { useAccountPremium } from '@/hooks/use-account-premium';
 import { useSession } from '@/lib/auth-client';
-import { accountLabel, isPhoneAccount } from '@/lib/business/phone-auth';
+import { accountLabel, isPhoneAccount, needsEmailVerification } from '@/lib/business/phone-auth';
 import { SIGN_OUT_FAILED_MESSAGE, signOutAndStopMusic } from '@/lib/music/player-session';
 
 export default function ProfilePage() {
@@ -87,6 +89,12 @@ export default function ProfilePage() {
               </span>
               <span className="max-w-full break-all">{accountLabel(session.user)}</span>
             </div>
+            {/* Email non ancora confermata: il link si può richiedere da qui (non per il telefono). */}
+            {needsEmailVerification(session.user) ? (
+              <div className="rounded-lg border border-border bg-muted/40 p-4">
+                <EmailVerification email={session.user.email} callbackURL="/profile" />
+              </div>
+            ) : null}
             <Separator />
             {/* Premium (con la fonte) o Free, con il link ai piani. */}
             <AccountPlanRow state={plan} />

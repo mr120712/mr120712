@@ -98,4 +98,36 @@ describe('contenuto dell’area amministrativa', () => {
       expect(markup).not.toContain('/admin/music-previews');
     }
   });
+
+  it('email non verificata: il pulsante per farsi rimandare il link (poi diventa admin da solo)', () => {
+    mocks.useSession.mockReturnValue({
+      data: { user: { role: 'user', email: 'proprietario@example.com', emailVerified: false } },
+      isPending: false,
+    });
+    const markup = renderToStaticMarkup(
+      <AdminShell>
+        <p>Contenuto amministrativo riservato</p>
+      </AdminShell>,
+    );
+    expect(markup).toContain('Verifica il tuo indirizzo email');
+    expect(markup).toContain('proprietario@example.com');
+    expect(markup).toContain('Invia di nuovo il link di verifica');
+    expect(markup).not.toContain('Contenuto amministrativo riservato');
+  });
+
+  it('email già verificata o account col telefono: nessun link di verifica', () => {
+    for (const user of [
+      { role: 'user', email: 'utente@example.com', emailVerified: true },
+      { role: 'user', email: '393331234567@telefono.solcomusic.invalid', emailVerified: false },
+    ]) {
+      mocks.useSession.mockReturnValue({ data: { user }, isPending: false });
+      const markup = renderToStaticMarkup(
+        <AdminShell>
+          <p>Contenuto amministrativo riservato</p>
+        </AdminShell>,
+      );
+      expect(markup).toContain('Accesso amministrazione richiesto');
+      expect(markup).not.toContain('Invia di nuovo il link di verifica');
+    }
+  });
 });

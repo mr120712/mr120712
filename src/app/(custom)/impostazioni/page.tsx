@@ -1,8 +1,10 @@
 // @polsia:user-owned — /impostazioni: preferenze normali per tutti gli utenti (anche ospiti). Sono
-// interruttori salvati per dispositivo (localStorage): niente login, niente dati sul server.
+// interruttori salvati per dispositivo (localStorage): niente login, niente dati sul server. Con
+// l'accesso, in cima la sezione «Account» con l'email e, se serve, il link di verifica.
 import { BookOpen, Settings } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { AccountEmailSettings } from '@/components/custom/settings/account-email-settings';
 import { SettingsPanel } from '@/components/custom/settings/settings-panel';
 
 export const metadata: Metadata = {
@@ -39,6 +41,8 @@ export default function ImpostazioniPage() {
         </p>
       </header>
 
+      {/* Solo con l'accesso: l'email e, se non è verificata, il link di verifica. */}
+      <AccountEmailSettings />
       <SettingsPanel />
     </main>
   );

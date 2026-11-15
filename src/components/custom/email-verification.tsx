@@ -8,10 +8,14 @@ import { authClient } from '@/lib/auth-client';
 export function EmailVerification({
   email,
   callbackURL = '/profile',
+  headingLevel = 'h2',
 }: {
   email: string;
   callbackURL?: string;
+  /** Livello del titolo: h3 dentro una sezione che ha già il suo h2 (es. Impostazioni › Account). */
+  headingLevel?: 'h2' | 'h3';
 }) {
+  const Heading = headingLevel;
   const [pending, setPending] = useState(false);
   const [sent, setSent] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -33,7 +37,7 @@ export function EmailVerification({
 
   return (
     <div className="flex flex-col gap-3">
-      <h2 className="text-lg font-semibold">Verifica il tuo indirizzo email</h2>
+      <Heading className="text-lg font-semibold">Verifica il tuo indirizzo email</Heading>
       <p className="text-sm text-muted-foreground">
         Conferma {email} dal link ricevuto. Se non trovi l’email, puoi richiederne un altro qui
         sotto.

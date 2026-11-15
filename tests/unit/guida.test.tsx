@@ -19,8 +19,12 @@ vi.mock('next/link', () => ({
     </a>
   ),
 }));
-// Le Impostazioni montano gli interruttori del player: qui interessa solo il link alla guida.
+// Le Impostazioni montano gli interruttori del player e la sezione «Account» (sessione): qui
+// interessa solo il link alla guida.
 vi.mock('@/components/custom/settings/settings-panel', () => ({ SettingsPanel: () => null }));
+vi.mock('@/components/custom/settings/account-email-settings', () => ({
+  AccountEmailSettings: () => null,
+}));
 
 import GuidaPage, { metadata } from '@/app/(custom)/guida/page';
 import ImpostazioniPage from '@/app/(custom)/impostazioni/page';
