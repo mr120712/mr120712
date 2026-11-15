@@ -6,7 +6,8 @@
 // gli stessi dati della Home (copertina, streamUrl), così la riproduzione è identica.
 // Serve una sessione (come l'ascolto e i testi); limite per utente con lo stesso bucket della
 // ricerca globale (music.search). Mai in cache (private, no-store): una revoca vale alla
-// ricostruzione successiva dell'indice.
+// ricostruzione successiva dell'indice. Un account Free riceve i 30 brani più recenti e il totale
+// (`total`), un Premium tutti (featured-plan).
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { enforceRateLimit, getRateLimitIdentity } from '@/lib/business/rate-limit.server';
@@ -14,6 +15,7 @@ import {
   FeaturedArtistResponseSchema,
   FeaturedArtistSlugSchema,
 } from '@/lib/contracts/featured-artists';
+import { featuredTracksForAccount } from '@/lib/music/featured-plan.server';
 import { getFeaturedArtist } from '@/lib/music/featured-search.server';
 import { requireAuth } from '@/lib/require-auth';
 
@@ -61,10 +63,13 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
       : json({ error: 'not_found' }, 404);
   }
 
+  // Piano dell'account (solo brani dichiarati): Premium tutti, Free i 30 più recenti con il totale.
+  const plan = await featuredTracksForAccount(result.tracks, userId);
   // Una forma inattesa non arriva mai al client.
   const body = FeaturedArtistResponseSchema.safeParse({
     artist: result.artist,
-    tracks: result.tracks,
+    tracks: plan.tracks,
+    total: plan.total,
   });
   if (!body.success || body.data.tracks.length === 0) return json({ error: 'not_found' }, 404);
   return json(body.data);

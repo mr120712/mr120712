@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   token: 'tok_test' as string | undefined,
   requireAuth: vi.fn(),
   enforceRateLimit: vi.fn(),
+  hasPremiumAccess: vi.fn(),
 }));
 
 vi.mock('@vercel/blob', () => ({ list: mocks.list, get: mocks.get }));
@@ -24,6 +25,9 @@ vi.mock('@/lib/env', () => ({
   },
 }));
 vi.mock('@/lib/require-auth', () => ({ requireAuth: mocks.requireAuth }));
+vi.mock('@/lib/business/premium-access.server', () => ({
+  hasPremiumAccess: mocks.hasPremiumAccess,
+}));
 vi.mock('@/lib/business/rate-limit.server', () => ({
   enforceRateLimit: mocks.enforceRateLimit,
   getRateLimitIdentity: (userId: string | null) => (userId ? `user:${userId}` : null),
@@ -102,6 +106,8 @@ beforeEach(() => {
   mocks.requireAuth.mockResolvedValue({ id: 'user-1' });
   mocks.enforceRateLimit.mockReset();
   mocks.enforceRateLimit.mockResolvedValue(null);
+  mocks.hasPremiumAccess.mockReset();
+  mocks.hasPremiumAccess.mockResolvedValue(false);
   clearFeaturedSearchCacheForTests();
   vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 });
@@ -228,7 +234,8 @@ describe('GET /api/music/featured/artists/<slug>', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('private, no-store');
     const body = FeaturedArtistResponseSchema.parse(await response.json());
-    expect(Object.keys(body).sort()).toEqual(['artist', 'tracks']);
+    expect(Object.keys(body).sort()).toEqual(['artist', 'total', 'tracks']);
+    expect(body.total).toBe(2);
     expect(body.artist).toEqual({ name: 'Lucio Dalla', slug: 'lucio-dalla' });
     expect(body.tracks.map((track) => track.id)).toEqual([DECLARED_1, DECLARED_2]);
 
@@ -269,5 +276,40 @@ describe('GET /api/music/featured/artists/<slug>', () => {
     expect(response.status).toBe(429);
     expect(response.headers.get('cache-control')).toBe('private, no-store');
     expect(mocks.list).not.toHaveBeenCalled();
+  });
+});
+
+describe('piano della pagina d’artista: Premium tutti, Free i 30 più recenti', () => {
+  function serveManyByArtist(count: number) {
+    const files = Array.from({ length: count }, (_, index) => {
+      const day = String((index % 28) + 1).padStart(2, '0');
+      const month = index < 28 ? '08' : '09';
+      return blob(`Prolifico - Brano ${index + 1}.mp3`, `2026-${month}-${day}T00:00:00.000Z`);
+    });
+    serveStore(
+      [...files, blob('diritti.json', '2026-10-09T00:00:00.000Z', 200)],
+      manifest(files.map((file) => file.pathname)),
+    );
+  }
+
+  it('Free: 30 brani e il totale; Premium: tutti', async () => {
+    serveManyByArtist(40);
+    const free = FeaturedArtistResponseSchema.parse(await (await request('prolifico')).json());
+    expect(free.tracks).toHaveLength(30);
+    expect(free.total).toBe(40);
+    const all = await getFeaturedArtist('prolifico');
+    const allIds = all.outcome === 'found' ? all.tracks.map((track) => track.id) : [];
+    expect(free.tracks.map((track) => track.id)).toEqual(allIds.slice(0, 30));
+
+    mocks.hasPremiumAccess.mockResolvedValue(true);
+    const premium = FeaturedArtistResponseSchema.parse(await (await request('prolifico')).json());
+    expect(premium.tracks).toHaveLength(40);
+    expect(premium.total).toBe(40);
+  });
+
+  it('fino a 30 brani: nessun controllo del Premium', async () => {
+    serveStore();
+    await request('lucio-dalla');
+    expect(mocks.hasPremiumAccess).not.toHaveBeenCalled();
   });
 });

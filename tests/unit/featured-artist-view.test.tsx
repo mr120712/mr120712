@@ -254,3 +254,24 @@ describe('FeaturedArtistView: riproduzione', () => {
     expect(mocks.playTrack).not.toHaveBeenCalled();
   });
 });
+
+describe('piano Free della pagina d’artista', () => {
+  it('«30 di 34 brani» e, sotto l’elenco, gli altri con Premium', async () => {
+    const many = Array.from({ length: 30 }, (_, index) =>
+      track(`Lucio Dalla - Brano ${index + 1}.mp3`, `Brano ${index + 1}`),
+    );
+    mocks.apiFetch.mockResolvedValue({ ...RESPONSE, tracks: many, total: 34 });
+    const container = await mount();
+    expect(container.textContent).toContain('30 di 34 brani');
+    const aside = container.querySelector('aside[aria-label="Altri brani con Premium"]');
+    expect(aside?.textContent).toContain('di questo artista');
+    expect(aside?.textContent).toContain('altri 4 brani');
+    expect(aside?.querySelector('a[href="/piani"]')).not.toBeNull();
+  });
+
+  it('elenco completo: nessun invito', async () => {
+    mocks.apiFetch.mockResolvedValue({ ...RESPONSE, total: RESPONSE.tracks.length });
+    const container = await mount();
+    expect(container.querySelector('aside[aria-label="Altri brani con Premium"]')).toBeNull();
+  });
+});

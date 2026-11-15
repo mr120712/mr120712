@@ -2,7 +2,8 @@
 // una sezione dei "brani in evidenza" (GET /api/music/featured/sections/<id>, pagina
 // /cartella/<id>). Elenca SOLO i brani della cartella con i diritti dichiarati in diritti.json (mai
 // l'elenco grezzo della Home), con gli stessi dati della Home (copertina, streamUrl), così la
-// riproduzione è identica.
+// riproduzione è identica. Premium vede tutti i brani dichiarati, Free i 30 più recenti con il totale
+// (`total`) per «30 di N brani» (featured-plan).
 import { z } from 'zod';
 import { FeaturedSectionIdSchema, HomeTrackResultSchema } from '@/lib/contracts/home-tracks';
 import {
@@ -29,9 +30,21 @@ export const FeaturedSectionSchema = z.object({
 });
 export type FeaturedSection = z.infer<typeof FeaturedSectionSchema>;
 
-export const FeaturedSectionResponseSchema = z.object({
-  section: FeaturedSectionSchema,
-  /** I brani dichiarati della cartella, dal più recente (al massimo FEATURED_SECTION_TRACK_LIMIT). */
-  tracks: z.array(HomeTrackResultSchema).max(FEATURED_SECTION_TRACK_LIMIT),
-});
+export const FeaturedSectionResponseSchema = z
+  .object({
+    section: FeaturedSectionSchema,
+    /**
+     * I brani dichiarati della cartella, dal più recente (al massimo FEATURED_SECTION_TRACK_LIMIT); a
+     * un account Free solo i 30 più recenti (featured-plan).
+     */
+    tracks: z.array(HomeTrackResultSchema).max(FEATURED_SECTION_TRACK_LIMIT),
+    /**
+     * Brani dichiarati della cartella in tutto: più di `tracks` quando un account Free ne vede solo
+     * una parte. Assente da un server meno recente: vale come il numero di `tracks`.
+     */
+    total: z.number().int().nonnegative().optional(),
+  })
+  .refine((body) => body.total === undefined || body.total >= body.tracks.length, {
+    message: 'Il totale non può essere minore dei brani inviati.',
+  });
 export type FeaturedSectionResponse = z.infer<typeof FeaturedSectionResponseSchema>;

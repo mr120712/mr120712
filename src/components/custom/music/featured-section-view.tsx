@@ -10,7 +10,8 @@
 // «Scarica offline»; «Scarica la cartella per offline» salva i soli brani consentiti. Elenco, coda,
 // link alla Home e scheletro sono gli stessi della pagina d'artista (featured-track-list.tsx).
 // La stessa pagina serve i GENERI della fila «Per genere» della Home ("genere" in diritti.json): il
-// server manda `genre: true` e i soli brani dichiarati con quel genere.
+// server manda `genre: true` e i soli brani dichiarati con quel genere. Un account Free vede i 30
+// brani più recenti («30 di N brani») con l'invito a Premium per gli altri (featured-plan).
 'use client';
 
 import { FolderOpen, Play, RotateCcw, Shuffle } from 'lucide-react';
@@ -20,10 +21,11 @@ import {
   FeaturedBackLink,
   FeaturedListSkeleton,
   FeaturedOfflineDownload,
+  FeaturedPremiumMore,
   FeaturedTrackList,
+  featuredListCount,
   featuredLoadFailure,
   playFeaturedQueue,
-  songCount,
 } from '@/components/custom/music/featured-track-list';
 import { useMusicPlayer } from '@/components/custom/music/music-player';
 import { PlaylistMosaic } from '@/components/custom/music/playlist-mosaic';
@@ -140,7 +142,7 @@ export function FeaturedSectionView({ sectionId }: { sectionId: string }) {
     );
   }
 
-  const { section, tracks } = state.data;
+  const { section, tracks, total } = state.data;
   // La radice ha in Home l'intestazione «Ascolta ora» sotto «In evidenza»: la pagina la ripete,
   // così il titolo è quello del link toccato (e «In evidenza» non compare due volte).
   const isRoot = section.root === true;
@@ -165,7 +167,7 @@ export function FeaturedSectionView({ sectionId }: { sectionId: string }) {
           <h1 ref={headingRef} tabIndex={-1}>
             <bdi>{heading}</bdi>
           </h1>
-          <p className={artistStyles.count}>{songCount(tracks.length)}</p>
+          <p className={artistStyles.count}>{featuredListCount(tracks.length, total)}</p>
           <div className={artistStyles.actions}>
             <Button type="button" onClick={() => playFeaturedQueue(player, tracks)}>
               <Play aria-hidden="true" /> Riproduci tutto
@@ -195,6 +197,13 @@ export function FeaturedSectionView({ sectionId }: { sectionId: string }) {
         tracks={tracks}
         fallbackArtist="Solco"
         headingId="section-tracks-heading"
+      />
+
+      {/* Account Free con più di 30 brani dichiarati: gli altri con Premium. */}
+      <FeaturedPremiumMore
+        shown={tracks.length}
+        total={total}
+        scope={isGenre ? 'questo genere' : 'questa cartella'}
       />
     </main>
   );

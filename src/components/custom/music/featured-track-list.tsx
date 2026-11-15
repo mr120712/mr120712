@@ -7,7 +7,9 @@
 // (playHomeTrack: stesso elemento del player, stesso percorso di streaming, stesse regole).
 // Accanto alle righe dei brani la cui voce di diritti.json consente la copia offline (il server
 // manda `offline` true) c'è anche «Scarica offline» (salva il brano in «La tua musica»); gli altri
-// nessun pulsante. Senza accesso il pulsante spiega che serve accedere.
+// nessun pulsante. Senza accesso il pulsante spiega che serve accedere. Un account Free vede i 30
+// brani dichiarati più recenti di un elenco («30 di N brani») e, sotto, l'invito a Premium per gli
+// altri (featured-plan: solo brani dichiarati, mai i non dichiarati).
 'use client';
 
 import { ArrowLeft, Pause, Play } from 'lucide-react';
@@ -25,8 +27,10 @@ import {
   OfflineDownloadButton,
   SingleOfflineDownloadButton,
 } from '@/components/custom/music/offline-download-button';
+import { PremiumBadge } from '@/components/custom/premium-badge';
 import { Button } from '@/components/ui/button';
 import type { HomeTrack } from '@/lib/contracts/home-tracks';
+import { isFeaturedListLimited } from '@/lib/music/featured-plan';
 import styles from './featured-artist-view.module.css';
 
 /** Quanto serve del player (useMusicPlayer() lo soddisfa): lo stesso di playHomeTrack. */
@@ -42,6 +46,42 @@ const ROW_DOWNLOAD_BUTTON = 'size-9 rounded-full text-muted-foreground hover:tex
 /** «1 brano» / «N brani». */
 export function songCount(count: number): string {
   return count === 1 ? '1 brano' : `${count} brani`;
+}
+
+/**
+ * Il numero di brani della pagina: «45 brani», oppure «30 di 45 brani» quando un account Free ne
+ * vede solo i più recenti (il server manda il totale: featured-plan).
+ */
+export function featuredListCount(shown: number, total: number | undefined): string {
+  return isFeaturedListLimited(shown, total) ? `${shown} di ${songCount(total)}` : songCount(shown);
+}
+
+/**
+ * Sotto l'elenco di un account Free che vede solo i brani più recenti: quanti altri ce ne sono con
+ * Premium e il link ai piani. Niente quando l'elenco è completo (Premium, o entro il tetto Free).
+ */
+export function FeaturedPremiumMore({
+  shown,
+  total,
+  scope,
+}: {
+  shown: number;
+  total: number | undefined;
+  /** «questa cartella» / «questo genere» / «questo artista». */
+  scope: string;
+}) {
+  if (!isFeaturedListLimited(shown, total)) return null;
+  const more = total - shown;
+  const others = more === 1 ? 'ancora 1 brano' : `altri ${more} brani`;
+  return (
+    <aside className={styles.premiumMore} aria-label="Altri brani con Premium">
+      <PremiumBadge size="sm" />
+      <p>{`Con il piano Free vedi i ${shown} brani più recenti di ${scope}. Con Premium li ascolti tutti: ${others}.`}</p>
+      <Button asChild size="sm">
+        <Link href="/piani">Passa a Premium</Link>
+      </Button>
+    </aside>
+  );
 }
 
 /**

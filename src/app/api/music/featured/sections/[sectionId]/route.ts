@@ -7,7 +7,8 @@
 // così la riproduzione è identica. La Home non cambia: le sue sezioni restano di al massimo 24 brani.
 // Serve una sessione (come la pagina d'artista); limite per utente con lo stesso bucket della pagina
 // d'artista e della ricerca globale (music.search). Mai in cache (private, no-store): una revoca vale
-// alla ricostruzione successiva dell'indice.
+// alla ricostruzione successiva dell'indice. Un account Free riceve i 30 brani più recenti e il
+// totale (`total`), un Premium tutti (featured-plan).
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { enforceRateLimit, getRateLimitIdentity } from '@/lib/business/rate-limit.server';
@@ -15,6 +16,7 @@ import {
   FeaturedSectionIdSchema,
   FeaturedSectionResponseSchema,
 } from '@/lib/contracts/featured-sections';
+import { featuredTracksForAccount } from '@/lib/music/featured-plan.server';
 import { getFeaturedSection } from '@/lib/music/featured-search.server';
 import { requireAuth } from '@/lib/require-auth';
 
@@ -65,10 +67,13 @@ export async function GET(
       : json({ error: 'not_found' }, 404);
   }
 
+  // Piano dell'account (solo brani dichiarati): Premium tutti, Free i 30 più recenti con il totale.
+  const plan = await featuredTracksForAccount(result.tracks, userId);
   // Una forma inattesa non arriva mai al client.
   const body = FeaturedSectionResponseSchema.safeParse({
     section: result.section,
-    tracks: result.tracks,
+    tracks: plan.tracks,
+    total: plan.total,
   });
   if (!body.success || body.data.tracks.length === 0) return json({ error: 'not_found' }, 404);
   return json(body.data);

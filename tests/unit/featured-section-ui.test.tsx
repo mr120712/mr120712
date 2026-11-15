@@ -432,3 +432,50 @@ describe('Home: «Mostra tutti (N)»', () => {
     expect(sectionShowAll(base)).toBeNull();
   });
 });
+
+describe('piano Free: «30 di N brani» e invito a Premium', () => {
+  const many = Array.from({ length: 30 }, (_, index) =>
+    track(`Tanti/Artista - Brano ${index + 1}.mp3`, `Brano ${index + 1}`, 'Artista'),
+  );
+
+  it('elenco tagliato: «30 di 45 brani» e, sotto l’elenco, gli altri 15 con Premium', async () => {
+    mocks.apiFetch.mockResolvedValue({
+      section: { id: SECTION_ID, title: 'Tanti', root: false },
+      tracks: many,
+      total: 45,
+    });
+    const container = await mountView();
+    expect(container.textContent).toContain('30 di 45 brani');
+    const aside = container.querySelector('aside[aria-label="Altri brani con Premium"]');
+    expect(aside?.textContent).toContain('i 30 brani più recenti di questa cartella');
+    expect(aside?.textContent).toContain('altri 15 brani');
+    expect(aside?.querySelector('a[href="/piani"]')?.textContent).toBe('Passa a Premium');
+    expect(aside?.querySelector('[data-premium-badge]')).not.toBeNull();
+  });
+
+  it('genere: lo dice per il genere; un solo brano in più al singolare', async () => {
+    mocks.apiFetch.mockResolvedValue({
+      section: { id: SECTION_ID, title: 'Rap italiano', genre: true },
+      tracks: many,
+      total: 31,
+    });
+    const container = await mountView();
+    const aside = container.querySelector('aside[aria-label="Altri brani con Premium"]');
+    expect(aside?.textContent).toContain('di questo genere');
+    expect(aside?.textContent).toContain('ancora 1 brano');
+  });
+
+  it('elenco completo (Premium o entro il tetto) o server meno recente: nessun invito', async () => {
+    for (const total of [30, undefined]) {
+      mocks.apiFetch.mockResolvedValue({
+        section: { id: SECTION_ID, title: 'Tanti', root: false },
+        tracks: many,
+        ...(total === undefined ? {} : { total }),
+      });
+      const container = await mountView();
+      expect(container.textContent).toContain('30 brani');
+      expect(container.textContent).not.toContain('30 di');
+      expect(container.querySelector('aside[aria-label="Altri brani con Premium"]')).toBeNull();
+    }
+  });
+});

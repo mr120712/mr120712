@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   token: 'tok_test' as string | undefined,
   requireAuth: vi.fn(),
   enforceRateLimit: vi.fn(),
+  hasPremiumAccess: vi.fn(),
 }));
 
 vi.mock('@vercel/blob', () => ({ list: mocks.list, get: mocks.get }));
@@ -25,6 +26,9 @@ vi.mock('@/lib/env', () => ({
   },
 }));
 vi.mock('@/lib/require-auth', () => ({ requireAuth: mocks.requireAuth }));
+vi.mock('@/lib/business/premium-access.server', () => ({
+  hasPremiumAccess: mocks.hasPremiumAccess,
+}));
 vi.mock('@/lib/business/rate-limit.server', () => ({
   enforceRateLimit: mocks.enforceRateLimit,
   getRateLimitIdentity: (userId: string | null) => (userId ? `user:${userId}` : null),
@@ -130,6 +134,8 @@ beforeEach(() => {
   mocks.requireAuth.mockResolvedValue({ id: 'user-1' });
   mocks.enforceRateLimit.mockReset();
   mocks.enforceRateLimit.mockResolvedValue(null);
+  mocks.hasPremiumAccess.mockReset();
+  mocks.hasPremiumAccess.mockResolvedValue(false);
   clearFeaturedSearchCacheForTests();
   vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 });
@@ -447,7 +453,8 @@ describe('GET /api/music/featured/sections/<id>', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('private, no-store');
     const body = FeaturedSectionResponseSchema.parse(await response.json());
-    expect(Object.keys(body).sort()).toEqual(['section', 'tracks']);
+    expect(Object.keys(body).sort()).toEqual(['section', 'total', 'tracks']);
+    expect(body.total).toBe(2);
     expect(body.section).toEqual({ id: CANT_ID, title: 'Cantautori', root: false });
     expect(body.tracks.map((track) => track.id)).toEqual([CANT_1, CANT_2]);
 
@@ -511,3 +518,80 @@ describe('GET /api/music/featured/sections/<id>', () => {
     expect(mocks.list).not.toHaveBeenCalled();
   });
 });
+
+describe('piano: Premium tutti i brani dichiarati, Free i 30 più recenti', () => {
+  function manyDeclared(count: number) {
+    const files = Array.from({ length: count }, (_, index) => {
+      const day = String((index % 28) + 1).padStart(2, '0');
+      const month = index < 28 ? '08' : '09';
+      return blob(`Tanti/Artista - Brano ${index + 1}.mp3`, `2026-${month}-${day}T00:00:00.000Z`);
+    });
+    // Un rip non dichiarato nella stessa cartella: mai elencato né contato, per nessun piano.
+    const rip = blob('Tanti/Commerciale - Rip.mp3', '2026-10-01T00:00:00.000Z');
+    serveStore(
+      [...files, rip, blob('diritti.json', '2026-10-09T00:00:00.000Z', 200)],
+      manifest(files.map((file) => file.pathname)),
+    );
+    return files;
+  }
+  const TANTI_ID = featuredSectionId('tanti');
+
+  it('Free: i 30 brani più recenti e il totale dei dichiarati', async () => {
+    manyDeclared(45);
+    const response = await request(TANTI_ID);
+    expect(response.status).toBe(200);
+    const body = FeaturedSectionResponseSchema.parse(await response.json());
+    expect(body.tracks).toHaveLength(30);
+    expect(body.total).toBe(45);
+    // Dal più recente: i primi 30 dell'elenco completo.
+    const all = await getFeaturedSection(TANTI_ID);
+    const allIds = all.outcome === 'found' ? all.tracks.map((track) => track.id) : [];
+    expect(body.tracks.map((track) => track.id)).toEqual(allIds.slice(0, 30));
+    expect(allIds).not.toContain('Tanti/Commerciale - Rip.mp3');
+    expect(mocks.hasPremiumAccess).toHaveBeenCalledWith('user-1');
+  });
+
+  it('Premium: tutti i brani dichiarati', async () => {
+    manyDeclared(45);
+    mocks.hasPremiumAccess.mockResolvedValue(true);
+    const body = FeaturedSectionResponseSchema.parse(await (await request(TANTI_ID)).json());
+    expect(body.tracks).toHaveLength(45);
+    expect(body.total).toBe(45);
+  });
+
+  it('fino a 30 brani: tutti per tutti, senza controllare il Premium', async () => {
+    manyDeclared(30);
+    const body = FeaturedSectionResponseSchema.parse(await (await request(TANTI_ID)).json());
+    expect(body.tracks).toHaveLength(30);
+    expect(body.total).toBe(30);
+    expect(mocks.hasPremiumAccess).not.toHaveBeenCalled();
+  });
+
+  it('contratto: il totale non può essere minore dei brani; senza totale vale come prima', () => {
+    const tracks = [{ ...homeTrackStub() }];
+    expect(
+      FeaturedSectionResponseSchema.safeParse({
+        section: { id: CANT_ID, title: 'Cantautori' },
+        tracks,
+        total: 0,
+      }).success,
+    ).toBe(false);
+    expect(
+      FeaturedSectionResponseSchema.safeParse({
+        section: { id: CANT_ID, title: 'Cantautori' },
+        tracks,
+      }).success,
+    ).toBe(true);
+  });
+});
+
+function homeTrackStub() {
+  return {
+    id: 'Cantautori/Lucio Dalla - Caruso.mp3',
+    title: 'Caruso',
+    artist: 'Lucio Dalla',
+    streamUrl: '/api/music/home-tracks/stream?p=x',
+    durationSeconds: 0,
+    artworkUrl: null,
+  };
+}

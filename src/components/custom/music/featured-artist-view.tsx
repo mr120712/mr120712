@@ -17,10 +17,11 @@ import {
   FeaturedBackLink,
   FeaturedListSkeleton,
   FeaturedOfflineDownload,
+  FeaturedPremiumMore,
   FeaturedTrackList,
+  featuredListCount,
   featuredLoadFailure,
   playFeaturedQueue,
-  songCount,
 } from '@/components/custom/music/featured-track-list';
 import { useMusicPlayer } from '@/components/custom/music/music-player';
 import { PlaylistMosaic } from '@/components/custom/music/playlist-mosaic';
@@ -135,7 +136,7 @@ export function FeaturedArtistView({ slug }: { slug: string }) {
     );
   }
 
-  const { artist, tracks } = state.data;
+  const { artist, tracks, total } = state.data;
 
   return (
     <main className={styles.page}>
@@ -150,7 +151,7 @@ export function FeaturedArtistView({ slug }: { slug: string }) {
           <h1 ref={headingRef} tabIndex={-1}>
             <bdi>{artist.name}</bdi>
           </h1>
-          <p className={styles.count}>{songCount(tracks.length)}</p>
+          <p className={styles.count}>{featuredListCount(tracks.length, total)}</p>
           <div className={styles.actions}>
             <Button type="button" onClick={() => playArtistQueue(player, tracks)}>
               <Play aria-hidden="true" /> Riproduci tutto
@@ -181,6 +182,9 @@ export function FeaturedArtistView({ slug }: { slug: string }) {
         fallbackArtist={artist.name}
         headingId="artist-tracks-heading"
       />
+
+      {/* Account Free con più di 30 brani dichiarati: gli altri con Premium. */}
+      <FeaturedPremiumMore shown={tracks.length} total={total} scope="questo artista" />
     </main>
   );
 }
