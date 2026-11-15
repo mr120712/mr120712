@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { MONITOR_CHECK_IDS } from '@/lib/contracts/monitoring';
+import { publicUploadsEnabled } from '@/lib/features';
 import { MONITOR_CHECKS } from '@/lib/monitoring/catalog';
 import { findGenre } from '@/lib/music/genre-catalog';
 import { navItems } from '@/lib/nav';
@@ -109,6 +110,12 @@ describe('public page list', () => {
     for (const item of internal) {
       expect(paths, item.href).toContain(item.href);
     }
+  });
+
+  it('lists /pubblica only while the public library is on (src/lib/features.ts), like the nav', () => {
+    // Da spenta la pagina rimanda alla Home: per il monitor un rimando è un errore.
+    expect(paths.includes('/pubblica')).toBe(publicUploadsEnabled());
+    expect(navItems.some((item) => item.href === '/pubblica')).toBe(publicUploadsEnabled());
   });
 
   it('only lists pages that exist in src/app (dynamic genres must exist in the catalog)', () => {

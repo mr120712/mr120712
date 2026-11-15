@@ -2,6 +2,8 @@
 // the sitemap. Edit it as pages are added or removed.
 // This list is a convenience, not module registration.
 
+import { publicUploadsEnabled } from '@/lib/features';
+
 export type NavGroup = 'primary' | 'secondary' | 'footer';
 
 export interface NavItem {
@@ -27,6 +29,18 @@ export interface NavItem {
 //   { label: 'Blog',    href: '/blog',    group: 'primary', menu: 'Resources' },
 //   { label: 'Docs',    href: '/docs',    group: 'primary', menu: 'Resources' },
 //   { label: 'Sign in', href: '/login',   group: 'secondary' },
+
+/**
+ * Libreria pubblica dei brani caricati (/pubblica): in menu solo se è attiva (src/lib/features.ts).
+ * Da spenta sparisce anche dalla sitemap e da llms.txt, che leggono questo elenco.
+ */
+const PUBLIC_LIBRARY_ITEM: NavItem = {
+  label: 'Pubblica',
+  href: '/pubblica',
+  group: 'primary',
+  order: 3,
+};
+
 export const navItems: NavItem[] = [
   { label: 'Cerca', href: '/search', group: 'primary', order: 0 },
   { label: 'Bot', href: '/bot', group: 'primary', order: 0 },
@@ -37,7 +51,7 @@ export const navItems: NavItem[] = [
   { label: 'Statistiche', href: '/statistiche', group: 'primary', requiresAuth: true, order: 3 },
   { label: 'Record Pool', href: '/pool', group: 'primary', order: 2 },
   { label: 'Classici', href: '/classici', group: 'primary', order: 2 },
-  { label: 'Pubblica', href: '/pubblica', group: 'primary', order: 3 },
+  ...(publicUploadsEnabled() ? [PUBLIC_LIBRARY_ITEM] : []),
   { label: 'Community', href: '/community', group: 'primary', order: 4 },
   { label: 'Piani', href: '/piani', group: 'primary', order: 5 },
   { label: 'Invita amici', href: '/premi', group: 'primary', order: 5 },

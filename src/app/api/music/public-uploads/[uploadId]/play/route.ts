@@ -3,13 +3,15 @@
 // per rete (IPv6: per /64). Conta SOLO chi può davvero ascoltare il brano: un account Premium che
 // non ne è l'autore. Agli altri la classifica non invia lo streamUrl, quindi una loro richiesta qui
 // non è un ascolto. Al massimo UN ascolto per account, per brano, per giorno; la risposta è sempre
-// la stessa, contato o no.
+// la stessa, contato o no. Con la libreria pubblica spenta (src/lib/features.ts) risponde 404 e
+// non registra nulla.
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { networkIdentity } from '@/lib/business/auth-guards.server';
 import { hasPremiumAccess } from '@/lib/business/premium-access.server';
 import { enforceRateLimit } from '@/lib/business/rate-limit.server';
 import { recordPublicUploadPlay } from '@/lib/music/public-uploads.server';
+import { publicUploadsDisabledResponse } from '@/lib/music/public-uploads-gate.server';
 import { getSessionUser } from '@/lib/require-auth';
 import { sameOrigin } from '@/lib/same-origin';
 
@@ -21,6 +23,8 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ uploadId: string }> },
 ) {
+  const disabled = publicUploadsDisabledResponse();
+  if (disabled) return disabled;
   if (!sameOrigin(request)) {
     return NextResponse.json({ error: 'forbidden_origin' }, { status: 403 });
   }

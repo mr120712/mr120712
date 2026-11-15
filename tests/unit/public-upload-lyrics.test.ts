@@ -6,6 +6,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
+// Logica della libreria pubblica con l'interruttore ACCESO (src/lib/features.ts): così resta
+// verificata e pronta per la riattivazione. Lo stato spento ha i suoi test (public-uploads-disabled).
+vi.mock('@/lib/features', () => ({ publicUploadsEnabled: () => true }));
 
 const mocks = vi.hoisted(() => ({
   requireAuth: vi.fn(),

@@ -7,6 +7,8 @@ import { Download, ShieldCheck } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { DownloadByUrl } from '@/components/custom/music/download-by-url';
+import { MyUploadsPanel } from '@/components/custom/music/my-uploads-panel';
+import { publicUploadsEnabled } from '@/lib/features';
 
 export const metadata: Metadata = {
   title: 'Scarica da URL',
@@ -39,6 +41,10 @@ export default function ScaricaDaUrlPage() {
         </p>
       </section>
 
+      {/* Libreria pubblica spenta (src/lib/features.ts): qui l'autore scarica o rimuove i propri
+          brani caricati, che altrimenti non avrebbero più una pagina. Da accesa lo fa /pubblica. */}
+      {publicUploadsEnabled() ? null : <MyUploadsPanel />}
+
       <section
         aria-labelledby="scarica-consentiti"
         className="rounded-xl border border-border bg-muted/40 p-5"
@@ -49,11 +55,18 @@ export default function ScaricaDaUrlPage() {
         </h2>
         <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
           <li>
-            • <strong className="text-foreground">I tuoi brani</strong> caricati su Solco (
-            <Link href="/pubblica" className="underline underline-offset-2">
-              Pubblica
-            </Link>
-            ): il link è il tuo, verificato per proprietario.
+            • <strong className="text-foreground">I tuoi brani</strong> caricati su Solco
+            {/* Il link a /pubblica solo con la libreria pubblica attiva (src/lib/features.ts). */}
+            {publicUploadsEnabled() ? (
+              <>
+                {' ('}
+                <Link href="/pubblica" className="underline underline-offset-2">
+                  Pubblica
+                </Link>
+                {')'}
+              </>
+            ) : null}
+            : il link è il tuo, verificato per proprietario.
           </li>
           <li>
             • <strong className="text-foreground">Brani Audius</strong> che l&apos;artista ha reso

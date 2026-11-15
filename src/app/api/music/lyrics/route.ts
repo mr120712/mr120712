@@ -1,7 +1,8 @@
 // @polsia:user-owned — GET /api/music/lyrics: il TESTO di un brano per il player (stile Spotify),
 // SOLO dove Solco ha i diritti di mostrarlo:
 //   ?featured=<pathname> → brano in evidenza dichiarato in diritti.json con "testo": true;
-//   ?upload=<id>         → upload pubblicato con il testo confermato dal suo autore.
+//   ?upload=<id>         → upload pubblicato con il testo confermato dal suo autore (solo con la
+//                          libreria pubblica attiva, src/lib/features.ts: spenta → { lyrics: null }).
 // Mai testi da fonti di terzi (siti di testi, API esterne, sottotitoli, scraping) e mai per brani
 // Audius, YouTube, radio o podcast. Serve una sessione (come l'ascolto) e c'è un limite per utente.
 // "Nessun testo" e "testo non autorizzato" danno la STESSA risposta (200, { lyrics: null }): la
@@ -10,6 +11,7 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { consumeRateLimit, rateLimitResponse } from '@/lib/business/rate-limit.server';
 import { type Lyrics, LyricsResponseSchema } from '@/lib/contracts/lyrics';
+import { publicUploadsEnabled } from '@/lib/features';
 import { readFeaturedLyrics } from '@/lib/music/featured-lyrics.server';
 import { isHomeAudioBlob } from '@/lib/music/home-tracks.server';
 import { readPublishedUploadLyrics } from '@/lib/music/public-uploads.server';
@@ -57,6 +59,9 @@ export async function GET(request: Request) {
 
   const target = readTarget(new URL(request.url).searchParams);
   if (!target) return json({ error: 'invalid_request' }, 400);
+  // Libreria pubblica spenta: nessun testo per gli upload degli utenti (stessa risposta di "nessun
+  // testo"), senza consumare il limite né leggere il database.
+  if (target.kind === 'upload' && !publicUploadsEnabled()) return json({ lyrics: null });
 
   const decision = await consumeRateLimit('music.lyrics', `user:${userId}`);
   if (!decision.allowed) return rateLimitResponse('music.lyrics', decision);

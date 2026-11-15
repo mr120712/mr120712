@@ -1207,7 +1207,7 @@ describe('main', () => {
     }
     const summary = await readFile(join(dir, 'summary.md'), 'utf8');
     expect(summary).toContain(
-      `| ✅ | ${BLIND_LABEL} | Il firewall di Vercel ferma 22 controlli, ma non /health e /api/status: un guasto vero resta visibile | — |`,
+      `| ✅ | ${BLIND_LABEL} | Il firewall di Vercel ferma 21 controlli, ma non /health e /api/status: un guasto vero resta visibile | — |`,
     );
   });
 

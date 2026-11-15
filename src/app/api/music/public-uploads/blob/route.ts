@@ -1,5 +1,7 @@
 // @polsia:user-owned — rilascia il token per il caricamento diretto su Vercel Blob (client upload).
 // Solo utenti loggati, solo audio, entro il limite di dimensione, e solo nel prefisso consentito.
+// Con la libreria pubblica spenta (src/lib/features.ts) GET e POST (anche la callback di
+// completamento di Vercel Blob) rispondono 404: nessun nuovo caricamento.
 import 'server-only';
 import { type HandleUploadBody, handleUpload } from '@vercel/blob/client';
 import { NextResponse } from 'next/server';
@@ -11,6 +13,7 @@ import {
   MAX_UPLOADS_PER_USER,
   PUBLIC_UPLOAD_PREFIX,
 } from '@/lib/music/public-uploads.server';
+import { publicUploadsDisabledResponse } from '@/lib/music/public-uploads-gate.server';
 import { requireAuth } from '@/lib/require-auth';
 import { sameOrigin } from '@/lib/same-origin';
 
@@ -28,6 +31,8 @@ const ALLOWED_CONTENT_TYPES = [
 ];
 
 export async function POST(request: Request): Promise<Response> {
+  const disabled = publicUploadsDisabledResponse();
+  if (disabled) return disabled;
   if (!isPublicUploadConfigured()) {
     return NextResponse.json(
       {
@@ -102,6 +107,8 @@ export async function POST(request: Request): Promise<Response> {
 
 /** Dice al form se la libreria pubblica è attiva (Vercel Blob configurato), per un messaggio chiaro. */
 export function GET() {
+  const disabled = publicUploadsDisabledResponse();
+  if (disabled) return disabled;
   return NextResponse.json(
     { configured: isPublicUploadConfigured() },
     { headers: { 'Cache-Control': 'no-store' } },

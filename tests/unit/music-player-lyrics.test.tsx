@@ -23,6 +23,9 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/api-client', () => ({ apiFetch: mocks.apiFetch }));
+// Logica della libreria pubblica con l'interruttore ACCESO (src/lib/features.ts): così resta
+// verificata e pronta per la riattivazione. Lo stato spento ha i suoi test (public-uploads-disabled).
+vi.mock('@/lib/features', () => ({ publicUploadsEnabled: () => true }));
 vi.mock('next/navigation', () => ({ usePathname: () => '/' }));
 vi.mock('@/lib/local-music/playback', () => ({
   createObjectUrlForTrack: vi.fn(async () => ({

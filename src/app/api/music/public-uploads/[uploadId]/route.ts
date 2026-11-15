@@ -1,5 +1,7 @@
 // @polsia:user-owned — un brano pubblico dell'utente: DELETE lo rimuove (cancella anche l'oggetto
-// su Vercel Blob), PATCH aggiunge, cambia o toglie il suo TESTO. Solo il suo autore.
+// su Vercel Blob), PATCH aggiunge, cambia o toglie il suo TESTO. Solo il suo autore. Con la
+// libreria pubblica spenta (src/lib/features.ts) PATCH risponde 404; DELETE resta attivo: l'autore
+// può sempre togliere i propri brani.
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { enforceRateLimit } from '@/lib/business/rate-limit.server';
@@ -9,6 +11,7 @@ import {
   PublicUploadLyricsUpdateSchema,
 } from '@/lib/contracts/public-uploads';
 import { deletePublicUpload, updatePublicUploadLyrics } from '@/lib/music/public-uploads.server';
+import { publicUploadsDisabledResponse } from '@/lib/music/public-uploads-gate.server';
 import { requireAuth } from '@/lib/require-auth';
 import { sameOrigin } from '@/lib/same-origin';
 
@@ -70,6 +73,8 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ uploadId: string }> },
 ) {
+  const disabled = publicUploadsDisabledResponse();
+  if (disabled) return disabled;
   if (!sameOrigin(request)) {
     return NextResponse.json(
       { error: 'forbidden_origin' },

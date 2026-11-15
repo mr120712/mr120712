@@ -3,6 +3,8 @@
 // put security headers / CSP / a full `images` block here.
 import type { NextConfig } from 'next';
 import type { CspExtraSources } from './src/lib/csp';
+// Percorso relativo (qui @/ non si risolve). features.ts non ha dipendenze lato server.
+import { publicUploadsEnabled } from './src/lib/features';
 import type { AppCapabilities } from './src/lib/permissions-policy';
 
 type RemotePatterns = NonNullable<NonNullable<NextConfig['images']>['remotePatterns']>;
@@ -89,6 +91,13 @@ export const userNextConfig: NextConfig = {
         destination: '/stato',
         permanent: false,
       },
+      // Libreria pubblica spenta (src/lib/features.ts): /pubblica → Home con un vero 307 HTTP,
+      // prima del proxy e del rendering. Il redirect() nella pagina resterebbe dentro lo stream
+      // RSC (risposta 200 con titolo e descrizione della libreria): browser senza JS e anteprime
+      // dei link non arriverebbero mai alla Home. Il redirect della pagina resta come riserva.
+      ...(publicUploadsEnabled()
+        ? []
+        : [{ source: '/pubblica', destination: '/', permanent: false }]),
     ];
   },
 };

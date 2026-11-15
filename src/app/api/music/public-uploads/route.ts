@@ -1,6 +1,7 @@
 // @polsia:user-owned — libreria pubblica dei brani caricati: GET elenco (pubblico), POST registra
 // (loggato) un brano già salvato su Vercel Blob, con il testo facoltativo (solo con la conferma
-// dei diritti sul testo: senza, 400 sul campo lyricsRightsConfirmed).
+// dei diritti sul testo: senza, 400 sul campo lyricsRightsConfirmed). Con la libreria pubblica
+// spenta (src/lib/features.ts) entrambe rispondono 404, prima di ogni altro controllo.
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { hasPremiumAccess } from '@/lib/business/premium-access.server';
@@ -17,6 +18,7 @@ import {
   PublicUploadLimitReached,
   registerPublicUpload,
 } from '@/lib/music/public-uploads.server';
+import { publicUploadsDisabledResponse } from '@/lib/music/public-uploads-gate.server';
 import { getSessionUser, requireAuth } from '@/lib/require-auth';
 import { sameOrigin } from '@/lib/same-origin';
 
@@ -31,6 +33,8 @@ const privateHeaders = {
 };
 
 export async function GET() {
+  const disabled = publicUploadsDisabledResponse();
+  if (disabled) return disabled;
   try {
     const viewer = await getSessionUser();
     // Solo i Premium (e il proprietario sui propri brani) ricevono lo streamUrl per ascoltare.
@@ -48,6 +52,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const disabled = publicUploadsDisabledResponse();
+  if (disabled) return disabled;
   if (!sameOrigin(request)) {
     return NextResponse.json(
       { error: 'forbidden_origin' },

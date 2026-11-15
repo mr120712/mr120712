@@ -1,10 +1,12 @@
 // @polsia:user-owned — segnala un brano pubblico (moderazione). Oltre la soglia di segnalatori
-// distinti il brano si auto-ritira dalla libreria pubblica.
+// distinti il brano si auto-ritira dalla libreria pubblica. Con la libreria spenta
+// (src/lib/features.ts) risponde 404.
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { enforceRateLimit } from '@/lib/business/rate-limit.server';
 import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
 import { reportPublicUpload } from '@/lib/music/public-uploads.server';
+import { publicUploadsDisabledResponse } from '@/lib/music/public-uploads-gate.server';
 import { requireAuth } from '@/lib/require-auth';
 import { sameOrigin } from '@/lib/same-origin';
 
@@ -21,6 +23,8 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ uploadId: string }> },
 ) {
+  const disabled = publicUploadsDisabledResponse();
+  if (disabled) return disabled;
   if (!sameOrigin(request)) {
     return NextResponse.json(
       { error: 'forbidden_origin' },

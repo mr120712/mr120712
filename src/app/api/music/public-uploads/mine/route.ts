@@ -1,5 +1,8 @@
 // @polsia:user-owned — i brani pubblici caricati dall'utente (anche quelli ritirati dalla
-// moderazione), per gestirli: elenco e rimozione.
+// moderazione), per gestirli: elenco e rimozione. Resta attivo anche con la libreria pubblica
+// spenta (src/lib/features.ts): è l'elenco PRIVATO dei propri brani (solo i tuoi, mai in cache),
+// non la libreria pubblica. Senza di esso l'autore non avrebbe gli id per scaricare o rimuovere i
+// propri file (pannello «I tuoi brani caricati» su /scarica).
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { PublicUploadMineResponseSchema } from '@/lib/contracts/public-uploads';

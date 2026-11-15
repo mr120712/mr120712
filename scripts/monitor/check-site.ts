@@ -156,7 +156,9 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
   { path: '/radio', label: 'Radio', critical: false },
   { path: '/podcasts', label: 'Podcast', critical: false },
   { path: '/library', label: 'Libreria', critical: false },
-  { path: '/pubblica', label: 'Libreria pubblica', critical: false },
+  // Niente /pubblica: la libreria pubblica è spenta (src/lib/features.ts) e la pagina rimanda alla
+  // Home, e per questo controllo un rimando è un errore. Riattivandola, rimetti la sua riga qui,
+  // come la rimette il menu (src/lib/nav.ts).
   { path: '/pool', label: 'Record Pool', critical: false },
   { path: '/classici', label: 'Classici', critical: false },
   { path: '/community', label: 'Community', critical: false },

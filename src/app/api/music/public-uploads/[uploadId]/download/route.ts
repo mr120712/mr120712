@@ -1,6 +1,7 @@
 // @polsia:user-owned — scarica un TUO brano caricato (SOLO il proprietario) come file con nome
 // leggibile. Streamma l'oggetto da Vercel Blob e lo ri-serve come allegato. È contenuto dell'utente:
 // qui si scarica solo ciò che hai caricato tu, nessuna estrazione da fonti di terzi (YouTube ecc.).
+// Resta attivo anche con la libreria pubblica spenta (src/lib/features.ts): i tuoi file restano tuoi.
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { getOwnUploadForDownload } from '@/lib/music/public-uploads.server';

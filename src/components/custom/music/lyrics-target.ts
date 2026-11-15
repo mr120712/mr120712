@@ -3,11 +3,12 @@
 // - brano in evidenza (qualifiedId "upload:<pathname dello store>", es. "upload:Pop/A - B.mp3"):
 //   il server lo mostra solo se diritti.json dichiara "testo": true per quel file;
 // - upload di un utente (qualifiedId "upload:<id>", id cuid): solo se pubblicato e con il testo
-//   confermato dall'autore;
+//   confermato dall'autore, e solo con la libreria pubblica attiva (src/lib/features.ts);
 // - file dell'ascoltatore in "La tua musica" (qualifiedId "local:<id>", fonte "La tua musica"):
 //   letto sul dispositivo, mai inviato. I brani SCARICATI (Audius, podcast) restano esclusi.
 // Mai per Audius, YouTube, brani importati, radio, podcast, Jamendo o anteprime.
 import type { MusicPlayerTrack } from '@/components/custom/music/music-player';
+import { publicUploadsEnabled } from '@/lib/features';
 import { LOCAL_SOURCE_LABEL, localTrackId } from './local-tracks';
 
 export type LyricsTarget =
@@ -49,7 +50,8 @@ export function lyricsTargetFor(
   }
   if (track.playbackMode !== 'upload' || !track.qualifiedId.startsWith('upload:')) return null;
   const rest = track.qualifiedId.slice('upload:'.length);
-  if (UPLOAD_ID.test(rest)) return { source: 'upload', id: rest };
+  // Un upload rimasto in coda o nel player con la libreria spenta: niente pannello "Testo".
+  if (UPLOAD_ID.test(rest)) return publicUploadsEnabled() ? { source: 'upload', id: rest } : null;
   if (isFeaturedPathname(rest)) return { source: 'featured', id: rest };
   return null;
 }

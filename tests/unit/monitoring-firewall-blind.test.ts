@@ -121,7 +121,7 @@ describe('firewallBlindResult (la regola)', () => {
     expect(firewallBlindResult(pagesOnly, null, T0)).toMatchObject({
       status: 'ok',
       detail:
-        'Il firewall di Vercel ferma 21 controlli, ma non /health e /api/status: un guasto vero resta visibile',
+        'Il firewall di Vercel ferma 20 controlli, ma non /health e /api/status: un guasto vero resta visibile',
     });
     // /health fermato, /api/status risponde (anche con un errore): app giù o database spento si
     // vedono comunque da /api/status.

@@ -34,6 +34,7 @@ import { TikTokClips } from '@/components/custom/music/tiktok-clips';
 import { YouTubeCharts } from '@/components/custom/music/youtube-charts';
 import { AppTopBar } from '@/components/custom/site-nav';
 import { TelegramButton } from '@/components/custom/telegram-button';
+import { publicUploadsEnabled } from '@/lib/features';
 import { genreCatalog } from '@/lib/music/genre-catalog';
 import styles from './home.module.css';
 
@@ -44,7 +45,7 @@ export const metadata: Metadata = {
   alternates: { canonical: '/' },
 };
 
-const shortcuts = [
+const allShortcuts = [
   { href: '#tendenze', label: 'Classifiche', icon: TrendingUp },
   { href: '/generi', label: 'Generi', icon: Disc3 },
   { href: '/radio', label: 'Radio', icon: Radio },
@@ -59,7 +60,15 @@ const shortcuts = [
   { href: '/app', label: 'Installa l’app', icon: Smartphone },
 ];
 
+/** Scorciatoie mostrate: /pubblica solo con la libreria pubblica attiva (src/lib/features.ts). */
+function visibleShortcuts() {
+  const publicLibrary = publicUploadsEnabled();
+  return allShortcuts.filter((item) => publicLibrary || item.href !== '/pubblica');
+}
+
 export default function HomePage() {
+  const showPublicUploads = publicUploadsEnabled();
+  const shortcuts = visibleShortcuts();
   // Everything under the intro as always ("Tutto"). A mood chip (?mood=…) shows that mood's feed
   // in its place, right under the chips.
   const defaultFeed = (
@@ -75,8 +84,9 @@ export default function HomePage() {
       {/* "La tua musica" offline, versione compatta: ascolto rapido; gestione completa in Libreria. */}
       <LocalMusicHomeCard />
 
-      {/* Anteprima della libreria pubblica dei brani caricati dagli utenti. */}
-      <PublicUploadsHomeSection />
+      {/* Anteprima della libreria pubblica dei brani caricati dagli utenti (solo se è attiva,
+          src/lib/features.ts). */}
+      {showPublicUploads ? <PublicUploadsHomeSection /> : null}
 
       <div className={styles.feed}>
         <YouTubeCharts />

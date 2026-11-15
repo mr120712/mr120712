@@ -7,6 +7,8 @@ vi.mock('server-only', () => ({}));
 const mocks = vi.hoisted(() => ({
   env: { TELEGRAM_WEBHOOK_SECRET: 'sec' as string | undefined, TELEGRAM_BOT_TOKEN: 'tok' },
   configured: true,
+  /** Interruttore della libreria pubblica (src/lib/features.ts): spenta come in produzione. */
+  publicUploads: false,
   send: vi.fn(async (_chatId?: string, _text?: string, _options?: unknown) => true),
   ensureCode: vi.fn(async (_userId?: string) => 'ABC123'),
   verify: vi.fn(),
@@ -26,6 +28,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/env', () => ({ env: mocks.env }));
+vi.mock('@/lib/features', () => ({ publicUploadsEnabled: () => mocks.publicUploads }));
 vi.mock('@/lib/business/rate-limit.server', () => ({ enforceRateLimit: mocks.enforceRateLimit }));
 vi.mock('@/lib/music/bot-search.server', () => ({ botSearch: mocks.botSearch }));
 vi.mock('@/lib/music/public-uploads.server', () => ({
@@ -101,6 +104,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.env.TELEGRAM_WEBHOOK_SECRET = 'sec';
   mocks.configured = true;
+  mocks.publicUploads = false;
   mocks.send.mockResolvedValue(true);
   mocks.ensureCode.mockResolvedValue('ABC123');
   mocks.findUnique.mockResolvedValue(null);
@@ -290,12 +294,26 @@ describe('POST /api/telegram/webhook (bot)', () => {
     expect(options.replyMarkup).toEqual({ kind: 'mini' });
   });
 
-  it('/scarica collegato senza upload: lo dice, non invia audio', async () => {
+  it('/scarica collegato senza upload (libreria pubblica attiva): invita a caricare da Pubblica', async () => {
+    mocks.publicUploads = true;
     mocks.findUnique.mockResolvedValue({ userId: 'user-1' });
     mocks.listUploads.mockResolvedValue([]);
     await POST(req(msg('/scarica')));
     expect(mocks.listUploads).toHaveBeenCalledWith('user-1');
     expect(lastSend().text).toContain('Non hai ancora caricato');
+    expect(lastSend().text).toContain('Pubblica');
+    expect(mocks.sendAudio).not.toHaveBeenCalled();
+  });
+
+  it('/scarica collegato senza upload (libreria pubblica spenta): lo dice, senza invitare a caricare', async () => {
+    mocks.findUnique.mockResolvedValue({ userId: 'user-1' });
+    mocks.listUploads.mockResolvedValue([]);
+    await POST(req(msg('/scarica')));
+    expect(mocks.listUploads).toHaveBeenCalledWith('user-1');
+    const { text } = lastSend();
+    expect(text).toContain('Non hai brani caricati su Solco');
+    expect(text).not.toContain('Pubblica');
+    expect(text).not.toMatch(/carical/i);
     expect(mocks.sendAudio).not.toHaveBeenCalled();
   });
 

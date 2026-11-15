@@ -26,6 +26,7 @@ import {
 import { verifyTelegramLinkToken } from '@/lib/business/telegram-link';
 import { prisma } from '@/lib/db';
 import { env } from '@/lib/env';
+import { publicUploadsEnabled } from '@/lib/features';
 import { botSearch } from '@/lib/music/bot-search.server';
 import { getOwnUploadForDownload, listMyPublicUploads } from '@/lib/music/public-uploads.server';
 
@@ -203,9 +204,13 @@ async function handleUpdate(
     }
     const uploads = await listMyPublicUploads(account.userId);
     if (uploads.length === 0) {
+      // Con la libreria pubblica spenta (src/lib/features.ts) non si invita a caricare nuovi brani:
+      // /scarica resta solo per riprendere quelli già caricati.
       await sendTelegramMessage(
         chatId,
-        'Non hai ancora caricato brani su Solco. Caricali da Solco → Pubblica, poi torna con /scarica.',
+        publicUploadsEnabled()
+          ? 'Non hai ancora caricato brani su Solco. Caricali da Solco → Pubblica, poi torna con /scarica.'
+          : 'Non hai brani caricati su Solco da scaricare.',
         { replyMarkup: miniAppKeyboard(chatType) },
       );
       return;

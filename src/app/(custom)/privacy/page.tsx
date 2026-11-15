@@ -2,6 +2,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import { publicUploadsEnabled } from '@/lib/features';
 import styles from '../legal.module.css';
 
 export const metadata: Metadata = {
@@ -116,6 +117,10 @@ export default function PrivacyPage() {
                 account Premium (non quelli dell’autore), al massimo uno al giorno per brano: Solco
                 salva solo una chiave pseudonima ricavata dall’account, diversa per ogni brano e
                 giorno, e la cancella dopo circa 35 giorni.
+                {/* Libreria pubblica spenta (src/lib/features.ts): il testo sopra resta, con la nota. */}
+                {publicUploadsEnabled()
+                  ? null
+                  : ' Al momento la libreria pubblica dei brani caricati e questa classifica non sono attive: non si registrano nuovi ascolti e non si possono caricare nuovi brani.'}
               </li>
               <li>
                 <strong>Assistenza automatizzata:</strong> la domanda inviata alla chat di supporto
