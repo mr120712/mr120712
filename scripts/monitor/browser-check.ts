@@ -19,7 +19,7 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export const DEFAULT_BASE_URL = 'https://solcomusic.vercel.app';
+export const DEFAULT_BASE_URL = 'https://www.solcomusic.online';
 export const SCREENSHOT_DIR = 'monitor-screenshots';
 export const NAVIGATION_TIMEOUT_MS = 30_000;
 /** Dopo l'evento load: il tempo che serve all'app per idratarsi e caricare i dati. */

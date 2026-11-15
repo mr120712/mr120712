@@ -62,7 +62,7 @@ jobs:
       - name: Controlla il sito
         run: node scripts/monitor/check-site.ts
         env:
-          BASE_URL: https://solcomusic.vercel.app
+          BASE_URL: https://www.solcomusic.online
 
       - name: Salva lo stato per il prossimo controllo
         if: always()
@@ -94,7 +94,7 @@ jobs:
       - name: Apri le pagine nel browser
         run: node scripts/monitor/browser-check.ts
         env:
-          BASE_URL: https://solcomusic.vercel.app
+          BASE_URL: https://www.solcomusic.online
           PLAYWRIGHT_CORE: ${{ runner.temp }}/pw/node_modules/playwright-core
           CHROME_CHANNEL: chrome
 

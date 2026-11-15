@@ -12,7 +12,7 @@ import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export const DEFAULT_BASE_URL = 'https://solcomusic.vercel.app';
+export const DEFAULT_BASE_URL = 'https://www.solcomusic.online';
 export const DEFAULT_STATE_FILE = '.monitor-state.json';
 export const USER_AGENT = 'SolcoMonitor/1.0 (+https://github.com/mr120712/mr120712)';
 export const REQUEST_TIMEOUT_MS = 15_000;
