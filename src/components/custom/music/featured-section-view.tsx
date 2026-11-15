@@ -9,6 +9,8 @@
 // accanto il suo «Condividi» (link diretto /evidenza/<id>) e, se la copia offline è consentita,
 // «Scarica offline»; «Scarica la cartella per offline» salva i soli brani consentiti. Elenco, coda,
 // link alla Home e scheletro sono gli stessi della pagina d'artista (featured-track-list.tsx).
+// La stessa pagina serve i GENERI della fila «Per genere» della Home ("genere" in diritti.json): il
+// server manda `genre: true` e i soli brani dichiarati con quel genere.
 'use client';
 
 import { FolderOpen, Play, RotateCcw, Shuffle } from 'lucide-react';
@@ -142,7 +144,13 @@ export function FeaturedSectionView({ sectionId }: { sectionId: string }) {
   // La radice ha in Home l'intestazione «Ascolta ora» sotto «In evidenza»: la pagina la ripete,
   // così il titolo è quello del link toccato (e «In evidenza» non compare due volte).
   const isRoot = section.root === true;
+  const isGenre = !isRoot && section.genre === true;
   const heading = isRoot ? FEATURED_ROOT_SECTION_HEADING : section.title;
+  const eyebrow = isRoot
+    ? 'In evidenza'
+    : isGenre
+      ? 'Genere · In evidenza'
+      : 'Sezione · In evidenza';
 
   return (
     <main className={PAGE_CLASS}>
@@ -153,7 +161,7 @@ export function FeaturedSectionView({ sectionId }: { sectionId: string }) {
           <PlaylistMosaic name={heading} items={tracks} />
         </div>
         <div className={artistStyles.heroCopy}>
-          <p className={artistStyles.eyebrow}>{isRoot ? 'In evidenza' : 'Sezione · In evidenza'}</p>
+          <p className={artistStyles.eyebrow}>{eyebrow}</p>
           <h1 ref={headingRef} tabIndex={-1}>
             <bdi>{heading}</bdi>
           </h1>
@@ -178,8 +186,8 @@ export function FeaturedSectionView({ sectionId }: { sectionId: string }) {
       <FeaturedOfflineDownload
         tracks={tracks}
         label={heading}
-        scope="questa cartella"
-        actionLabel="Scarica la cartella per offline"
+        scope={isGenre ? 'questo genere' : 'questa cartella'}
+        actionLabel={isGenre ? 'Scarica i brani per offline' : 'Scarica la cartella per offline'}
       />
 
       <FeaturedTrackList

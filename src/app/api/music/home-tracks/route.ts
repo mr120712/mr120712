@@ -6,7 +6,9 @@
 // `sectionId` e `declaredCount` («Mostra tutti (N)», pagina /cartella/<sectionId>) SOLO se la sua
 // cartella ha almeno un brano dichiarato (N = brani dichiarati: mai quelli non dichiarati), altrimenti
 // null. Ogni brano DICHIARATO porta anche `offline` (copia offline consentita da diritti.json o solo
-// streaming); i non dichiarati non hanno il campo. Lo dice l'indice in cache della ricerca
+// streaming); i non dichiarati non hanno il campo. `genres` è la fila «Per genere»: un riquadro per
+// ogni "genere" dei brani DICHIARATI (pagina /cartella/<id>, N = brani dichiarati di quel genere),
+// vuota se nessun brano dichiarato ha un genere: i brani non dichiarati non sono mai contati. Lo dice l'indice in cache della ricerca
 // (featured-search.server), mai un elenco in più a ogni richiesta. Per il resto la Home resta com'è (stessi brani, sezioni, tetti e ordine).
 //
 // Elenco e versione vengono dallo STESSO elenco condiviso dello store (featured-catalog.server,
@@ -167,6 +169,8 @@ export async function GET(request: Request) {
           ...sectionLink(section, links),
           items: withLinks(section.items, links),
         })),
+        // Solo dall'indice dei brani DICHIARATI: senza indice (o senza generi) nessuna fila.
+        genres: links?.genres ?? [],
         ...(pinning === 'definitive' ? { version: state.version } : {}),
         ...(state.listedAt ? { listedAt: state.listedAt } : {}),
       },

@@ -15,7 +15,8 @@
 //       {
 //         "file": "Rock italiano/Artista - Titolo.mp3",
 //         "licenza": "propria",
-//         "titolare": "Artista"
+//         "titolare": "Artista",
+//         "genere": "Rock italiano"
 //       },
 //       {
 //         "file": "Novità/Band - Singolo.flac",
@@ -27,7 +28,8 @@
 //         "file": "Cantautori/Autrice - Canzone.mp3",
 //         "licenza": "propria",
 //         "titolare": "Autrice",
-//         "testo": true
+//         "testo": true,
+//         "genere": "Cantautorato"
 //       },
 //       {
 //         "file": "Strumentale - Pioggia.mp3",
@@ -58,6 +60,12 @@
 //   Le licenze NON commerciali (cc-by-nc, cc-by-nc-sa, cc-by-nc-nd) NON sono accettate: Solco vende
 //   abbonamenti Pro, quindi l'uso è commerciale.
 // - "titolare": chi detiene i diritti (da 1 a 120 caratteri).
+// - "genere": facoltativo, il genere del brano (da 1 a 40 caratteri, es. "Rap italiano"). In Home i
+//   brani dichiarati con lo stesso genere (maiuscole e spazi doppi non contano) formano un riquadro
+//   della fila «Per genere» (prima i generi con più brani), che apre la pagina con tutti i brani
+//   dichiarati di quel genere. Senza "genere" il brano resta solo nella sua cartella. Non è un permesso: con
+//   più voci per lo stesso file vale il genere della prima. Un "genere" scritto male (non un testo,
+//   vuoto, oltre 40 caratteri, con un a capo) rende NON valida tutta la voce, come gli altri campi.
 // - "prova": facoltativa, una nota o un link al contratto/licenza (al massimo 300 caratteri).
 // - "testo": facoltativo, true o false (se manca vale false). Con true il player mostra il TESTO
 //   del brano (stile Spotify), letto da un file accanto all'audio con lo stesso nome ed estensione
@@ -118,6 +126,11 @@ import 'server-only';
 import { get } from '@vercel/blob';
 import { z } from 'zod';
 import {
+  FEATURED_GENRE_NAME_MAX,
+  featuredGenreLabel,
+  isFeaturedGenreName,
+} from '@/lib/music/featured-genres';
+import {
   encodeBlobPathname,
   type HomeStoreFile,
   isHomeAudioBlob,
@@ -155,9 +168,24 @@ const RightsEntrySchema = z
     testo: z.boolean().optional(),
     // Copia offline: assente = regola della licenza, true = concessa, false = mai (vedi sopra).
     offline: z.boolean().optional(),
+    // Genere per la fila «Per genere» della Home (solo brani dichiarati): testo senza a capo.
+    genere: z
+      .string()
+      .trim()
+      .min(1)
+      .max(FEATURED_GENRE_NAME_MAX)
+      .refine(isFeaturedGenreName)
+      .optional(),
   })
   .strict();
 export type RightsEntry = z.infer<typeof RightsEntrySchema>;
+
+/** Il genere della voce come si mostra (spazi sistemati), o null se la voce non lo dice. */
+export function declaredGenre(entry: Pick<RightsEntry, 'genere'>): string | null {
+  if (typeof entry.genere !== 'string') return null;
+  const label = featuredGenreLabel(entry.genere);
+  return label.length > 0 ? label : null;
+}
 
 /** True solo se la voce dichiara esplicitamente i diritti sul TESTO del brano ("testo": true). */
 export function lyricsDeclared(entry: Pick<RightsEntry, 'testo'>): boolean {
@@ -787,6 +815,11 @@ function entryIssueReasons(issues: readonly z.ZodIssue[], row: unknown): string[
         break;
       case 'offline':
         reasons.push('"offline" deve essere true o false (senza virgolette)');
+        break;
+      case 'genere':
+        reasons.push(
+          `"genere" deve essere un testo da 1 a ${FEATURED_GENRE_NAME_MAX} caratteri su una riga, es. "Rap italiano"`,
+        );
         break;
       default:
         reasons.push(`campo ${shownName(String(field))} non valido`);

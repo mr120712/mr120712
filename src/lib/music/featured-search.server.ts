@@ -86,6 +86,11 @@
 // contato in N; una cartella senza brani dichiarati non ha id (nessun link, 404). Stessa
 // costruzione e stessa cache: nessun elenco dello store in più.
 //
+// E li raggruppa per GENERE ("genere" della loro voce in diritti.json) per la fila «Per genere» della
+// Home (regole in featured-genres.server): ogni genere ha un id opaco della stessa forma, il nome
+// scritto nella voce del brano più recente e i suoi brani DICHIARATI; la sua pagina è la stessa
+// /cartella/<id>. Un brano non dichiarato, o dichiarato senza "genere", non è in nessun genere.
+//
 // E dice, per ogni brano DICHIARATO, se la sua voce consente la COPIA OFFLINE (`offline` del brano,
 // regola in offline-eligibility: licenza + "offline", doppioni conservativi): lo leggono la Home,
 // le pagine d'artista e di sezione e la verifica delle copie già salvate (getFeaturedOfflineStatus).
@@ -110,6 +115,13 @@ import {
 } from '@/lib/music/featured-catalog.server';
 import { clearFeaturedCatalogGenerationForTests } from '@/lib/music/featured-catalog-generation.server';
 import {
+  type FeaturedGenreGroup,
+  type FeaturedHomeGenre,
+  featuredHomeGenres,
+  groupFeaturedGenres,
+} from '@/lib/music/featured-genres.server';
+import {
+  declaredGenre,
   declaredTrackEntries,
   lyricsDeclared,
   offlineDeclared,
@@ -176,14 +188,22 @@ export type FeaturedIndex = {
   shares: ReadonlyMap<string, HomeTrack>;
   /** «Mostra tutti»: id → sezione con i SOLI brani dichiarati della cartella (mai vuota). */
   sections: ReadonlyMap<string, FeaturedSectionGroup>;
+  /**
+   * «Per genere»: id → i SOLI brani dichiarati con quel "genere" nella loro voce (mai vuoto), prima i
+   * generi con più brani. Stessa pagina /cartella/<id> delle sezioni.
+   */
+  genres: ReadonlyMap<string, FeaturedGenreGroup>;
 };
 
 /** Esito della pagina «Mostra tutti» /cartella/<id>. */
 export type FeaturedSectionLookup =
   | {
       outcome: 'found';
-      /** root: la radice dello store (in Home «Ascolta ora»). */
-      section: { id: string; title: string; root: boolean };
+      /**
+       * root: la radice dello store (in Home «Ascolta ora»); genre: la pagina è un genere della fila
+       * «Per genere», non una cartella dello store.
+       */
+      section: { id: string; title: string; root: boolean; genre?: boolean };
       tracks: HomeTrack[];
     }
   /** not_found: id malformato, sconosciuto o di una cartella senza brani dichiarati; unavailable:
@@ -221,6 +241,8 @@ export type FeaturedHomeLinks = {
   sections: ReadonlyMap<string, FeaturedHomeSectionLink>;
   /** pathname → copia offline consentita (true) o solo streaming (false), SOLO brani dichiarati. */
   offline: ReadonlyMap<string, boolean>;
+  /** I riquadri «Per genere» (SOLO brani dichiarati con "genere"), nell'ordine in cui mostrarli. */
+  genres: FeaturedHomeGenre[];
   /** La versione del catalogo per cui è stato costruito l'indice (la Home la confronta con la sua). */
   version: string;
   /**
@@ -271,6 +293,7 @@ const NO_LYRICS: ReadonlyMap<string, FeaturedLyricsSource> = new Map();
 const NO_ARTISTS: ReadonlyMap<string, FeaturedArtistGroup<HomeTrack>> = new Map();
 const NO_SHARES: ReadonlyMap<string, HomeTrack> = new Map();
 const NO_SECTIONS: ReadonlyMap<string, FeaturedSectionGroup> = new Map();
+const NO_GENRES: ReadonlyMap<string, FeaturedGenreGroup> = new Map();
 const UNAVAILABLE: FeaturedIndex = {
   available: false,
   tracks: [],
@@ -278,6 +301,7 @@ const UNAVAILABLE: FeaturedIndex = {
   artists: NO_ARTISTS,
   shares: NO_SHARES,
   sections: NO_SECTIONS,
+  genres: NO_GENRES,
 };
 
 /**
@@ -337,6 +361,7 @@ async function buildIndex(token: string, state: FeaturedCatalogState): Promise<B
         artists: NO_ARTISTS,
         shares: NO_SHARES,
         sections: NO_SECTIONS,
+        genres: NO_GENRES,
       },
       ttl: transient ? FAILURE_TTL_MS : HIT_TTL_MS,
       manifestPublic,
@@ -376,6 +401,15 @@ async function buildIndex(token: string, state: FeaturedCatalogState): Promise<B
   // Sezioni «Mostra tutti»: SOLO i brani dichiarati, per cartella, con i titoli della Home (dallo
   // stesso elenco condiviso: ordine e doppioni come in Home).
   const sections = groupFeaturedSections(tracks, homeFoldersFromListing(state.listing));
+  // Generi («Per genere» in Home): SOLO i brani dichiarati, con il "genere" della loro voce (vale la
+  // prima voce del file). Un id uguale a quello di una cartella resta senza pagina.
+  const genres = groupFeaturedGenres(
+    tracks.map((track) => {
+      const entry = declared.get(track.id);
+      return { track, genre: entry ? declaredGenre(entry) : null };
+    }),
+    new Set(sections.keys()),
+  );
   // Testi: solo le voci valide con "testo": true di file che esistono davvero nello store.
   const sidecarsFor = lyricsSidecarMatcher(catalog.sidecars);
   const lyrics = new Map<string, FeaturedLyricsSource>();
@@ -393,7 +427,7 @@ async function buildIndex(token: string, state: FeaturedCatalogState): Promise<B
   // (al più MENO brani ricercabili, mai di più) per la finestra normale. Uno store sempre oltre il
   // tetto non rifà così 20 elenchi ogni minuto.
   return {
-    index: { available: true, tracks, lyrics, artists, shares, sections },
+    index: { available: true, tracks, lyrics, artists, shares, sections, genres },
     ttl: HIT_TTL_MS,
     manifestPublic,
   };
@@ -557,6 +591,7 @@ export async function loadFeaturedHomeLinks(
       shareIds,
       sections,
       offline,
+      genres: featuredHomeGenres(index.genres.values()),
       version: entry.version,
       manifestPublic: entry.manifestPublic,
     };
@@ -567,7 +602,8 @@ export async function loadFeaturedHomeLinks(
 
 /**
  * La pagina «Mostra tutti» /cartella/<id>: titolo della sezione (come in Home) e i SOLI brani
- * dichiarati della cartella, dal più recente (al massimo 500). Un id malformato non tocca
+ * dichiarati della cartella, dal più recente (al massimo 500); oppure, per l'id di un genere della
+ * fila «Per genere», il nome del genere e i SOLI brani dichiarati con quel "genere". Un id malformato non tocca
  * l'indice; un id sconosciuto o di una cartella senza brani dichiarati → 'not_found'. Stesso
  * indice della ricerca. Mai throw: Blob non configurato o non leggibile → 'unavailable'.
  */
@@ -583,6 +619,15 @@ export async function getFeaturedSection(sectionId: string): Promise<FeaturedSec
         outcome: 'found',
         section: { id: section.id, title: section.title, root: section.key === '' },
         tracks: section.tracks,
+      };
+    }
+    // Un genere della fila «Per genere»: stessa pagina, SOLO i brani dichiarati con quel "genere".
+    const genre = index.genres.get(sectionId);
+    if (genre && genre.tracks.length > 0) {
+      return {
+        outcome: 'found',
+        section: { id: genre.id, title: genre.name, root: false, genre: true },
+        tracks: genre.tracks,
       };
     }
     return { outcome: index.available ? 'not_found' : 'unavailable' };

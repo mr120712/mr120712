@@ -21,6 +21,11 @@ export const FeaturedSectionSchema = z.object({
    * evidenza», e la pagina mostra la stessa. Assente = sezione normale.
    */
   root: z.boolean().optional(),
+  /**
+   * true per un genere della fila «Per genere» della Home ("genere" in diritti.json): la pagina elenca
+   * i brani dichiarati con quel genere, non una cartella. Assente = cartella dello store.
+   */
+  genre: z.boolean().optional(),
 });
 export type FeaturedSection = z.infer<typeof FeaturedSectionSchema>;
 

@@ -143,6 +143,11 @@ export const FeaturedRightsTrackSchema = z
     transcription: z.enum(['ready', 'unsupported_format', 'too_large']).optional(),
     /** Copia offline: presente SOLO per i brani dichiarati (gli altri non si scaricano mai). */
     offline: FeaturedRightsOfflineSchema.optional(),
+    /**
+     * "genere" della voce che vale (fila «Per genere» della Home): presente SOLO per i brani dichiarati,
+     * null = la voce non lo dice. Assente per i non dichiarati (mai in un genere).
+     */
+    genere: z.string().min(1).max(200).nullable().optional(),
   })
   .strict();
 

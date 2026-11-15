@@ -135,6 +135,22 @@ export const HomeTrackSectionSchema = z.object({
 export type HomeTrackSection = z.infer<typeof HomeTrackSectionSchema>;
 
 /**
+ * Un riquadro della fila «Per genere» della Home: i brani DICHIARATI in diritti.json con lo stesso
+ * "genere" (mai quelli non dichiarati), che apre la pagina /cartella/<id>. Tetti larghi: il server
+ * ne manda al massimo 24 con nomi di al massimo 40 caratteri e 4 copertine, ma un valore più alto
+ * non deve mai far scartare l'intera Home a un client meno recente.
+ */
+export const HomeFeaturedGenreSchema = z.object({
+  id: FeaturedSectionIdSchema,
+  name: z.string().trim().min(1).max(200),
+  /** Quanti brani dichiarati elenca la pagina del genere. */
+  count: z.number().int().positive().max(1_000_000),
+  /** Le prime copertine diverse dei suoi brani, per il mosaico del riquadro. */
+  artworkUrls: z.array(homeTrackArtworkUrl).max(16),
+});
+export type HomeFeaturedGenre = z.infer<typeof HomeFeaturedGenreSchema>;
+
+/**
  * Versione del catalogo dei brani in evidenza: 16 cifre esadecimali calcolate dal server
  * dall'impronta dello store (vedi featured-catalog.server). Cambia quando l'amministratore aggiunge,
  * toglie o sostituisce un brano, una copertina, un testo o diritti.json, o preme «Aggiorna ora».
@@ -146,6 +162,11 @@ export const HomeTracksResponseSchema = z.object({
   items: z.array(HomeTrackSchema),
   /** Le stesse tracce divise per sezione (cartella), nell'ordine in cui mostrarle. */
   sections: z.array(HomeTrackSectionSchema).default([]),
+  /**
+   * La fila «Per genere»: SOLO i generi dei brani dichiarati (vuota senza brani dichiarati con
+   * "genere"). Assente dai server meno recenti = nessuna fila.
+   */
+  genres: z.array(HomeFeaturedGenreSchema).max(500).default([]),
   /**
    * La versione del catalogo di QUESTO contenuto, solo se definitivo (link pronti, elenco non
    * degradato). Assente = il client lo richiede al controllo successivo (anche dai server meno

@@ -13,6 +13,12 @@
 // sopra la copertina, nell'angolo opposto a «Condividi»: salva il brano in «La tua musica» (serve
 // l'accesso; la rotta ricontrolla il permesso a ogni download). Gli altri nessun pulsante.
 //
+// «Per genere»: prima delle sezioni, una sola fila compatta di riquadri (mosaico delle copertine, nome
+// del genere, numero di brani), uno per ogni "genere" dei brani DICHIARATI in diritti.json; un
+// tocco apre la pagina /cartella/<id> del genere. La manda il server (`genres`) solo dall'indice
+// dei brani dichiarati: senza brani dichiarati con un genere la fila non c'è, e un brano non
+// dichiarato non è mai in un genere né contato.
+//
 // Aggiornamento automatico (nessun webhook avvisa dei file caricati dal pannello Blob): la sezione
 // chiede al server solo la VERSIONE del catalogo (/api/music/home-tracks/version, in cache sulla
 // CDN) ogni ~30 secondi mentre la scheda è visibile, e al ritorno sulla scheda; riscarica l'elenco
@@ -29,7 +35,7 @@
 // brani già mostrati.
 'use client';
 
-import { Pause, Play } from 'lucide-react';
+import { Folder, Pause, Play } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FallbackArt } from '@/components/custom/music/fallback-art';
@@ -39,10 +45,12 @@ import { playHomeTrack } from '@/components/custom/music/live-tracks';
 import { useMusicPlayer } from '@/components/custom/music/music-player';
 import { featuredDownloadTarget } from '@/components/custom/music/offline-download';
 import { SingleOfflineDownloadButton } from '@/components/custom/music/offline-download-button';
+import { PlaylistMosaic } from '@/components/custom/music/playlist-mosaic';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
 import {
   HOME_TRACKS_DEFAULT_SECTION,
+  type HomeFeaturedGenre,
   type HomeTrack,
   type HomeTrackSection,
   HomeTracksResponseSchema,
@@ -50,6 +58,7 @@ import {
   HomeTracksVersionSchema,
 } from '@/lib/contracts/home-tracks';
 import { featuredArtistPath } from '@/lib/music/featured-artists';
+import { featuredGenreCount } from '@/lib/music/featured-genres';
 import {
   FEATURED_ROOT_SECTION_HEADING,
   featuredSectionPath,
@@ -101,6 +110,18 @@ function sameSections(a: readonly HomeTrackSection[], b: readonly HomeTrackSecti
   return a.length === b.length && JSON.stringify(a) === JSON.stringify(b);
 }
 
+/** Stessi generi (stessi riquadri, numeri e copertine): si tiene l'array attuale. */
+function sameGenres(a: readonly HomeFeaturedGenre[], b: readonly HomeFeaturedGenre[]): boolean {
+  return a.length === b.length && JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** I riquadri «Per genere» validi della risposta (id ben formato, almeno un brano). */
+function genresFrom(response: { genres?: HomeFeaturedGenre[] }): HomeFeaturedGenre[] {
+  return (response.genres ?? []).filter(
+    (genre) => isFeaturedSectionId(genre.id) && genre.count > 0,
+  );
+}
+
 /** Un segnale che interrompe la richiesta dopo `ms` (setTimeout: va anche sui browser meno recenti). */
 function requestDeadline(ms: number) {
   const controller = new AbortController();
@@ -119,6 +140,7 @@ export function HomeTracksSection() {
   const player = useMusicPlayer();
   const { signedIn } = useLibrary();
   const [sections, setSections] = useState<HomeTrackSection[]>([]);
+  const [genres, setGenres] = useState<HomeFeaturedGenre[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   /** Inizio dell'ultimo controllo (versione o, in riserva, elenco). */
   const lastCheckRef = useRef(0);
@@ -159,6 +181,8 @@ export function HomeTracksSection() {
       }
       shownCountRef.current = next.length;
       setSections((current) => (sameSections(current, next) ? current : next));
+      const nextGenres = genresFrom(response);
+      setGenres((current) => (sameGenres(current, nextGenres) ? current : nextGenres));
       // Il server manda `version` solo per un contenuto definitivo: senza, si richiede al prossimo
       // controllo (es. link d'artista non ancora pronti).
       shownVersionRef.current = response.version ?? null;
@@ -251,10 +275,50 @@ export function HomeTracksSection() {
     playHomeTrack(player, item, section.items);
 
   // Si nasconde finché carica, in errore o se vuota: nessun ingombro in Home.
-  if (state !== 'ready' || sections.length === 0) return null;
+  if (state !== 'ready' || (sections.length === 0 && genres.length === 0)) return null;
 
   return (
     <>
+      {/* «Per genere»: una fila sola di riquadri, SOLO dai brani dichiarati (la manda il server). */}
+      {genres.length > 0 ? (
+        <section className={styles.section} aria-labelledby="in-evidenza-generi-heading">
+          <div className={styles.head}>
+            <p className={styles.eyebrow}>IN EVIDENZA</p>
+            <h2 id="in-evidenza-generi-heading" className={styles.title}>
+              Per genere
+            </h2>
+          </div>
+          <ul className={styles.rail}>
+            {genres.map((genre) => {
+              const count = featuredGenreCount(genre.count);
+              return (
+                <li key={genre.id} className={styles.card}>
+                  {/* Il nome accessibile comincia con il testo visibile (nome del genere). */}
+                  <Link
+                    href={featuredSectionPath(genre.id)}
+                    className={styles.genreLink}
+                    aria-label={`${genre.name}, ${count}`}
+                  >
+                    <span className={styles.genreArt}>
+                      <PlaylistMosaic
+                        name={genre.name}
+                        items={genre.artworkUrls.map((artworkUrl) => ({ artworkUrl }))}
+                      />
+                      <span className={styles.folderBadge} aria-hidden="true">
+                        <Folder />
+                      </span>
+                    </span>
+                    <strong className={styles.cardTitle} title={genre.name}>
+                      <bdi>{genre.name}</bdi>
+                    </strong>
+                    <span className={styles.meta}>{count}</span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
       {sections.map((section, index) => {
         const headingId = index === 0 ? 'in-evidenza-heading' : `in-evidenza-heading-${index}`;
         // La radice dello store (id ''), non un titolo: una cartella chiamata "In evidenza" resta sé.

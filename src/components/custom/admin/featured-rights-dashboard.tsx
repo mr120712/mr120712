@@ -578,7 +578,8 @@ const MANIFEST_EXAMPLE = `{
       "file": "Cantautori/Autrice - Canzone.mp3",
       "licenza": "propria",
       "titolare": "Autrice",
-      "testo": true
+      "testo": true,
+      "genere": "Cantautorato"
     },
     {
       "file": "Novità/Band - Singolo.flac",
@@ -641,6 +642,13 @@ function GuidePanel({ defaultOpen }: { defaultOpen: boolean }) {
               <code>licenza</code> (contratto) serve <code>"offline": true</code>, solo se il
               contratto copre anche il download. Una revoca toglie le copie dai dispositivi alla
               verifica successiva; un diritti.json non valido le toglie tutte.
+            </li>
+            <li>
+              <code>"genere"</code>: facoltativo, un testo da 1 a 40 caratteri (es.{' '}
+              <code>"Rap italiano"</code>). In Home i brani dichiarati con lo stesso genere formano
+              un riquadro della fila «Per genere», che apre la pagina con tutti i loro brani
+              (maiuscole e spazi doppi non contano). Senza genere il brano resta solo nella sua
+              cartella.
             </li>
           </ul>
           <div className={styles.warning}>
@@ -1826,6 +1834,12 @@ function TrackItem({
               <div>
                 <dt>Copia offline</dt>
                 <dd>{offlineLabel(track.offline)}</dd>
+              </div>
+            ) : null}
+            {track.declared ? (
+              <div>
+                <dt>Genere</dt>
+                <dd>{track.genere ?? 'nessuno (non è nella fila «Per genere»)'}</dd>
               </div>
             ) : null}
           </dl>

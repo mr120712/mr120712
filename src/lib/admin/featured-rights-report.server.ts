@@ -36,6 +36,7 @@ import {
   peekFeaturedLyricsAvailability,
 } from '@/lib/music/featured-lyrics.server';
 import {
+  declaredGenre,
   diagnoseRightsManifest,
   lyricsDeclared,
   offlineBasis,
@@ -352,6 +353,8 @@ export async function buildFeaturedRightsReport(
         basis: offlineBasis(entry),
         offBy: diagnosis.offlineOffBy.get(track.id) ?? null,
       };
+      // Genere della fila «Per genere» (solo dichiarati, come la Home): quello della voce che vale.
+      row.genere = declaredGenre(entry);
     }
     rows.push(row);
     // Il testo si cerca SOLO per i brani dichiarati con "testo": true (come fa il player).

@@ -78,6 +78,52 @@
   scroll-snap-align: start;
 }
 
+/* «Per genere»: un riquadro per genere (mosaico delle copertine, nome, numero di brani) che apre la
+   pagina del genere. Stessa fila e stesse misure delle copertine dei brani. */
+.genreLink {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 6px;
+  border-radius: 12px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.genreLink:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+.genreArt {
+  --mosaic-radius: 12px;
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+/* Piccola cartella in basso a destra: è una raccolta da aprire, non un brano da suonare. */
+.folderBadge {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 55%);
+  color: #fff;
+  backdrop-filter: blur(4px);
+}
+
+.folderBadge svg {
+  width: 16px;
+  height: 16px;
+}
+
 /* «Condividi» (solo brani dichiarati) nell'angolo in alto a destra della copertina: è un fratello
    del pulsante della scheda, quindi un tocco qui non fa partire il brano. */
 .share {
@@ -201,6 +247,12 @@
 .artistLink:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
+}
+
+/* Riquadro di un genere: il nome si sottolinea al passaggio (dopo .cardTitle, che definisce il testo). */
+.genreLink:hover .cardTitle {
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
 }
 
 @media (prefers-reduced-motion: reduce) {

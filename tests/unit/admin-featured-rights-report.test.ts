@@ -285,6 +285,24 @@ describe('buildFeaturedRightsReport: brani e diritti', () => {
     });
   });
 
+  it('genere: solo per i brani dichiarati (quello della voce, null se non lo dice)', async () => {
+    store = fullStore().map((file) =>
+      file.pathname === 'diritti.json'
+        ? manifest([
+            { file: LRC_SONG, licenza: 'propria', titolare: 'Autrice', genere: ' Cantautorato ' },
+            { file: NO_TESTO, licenza: 'licenza', titolare: 'Etichetta Srl' },
+          ])
+        : file,
+    );
+    const report = await buildFeaturedRightsReport();
+    expect(AdminFeaturedRightsSchema.parse(report)).toEqual(report);
+    expect(track(report, LRC_SONG).genere).toBe('Cantautorato');
+    expect(track(report, NO_TESTO).genere).toBeNull();
+    // Un brano non dichiarato non ha genere (mai nella fila «Per genere»).
+    expect(track(report, UNDECLARED).genere).toBeUndefined();
+    expect(track(report, ROOT_SONG).genere).toBeUndefined();
+  });
+
   it('manifest: voci scartate e ignorate con i motivi, conteggi e riepilogo', async () => {
     store = fullStore();
     const report = await buildFeaturedRightsReport();
