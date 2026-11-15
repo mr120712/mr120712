@@ -2,21 +2,38 @@
 // bloccati e nuovi negli ultimi 7 giorni (finestra mobile di 7×24 ore), con due `count` di Prisma
 // sulla tabella "user" di better-auth. Escono solo questi due numeri e l'istante del conteggio.
 //
+// Freschezza: un nuovo account compare sulla landing entro circa un minuto. Il valore dato da
+// questa istanza ha meno di 20 secondi (PUBLIC_SIGNUPS_TTL_MS), o meno di 24 nel caso descritto
+// sotto (richiesta arrivata durante un conteggio); la CDN aggiunge al massimo 40 secondi
+// (s-maxage 20 + stale-while-revalidate 20, vedi route.ts). Caso peggiore per un caricamento
+// nuovo della pagina: 20 + 40 = 60 s (64 s nel caso limite). Nessun polling, nessuna
+// invalidazione all'iscrizione: il numero si aggiorna solo perché le cache scadono presto.
+//
 // La route è pubblica e la cache della CDN si aggira con una query string qualsiasi: la vera
-// protezione è la cache in memoria di questa istanza (5 minuti). Le richieste che arrivano mentre
-// un conteggio è in corso ricevono subito l'ultimo valore se ha meno di un'ora, altrimenti
-// aspettano quello stesso conteggio (single-flight): mai più di una coppia di query alla volta per
-// istanza. Un conteggio che supera 4 secondi conta come fallito, così un database che non risponde
-// non tiene appese tutte le richieste dell'istanza. Dopo un errore si riprova solo dopo 30 secondi,
-// e nel frattempo si risponde con l'ultimo valore se ha meno di un'ora (altrimenti errore → 503).
+// protezione è la cache in memoria di questa istanza. Al massimo una coppia di COUNT ogni 20
+// secondi per istanza (≤ 3 al minuto, ≤ 2 al minuto se il database sbaglia) e solo se arrivano
+// visite: su una tabella "user" di poche migliaia di righe sono pochi millisecondi.
+// Le richieste che arrivano mentre un conteggio è in corso ricevono subito il valore appena
+// scaduto (meno di 20 + 4 secondi); se il valore è più vecchio (istanza rimasta ferma) aspettano
+// quello stesso conteggio (single-flight): mai più di una coppia di query alla volta per
+// istanza. Un conteggio che supera 4 secondi conta come fallito, così un database che non
+// risponde non tiene appese le richieste dell'istanza. Dopo un errore si riprova solo dopo 30
+// secondi, e nel frattempo si risponde con l'ultimo valore se ha meno di un'ora (altrimenti
+// errore → 503). Quell'ora vale SOLO a ridosso di un conteggio fallito (la pausa di 30 secondi e
+// i 4 del tentativo che la segue) o quando il conteggio stesso fallisce, mai per un errore vecchio
+// a database tornato sano: lì vale di nuovo la regola dei 24 secondi.
 // Un solo log per conteggio fallito, non uno per richiesta: la route è pubblica.
 import 'server-only';
 import type { Prisma } from '@prisma/client';
 import type { PublicSignups } from '@/lib/contracts/public-signups';
 import { prisma } from '@/lib/db';
 
-/** Durata della cache in memoria (per istanza). */
-export const PUBLIC_SIGNUPS_TTL_MS = 5 * 60_000;
+/**
+ * Durata della cache in memoria (per istanza): 20 secondi, così un nuovo account compare sulla
+ * landing entro circa un minuto (con la CDN, vedi l'intestazione). Il database riceve al massimo
+ * una coppia di COUNT per istanza ogni 20 secondi.
+ */
+export const PUBLIC_SIGNUPS_TTL_MS = 20_000;
 /** Pausa dopo un conteggio fallito: un database in difficoltà non riceve una query a richiesta. */
 export const PUBLIC_SIGNUPS_RETRY_MS = 30_000;
 /** Età massima dell'ultimo valore riusato quando il database non risponde. */
@@ -25,6 +42,12 @@ export const PUBLIC_SIGNUPS_STALE_MAX_MS = 60 * 60_000;
 export const PUBLIC_SIGNUPS_WINDOW_MS = 7 * 24 * 60 * 60_000;
 /** Tempo massimo di un conteggio: oltre, vale come errore (pausa di 30 s e ultimo valore). */
 export const PUBLIC_SIGNUPS_TIMEOUT_MS = 4_000;
+/**
+ * Età massima del valore dato SUBITO, a database sano, a chi arriva mentre un conteggio è in
+ * corso: il valore appena scaduto (TTL + durata massima del conteggio). Uno più vecchio (istanza
+ * rimasta ferma) non si dà: si aspetta lo stesso conteggio, al massimo PUBLIC_SIGNUPS_TIMEOUT_MS.
+ */
+export const PUBLIC_SIGNUPS_INFLIGHT_MAX_AGE_MS = PUBLIC_SIGNUPS_TTL_MS + PUBLIC_SIGNUPS_TIMEOUT_MS;
 
 /**
  * Account non bloccato: `banned` FALSE oppure NULL (la colonna è facoltativa). Serve l'OR esplicito:
@@ -87,15 +110,33 @@ function recentValue(now: number): PublicSignups | null {
   return cache && now - cache.at < PUBLIC_SIGNUPS_STALE_MAX_MS ? cache.value : null;
 }
 
-/** Numeri pubblici degli iscritti, dalla cache se ha meno di 5 minuti. */
+/** Valore da dare subito a chi arriva mentre un conteggio è in corso (null = aspetta quello). */
+function inflightValue(now: number): PublicSignups | null {
+  // Il conteggio in corso è il nuovo tentativo subito dopo la pausa di un errore (l'errore ha meno
+  // di 30 + 4 secondi): il database è in difficoltà e vale il ripiego di sempre, l'ultimo valore
+  // di meno di un'ora, senza far aspettare nessuno. Un errore più vecchio non conta: retryAt si
+  // azzera solo al primo successo, ma dopo un periodo senza visite il database può essere tornato.
+  if (retryAt > 0 && now - retryAt < PUBLIC_SIGNUPS_TIMEOUT_MS) return recentValue(now);
+  // Database sano (o errore vecchio): solo il valore appena scaduto, così la freschezza resta entro
+  // ~1 minuto; con uno più vecchio si aspetta lo stesso conteggio (al massimo 4 s), che se fallisce
+  // ripiega comunque sull'ultimo valore di meno di un'ora.
+  return cache && now - cache.at < PUBLIC_SIGNUPS_INFLIGHT_MAX_AGE_MS ? cache.value : null;
+}
+
+/** Numeri pubblici degli iscritti, dalla cache se ha meno di 20 secondi. */
 export function getPublicSignups(): Promise<PublicSignups> {
   const now = Date.now();
   if (cache && now - cache.at < PUBLIC_SIGNUPS_TTL_MS) return Promise.resolve(cache.value);
-  const recent = recentValue(now);
-  // Aggiornamento già in corso: con un valore recente si risponde subito (aspetta solo chi lo ha
-  // avviato, al massimo PUBLIC_SIGNUPS_TIMEOUT_MS); a cache vuota si aspetta lo stesso conteggio.
-  if (inflight) return recent ? Promise.resolve(recent) : inflight;
+  // Aggiornamento già in corso: col valore appena scaduto si risponde subito (aspetta solo chi lo
+  // ha avviato, al massimo PUBLIC_SIGNUPS_TIMEOUT_MS); con un valore più vecchio o a cache vuota
+  // si aspetta lo stesso conteggio, che se fallisce ripiega sull'ultimo valore di meno di un'ora.
+  if (inflight) {
+    const ready = inflightValue(now);
+    return ready ? Promise.resolve(ready) : inflight;
+  }
+  // Pausa dopo un errore: il database non risponde, vale il ripiego sull'ultimo valore (≤ 1 ora).
   if (now < retryAt) {
+    const recent = recentValue(now);
     return recent ? Promise.resolve(recent) : Promise.reject(new PublicSignupsUnavailableError());
   }
 

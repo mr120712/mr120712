@@ -1,8 +1,9 @@
 // @polsia:user-owned — GET /api/public/iscritti: conteggi con Prisma finto (where su banned e
-// createdAt, NULL = non bloccato, finestra mobile di 7×24 ore), cache in memoria di 5 minuti,
-// single-flight, scadenza di 4 secondi sul conteggio (un database appeso non blocca l'istanza),
-// pausa dopo un errore, ultimo valore riusato se recente, un solo log per conteggio fallito,
-// 503 "no-store" con corpo generico e risposta con i soli tre campi del contratto.
+// createdAt, NULL = non bloccato, finestra mobile di 7×24 ore), cache in memoria di 20 secondi,
+// Cache-Control corto (un nuovo account compare entro ~1 minuto), single-flight, scadenza di
+// 4 secondi sul conteggio (un database appeso non blocca l'istanza), pausa dopo un errore, ultimo
+// valore riusato se recente solo quando il database non risponde, un solo log per conteggio
+// fallito, 503 "no-store" con corpo generico e risposta con i soli tre campi del contratto.
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest';
 
@@ -11,7 +12,11 @@ const mocks = vi.hoisted(() => ({ count: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('@/lib/db', () => ({ prisma: { user: { count: mocks.count } } }));
 
-import { PUBLIC_SIGNUPS_TIMEOUT_MS } from '@/lib/business/public-signups.server';
+import {
+  PUBLIC_SIGNUPS_INFLIGHT_MAX_AGE_MS,
+  PUBLIC_SIGNUPS_TIMEOUT_MS,
+  PUBLIC_SIGNUPS_TTL_MS,
+} from '@/lib/business/public-signups.server';
 import { PublicSignupsSchema } from '@/lib/contracts/public-signups';
 
 type RouteModule = typeof import('@/app/api/public/iscritti/route');
@@ -136,7 +141,7 @@ describe('GET /api/public/iscritti', () => {
     fakeDb(USERS);
     const response = await GET();
     expect(response.headers.get('cache-control')).toBe(
-      'public, max-age=60, s-maxage=600, stale-while-revalidate=3600',
+      'public, max-age=0, s-maxage=20, stale-while-revalidate=20',
     );
     expect(response.headers.get('vary')).toBeNull();
     const body = await response.json();
@@ -160,21 +165,44 @@ describe('GET /api/public/iscritti', () => {
     expect(await (await GET()).json()).toMatchObject({ total: 4, last7Days: 4 });
   });
 
-  it('cache di 5 minuti: le richieste successive non interrogano il database', async () => {
+  it('freschezza: memoria + s-maxage + stale-while-revalidate restano entro ~1 minuto', async () => {
     fakeDb(USERS);
+    const header = (await GET()).headers.get('cache-control') ?? '';
+    const seconds = (name: string) => Number(new RegExp(`${name}=(\\d+)`).exec(header)?.[1]);
+    // Il browser chiede sempre alla CDN: nessuna copia locale che allunghi l'attesa.
+    expect(seconds('max-age')).toBe(0);
+    const cdnMs = (seconds('s-maxage') + seconds('stale-while-revalidate')) * 1000;
+    expect(cdnMs).toBe(40_000);
+    // Caso normale: valore dell'istanza (< TTL) + CDN = 60 s.
+    expect(PUBLIC_SIGNUPS_TTL_MS + cdnMs).toBe(60_000);
+    // Caso limite: richiesta arrivata durante un conteggio (< TTL + 4 s) + CDN = 64 s.
+    expect(PUBLIC_SIGNUPS_INFLIGHT_MAX_AGE_MS + cdnMs).toBeLessThanOrEqual(70_000);
+  });
+
+  it('cache di 20 secondi: prima nessuna query, poi il nuovo iscritto compare', async () => {
+    const users = [...USERS];
+    fakeDb(users);
     await GET();
     expect(mocks.count).toHaveBeenCalledTimes(2);
 
-    vi.setSystemTime(new Date(NOW.getTime() + 4 * MINUTE_MS + 59_000));
+    // Un nuovo account appena dopo il conteggio: per 20 secondi resta il valore in memoria.
+    users.push({ banned: null, createdAt: new Date(NOW.getTime() + 1_000) });
+    vi.setSystemTime(new Date(NOW.getTime() + PUBLIC_SIGNUPS_TTL_MS - 1));
     const cached = await GET();
     expect(cached.status).toBe(200);
     expect(await cached.json()).toMatchObject({ total: 6, updatedAt: NOW.toISOString() });
     expect(mocks.count).toHaveBeenCalledTimes(2);
 
-    vi.setSystemTime(new Date(NOW.getTime() + 5 * MINUTE_MS));
+    vi.setSystemTime(new Date(NOW.getTime() + PUBLIC_SIGNUPS_TTL_MS));
     const later = new Date();
     const fresh = await GET();
-    expect(await fresh.json()).toMatchObject({ updatedAt: later.toISOString() });
+    // Nuovi: +1 (il nuovo account) −1 (quello di esattamente 7×24 ore fa, uscito dalla finestra
+    // mobile spostata di 20 secondi).
+    expect(await fresh.json()).toEqual({
+      total: 7,
+      last7Days: 3,
+      updatedAt: later.toISOString(),
+    });
     expect(mocks.count).toHaveBeenCalledTimes(4);
   });
 
@@ -254,13 +282,13 @@ describe('GET /api/public/iscritti', () => {
     expect(expired.headers.get('cache-control')).toBe('no-store');
   });
 
-  it('conteggio appeso con un valore recente: le altre richieste non aspettano, chi lo ha avviato al massimo 4 s', async () => {
+  it('conteggio appeso col valore appena scaduto: le altre richieste non aspettano, chi lo ha avviato al massimo 4 s', async () => {
     fakeTimeouts();
     fakeDb(USERS);
     await GET();
 
-    // Cache scaduta (6 minuti) e database che non risponde più.
-    vi.setSystemTime(new Date(NOW.getTime() + 6 * MINUTE_MS));
+    // Cache appena scaduta (21 secondi) e database che non risponde più.
+    vi.setSystemTime(new Date(NOW.getTime() + PUBLIC_SIGNUPS_TTL_MS + 1_000));
     mocks.count.mockImplementation(() => new Promise(() => {}));
     let settled = false;
     const first = GET().then((response) => {
@@ -293,6 +321,55 @@ describe('GET /api/public/iscritti', () => {
     // Poi pausa di 30 secondi: nessuna nuova query, sempre l'ultimo valore.
     expect((await GET()).status).toBe(200);
     expect(mocks.count).toHaveBeenCalledTimes(4);
+  });
+
+  it('istanza rimasta ferma: chi arriva durante il conteggio aspetta lo stesso conteggio e vede il numero nuovo', async () => {
+    fakeDb(USERS);
+    await GET();
+
+    // Nessuna visita per 6 minuti: il valore in memoria è troppo vecchio per darlo subito.
+    vi.setSystemTime(new Date(NOW.getTime() + 6 * MINUTE_MS));
+    const total = deferred<number>();
+    const recent = deferred<number>();
+    mocks.count.mockImplementation(({ where }: { where: Where }) =>
+      'createdAt' in where ? recent.promise : total.promise,
+    );
+    let settled = 0;
+    const pending = [GET(), GET(), GET()].map((request) =>
+      request.then((response) => {
+        settled += 1;
+        return response;
+      }),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(mocks.count).toHaveBeenCalledTimes(4);
+    expect(settled).toBe(0);
+
+    total.resolve(9);
+    recent.resolve(4);
+    for (const response of await Promise.all(pending)) {
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ total: 9, last7Days: 4 });
+    }
+    expect(mocks.count).toHaveBeenCalledTimes(4);
+  });
+
+  it('istanza rimasta ferma e database appeso: dopo 4 s tutti ricevono l’ultimo valore (ripiego)', async () => {
+    fakeTimeouts();
+    fakeDb(USERS);
+    await GET();
+
+    vi.setSystemTime(new Date(NOW.getTime() + 6 * MINUTE_MS));
+    mocks.count.mockImplementation(() => new Promise(() => {}));
+    const pending = Promise.all([GET(), GET(), GET()]);
+    await vi.advanceTimersByTimeAsync(PUBLIC_SIGNUPS_TIMEOUT_MS);
+    for (const response of await pending) {
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ total: 6, updatedAt: NOW.toISOString() });
+    }
+    expect(mocks.count).toHaveBeenCalledTimes(4);
+    expect(errors).toHaveBeenCalledTimes(1);
   });
 
   it('conteggio appeso a cache vuota: dopo 4 s 503 "no-store", nessuna richiesta resta appesa', async () => {
