@@ -105,6 +105,14 @@ export default function PrivacyPage() {
                 archiviarlo e senza richiedere Solco Pro.
               </li>
               <li>
+                <strong>Ricerca su audio.com:</strong> quando invii una ricerca (Invio o «Cerca», o
+                apri un link di ricerca) il testo cercato viene inviato dal server di Solco ad
+                audio.com per trovare brani, con l’account di Solco: nessun dato personale, nessun
+                dato del tuo account e nessun indirizzo IP. I risultati restano per pochi minuti
+                nella memoria del server. Se ascolti un brano di audio.com, nel player di Solco o
+                nel player ufficiale di audio.com, è il tuo browser a collegarsi ad audio.com.
+              </li>
+              <li>
                 <strong>Cronologia di ascolto:</strong> con l’accesso, Solco registra i brani che
                 ascolti (identificativo, titolo, artista, copertina, fonte, numero e data
                 dell’ultimo ascolto) per mostrarli nella Libreria; puoi cancellarla da lì. Per i

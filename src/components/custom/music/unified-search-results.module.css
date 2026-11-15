@@ -14,6 +14,13 @@
   font-weight: 600;
 }
 
+/* Nota breve su una fonte che non ha risposto (es. audio.com): discreta, non un errore. */
+.sourceNote {
+  margin: 0 0 8px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+
 /* Testata dei risultati: titolo + conteggio della categoria attiva. */
 .resultsHeader {
   display: flex;
@@ -121,6 +128,12 @@ a.title:hover {
 .badge[data-source="audius"] {
   color: var(--primary);
   border-color: color-mix(in srgb, var(--primary) 40%, var(--border));
+}
+
+/* audio.com: brani con licenza e attribuzione (distintivo neutro, la licenza ha il suo). */
+.badge[data-source="audiocom"] {
+  color: var(--foreground);
+  border-color: color-mix(in srgb, var(--foreground) 30%, var(--border));
 }
 
 .badge[data-source="youtube"] {

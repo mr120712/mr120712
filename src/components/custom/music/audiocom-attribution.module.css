@@ -1,0 +1,130 @@
+/* @polsia:user-owned — attribuzione dei brani di audio.com (licenza, link al testo della licenza e
+   al brano) e finestra con il player ufficiale di audio.com (iframe) per le licenze che Solco non
+   riproduce. */
+
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+  max-width: 100%;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.notice a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.notice a:focus-visible,
+.license:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Distintivo della licenza: pieno per le licenze riproducibili in Solco, a contorno per le altre. */
+.license {
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--foreground);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.notice a.license {
+  text-decoration: none;
+}
+
+.license[data-playable="true"] {
+  border-color: color-mix(in srgb, var(--primary) 55%, var(--border));
+}
+
+.license[data-playable="false"] {
+  color: var(--muted-foreground);
+}
+
+/* «Ascolta su audio.com»: azione secondaria sotto la riga (stesso aspetto di «Ascolta su YouTube»). */
+.embedTrigger {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 4px;
+  min-height: 28px;
+  margin-top: 4px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.embedTrigger:hover {
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+  color: var(--foreground);
+}
+
+.embedTrigger:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.embedTrigger svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Su schermi bassi (telefono in orizzontale) la finestra scorre invece di uscire dai bordi: titolo
+   e pulsante di chiusura restano raggiungibili. */
+.dialog {
+  width: calc(100vw - 32px);
+  max-width: 560px;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+
+/* Il titolo riceve il focus all'apertura (non è un controllo): nessun contorno. */
+.dialogTitle:focus {
+  outline: none;
+}
+
+.frame {
+  display: block;
+  width: 100%;
+  height: 230px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--secondary);
+}
+
+@media (max-height: 480px) {
+  .frame {
+    height: 160px;
+  }
+}
+
+.dialogNote {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.dialogNote a {
+  color: var(--primary);
+  font-weight: 600;
+}

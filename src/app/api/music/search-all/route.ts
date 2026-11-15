@@ -6,11 +6,18 @@
 // loro limiti. Restituisce un elenco unico ordinato e deduplicato più le sezioni per fonte.
 // Con `featured=1` (client che sanno mostrarli) aggiunge i brani in evidenza di Solco con i diritti
 // dichiarati in diritti.json (featured-search.server): fonte propria con tempo massimo e stato.
+// Con `audiocom=1` (client che sanno mostrarli, solo per ricerche complete) aggiunge i brani musicali
+// di audio.com (audiocom.server: account collegato dall'admin, cache e limite globale): fonte
+// propria con tempo massimo e stato (`disconnected` se nessun account è collegato). I risultati di
+// audio.com non dipendono da chi cerca, quindi la risposta resta condivisibile in cache; l'unica
+// eccezione è chi ha finito la propria quota di ricerche su audio.com (o non ha un'identità
+// affidabile): per lui audio.com è `unavailable` e la risposta è privata, mai in cache condivisa.
 import 'server-only';
 import { NextResponse } from 'next/server';
 import type { ZodType } from 'zod';
 import { auth } from '@/lib/auth';
 import { enforceRateLimit, getRateLimitIdentity } from '@/lib/business/rate-limit.server';
+import type { AudioComSourceStatus, AudioComTrack } from '@/lib/contracts/audiocom';
 import { type HomeTrack, HomeTrackResultSchema } from '@/lib/contracts/home-tracks';
 import {
   type Podcast,
@@ -31,6 +38,8 @@ import {
   YouTubeVideoSearchResultSchema,
 } from '@/lib/contracts/music';
 import {
+  UNIFIED_AUDIOCOM_LIMIT,
+  UNIFIED_AUDIOCOM_PARAM,
   UNIFIED_AUDIUS_LIST_LIMIT,
   UNIFIED_AUDIUS_TRACK_LIMIT,
   UNIFIED_FEATURED_LIMIT,
@@ -41,6 +50,7 @@ import {
   type UnifiedSourceStatus,
 } from '@/lib/contracts/unified-search';
 import type { YouTubeSearchNotice } from '@/lib/contracts/youtube-search';
+import { searchAudioCom } from '@/lib/music/audiocom.server';
 import { searchFeaturedTracks } from '@/lib/music/featured-search.server';
 import { searchMusic } from '@/lib/music/music-api.server';
 import { searchPodcasts } from '@/lib/music/podcasts.server';
@@ -60,6 +70,8 @@ const SOURCE_TIMEOUT_MS = {
   // L'indice è in cache: questo tempo conta solo quando va ricostruito (elenco Blob + diritti.json).
   // Oltre, la ricostruzione prosegue e serve le ricerche successive.
   featured: 6_000,
+  // Rinnovo del token (raro) + limite globale + ricerca (4,5 s al massimo): oltre, "unavailable".
+  audiocom: 7_000,
 } as const;
 /** Stazioni chieste per avere scelta dopo lo scarto dei doppioni; mostrate fino a UNIFIED_RADIO_LIMIT. */
 const RADIO_FETCH_LIMIT = 12;
@@ -81,6 +93,12 @@ type YouTubeSection = {
 type RadioSection = { status: UnifiedSourceStatus; stations: RadioStation[] };
 type PodcastSection = { status: UnifiedSourceStatus; podcasts: Podcast[] };
 type FeaturedSection = { status: UnifiedSourceStatus; tracks: HomeTrack[] };
+type AudioComSection = {
+  status: AudioComSourceStatus;
+  tracks: AudioComTrack[];
+  /** Fermato dalla quota personale di chi cerca: esito solo suo, risposta privata. */
+  requesterLimited?: boolean;
+};
 
 /** Corsa fra il lavoro e il tempo massimo: alla scadenza (o in errore) torna il valore di riserva. */
 function withDeadline<T>(task: () => Promise<T>, ms: number, fallback: T): Promise<T> {
@@ -175,6 +193,30 @@ async function featuredSection(query: string): Promise<FeaturedSection> {
 const FEATURED_UNAVAILABLE: FeaturedSection = { status: 'unavailable', tracks: [] };
 
 /**
+ * Brani musicali di audio.com (licenza e attribuzione nel brano; lo stream solo se riproducibile).
+ * `identity` serve alla quota personale delle ricerche che arrivano davvero ad audio.com.
+ */
+async function audiocomSection(query: string, identity: string | null): Promise<AudioComSection> {
+  const result = await searchAudioCom(query, { identity });
+  return {
+    status: result.status,
+    tracks: result.tracks.slice(0, UNIFIED_AUDIOCOM_LIMIT),
+    requesterLimited: result.requesterLimited === true,
+  };
+}
+
+const AUDIOCOM_UNAVAILABLE: AudioComSection = { status: 'unavailable', tracks: [] };
+
+/**
+ * Stato di audio.com per le regole di cache: `disconnected` conta come `unavailable` (cache breve,
+ * così i risultati compaiono presto dopo il collegamento), `skipped` non conta.
+ */
+function audiocomCacheStatus(status: AudioComSourceStatus): UnifiedSourceStatus | null {
+  if (status === 'skipped') return null;
+  return status === 'disconnected' ? 'unavailable' : status;
+}
+
+/**
  * Cache HTTP:
  * - con YouTube (dati per identità: quota personale/di connessione e avviso) mai in cache, così non
  *   si serve ad altri un "unavailable" YouTube né l'avviso di un altro ascoltatore;
@@ -211,6 +253,8 @@ export async function GET(request: Request) {
   // Le voci `featured` sono un tipo nuovo: solo i client che lo dichiarano le ricevono, così chi
   // non le conosce (app o pagine meno recenti) continua a leggere la risposta di sempre.
   const featuredRequested = url.searchParams.get(UNIFIED_FEATURED_PARAM) === '1';
+  // Stessa regola per audio.com: tipo nuovo, solo per chi lo chiede.
+  const audiocomRequested = url.searchParams.get(UNIFIED_AUDIOCOM_PARAM) === '1';
 
   // L'identità (utente autenticato o IP d'ingresso) serve alla quota YouTube per persona e al
   // limite. Come le route di catalogo, senza un'identità affidabile (sviluppo locale) non si limita.
@@ -224,7 +268,7 @@ export async function GET(request: Request) {
     }
   }
 
-  const [audius, youtube, radio, podcasts, featured] = await Promise.all([
+  const [audius, youtube, radio, podcasts, featured, audiocom] = await Promise.all([
     withDeadline(() => audiusSection(query), SOURCE_TIMEOUT_MS.audius, AUDIUS_UNAVAILABLE),
     youtubeRequested
       ? withDeadline(
@@ -238,12 +282,20 @@ export async function GET(request: Request) {
     featuredRequested
       ? withDeadline(() => featuredSection(query), SOURCE_TIMEOUT_MS.featured, FEATURED_UNAVAILABLE)
       : Promise.resolve(null),
+    audiocomRequested
+      ? withDeadline(
+          () => audiocomSection(query, identity),
+          SOURCE_TIMEOUT_MS.audiocom,
+          AUDIOCOM_UNAVAILABLE,
+        )
+      : Promise.resolve(null),
   ]);
 
   const results = rankUnifiedResults({
     query,
     featuredTracks: featured?.tracks ?? [],
     audiusTracks: audius.tracks.slice(0, UNIFIED_AUDIUS_TRACK_LIMIT),
+    audiocomTracks: audiocom?.tracks ?? [],
     youtubeVideos: youtube.videos,
     stations: radio.stations,
     podcasts: podcasts.podcasts,
@@ -265,15 +317,28 @@ export async function GET(request: Request) {
       radio: { status: radio.status, stations: radio.stations },
       podcasts: { status: podcasts.status, podcasts: podcasts.podcasts },
       ...(featured ? { featured: { status: featured.status, tracks: featured.tracks } } : {}),
+      ...(audiocom ? { audiocom: { status: audiocom.status, tracks: audiocom.tracks } } : {}),
     },
     ...(youtube.notice ? { youtube: youtube.notice } : {}),
   });
 
-  // Nelle regole di cache contano solo le fonti pubbliche (i brani in evidenza sono uguali per
-  // tutti, come la Home); YouTube (per identità) forza no-store.
+  // Nelle regole di cache contano solo le fonti pubbliche (i brani in evidenza e quelli di
+  // audio.com sono uguali per tutti, come la Home); YouTube (per identità) forza no-store. Un
+  // audio.com fermato dalla quota personale di chi cerca vale solo per lui: risposta privata, così
+  // la CDN non serve quel "unavailable" agli altri.
+  if (audiocom?.requesterLimited) {
+    return NextResponse.json(body, { headers: { 'Cache-Control': 'private, no-store' } });
+  }
+  const audiocomStatus = audiocom ? audiocomCacheStatus(audiocom.status) : null;
   const cacheControl = unifiedCacheControl(
     youtubeRequested,
-    [audius.status, radio.status, podcasts.status, ...(featured ? [featured.status] : [])],
+    [
+      audius.status,
+      radio.status,
+      podcasts.status,
+      ...(featured ? [featured.status] : []),
+      ...(audiocomStatus ? [audiocomStatus] : []),
+    ],
     featured?.status === 'results',
   );
   return NextResponse.json(body, { headers: { 'Cache-Control': cacheControl } });

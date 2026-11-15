@@ -1,17 +1,29 @@
 // @polsia:user-owned — fusione, ordinamento e deduplica dell'elenco misto della ricerca unificata.
 // Funzioni pure (nessun accesso a rete o DB): la route interroga ogni fonte con le funzioni già
 // esistenti e passa qui i risultati per costruire l'unico elenco ordinato. Testabili da sole.
+import type { AudioComTrack } from '@/lib/contracts/audiocom';
 import type { HomeTrack } from '@/lib/contracts/home-tracks';
 import type { Podcast, RadioStation } from '@/lib/contracts/library';
 import type { AudiusTrackSearchResult, YouTubeVideoSearchResult } from '@/lib/contracts/music';
 import { UNIFIED_RANKED_LIMIT, type UnifiedResult } from '@/lib/contracts/unified-search';
+import { isAudioComPlayable } from '@/lib/music/audiocom-license';
 
 /**
  * Priorità della fonte: spareggio quando due voci hanno la stessa rilevanza. Prima il catalogo di
- * Solco (brani in evidenza con diritti dichiarati), poi Audius riproducibile. Resta sotto 10: il
- * punteggio composito è rilevanza * 10 + priorità.
+ * Solco (brani in evidenza con diritti dichiarati), poi Audius riproducibile, poi i brani di
+ * audio.com riproducibili in Solco (licenza CC ammessa), YouTube, i brani di audio.com che si
+ * ascoltano solo nel player ufficiale di audio.com, radio e podcast. Resta sotto 10: il punteggio
+ * composito è rilevanza * 10 + priorità (l'ordine relativo delle fonti di prima non cambia).
  */
-const SOURCE_PRIORITY = { featured: 4, audius: 3, youtube: 2, radio: 1, podcast: 0 } as const;
+const SOURCE_PRIORITY = {
+  featured: 6,
+  audius: 5,
+  audiocomPlayable: 4,
+  youtube: 3,
+  audiocomEmbed: 2,
+  radio: 1,
+  podcast: 0,
+} as const;
 
 /** minuscolo, senza accenti e con spazi normalizzati: base comune per rilevanza e deduplica. */
 export function normalizeText(value: string): string {
@@ -165,6 +177,8 @@ export type UnifiedRankInput = {
   /** Brani in evidenza già filtrati per diritti dichiarati (assenti per chi non li chiede). */
   featuredTracks?: readonly HomeTrack[];
   audiusTracks: readonly AudiusTrackSearchResult[];
+  /** Brani di audio.com (assenti per chi non li chiede). */
+  audiocomTracks?: readonly AudioComTrack[];
   youtubeVideos: readonly YouTubeVideoSearchResult[];
   stations: readonly RadioStation[];
   podcasts: readonly Podcast[];
@@ -177,7 +191,10 @@ export type UnifiedRankInput = {
  * interno di ciascuna fonte è preservato). Deduplica, dalla fonte più importante:
  * - un brano in evidenza resta e porta come alternativa lo stesso brano su YouTube; lo stesso
  *   brano su Audius non compare una seconda volta (solo se il brano in evidenza ha un artista);
- * - un brano Audius resta e porta il video come alternativa; il video non compare una seconda volta.
+ * - un brano Audius resta e porta il video come alternativa; il video non compare una seconda volta;
+ * - un brano di audio.com uguale a un brano in evidenza (con artista) o a un brano Audius
+ *   riproducibile non compare (resta la fonte più importante); altrimenti resta e porta come
+ *   alternativa lo stesso brano su YouTube.
  * I doppioni restano comunque nelle sezioni per fonte (`sources`).
  */
 export function rankUnifiedResults(input: UnifiedRankInput): UnifiedResult[] {
@@ -215,6 +232,26 @@ export function rankUnifiedResults(input: UnifiedRankInput): UnifiedResult[] {
       alternative: findAlternative({ title: track.title, artist: track.artistName }),
     }));
 
+  // audio.com dopo il catalogo Solco e Audius: lo stesso brano già presente là non si ripete. Conta
+  // solo un brano Audius che si può ascoltare: se il gemello Audius non è riproducibile, la voce di
+  // audio.com resta (altrimenti per quel brano rimarrebbe solo una riga senza ascolto).
+  const knownRecordings = [
+    ...featuredEntries
+      .filter(({ track }) => Boolean(track.artist?.trim()))
+      .map(({ track }) => ({ title: track.title, artist: track.artist ?? '' })),
+    ...audiusEntries
+      .filter(({ track }) => track.playbackEligible)
+      .map(({ track }) => ({ title: track.title, artist: track.artistName })),
+  ];
+  const seenAudioComIds = new Set<string>();
+  const audiocomEntries = (input.audiocomTracks ?? []).flatMap((track) => {
+    if (seenAudioComIds.has(track.id)) return [];
+    seenAudioComIds.add(track.id);
+    const song = { title: track.title, artist: track.authorName };
+    if (knownRecordings.some((known) => isSameRecording(known, song))) return [];
+    return [{ track, alternative: findAlternative(song) }];
+  });
+
   const entries: Array<{ result: UnifiedResult; priority: number }> = [];
 
   for (const { track, alternative } of featuredEntries) {
@@ -237,6 +274,23 @@ export function rankUnifiedResults(input: UnifiedRankInput): UnifiedResult[] {
         kind: 'audius',
         key: `audius:${track.id}`,
         score: relevanceScore([track.title, track.artistName], input.query),
+        track,
+        youtubeAlternative: alternative,
+      },
+    });
+  }
+
+  for (const { track, alternative } of audiocomEntries) {
+    entries.push({
+      priority: isAudioComPlayable(track)
+        ? SOURCE_PRIORITY.audiocomPlayable
+        : SOURCE_PRIORITY.audiocomEmbed,
+      result: {
+        kind: 'audiocom',
+        key: `audiocom:${track.id}`,
+        // Stessa scala di Audius e YouTube (relevanceScore): niente bonus «Artista Titolo» che
+        // metterebbe una voce solo-embed davanti a un brano Audius riproducibile.
+        score: relevanceScore([track.title, track.authorName], input.query),
         track,
         youtubeAlternative: alternative,
       },

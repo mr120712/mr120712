@@ -7,7 +7,10 @@
 //
 // Compatibilità: le voci `featured` e `sources.featured` arrivano SOLO con `featured=1`. Un client
 // meno recente non lo manda e riceve la risposta di sempre (il suo schema non conosce il nuovo tipo).
+// Allo stesso modo le voci `audiocom` (brani di audio.com, con licenza e attribuzione) e
+// `sources.audiocom` arrivano SOLO con `audiocom=1`.
 import { z } from 'zod';
+import { AudioComSourceStatusSchema, AudioComTrackSchema } from '@/lib/contracts/audiocom';
 import { HomeTrackResultSchema } from '@/lib/contracts/home-tracks';
 import { PodcastSchema, RadioStationSchema } from '@/lib/contracts/library';
 import {
@@ -32,6 +35,14 @@ export const UNIFIED_PODCAST_LIMIT = 8;
 export const UNIFIED_FEATURED_LIMIT = 8;
 /** Parametro con cui il client dichiara di saper mostrare le voci `featured`. */
 export const UNIFIED_FEATURED_PARAM = 'featured';
+/**
+ * Parametro con cui il client chiede audio.com (e dichiara di saper mostrare le voci `audiocom`).
+ * Il client lo manda solo per una ricerca "completa" (invio esplicito o link di ricerca), mai a
+ * ogni tasto: il limite di audio.com è condiviso da tutti gli ascoltatori.
+ */
+export const UNIFIED_AUDIOCOM_PARAM = 'audiocom';
+/** Brani di audio.com per ricerca (audio.com ne restituisce al più 10 per pagina). */
+export const UNIFIED_AUDIOCOM_LIMIT = 10;
 
 /**
  * Stato indipendente di ogni fonte:
@@ -56,6 +67,11 @@ export type UnifiedSourceStatus = z.infer<typeof UnifiedSourceStatusSchema>;
  * dichiarati in diritti.json), con gli stessi dati della Home (copertina, streamUrl): ha la
  * priorità più alta a parità di rilevanza e assorbe lo stesso brano trovato su Audius o YouTube
  * (il video resta come `youtubeAlternative`, come per Audius).
+ *
+ * `audiocom` è un brano di audio.com (solo con `audiocom=1`): suona nel player di Solco solo con
+ * una licenza CC0 / CC BY / CC BY-SA / CC BY-ND (allora porta `streamUrl`), altrimenti si ascolta
+ * nel player ufficiale di audio.com. Lo stesso brano già presente come brano in evidenza o Audius
+ * non compare una seconda volta; lo stesso brano su YouTube resta come `youtubeAlternative`.
  */
 export const UnifiedResultSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -70,6 +86,13 @@ export const UnifiedResultSchema = z.discriminatedUnion('kind', [
     key: z.string().min(1),
     score: z.number(),
     track: AudiusTrackSearchSchema,
+    youtubeAlternative: YouTubeVideoSearchResultSchema.nullable(),
+  }),
+  z.object({
+    kind: z.literal('audiocom'),
+    key: z.string().min(1),
+    score: z.number(),
+    track: AudioComTrackSchema,
     youtubeAlternative: YouTubeVideoSearchResultSchema.nullable(),
   }),
   z.object({
@@ -125,6 +148,13 @@ export const UnifiedSearchResponseSchema = z.object({
       .object({
         status: UnifiedSourceStatusSchema,
         tracks: z.array(HomeTrackResultSchema),
+      })
+      .optional(),
+    /** Brani musicali di audio.com: presente solo con `audiocom=1`. */
+    audiocom: z
+      .object({
+        status: AudioComSourceStatusSchema,
+        tracks: z.array(AudioComTrackSchema),
       })
       .optional(),
   }),

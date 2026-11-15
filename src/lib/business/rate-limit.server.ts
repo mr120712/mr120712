@@ -260,6 +260,25 @@ export const ACTION_RATE_LIMITS = {
     { requests: 20, windowMs: 600_000 },
     { requests: 100, windowMs: 86_400_000 },
   ],
+  // Ricerca su audio.com: l'API ammette 60 ricerche al minuto PER UTENTE audio.com e Solco usa UN
+  // solo account (collegato dall'admin) per tutti gli ascoltatori. Tetto globale ben sotto (40 al
+  // minuto, identità 'global'), contato solo quando una ricerca arriva davvero ad audio.com: la
+  // cache in memoria di audiocom.server assorbe le ricerche ripetute. Oltre, la fonte è
+  // "unavailable" e le altre fonti rispondono come sempre.
+  'audiocom.search.global': [{ requests: 40, windowMs: 60_000 }],
+  // Quota PERSONALE (utente o IP) delle ricerche che arrivano davvero ad audio.com, controllata
+  // PRIMA del tetto globale e solo quando la ricerca non è già in cache: così una sola persona (o
+  // uno script) non può consumare da sola i 40 al minuto condivisi da tutti. Le ricerche già in
+  // cache non la consumano. Oltre, audio.com è "unavailable" solo per chi l'ha superata.
+  'audiocom.search': [
+    { requests: 6, windowMs: 60_000 },
+    { requests: 300, windowMs: 86_400_000 },
+  ],
+  // «Collega audio.com» (registrazione del client e avvio dell'autorizzazione), per admin.
+  'audiocom.connect.admin': [
+    { requests: 10, windowMs: 600_000 },
+    { requests: 40, windowMs: 86_400_000 },
+  ],
 } as const satisfies Record<string, readonly WindowLimit[]>;
 
 export type RateLimitAction = keyof typeof ACTION_RATE_LIMITS;
@@ -505,6 +524,9 @@ const actionLabels: Record<RateLimitAction, string> = {
   'lyrics.transcribe': 'le trascrizioni dei testi con l’IA',
   'lyrics.transcribe.global': 'le trascrizioni dei testi con l’IA di oggi',
   'lyrics.transcribe.save': 'i salvataggi dei testi',
+  'audiocom.search.global': 'le ricerche su audio.com di questo minuto',
+  'audiocom.search': 'le tue ricerche su audio.com',
+  'audiocom.connect.admin': 'i collegamenti ad audio.com',
 };
 
 type DeniedRateLimit = Exclude<RateLimitDecision, { allowed: true }>;

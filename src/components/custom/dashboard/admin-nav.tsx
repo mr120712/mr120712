@@ -4,6 +4,7 @@
 import {
   Activity,
   AudioLines,
+  AudioWaveform,
   Bot,
   Clapperboard,
   FileCheck2,
@@ -22,6 +23,7 @@ const navItems = [
   { href: '/admin/music-rights', label: 'Diritti musicali', icon: AudioLines },
   { href: '/admin/diritti-testi', label: 'Diritti e testi', icon: FileCheck2 },
   { href: '/admin/tiktok', label: 'Video TikTok', icon: Clapperboard },
+  { href: '/admin/audiocom', label: 'audio.com', icon: AudioWaveform },
   { href: '/admin/monitoraggio', label: 'Monitoraggio', icon: Activity },
 ];
 

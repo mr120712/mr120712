@@ -1,5 +1,14 @@
 // @polsia:user-owned
-import { ArrowRight, AudioLines, Bot, Clapperboard, FileCheck2, Send, Users } from 'lucide-react';
+import {
+  ArrowRight,
+  AudioLines,
+  AudioWaveform,
+  Bot,
+  Clapperboard,
+  FileCheck2,
+  Send,
+  Users,
+} from 'lucide-react';
 import Link from 'next/link';
 import { RateLimitNotice } from '@/components/custom/admin/rate-limit-notice';
 import { Button } from '@/components/ui/button';
@@ -79,6 +88,20 @@ export default function AdminPage() {
           <Button asChild variant="outline" className="mt-1 justify-between">
             <Link href="/admin/tiktok">
               Apri Video TikTok
+              <ArrowRight aria-hidden="true" className="size-4" />
+            </Link>
+          </Button>
+        </article>
+        <article className="grid content-start gap-3 rounded-xl border border-border bg-card p-6">
+          <AudioWaveform aria-hidden="true" className="size-5 text-primary" />
+          <h2 className="font-semibold text-card-foreground">audio.com nella ricerca</h2>
+          <p className="text-sm leading-6 text-muted-foreground">
+            Collega l’account audio.com che il server usa per aggiungere i suoi brani alla ricerca,
+            con licenza e attribuzione. Mostra lo stato del collegamento e l’ultimo problema.
+          </p>
+          <Button asChild variant="outline" className="mt-1 justify-between">
+            <Link href="/admin/audiocom">
+              Apri audio.com
               <ArrowRight aria-hidden="true" className="size-4" />
             </Link>
           </Button>

@@ -46,10 +46,15 @@ export const appCapabilities: AppCapabilities = {
  * e.g. { frameSrc: ['https://js.stripe.com'], connectSrc: ['https://*.supabase.co'] }
  */
 export const cspExtraSources: CspExtraSources = {
+  // audio.com: SOLO l'iframe del player ufficiale (https://audio.com/embed/v2/audio/{id}) per i
+  // brani della ricerca che Solco non riproduce (licenza non CC commerciale). Lo script embed.js
+  // di audio.com non si carica mai (script-src resta rigoroso). Lo stream dei brani CC riproducibili
+  // passa da media-src (https: già ammesso).
   frameSrc: [
     'https://www.youtube.com',
     'https://authorize.music.apple.com',
     'https://www.tiktok.com',
+    'https://audio.com',
   ],
   // Apple Music (MusicKit JS): catalogue API, playback licences and audio segments.
   // Vercel Blob: il client carica i byte DIRETTO dal browser. In @vercel/blob 2.x il PUT va al

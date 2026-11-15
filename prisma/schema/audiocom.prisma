@@ -1,0 +1,33 @@
+// @polsia:user-owned — collegamento di Solco ad audio.com (API pubblica di Muse Group), usato dal
+// server per la ricerca unificata. UNA sola riga (id "audiocom"): l'account audio.com collegato da
+// un amministratore in /admin/audiocom serve le ricerche di tutti gli ascoltatori.
+//
+// - clientId/redirectUri: client OAuth pubblico registrato UNA volta con la registrazione dinamica
+//   (POST https://api.audio.com/auth/client, token_endpoint_auth_method "none": nessun segreto).
+// - accessToken/refreshToken: CIFRATI (AES-256-GCM, chiave HKDF-SHA256 da BETTER_AUTH_SECRET con
+//   etichetta propria, formato "v1.<iv>.<tag>.<ct>", legati al client): mai in chiaro, mai in una
+//   risposta o in un log. «Scollega» li cancella e lascia il client registrato.
+// - tokenVersion + refreshLockedUntil: il rinnovo (refresh_token, che audio.com ruota) lo fa una
+//   sola istanza alla volta e una scrittura vecchia non sostituisce mai token più nuovi.
+// - lastError/lastErrorAt: ultimo problema, come codice fisso (vedi contracts/audiocom.ts).
+// Tutte le colonne sono facoltative o con un valore predefinito (prisma db push sicuro).
+model AudioComConnection {
+  id                 String    @id @default("audiocom")
+  clientId           String?
+  redirectUri        String?
+  accessToken        String?
+  refreshToken       String?
+  accessExpiresAt    DateTime?
+  scope              String?
+  /// Nome dell'account collegato, se audio.com lo fornisce (best effort).
+  accountName        String?
+  connectedAt        DateTime?
+  tokenVersion       Int       @default(0)
+  refreshLockedUntil DateTime?
+  lastError          String?
+  lastErrorAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@map("audiocom_connection")
+}

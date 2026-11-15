@@ -13,6 +13,11 @@
 // admin (solo loro: AdminSearchHint non fa nulla per gli altri), sopra tutto, l'avviso sui brani in
 // evidenza che corrispondono ma non compaiono (non dichiarati in diritti.json), da un altro
 // endpoint privato in parallelo.
+// audio.com (solo per una ricerca "completa": invio esplicito o link di ricerca, mai a ogni tasto,
+// perché il limite di audio.com è condiviso da tutti) aggiunge brani con distintivo di licenza e
+// attribuzione: suonano nel player solo con CC0 / CC BY / CC BY-SA / CC BY-ND (mai le cover),
+// altrimenti «Ascolta su audio.com» apre il player ufficiale di audio.com in una finestra. Se
+// audio.com non risponde lo dice una breve nota; se non è collegato il suggerimento non lo promette.
 'use client';
 
 import { ListMusic, Pause, Play, Search } from 'lucide-react';
@@ -21,6 +26,11 @@ import { usePathname, useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { AdminSearchHint } from '@/components/custom/music/admin-search-hint';
 import { AiMusicSearch } from '@/components/custom/music/ai-music-search';
+import {
+  AudioComAttribution,
+  AudioComEmbedDialog,
+} from '@/components/custom/music/audiocom-attribution';
+import { audioComToPlayerTrack } from '@/components/custom/music/audiocom-tracks';
 import { AudiusLicenseNotice } from '@/components/custom/music/audius-license-notice';
 import { FallbackArt } from '@/components/custom/music/fallback-art';
 import { FeaturedShareButton } from '@/components/custom/music/featured-share-button';
@@ -45,6 +55,7 @@ import {
   youtubeStatusText,
 } from '@/components/custom/music/youtube-search-notice';
 import { apiFetch } from '@/lib/api-client';
+import type { AudioComTrack } from '@/lib/contracts/audiocom';
 import type { HomeTrack } from '@/lib/contracts/home-tracks';
 import {
   type LibrarySearchResponse,
@@ -52,11 +63,13 @@ import {
 } from '@/lib/contracts/library-search';
 import type { AudiusTrackSearchResult, YouTubeVideoSearchResult } from '@/lib/contracts/music';
 import {
+  UNIFIED_AUDIOCOM_PARAM,
   UNIFIED_FEATURED_PARAM,
   type UnifiedResult,
   type UnifiedSearchResponse,
   UnifiedSearchResponseSchema,
 } from '@/lib/contracts/unified-search';
+import { audioComQualifiedId, isAudioComPlayable } from '@/lib/music/audiocom-license';
 import { featuredArtistPath } from '@/lib/music/featured-artists';
 import { genreCatalog } from '@/lib/music/genre-catalog';
 import discover from './discover.module.css';
@@ -73,6 +86,7 @@ const SEARCH_SHARE_BUTTON = 'size-9 rounded-full text-muted-foreground hover:tex
 const SOURCE_LABEL: Record<UnifiedResult['kind'], string> = {
   featured: 'In evidenza',
   audius: 'Audius',
+  audiocom: 'audio.com',
   youtube: 'YouTube',
   radio: 'Radio',
   podcast: 'Podcast',
@@ -150,9 +164,14 @@ function youtubeState(response: UnifiedSearchResponse): YouTubeSearchState | nul
   });
 }
 
-/** Brani: catalogo Solco in evidenza, Audius e YouTube. */
+/** Brani: catalogo Solco in evidenza, Audius, audio.com e YouTube. */
 function isTrackResult(result: UnifiedResult): boolean {
-  return result.kind === 'featured' || result.kind === 'audius' || result.kind === 'youtube';
+  return (
+    result.kind === 'featured' ||
+    result.kind === 'audius' ||
+    result.kind === 'audiocom' ||
+    result.kind === 'youtube'
+  );
 }
 
 function matchesFilter(result: UnifiedResult, filter: Filter): boolean {
@@ -180,6 +199,12 @@ export function UnifiedSearchResults({
   const [query, setQuery] = useState(initialQuery.trim());
   // false mentre si digita (solo Audius + radio + podcast); true all'invio (aggiunge YouTube).
   const [youtubeRequested, setYoutubeRequested] = useState(false);
+  // audio.com solo per una ricerca "completa" (link di ricerca o invio esplicito), mai mentre si
+  // digita: il suo limite di richieste è condiviso da tutti gli ascoltatori di Solco.
+  const [audiocomRequested, setAudiocomRequested] = useState(initialQuery.trim() !== '');
+  // true dopo una risposta con audio.com `disconnected` (nessun account collegato dall'admin): il
+  // suggerimento in cima smette di promettere risultati da audio.com.
+  const [audiocomOff, setAudiocomOff] = useState(false);
   const [response, setResponse] = useState<UnifiedSearchResponse | null>(null);
   const [error, setError] = useState<SearchError | null>(null);
   const [pending, setPending] = useState(false);
@@ -211,6 +236,8 @@ export function UnifiedSearchResults({
       return;
     }
     setYoutubeRequested(false);
+    // Un link di ricerca è una ricerca completa: audio.com sì (YouTube no, costa quota).
+    setAudiocomRequested(initialQuery.trim() !== '');
     setFilter('all');
   }, [initialQuery]);
 
@@ -230,10 +257,15 @@ export function UnifiedSearchResults({
     if (youtubeRequested) params.set('youtubeConsent', 'accepted');
     // Questo client sa mostrare i brani in evidenza (tipo `featured`): il server li aggiunge solo così.
     params.set(UNIFIED_FEATURED_PARAM, '1');
+    // audio.com (tipo `audiocom`) solo per le ricerche complete.
+    if (audiocomRequested) params.set(UNIFIED_AUDIOCOM_PARAM, '1');
     apiFetch(`/api/music/search-all?${params.toString()}`, { schema: UnifiedSearchResponseSchema })
       .then((value) => {
         if (cancelled) return;
         setResponse(value);
+        // Solo le risposte che includono audio.com dicono se è collegato.
+        if (value.sources.audiocom)
+          setAudiocomOff(value.sources.audiocom.status === 'disconnected');
         setPending(false);
       })
       .catch((reason) => {
@@ -244,7 +276,7 @@ export function UnifiedSearchResults({
     return () => {
       cancelled = true;
     };
-  }, [query, youtubeRequested, attempt]);
+  }, [query, youtubeRequested, audiocomRequested, attempt]);
 
   // «Le tue playlist»: SOLO per chi ha fatto l'accesso, in parallelo a search-all (che resta
   // pubblico e in cache CDN: i dati di un account arrivano solo da questo endpoint privato). Una
@@ -286,6 +318,7 @@ export function UnifiedSearchResults({
       // Campo svuotato: niente ricerca, niente richiesta in volo.
       setQuery('');
       setYoutubeRequested(false);
+      setAudiocomRequested(false);
       return;
     }
     // Mentre si digita si cerca solo Audius + radio + podcast (gratis): YouTube (100 unità di quota
@@ -293,6 +326,7 @@ export function UnifiedSearchResults({
     debounce.current = setTimeout(() => {
       debounce.current = null;
       setYoutubeRequested(false);
+      setAudiocomRequested(false);
       setQuery(term);
     }, DEBOUNCE_MS);
   };
@@ -308,6 +342,7 @@ export function UnifiedSearchResults({
     submittedTerm.current = term;
     router.replace(`${pathname}?q=${encodeURIComponent(term)}`, { scroll: false });
     setYoutubeRequested(true);
+    setAudiocomRequested(true);
     // Stesso testo già digitato: cambia youtubeRequested, quindi l'effetto rilancia con YouTube.
     setQuery(term);
   };
@@ -367,6 +402,16 @@ export function UnifiedSearchResults({
         .map((r) => videoToTrack(r.video)),
     [results],
   );
+  // Solo i brani di audio.com riproducibili in Solco (licenza CC ammessa): mai gli altri.
+  const audiocomQueue = useMemo(
+    () =>
+      results.flatMap((r): MusicPlayerTrack[] => {
+        if (r.kind !== 'audiocom') return [];
+        const track = audioComToPlayerTrack(r.track);
+        return track ? [track] : [];
+      }),
+    [results],
+  );
   const radioQueue = useMemo(
     () =>
       results
@@ -394,10 +439,24 @@ export function UnifiedSearchResults({
   // Brano in evidenza: lo STESSO avvio della Home (stesso elemento, stesso percorso, stesse regole
   // del player); la coda sono i brani in evidenza trovati.
   const playFeatured = (item: HomeTrack) => playHomeTrack(player, item, featuredItems);
+  // audio.com: solo se la licenza lo permette (audioComToPlayerTrack restituisce null altrimenti).
+  const playAudioCom = (item: AudioComTrack) => {
+    const track = audioComToPlayerTrack(item);
+    if (track) playTrack(track, audiocomQueue);
+  };
+  // Aprendo il player ufficiale di audio.com si mette in pausa quello di Solco (due brani insieme no).
+  const pauseForEmbed = () => {
+    if (player.status === 'playing') void player.togglePlayback();
+  };
 
   const yt = response ? youtubeState(response) : null;
   const showNotice = yt?.kind === 'saved' || yt?.kind === 'blocked';
   const youtubeVideoCount = response?.sources.youtube.videos.length ?? 0;
+  // audio.com chiesto ma senza risposta (limite, errore, tempo scaduto): lo si dice, con garbo.
+  const audiocomNote =
+    response?.sources.audiocom?.status === 'unavailable'
+      ? 'audio.com non risponde in questo momento: riprova tra poco.'
+      : null;
 
   // Riga di stato sempre montata (annunci per lo screen reader): conteggio della lista + stato YouTube.
   const statusLine = (() => {
@@ -412,6 +471,7 @@ export function UnifiedSearchResults({
     if (yt && (yt.kind === 'saved' || yt.kind === 'blocked')) {
       line += ` ${youtubeStatusText(yt, youtubeVideoCount)}`;
     }
+    if (audiocomNote) line += ` ${audiocomNote}`;
     return line;
   })();
 
@@ -453,7 +513,8 @@ export function UnifiedSearchResults({
       </form>
       <p className={styles.hint}>
         Mentre scrivi cerchiamo fra i brani in evidenza, su Audius, radio e podcast. Premi Invio o
-        «Cerca» per includere anche YouTube (la query raggiunge Google).{' '}
+        «Cerca» per includere anche YouTube (la query raggiunge Google)
+        {audiocomOff ? '.' : ' e audio.com.'}{' '}
         {signedIn ? 'Trovi anche le tue playlist e i brani salvati: li vedi solo tu. ' : null}
         <Link href="/privacy">Privacy</Link>
       </p>
@@ -536,6 +597,8 @@ export function UnifiedSearchResults({
                 />
               ) : null}
 
+              {audiocomNote ? <p className={styles.sourceNote}>{audiocomNote}</p> : null}
+
               {counts.all > 0 ? (
                 <fieldset className={discover.chips}>
                   <legend className="sr-only">Filtra i risultati per tipo</legend>
@@ -578,6 +641,8 @@ export function UnifiedSearchResults({
                       isPlayingNow={isPlayingNow}
                       onPlayFeatured={playFeatured}
                       onPlayAudius={playAudius}
+                      onPlayAudioCom={playAudioCom}
+                      onOpenAudioComEmbed={pauseForEmbed}
                       onPlayVideo={(video) => playTrack(videoToTrack(video), youtubeQueue)}
                       onPlayStation={(station) => playTrack(stationToTrack(station), radioQueue)}
                     />
@@ -648,6 +713,8 @@ function ResultRow({
   isPlayingNow,
   onPlayFeatured,
   onPlayAudius,
+  onPlayAudioCom,
+  onOpenAudioComEmbed,
   onPlayVideo,
   onPlayStation,
 }: {
@@ -655,6 +722,8 @@ function ResultRow({
   isPlayingNow: (qualifiedId: string) => boolean;
   onPlayFeatured: (item: HomeTrack) => void;
   onPlayAudius: (track: AudiusTrackSearchResult) => void;
+  onPlayAudioCom: (track: AudioComTrack) => void;
+  onOpenAudioComEmbed: () => void;
   onPlayVideo: (video: YouTubeVideoSearchResult) => void;
   onPlayStation: (station: Extract<UnifiedResult, { kind: 'radio' }>['station']) => void;
 }) {
@@ -754,6 +823,56 @@ function ResultRow({
               playing={playing}
               label={playing ? `Metti in pausa ${track.title}` : `Riproduci ${track.title}`}
               onClick={() => onPlayAudius(track)}
+            />
+          ) : null}
+        </div>
+      </li>
+    );
+  }
+
+  if (result.kind === 'audiocom') {
+    const { track, youtubeAlternative } = result;
+    const playable = isAudioComPlayable(track);
+    const playing = playable && isPlayingNow(audioComQualifiedId(track.id));
+    return (
+      <li className={`${discover.row} ${styles.rowStacked}`} data-kind="audiocom">
+        <div className={discover.rowArt}>
+          <FallbackArt src={track.imageUrl} label={track.title} size={104} />
+        </div>
+        <div className={styles.copy}>
+          <div className={styles.titleLine}>
+            <SourceBadge kind="audiocom" />
+            <strong className={styles.title} title={track.title}>
+              {track.title}
+            </strong>
+          </div>
+          <span className={styles.sub}>
+            {[track.authorName, formatDuration(track.durationSeconds)].filter(Boolean).join(' · ')}
+          </span>
+          {/* Attribuzione: licenza (link al testo per le CC) e link al brano su audio.com. */}
+          <AudioComAttribution track={track} />
+          {playable ? null : (
+            // Licenza che Solco non riproduce: solo il player ufficiale di audio.com.
+            <AudioComEmbedDialog track={track} onOpen={onOpenAudioComEmbed} />
+          )}
+          {youtubeAlternative ? (
+            <YouTubeAlternative
+              video={youtubeAlternative}
+              isPlayingNow={isPlayingNow}
+              onPlayVideo={onPlayVideo}
+            />
+          ) : null}
+        </div>
+        <div className={discover.rowActions}>
+          {playable ? (
+            <PlayButton
+              playing={playing}
+              label={
+                playing
+                  ? `Metti in pausa ${track.title} di ${track.authorName}`
+                  : `Riproduci ${track.title} di ${track.authorName}`
+              }
+              onClick={() => onPlayAudioCom(track)}
             />
           ) : null}
         </div>
