@@ -51,6 +51,7 @@ import {
 } from '@/lib/contracts/unified-search';
 import type { YouTubeSearchNotice } from '@/lib/contracts/youtube-search';
 import { searchAudioCom } from '@/lib/music/audiocom.server';
+import { audioComStreamDiagnostics } from '@/lib/music/audiocom-stream-diagnostics';
 import { searchFeaturedTracks } from '@/lib/music/featured-search.server';
 import { searchMusic } from '@/lib/music/music-api.server';
 import { searchPodcasts } from '@/lib/music/podcasts.server';
@@ -326,8 +327,15 @@ export async function GET(request: Request) {
   // audio.com sono uguali per tutti, come la Home); YouTube (per identità) forza no-store. Un
   // audio.com fermato dalla quota personale di chi cerca vale solo per lui: risposta privata, così
   // la CDN non serve quel "unavailable" agli altri.
+  // DIAGNOSTICA TEMPORANEA: motivo e host degli stream di audio.com scartati (audiocom-stream-diagnostics.ts).
+  const audiocomDiagnostics = audiocomRequested ? audioComStreamDiagnostics() : '';
+  const diagnosticHeaders: Record<string, string> = audiocomDiagnostics
+    ? { 'x-solco-audiocom-stream': audiocomDiagnostics }
+    : {};
   if (audiocom?.requesterLimited) {
-    return NextResponse.json(body, { headers: { 'Cache-Control': 'private, no-store' } });
+    return NextResponse.json(body, {
+      headers: { 'Cache-Control': 'private, no-store', ...diagnosticHeaders },
+    });
   }
   const audiocomStatus = audiocom ? audiocomCacheStatus(audiocom.status) : null;
   const cacheControl = unifiedCacheControl(
@@ -341,5 +349,7 @@ export async function GET(request: Request) {
     ],
     featured?.status === 'results',
   );
-  return NextResponse.json(body, { headers: { 'Cache-Control': cacheControl } });
+  return NextResponse.json(body, {
+    headers: { 'Cache-Control': cacheControl, ...diagnosticHeaders },
+  });
 }

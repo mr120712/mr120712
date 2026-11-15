@@ -47,6 +47,7 @@ import {
   isAudioComStreamAllowed,
   normalizeAudioComLicense,
 } from '@/lib/music/audiocom-license';
+import { noteRejectedAudioComStream } from '@/lib/music/audiocom-stream-diagnostics';
 import { normalizeText } from '@/lib/music/unified-search';
 
 export const AUDIOCOM_SEARCH_URL = `${AUDIOCOM_API_ORIGIN}/v1/search`;
@@ -123,16 +124,18 @@ export function toAudioComTrack(hit: unknown): AudioComTrack | null {
   if (!KEPT_CATEGORIES.has(category)) return null;
   const license = normalizeAudioComLicense(raw.license);
   const durationMs = raw.play?.duration ?? 0;
+  // Lo stream arriva al client SOLO con una licenza riproducibile in Solco e mai per una cover.
+  const streamAllowed = isAudioComStreamAllowed({ license, category });
+  const streamUrl = streamAllowed ? audioComStreamUrl(raw.play?.url) : null;
+  // DIAGNOSTICA TEMPORANEA: motivo e host di uno stream scartato (audiocom-stream-diagnostics.ts).
+  if (streamAllowed && streamUrl === null) noteRejectedAudioComStream(raw.play?.url);
   const candidate = {
     id: raw.id,
     title: cleanText(raw.title, 300),
     authorName: cleanText(raw.author_name, 200) || cleanText(raw.username, 200),
     pageUrl: audioComPageUrl(raw.username, raw.slug),
     imageUrl: audioComImageUrl(raw.image),
-    // Lo stream arriva al client SOLO con una licenza riproducibile in Solco e mai per una cover.
-    streamUrl: isAudioComStreamAllowed({ license, category })
-      ? audioComStreamUrl(raw.play?.url)
-      : null,
+    streamUrl,
     durationSeconds:
       durationMs > 0 ? Math.min(86_400, Math.max(1, Math.round(durationMs / 1000))) : null,
     category,
