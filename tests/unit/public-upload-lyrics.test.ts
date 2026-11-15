@@ -36,17 +36,23 @@ vi.mock('@/lib/business/request-body.server', () => ({
 }));
 vi.mock('@vercel/blob', () => ({ head: mocks.head, del: mocks.del }));
 vi.mock('@/lib/env', () => ({ env: { BLOB_READ_WRITE_TOKEN: 'tok_test' } }));
-vi.mock('@/lib/db', () => ({
-  prisma: {
-    publicUpload: {
-      count: mocks.uploadCount,
-      create: mocks.uploadCreate,
-      findFirst: mocks.uploadFindFirst,
-      findMany: mocks.uploadFindMany,
-      update: mocks.uploadUpdate,
+vi.mock('@/lib/db', () => {
+  const publicUpload = {
+    count: mocks.uploadCount,
+    create: mocks.uploadCreate,
+    findFirst: mocks.uploadFindFirst,
+    findMany: mocks.uploadFindMany,
+    update: mocks.uploadUpdate,
+  };
+  return {
+    prisma: {
+      publicUpload,
+      // La registrazione usa una transazione interattiva (lock per utente + conteggio + creazione).
+      $transaction: async (fn: (tx: unknown) => unknown) =>
+        fn({ $queryRaw: async () => [{ locked: 1 }], publicUpload }),
     },
-  },
-}));
+  };
+});
 
 import { PATCH } from '@/app/api/music/public-uploads/[uploadId]/route';
 import { POST } from '@/app/api/music/public-uploads/route';

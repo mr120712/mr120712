@@ -33,12 +33,12 @@ export function PublicUploadForm({
   limit,
 }: {
   onUploaded: (upload: PublicUpload) => void;
-  /** Quanti brani pubblici ha già l'utente, e il tetto massimo. */
-  count: number;
+  /** Brani già pubblicati dall'utente; null = non si è potuto leggere (il server applica comunque il tetto). */
+  count: number | null;
   limit: number;
 }) {
   const library = useLibrary();
-  const atLimit = count >= limit;
+  const atLimit = count !== null && count >= limit;
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState('');
@@ -179,7 +179,16 @@ export function PublicUploadForm({
             Commons): niente materiale di terzi sotto copyright.
           </p>
           <p className={styles.counter} aria-live="polite">
-            <strong>{count}</strong> / {limit} brani pubblicati
+            {count === null ? (
+              <>
+                Non riesco a leggere quanti brani hai già pubblicato: il limite di {limit} vale
+                comunque.
+              </>
+            ) : (
+              <>
+                <strong>{count}</strong> / {limit} brani pubblicati
+              </>
+            )}
           </p>
         </div>
       </div>

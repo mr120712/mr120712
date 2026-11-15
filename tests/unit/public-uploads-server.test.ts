@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   reportCount: vi.fn(),
   transaction: vi.fn(),
   playCreateMany: vi.fn(),
+  queryRaw: vi.fn(),
 }));
 
 vi.mock('@vercel/blob', () => ({ head: mocks.head, del: mocks.del }));
@@ -75,8 +76,22 @@ const validInput = {
   elapsedSeconds: 120,
 };
 
+/** La transazione interattiva di registrazione: lock per utente, conteggio e creazione. */
+function registrationTx() {
+  return {
+    $queryRaw: mocks.queryRaw,
+    publicUpload: { count: mocks.uploadCount, create: mocks.uploadCreate },
+  };
+}
+
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.queryRaw.mockResolvedValue([{ locked: 1 }]);
+  mocks.transaction.mockImplementation(async (arg: unknown) =>
+    typeof arg === 'function'
+      ? (arg as (tx: ReturnType<typeof registrationTx>) => unknown)(registrationTx())
+      : Promise.all(arg as Promise<unknown>[]),
+  );
 });
 
 describe('registerPublicUpload', () => {
@@ -153,6 +168,56 @@ describe('registerPublicUpload', () => {
     await expect(registerPublicUpload('user-1', validInput)).rejects.toBeInstanceOf(
       PublicUploadLimitReached,
     );
+  });
+
+  it('conteggio e creazione nella stessa transazione, con il lock per utente', async () => {
+    mocks.uploadCount.mockResolvedValue(0);
+    mocks.head.mockResolvedValue({ contentType: 'audio/mpeg' });
+    mocks.uploadCreate.mockResolvedValue({ ...OWNED_ROW, uploaderUserId: 'user-1' });
+    await registerPublicUpload('user-1', validInput);
+    expect(mocks.transaction).toHaveBeenCalledTimes(1);
+    expect(mocks.queryRaw).toHaveBeenCalledTimes(1);
+    // Il lock è per utente: la chiave contiene l'id dell'utente.
+    expect(mocks.queryRaw.mock.calls[0]?.slice(1)).toEqual(['public-upload:user-1']);
+  });
+
+  it('ricontrolla il tetto dentro la transazione (un brano arrivato nel frattempo)', async () => {
+    // Controllo veloce: 2 brani; dentro la transazione (dopo il lock) sono già 3.
+    mocks.uploadCount.mockResolvedValueOnce(2).mockResolvedValueOnce(MAX_UPLOADS_PER_USER);
+    mocks.head.mockResolvedValue({ contentType: 'audio/mpeg' });
+    await expect(registerPublicUpload('user-1', validInput)).rejects.toBeInstanceOf(
+      PublicUploadLimitReached,
+    );
+    expect(mocks.uploadCreate).not.toHaveBeenCalled();
+  });
+
+  it('due registrazioni in contemporanea con 2 brani: ne passa una sola', async () => {
+    const owned: string[] = ['a', 'b'];
+    let chain: Promise<unknown> = Promise.resolve();
+    // Emula pg_advisory_xact_lock: le transazioni dello stesso utente girano una alla volta.
+    mocks.transaction.mockImplementation((fn: (tx: unknown) => Promise<unknown>) => {
+      const run = chain.then(() => fn(registrationTx()));
+      chain = run.catch(() => undefined);
+      return run;
+    });
+    mocks.uploadCount.mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      return owned.length;
+    });
+    mocks.uploadCreate.mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      owned.push('nuovo');
+      return { ...OWNED_ROW, uploaderUserId: 'user-1' };
+    });
+    mocks.head.mockResolvedValue({ contentType: 'audio/mpeg' });
+    const results = await Promise.allSettled([
+      registerPublicUpload('user-1', validInput),
+      registerPublicUpload('user-1', { ...validInput, blobPathname: 'public-uploads/y.mp3' }),
+    ]);
+    expect(results.map((result) => result.status).sort()).toEqual(['fulfilled', 'rejected']);
+    const rejected = results.find((result) => result.status === 'rejected');
+    expect((rejected as PromiseRejectedResult).reason).toBeInstanceOf(PublicUploadLimitReached);
+    expect(owned).toHaveLength(MAX_UPLOADS_PER_USER);
   });
 
   it('registra comunque se head() va in timeout/errore (degradazione, niente blocco)', async () => {

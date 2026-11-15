@@ -164,20 +164,30 @@ export async function registerPublicUpload(
   const lyrics = input.lyrics && input.lyricsRightsConfirmed === true ? input.lyrics : null;
 
   try {
-    const row = await prisma.publicUpload.create({
-      data: {
-        uploaderUserId: userId,
-        title: input.title,
-        artist: input.artist && input.artist.length > 0 ? input.artist : null,
-        blobUrl: input.blobUrl,
-        blobPathname: input.blobPathname,
-        mimeType: input.mimeType,
-        byteLength: input.byteLength,
-        durationSeconds,
-        lyrics,
-        lyricsRightsConfirmed: lyrics !== null,
-      },
-      select: selectOwnUpload,
+    // Conteggio e creazione nella STESSA transazione, serializzati per utente da un lock di
+    // Postgres (pg_advisory_xact_lock, rilasciato a fine transazione): due registrazioni partite
+    // insieme con 2 brani non possono più passare entrambe il controllo e arrivare a 4. Il
+    // controllo veloce più sopra resta per rispondere subito senza interrogare Blob.
+    const lockKey = `public-upload:${userId}`;
+    const row = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT 1 AS locked FROM (SELECT pg_advisory_xact_lock(hashtext(${lockKey}))) AS lock_taken`;
+      const owned = await tx.publicUpload.count({ where: { uploaderUserId: userId } });
+      if (owned >= MAX_UPLOADS_PER_USER) throw new PublicUploadLimitReached();
+      return tx.publicUpload.create({
+        data: {
+          uploaderUserId: userId,
+          title: input.title,
+          artist: input.artist && input.artist.length > 0 ? input.artist : null,
+          blobUrl: input.blobUrl,
+          blobPathname: input.blobPathname,
+          mimeType: input.mimeType,
+          byteLength: input.byteLength,
+          durationSeconds,
+          lyrics,
+          lyricsRightsConfirmed: lyrics !== null,
+        },
+        select: selectOwnUpload,
+      });
     });
     // È un brano del proprietario stesso: può sempre ascoltarlo (canPlay).
     return toPublicUpload(row, userId, true);

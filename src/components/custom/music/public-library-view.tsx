@@ -27,6 +27,8 @@ export function PublicLibraryView() {
   const [reloadKey, setReloadKey] = useState(0);
   // null = non ancora caricato o utente non loggato; array = i brani pubblici dell'utente.
   const [mine, setMine] = useState<PublicUpload[] | null>(null);
+  // true se la lista dei propri brani non si è potuta leggere: il contatore non deve dire «0/3».
+  const [mineFailed, setMineFailed] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
 
   const loadMine = useCallback(async () => {
@@ -39,9 +41,12 @@ export function PublicLibraryView() {
         schema: PublicUploadMineResponseSchema,
       });
       setMine(data.items);
+      setMineFailed(false);
     } catch {
-      // Non blocca la pagina: il server fa comunque rispettare il tetto. Mostra "nessuno".
+      // Non blocca la pagina: il server fa comunque rispettare il tetto. Il contatore resta
+      // «sconosciuto» invece di mostrare 0 brani a chi potrebbe averne già 3.
       setMine([]);
+      setMineFailed(true);
     }
   }, [library.signedIn]);
 
@@ -83,7 +88,7 @@ export function PublicLibraryView() {
 
       <PublicUploadForm
         onUploaded={handleUploaded}
-        count={count}
+        count={library.signedIn && mineFailed ? null : count}
         limit={PUBLIC_UPLOAD_MAX_PER_USER}
       />
 
