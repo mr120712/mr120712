@@ -10,8 +10,10 @@
 // riproducono in Solco solo con licenza CC0 / CC BY / CC BY-SA / CC BY-ND; gli altri si ascoltano
 // solo nel player ufficiale di audio.com.
 // Prima di collegare va verificato che i termini dell'API di audio.com consentano questo uso.
-// Con l'account collegato, il pannello «In evidenza nella Home» sceglie le collection dell'account
-// da mostrare in Home come sezioni (audiocom-featured-admin.tsx).
+// Con l'account collegato, il pannello «Carica su audio.com» pubblica un file dal dispositivo
+// dell'amministratore sul suo account (audiocom-upload-admin.tsx) e il pannello «In evidenza nella
+// Home» sceglie le collection dell'account da mostrare in Home come sezioni
+// (audiocom-featured-admin.tsx).
 'use client';
 
 import { AlertTriangle, CheckCircle2, Link2, Unlink } from 'lucide-react';
@@ -22,6 +24,7 @@ import { AppSurface } from '@/components/custom/app-ui/app-shell';
 import { PageHeader } from '@/components/custom/app-ui/page-header';
 import { Panel } from '@/components/custom/app-ui/panel';
 import { AudioComFeaturedAdmin } from '@/components/custom/music/audiocom-featured-admin';
+import { AudioComUploadAdmin } from '@/components/custom/music/audiocom-upload-admin';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
 import {
@@ -153,8 +156,13 @@ export function AudioComAdmin() {
         />
       </Panel>
 
-      {/* Con l'account collegato: le collection da mostrare in Home. */}
-      {status?.connected ? <AudioComFeaturedAdmin /> : null}
+      {/* Con l'account collegato: caricamento di un brano e collection da mostrare in Home. */}
+      {status?.connected ? (
+        <>
+          <AudioComUploadAdmin />
+          <AudioComFeaturedAdmin />
+        </>
+      ) : null}
 
       <Panel title="Come funziona" description="Da leggere prima di collegare.">
         <ul className="grid list-disc gap-2 pl-5 text-sm leading-6 text-muted-foreground">
@@ -178,6 +186,11 @@ export function AudioComAdmin() {
             BY-ND, sempre con autore, licenza e link al brano. Tutti gli altri (tutti i diritti
             riservati, nessuna licenza, licenze non commerciali) si ascoltano solo nel player
             ufficiale di audio.com.
+          </li>
+          <li>
+            «Carica su audio.com»: pubblica sul tuo account un file dal dispositivo (fino a 100 MB),
+            solo musica tua o di cui hai i diritti. Il file passa dallo storage di Solco e da lì si
+            cancella appena audio.com lo ha ricevuto (o se l’invio non riesce).
           </li>
           <li>
             «In evidenza nella Home»: scegli fino a 6 collection (album o playlist) del tuo account;
