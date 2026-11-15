@@ -1,10 +1,12 @@
 // @polsia:user-owned — pagina /admin/iscritti: totali degli account, nuovi nelle ultime 24 ore /
 // 7 / 30 giorni, verificati, bloccati, utenti Free e Pro (con i Pro per fonte) e grafico a barre
 // delle iscrizioni degli ultimi 30 giorni (con tabella per i lettori di schermo). Legge solo
-// /api/admin/signups: numeri aggregati, nessun dato personale.
+// /api/admin/signups: numeri aggregati, nessun dato personale. In alto il collegamento a
+// /admin/utenti-vecchi (trasferimento degli account del vecchio sito).
 'use client';
 
-import { CircleAlert, CircleX, RefreshCw, RotateCw, Table2, Users } from 'lucide-react';
+import { CircleAlert, CircleX, History, RefreshCw, RotateCw, Table2, Users } from 'lucide-react';
+import Link from 'next/link';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { ZodError } from 'zod';
 import { AppSurface } from '@/components/custom/app-ui/app-shell';
@@ -198,15 +200,23 @@ export function SignupsDashboard() {
         title="Iscritti"
         description="Solo numeri aggregati sugli account di Solco: nessun dato personale. Giorni e orari in ora italiana."
         actions={
-          <Button
-            type="button"
-            onClick={refresh}
-            aria-disabled={loading || undefined}
-            className="aria-disabled:cursor-progress aria-disabled:opacity-70"
-          >
-            <RefreshCw aria-hidden="true" className={loading ? 'motion-safe:animate-spin' : ''} />
-            {loading && data ? 'Aggiornamento…' : 'Aggiorna'}
-          </Button>
+          <>
+            <Button asChild variant="outline">
+              <Link href="/admin/utenti-vecchi">
+                <History aria-hidden="true" />
+                Utenti del vecchio sito
+              </Link>
+            </Button>
+            <Button
+              type="button"
+              onClick={refresh}
+              aria-disabled={loading || undefined}
+              className="aria-disabled:cursor-progress aria-disabled:opacity-70"
+            >
+              <RefreshCw aria-hidden="true" className={loading ? 'motion-safe:animate-spin' : ''} />
+              {loading && data ? 'Aggiornamento…' : 'Aggiorna'}
+            </Button>
+          </>
         }
       />
       <div className={styles.status}>

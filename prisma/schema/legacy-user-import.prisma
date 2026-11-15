@@ -1,0 +1,19 @@
+// @polsia:user-owned — registro degli account trasferiti dal database del vecchio sito
+// (/admin/utenti-vecchi). Una riga per ogni utente copiato: rende i trasferimenti ripetibili senza
+// doppioni (@@unique) e lascia traccia di cosa è stato importato e quando.
+//
+// sourceKey è un'impronta opaca (HMAC) dell'identità del database di origine: mai l'URL, l'host o
+// le credenziali. legacyUserId è l'id dell'utente nel vecchio database, userId quello nel database
+// attuale (lo stesso quando era libero). Nessuna relazione con "user": lo schema di better-auth è
+// framework-owned e resta autonomo. Tabella nuova: `prisma db push` la crea senza toccare le altre.
+
+model LegacyUserImport {
+  id           String   @id @default(cuid())
+  sourceKey    String
+  legacyUserId String
+  userId       String
+  importedAt   DateTime @default(now())
+
+  @@unique([sourceKey, legacyUserId])
+  @@index([userId])
+}

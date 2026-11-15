@@ -8,6 +8,7 @@ import {
   Bot,
   Clapperboard,
   FileCheck2,
+  History,
   LayoutDashboard,
   Users,
 } from 'lucide-react';
@@ -19,6 +20,7 @@ import { cn } from '@/lib/utils';
 const navItems = [
   { href: '/admin', label: 'Panoramica', icon: LayoutDashboard },
   { href: '/admin/iscritti', label: 'Iscritti', icon: Users },
+  { href: '/admin/utenti-vecchi', label: 'Utenti del vecchio sito', icon: History },
   { href: '/admin/assistente', label: 'Assistente IA', icon: Bot },
   { href: '/admin/music-rights', label: 'Diritti musicali', icon: AudioLines },
   { href: '/admin/diritti-testi', label: 'Diritti e testi', icon: FileCheck2 },
