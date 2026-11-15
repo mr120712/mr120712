@@ -2,11 +2,15 @@
 'use client';
 
 import { Check, FileText, Pause, Play, Plus } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { type ComponentProps, useEffect, useState } from 'react';
 import { EpisodeTranscript } from '@/components/custom/music/episode-transcript';
 import { useLibrary } from '@/components/custom/music/library-context';
 import { episodeToTrack } from '@/components/custom/music/live-tracks';
-import { trackStreamPath, useMusicPlayer } from '@/components/custom/music/music-player';
+import {
+  trackStreamPath,
+  useMusicPlayer,
+  useMusicPlayerElapsed,
+} from '@/components/custom/music/music-player';
 import { SingleOfflineDownloadButton } from '@/components/custom/music/offline-download-button';
 import { PodcastArt } from '@/components/custom/music/podcast-tile';
 import { Button } from '@/components/ui/button';
@@ -32,6 +36,17 @@ function formatDate(value: string | null) {
     month: 'short',
     year: 'numeric',
   });
+}
+
+/**
+ * La trascrizione aperta segue il tempo del player da sé: solo lei si ridisegna a ogni avanzamento,
+ * non l'intera scheda del podcast.
+ */
+function LiveEpisodeTranscript(
+  props: Omit<ComponentProps<typeof EpisodeTranscript>, 'elapsedSeconds'>,
+) {
+  const elapsedSeconds = useMusicPlayerElapsed();
+  return <EpisodeTranscript {...props} elapsedSeconds={elapsedSeconds} />;
 }
 
 export function PodcastDetail({ podcastId }: { podcastId: string }) {
@@ -215,11 +230,10 @@ export function PodcastDetail({ podcastId }: { podcastId: string }) {
                     </div>
                   </div>
                   {openTranscript === episode.key ? (
-                    <EpisodeTranscript
+                    <LiveEpisodeTranscript
                       podcastId={podcast.id}
                       episodeKey={episode.key}
                       isCurrent={player.currentTrack?.qualifiedId === qualifiedId}
-                      elapsedSeconds={player.elapsedSeconds}
                       onSeek={player.seekTo}
                     />
                   ) : null}

@@ -13,7 +13,33 @@ import { isPrivateAddress } from '@/lib/net/ssrf-safe-fetch.server';
 
 /** Massimo di reindirizzamenti seguiti per lo stream Audius (di norma 1: discovery → content node). */
 const MAX_STREAM_REDIRECTS = 5;
+/** Tempo massimo per ricevere gli header di una risposta dello stream (non per tutto l'audio). */
 const STREAM_TIMEOUT_MS = 30_000;
+
+/**
+ * fetch dello stream con un limite di tempo SOLO fino agli header. AbortSignal.timeout interrompe
+ * anche il corpo: lo stream audio, già promesso al browser con il suo Content-Length, veniva tagliato
+ * 30 s dopo l'inizio della richiesta, a metà brano (nuove richieste Range, rate limit e budget Audius
+ * consumati, a volte uno stop). Il timer si annulla appena arrivano gli header; il corpo poi scorre
+ * per tutta la sua durata (se il browser chiude la connessione, Next annulla anche il corpo upstream).
+ */
+async function fetchStreamWithHeaderTimeout(
+  fetcher: AudiusFetch,
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () =>
+      controller.abort(new DOMException('Header dello stream Audius in ritardo.', 'TimeoutError')),
+    STREAM_TIMEOUT_MS,
+  );
+  try {
+    return await fetcher(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /** `true` se l'URL è HTTPS verso un host che risolve solo a indirizzi pubblici (no reti interne). */
 async function isPublicHttpsTarget(raw: string): Promise<boolean> {
@@ -61,12 +87,11 @@ export async function followAudiusStreamRedirects(
     if (next.protocol === 'http:') next.protocol = 'https:';
     currentUrl = next.toString();
     if (!(await isPublicHttpsTarget(currentUrl))) return new Response(null, { status: 502 });
-    response = await fetcher(currentUrl, {
+    response = await fetchStreamWithHeaderTimeout(fetcher, currentUrl, {
       method: 'GET',
       headers,
       cache: 'no-store',
       redirect: 'manual',
-      signal: AbortSignal.timeout(STREAM_TIMEOUT_MS),
     });
   }
   return response;
@@ -549,12 +574,11 @@ export function createAudiusApiClient(input: {
           const streamUrl = `${host}/v1/tracks/${encodeURIComponent(trackId)}/stream?${params.toString()}`;
           // redirect:'manual' + ri-validazione di ogni salto: la catena di redirect di Audius non
           // può portare lo stream verso una rete interna (SSRF). Lo stream resta sullo stesso fetcher.
-          const initial = await fetcher(streamUrl, {
+          const initial = await fetchStreamWithHeaderTimeout(fetcher, streamUrl, {
             method: 'GET',
             headers,
             cache: 'no-store',
             redirect: 'manual',
-            signal: AbortSignal.timeout(STREAM_TIMEOUT_MS),
           });
           const response = await followAudiusStreamRedirects(initial, streamUrl, headers, fetcher);
           if (response.status === 429) {

@@ -70,7 +70,9 @@ export function RemoveVideoButton({
     start()
       .then(
         (outcome) => {
-          if (outcome.status === 'stale') return;
+          // La versione audio ha già preso il posto del video ma non è partita: il motivo è nel
+          // player, qui non c'è altro da togliere.
+          if (outcome.status === 'stale' || outcome.status === 'not_started') return;
           if (outcome.status === 'playing') {
             lastRemovalAt = Date.now();
             toast(REMOVE_VIDEO_AUDIO_TEXT, {

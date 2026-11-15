@@ -25,9 +25,16 @@ export type BackgroundVideo = { videoId: string; title: string; channelTitle: st
 
 /** A search failed (not "the song is missing"): the listener can simply try again. */
 export const SEARCH_ERROR_TEXT = 'Non riesco a cercare il brano adesso. Riprova tra poco.';
+/** The audio version was found but did not start (Free limit, rights, stream): the player says why. */
+export const START_FAILED_TEXT = 'Non riesco ad avviare la versione audio.';
 
 export type BackgroundListenOutcome =
   | { status: 'playing'; track: MusicPlayerTrack }
+  /**
+   * Found and put in place of the video, but it did not start (Free limit, rights, stream): the
+   * player shows the reason. Never reported as playing.
+   */
+  | { status: 'not_started'; track: MusicPlayerTrack }
   /** Every search answered and none has this song in a background-capable version. */
   | { status: 'not_found' }
   /** No match, and a search failed (offline, rate limit, catalogue down): worth a retry. */
@@ -148,13 +155,22 @@ export function useBackgroundListen(video: BackgroundVideo) {
   const [availability, setAvailability] = useState<'unknown' | 'yes' | 'no'>('unknown');
   const available = availability === 'yes';
 
+  // Un controllo fallito (offline, 5xx) resta 'unknown': si riprova quando torna la rete o arriva
+  // un altro video, invece di nascondere il controllo per tutta la sessione YouTube.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: videoId è un innesco esplicito del nuovo controllo.
   useEffect(() => {
+    if (availability !== 'unknown') return;
     let cancelled = false;
-    void backgroundSourcesAvailable().then((value) => !cancelled && setAvailability(value));
+    const check = () => {
+      void backgroundSourcesAvailable().then((value) => !cancelled && setAvailability(value));
+    };
+    check();
+    window.addEventListener('online', check);
     return () => {
       cancelled = true;
+      window.removeEventListener('online', check);
     };
-  }, []);
+  }, [availability, videoId]);
 
   const start = (): Promise<BackgroundListenOutcome> => {
     // Already searching this video (other control, double tap): same search, same outcome.
@@ -172,9 +188,13 @@ export function useBackgroundListen(video: BackgroundVideo) {
       }
       if (found && found !== 'error') {
         // Al posto del video, nello stesso punto della coda: il resto della coda resta.
-        if (player.replaceCurrentTrack) await player.replaceCurrentTrack(found.track, found.path);
-        else await player.playTrack(found.track, found.path, [found.track]);
-        return { status: 'playing', track: found.track };
+        const started = player.replaceCurrentTrack
+          ? await player.replaceCurrentTrack(found.track, found.path)
+          : await player.playTrack(found.track, found.path, [found.track]);
+        // Il player risolve false se non è partito (limite Free, diritti, stream): mai «in background».
+        return started === false
+          ? { status: 'not_started', track: found.track }
+          : { status: 'playing', track: found.track };
       }
       // "Not found" only when every search answered: a failed one may still have the song.
       return audius === 'error' || found === 'error'
@@ -218,6 +238,10 @@ export function BackgroundListenButton({
         if (outcome.status === 'stale') return;
         if (outcome.status === 'error') {
           toast(SEARCH_ERROR_TEXT);
+          return;
+        }
+        if (outcome.status === 'not_started') {
+          toast(START_FAILED_TEXT, { description: 'Il motivo è indicato nel player.' });
           return;
         }
         if (outcome.status === 'not_found') {

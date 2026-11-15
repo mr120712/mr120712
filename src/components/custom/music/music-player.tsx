@@ -20,6 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   createContext,
@@ -28,8 +29,10 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react';
 import { ShareMenu } from '@/components/custom/share-menu';
 import { apiFetch } from '@/lib/api-client';
@@ -116,7 +119,14 @@ import {
   setPlaybackSpeed,
   usePlaybackSpeed,
 } from '@/lib/music/playback-speed';
-import { failureLink, failureMessage, showsFreePlayCounter } from '@/lib/music/player-messages';
+import {
+  failureLink,
+  failureMessage,
+  OFFLINE_RESUME_MESSAGE,
+  showsFreePlayCounter,
+  UNAVAILABLE_SKIP_MESSAGE,
+  YOUTUBE_QUEUE_UNPLAYABLE_MESSAGE,
+} from '@/lib/music/player-messages';
 import { PLAYER_STORAGE_KEY, STOP_PLAYER_EVENT } from '@/lib/music/player-session';
 import {
   continuesInRun,
@@ -218,10 +228,54 @@ function verifiedCover(url: string | null | undefined, onReady: () => void): str
   return null;
 }
 
+/**
+ * Tempo trascorso del brano in un piccolo store esterno (letto con useSyncExternalStore): cambia
+ * ~4 volte al secondo mentre l'audio suona, quindi non sta nello stato del provider né nel contesto
+ * principale. Così ogni avanzamento ridisegna solo barra, tempo e cursore, non il provider, la coda
+ * del player a schermo intero e i componenti che leggono useMusicPlayer() (vedi useMusicPlayerElapsed).
+ */
+type ElapsedStore = {
+  get: () => number;
+  set: (seconds: number) => void;
+  subscribe: (listener: () => void) => () => void;
+};
+
+function createElapsedStore(): ElapsedStore {
+  let value = 0;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => value,
+    set: (seconds) => {
+      if (Object.is(seconds, value)) return;
+      value = seconds;
+      for (const listener of listeners) listener();
+    },
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+}
+
+const MusicPlayerElapsedContext = createContext<ElapsedStore | null>(null);
+const noElapsed = () => 0;
+const noElapsedSubscription = () => () => undefined;
+
+/** Secondi trascorsi del brano corrente (0 fuori dal player): solo chi lo legge si ridisegna. */
+export function useMusicPlayerElapsed() {
+  const store = useContext(MusicPlayerElapsedContext);
+  return useSyncExternalStore(
+    store?.subscribe ?? noElapsedSubscription,
+    store?.get ?? noElapsed,
+    noElapsed,
+  );
+}
+
 type MusicPlayerValue = {
   currentTrack: ActiveTrack | null;
   status: PlaybackStatus;
-  elapsedSeconds: number;
   durationSeconds: number;
   queue: ActiveTrack[];
   queueIndex: number;
@@ -241,11 +295,12 @@ type MusicPlayerValue = {
   /** Ascolti usati questo mese e limite (null = illimitati). */
   playsUsed: number | null;
   playsLimit: number | null;
+  /** Risolve true se il brano è partito davvero (false: bloccato, rifiutato, non riproducibile). */
   playTrack: (
     track: MusicPlayerTrack,
     streamPath: string,
     queue?: MusicPlayerTrack[],
-  ) => Promise<void>;
+  ) => Promise<boolean>;
   togglePlayback: () => Promise<void>;
   previousTrack: () => Promise<void>;
   nextTrack: () => Promise<void>;
@@ -277,9 +332,10 @@ type MusicPlayerValue = {
   isCurrentTrack: (qualifiedId: string) => boolean;
   /**
    * Sostituisce il brano corrente con `track` nello stesso punto della coda e lo avvia: il resto
-   * della coda resta (es. la versione solo audio al posto di un video YouTube).
+   * della coda resta (es. la versione solo audio al posto di un video YouTube). Risolve true se è
+   * partito davvero.
    */
-  replaceCurrentTrack: (track: MusicPlayerTrack, streamPath: string) => Promise<void>;
+  replaceCurrentTrack: (track: MusicPlayerTrack, streamPath: string) => Promise<boolean>;
 };
 
 const MusicPlayerContext = createContext<MusicPlayerValue | null>(null);
@@ -308,6 +364,18 @@ const FULL_PLAYER_MENU = 'z-[70]';
 const MAX_RECONNECTS = 3;
 /** On-demand streams (Audius, Jamendo, podcast): one immediate retry after a network drop. */
 const MAX_MEDIA_RETRIES = 1;
+/**
+ * Brani di fila che non partono affatto, saltati da soli: oltre, il problema non è del brano (limite
+ * di richieste, servizio giù) e saltare tutta la coda moltiplicherebbe solo le richieste.
+ */
+const MAX_START_FAILURE_SKIPS = 3;
+/**
+ * Diretta radio ferma in attesa di dati ('waiting'/'stalled') da così tanto senza avanzare: la
+ * connessione è appesa senza un 'error' (encoder bloccato, cambio di rete), si riconnette.
+ */
+const LIVE_STALL_MS = 12_000;
+/** Lotto dell'autoplay continuo: una richiesta appesa non lascia il player in 'loading' per sempre. */
+const AUTOPLAY_FETCH_TIMEOUT_MS = 15_000;
 const YOUTUBE_HIDDEN_NOTICE =
   'Il prossimo è un video YouTube: riprende quando torni su Solco. I video non suonano in background.';
 
@@ -334,6 +402,23 @@ function setSessionPlaybackState(state: MediaSessionPlaybackState) {
 
 function isDomError(error: unknown, name: string) {
   return typeof error === 'object' && error !== null && (error as { name?: unknown }).name === name;
+}
+
+/**
+ * Un avvio trattenuto, non fallito: iOS rifiuta play() senza un tocco in una pagina sospesa
+ * (NotAllowedError), oppure il sistema ha messo in pausa l'elemento mentre partiva (chiamata, Siri,
+ * cuffie scollegate: AbortError). L'elemento tiene la sorgente e il player va in pausa: il prossimo
+ * Play (anche dalla schermata di blocco) riparte da lì. Un AbortError su un elemento già svuotato
+ * (lo ha liberato handleError o un altro avvio) non conta: se ne occupa chi l'ha svuotato.
+ */
+function startHeldBack(error: unknown, audio: Pick<HTMLMediaElement, 'getAttribute'>) {
+  if (isDomError(error, 'NotAllowedError')) return true;
+  return isDomError(error, 'AbortError') && Boolean(audio.getAttribute('src'));
+}
+
+/** Il dispositivo dice di essere senza rete (un ritentativo adesso fallirebbe subito). */
+function isOffline() {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
 }
 
 /** The server's denial reason carried by a failed check (apiFetch puts the JSON body in `cause`). */
@@ -736,6 +821,91 @@ function Artwork({
   );
 }
 
+/** Barra sottile del mini player: si ridisegna da sola a ogni avanzamento (vedi ElapsedStore). */
+function MiniProgress({
+  store,
+  duration,
+  live,
+}: {
+  store: ElapsedStore;
+  duration: number;
+  live: boolean;
+}) {
+  const elapsed = useSyncExternalStore(store.subscribe, store.get, noElapsed);
+  const progress = !live && duration > 0 ? Math.min(100, (elapsed / duration) * 100) : 0;
+  return (
+    <span className={styles.miniProgress} aria-hidden="true">
+      <span style={{ width: `${progress}%` }} />
+    </span>
+  );
+}
+
+/** Cursore di avanzamento del player a schermo intero (solo lui segue il tempo). */
+function SeekBar({
+  store,
+  duration,
+  onSeek,
+  disabled,
+  label,
+}: {
+  store: ElapsedStore;
+  duration: number;
+  onSeek: (seconds: number) => void;
+  disabled: boolean;
+  label: string;
+}) {
+  const elapsed = useSyncExternalStore(store.subscribe, store.get, noElapsed);
+  return (
+    <input
+      className={styles.seek}
+      type="range"
+      min={0}
+      max={duration || 0}
+      step={1}
+      value={Math.min(elapsed, duration || 0)}
+      onChange={(event) => onSeek(Number(event.target.value))}
+      disabled={disabled}
+      aria-label={label}
+    />
+  );
+}
+
+/** Tempo trascorso, accanto alla durata. */
+function ElapsedTime({ store }: { store: ElapsedStore }) {
+  const elapsed = useSyncExternalStore(store.subscribe, store.get, noElapsed);
+  return <span>{formattedTime(elapsed)}</span>;
+}
+
+/** «Precedente»: sul primo elemento serve solo dopo 5 s (torna all'inizio), mai in diretta. */
+function PreviousButton({
+  store,
+  firstItem,
+  live,
+  onPrevious,
+}: {
+  store: ElapsedStore;
+  firstItem: boolean;
+  live: boolean;
+  onPrevious: () => void;
+}) {
+  const pastFiveSeconds = useSyncExternalStore(
+    store.subscribe,
+    () => store.get() > 5,
+    () => false,
+  );
+  return (
+    <button
+      className={styles.skip}
+      type="button"
+      onClick={onPrevious}
+      disabled={firstItem && (live || !pastFiveSeconds)}
+      aria-label="Brano precedente"
+    >
+      <SkipBack aria-hidden="true" />
+    </button>
+  );
+}
+
 export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   // Two <audio> decks (see audio-decks.ts). decks.current is the one playing: every
@@ -747,7 +917,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const [queue, setQueue] = useState<ActiveTrack[]>([]);
   const [queueIndex, setQueueIndex] = useState(-1);
   const [status, setStatus] = useState<PlaybackStatus>('idle');
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  // Tempo trascorso fuori dallo stato React (vedi ElapsedStore): ~4 aggiornamenti al secondo non
+  // ridisegnano il provider.
+  const [elapsedStore] = useState(createElapsedStore);
+  const setElapsedSeconds = elapsedStore.set;
   const [durationSeconds, setDurationSeconds] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [shuffle, setShuffle] = useState(false);
@@ -834,17 +1007,29 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const reconnectsRef = useRef(0);
   // Pending delayed radio reconnect (2nd and 3rd attempt): cleared on close and pause.
   const reconnectTimerRef = useRef<number | null>(null);
-  const pendingSeekRef = useRef<number | null>(null);
+  // Diretta ferma in attesa di dati: dopo LIVE_STALL_MS senza avanzare si riconnette.
+  const stallTimerRef = useRef<number | null>(null);
+  // Punto da cui riprendere un elemento (coda ripristinata, ripresa dopo un errore o senza rete):
+  // vale solo per QUELL'elemento. Un altro brano che carica non lo eredita mai (partirebbe a metà,
+  // o in fondo e quindi saltato).
+  const pendingSeekRef = useRef<{ qualifiedId: string; seconds: number } | null>(null);
+  // Elemento on-demand fermato perché il dispositivo era senza rete: riparte una volta su 'online'.
+  const offlineResumeRef = useRef<string | null>(null);
   const restoredRef = useRef(false);
   // Background playback (see src/lib/music/playback-prefetch.ts and media-session.ts).
   const accessRef = useRef<AccessSnapshot | null>(null);
-  const nextPlanRef = useRef<{ key: string; index: number | null } | null>(null);
+  // `hidden`: scelto a pagina nascosta (i video YouTube saltati), da rifare quando torna visibile.
+  const nextPlanRef = useRef<{ key: string; index: number | null; hidden: boolean } | null>(null);
   const preparedRef = useRef<PreparedNext | null>(null);
   const startedAtRef = useRef(new Map<string, number>());
   const refreshOnPlayingRef = useRef(false);
   const deferredVideoRef = useRef<string | null>(null);
   const mediaRetryRef = useRef(0);
   const retryPositionRef = useRef(0);
+  // Ripresa chiesta dall'ascoltatore (Play, schermata di blocco) su un elemento in pausa: lo stato
+  // resta 'paused' finché play() non parte, ma un errore in quell'attesa non è «in pausa» (vedi
+  // handleError). Vale per la richiesta di avvio in cui è stata fatta; una pausa la annulla.
+  const resumeRequestRef = useRef<number | null>(null);
   const listeningRef = useRef(createListeningClock());
   const nowPlayingRef = useRef<string | null>(null);
   const [buffering, setBuffering] = useState(false);
@@ -1025,10 +1210,18 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const missStreakRef = useRef(0);
   // Set every render below (needs followingIndex/playQueueIndex, defined later).
   const skipMissingRef = useRef<() => void>(() => undefined);
+  // On-demand item that never started (qualifiedId): the next one starts (set every render below).
+  const skipUnavailableRef = useRef<(qualifiedId: string) => void>(() => undefined);
+  // Live radio stuck waiting for data (see watchLiveStall; set every render below).
+  const stallRecoveryRef = useRef<(request: number, position: number) => void>(() => undefined);
+  // Risolve true se l'elemento è partito davvero (o è passato al player ufficiale YouTube), false
+  // se è stato bloccato, rifiutato, rimandato o non è riproducibile (vedi "Ascolta in background").
   const playCurrentTrack = useCallback(
-    async (requested: ActiveTrack) => {
+    async (requested: ActiveTrack): Promise<boolean> => {
       let track = requested;
       const request = ++playRequestRef.current;
+      // Un nuovo avvio: la ripresa automatica al ritorno della rete non serve più.
+      offlineResumeRef.current = null;
       if ((track.playbackMode === 'song' || isYouTubeTrack(track)) && isPageHidden()) {
         // YouTube never starts while Solco is hidden (API terms): it waits for the listener.
         decks.current?.pause();
@@ -1037,7 +1230,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         setErrorMessage(YOUTUBE_HIDDEN_NOTICE);
         setStatus('paused');
         setSessionPlaybackState('paused');
-        return;
+        return false;
       }
       deferredVideoRef.current = null;
       if (track.playbackMode === 'song') {
@@ -1049,16 +1242,18 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         setDurationSeconds(track.durationSeconds ?? 0);
         const resolved = await resolveSongTrack(track);
         // The listener picked something else (or closed the player) while we were searching.
-        if (request !== playRequestRef.current) return;
+        if (request !== playRequestRef.current) return false;
         if (!resolved.ok) {
           setStatus('error');
           setErrorMessage(resolved.message);
           // Not on YouTube: move on to the next song instead of stopping the playlist. Quota
           // or network problems do not skip (the next song would fail the same way).
           if (resolved.notFound) skipMissingRef.current();
-          return;
+          return false;
         }
-        missStreakRef.current = 0;
+        // Il conteggio dei fallimenti di fila NON si azzera qui: un brano trovato può avere un
+        // video che non parte (onError). Lo azzera solo un elemento che suona davvero (onPlaying),
+        // altrimenti con «Ripeti tutta la coda» i video non riproducibili girerebbero all'infinito.
         // Swap the song for its video in the queue: previous/next keep working.
         const songId = track.qualifiedId;
         setQueue((items) =>
@@ -1077,23 +1272,26 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         setElapsedSeconds(0);
         setDurationSeconds(track.durationSeconds ?? 0);
         const permit = await requestPlayPermit(track.qualifiedId);
-        if (request !== playRequestRef.current) return;
+        if (request !== playRequestRef.current) return false;
         applyPermit(permit);
         if (!permit.allowed) {
+          // Avvio rifiutato: annulla anche la creazione del player ufficiale ancora in corso, che
+          // con autoplay farebbe partire il video comunque (vedi l'effetto del motore YouTube).
+          playRequestRef.current += 1;
           try {
             ytPlayerRef.current?.pauseVideo();
           } catch {
             // Player not ready.
           }
           setStatus('idle');
-          return;
+          return false;
         }
         // The engine effect loads the video once the visible dock is mounted.
         setYtRequest((value) => value + 1);
-        return;
+        return true;
       }
       const audio = decks.current;
-      if (!audio) return;
+      if (!audio) return false;
       setPreviewEnded(false);
       setPlayBlock(null);
       setErrorMessage(null);
@@ -1109,7 +1307,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         // about it is sent anywhere. The element was unlocked inside the tap (releaseAudio's load()
         // on iOS), so play() still works after this IndexedDB read.
         const source = await loadLocalSource(track);
-        if (request !== playRequestRef.current) return;
+        if (request !== playRequestRef.current) return false;
         if (!source.ok) {
           // Removed or evicted from this device: say so, then the next item (see skipLocalRef).
           const message =
@@ -1118,7 +1316,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           setStatus('error');
           setErrorMessage(message);
           setLocalSkip({ qualifiedId: track.qualifiedId, request, message });
-          return;
+          return false;
         }
         declarePlaybackSession();
         audio.src = source.url;
@@ -1127,21 +1325,25 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         showNowPlaying(track);
         try {
           await playing;
-          if (request !== playRequestRef.current) return;
+          if (request !== playRequestRef.current) return false;
           setStatus('playing');
+          return true;
         } catch (error) {
-          if (request !== playRequestRef.current || isDomError(error, 'AbortError')) return;
-          if (isDomError(error, 'NotAllowedError')) {
-            // No tap to start from (e.g. a lock-screen press after a reload): wait for one.
+          if (request !== playRequestRef.current) return false;
+          if (startHeldBack(error, audio)) {
+            // No tap to start from (e.g. a lock-screen press after a reload), or a system pause
+            // while it was starting: paused, never stuck on 'loading'; the next press resumes it.
             setStatus('paused');
             setSessionPlaybackState('paused');
-            return;
+            return false;
           }
+          // Elemento già svuotato da chi gestisce il suo errore (handleLocalError).
+          if (isDomError(error, 'AbortError')) return false;
           // A file the browser cannot decode arrives through the element's 'error' event too.
           setStatus('error');
           setErrorMessage(LOCAL_UNPLAYABLE_MESSAGE);
+          return false;
         }
-        return;
       }
       try {
         // Check Audius's stream authorization before requesting audio bytes.
@@ -1150,15 +1352,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         const permitRequest = requestPlayPermit(track.qualifiedId);
         if (!isOpenStream(track)) {
           const early = await permitRequest;
-          if (request !== playRequestRef.current) return;
+          if (request !== playRequestRef.current) return false;
           applyPermit(early);
           if (!early.allowed) {
             releaseAudio();
             setStatus('idle');
-            return;
+            return false;
           }
           await verifyPlayback(track);
-          if (request !== playRequestRef.current) return;
+          if (request !== playRequestRef.current) return false;
         }
         // iOS: declare a music session right before play() (Apple: activate when playback starts).
         declarePlaybackSession();
@@ -1169,27 +1371,40 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         const permit = await permitRequest;
         if (request !== playRequestRef.current) {
           playing.catch(() => undefined);
-          return;
+          return false;
         }
         applyPermit(permit);
         if (!permit.allowed) {
           playing.catch(() => undefined);
           releaseAudio();
           setStatus('idle');
-          return;
+          return false;
         }
         await playing;
-        if (request !== playRequestRef.current) return;
+        if (request !== playRequestRef.current) return false;
         setStatus('playing');
+        return true;
       } catch (error) {
         // A newer request owns the audio element now: leave it alone.
-        if (request !== playRequestRef.current) return;
+        if (request !== playRequestRef.current) return false;
+        if (startHeldBack(error, audio)) {
+          // Non è uno stream fallito: iOS ha rifiutato play() arrivato dopo le attese di rete
+          // (pagina in background, es. «successivo» dalla schermata di blocco o una riconnessione
+          // a tempo) oppure il sistema l'ha messo in pausa mentre partiva. La sorgente resta: il
+          // prossimo Play riparte subito dentro il tocco (resumeElement), senza altre attese.
+          setStatus('paused');
+          setSessionPlaybackState('paused');
+          return false;
+        }
+        // Elemento già svuotato da handleError, che ha già mostrato il motivo giusto.
+        if (isDomError(error, 'AbortError')) return false;
         releaseAudio();
         setStatus('error');
         setErrorMessage(failureMessage(error, track));
+        return false;
       }
     },
-    [applyPermit, decks, loadLocalSource, releaseAudio, showNowPlaying],
+    [applyPermit, decks, loadLocalSource, releaseAudio, setElapsedSeconds, showNowPlaying],
   );
 
   const playTrack = useCallback(
@@ -1197,7 +1412,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       track: MusicPlayerTrack,
       streamPath: string,
       nextQueue: MusicPlayerTrack[] = [track],
-    ) => {
+    ): Promise<boolean> => {
       // A local file has no stream path: the caller passes '' (see local-tracks.ts).
       const safePath = isLocalTrack(track)
         ? trackStreamPath(track)
@@ -1206,7 +1421,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         releaseAudio();
         setStatus('error');
         setErrorMessage('Il brano non ha un percorso Audius verificabile.');
-        return;
+        return false;
       }
       // Local files: the player makes (and revokes) their covers itself, and they link nowhere.
       const deviceOnly = (item: MusicPlayerTrack): MusicPlayerTrack =>
@@ -1230,6 +1445,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       recordedRef.current = null;
       nextPlanRef.current = null;
       preparedRef.current = null;
+      // Il punto di ripresa salvato (coda ripristinata, errore) era di un altro brano o della coda
+      // di prima: il brano scelto parte dall'inizio.
+      pendingSeekRef.current = null;
       // A new queue is a new lap: skipping missing items starts counting again.
       missStreakRef.current = 0;
       // A new queue: the official player gets a fresh playlist (or video), as before runs existed.
@@ -1239,7 +1457,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       setQueue(candidateQueue);
       setQueueIndex(actualIndex);
       setCurrentTrack(selectedTrack);
-      await playCurrentTrack(selectedTrack);
+      return playCurrentTrack(selectedTrack);
     },
     [playCurrentTrack, releaseAudio],
   );
@@ -1256,6 +1474,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       if (moveInRunRef.current(index)) return;
       releaseAudio();
       recordedRef.current = null;
+      // Un altro elemento della coda: nessun punto di ripresa di quello di prima.
+      pendingSeekRef.current = null;
       // YouTube may report the video it was advancing to meanwhile: the app's choice wins.
       if (ytRunRef.current) ytPendingRef.current = { index, from: queueIndexRef.current };
       setQueueIndex(index);
@@ -1277,7 +1497,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       if (
         plan &&
         plan.key === key &&
-        (plan.index === null || !hidden || playsWhileHidden(queue[plan.index]?.playbackMode))
+        (plan.index === null || !hidden || playsWhileHidden(queue[plan.index]?.playbackMode)) &&
+        // In ordine (non casuale), una scelta fatta a pagina nascosta ha saltato i video YouTube:
+        // con Solco di nuovo visibile si rifà, così il video in coda non viene saltato.
+        (shuffle || !plan.hidden || hidden)
       ) {
         return plan.index;
       }
@@ -1288,7 +1511,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         wrap,
         hidden,
       });
-      nextPlanRef.current = { key, index };
+      nextPlanRef.current = { key, index, hidden };
       return index;
     },
     [queue, queueIndex, shuffle],
@@ -1300,7 +1523,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const controlsRef = useRef<{
     status: PlaybackStatus;
     pause: () => void;
-    resume: () => Promise<void> | undefined;
+    resume: () => Promise<unknown> | undefined;
   }>({ status: 'idle', pause: () => undefined, resume: () => undefined });
 
   const previousTrack = useCallback(async () => {
@@ -1319,7 +1542,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     if (queueIndex > 0 && !advanceRef.current(queueIndex - 1)) {
       await playQueueIndex(queueIndex - 1);
     }
-  }, [currentTrack, decks, playQueueIndex, queueIndex]);
+  }, [currentTrack, decks, playQueueIndex, queueIndex, setElapsedSeconds]);
 
   const nextTrack = useCallback(async () => {
     const index = followingIndex(repeat === 'all');
@@ -1352,7 +1575,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       audio.currentTime = Math.min(seconds, audio.duration);
       setElapsedSeconds(audio.currentTime);
     },
-    [currentTrack, decks],
+    [currentTrack, decks, setElapsedSeconds],
   );
 
   // Tempo dell'audio per il pannello del testo: lo legge da sé (polling), senza altri render qui.
@@ -1362,7 +1585,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     // Cancel any lookup, permit or radio reconnect still pending: closing must not bring it back.
     playRequestRef.current += 1;
     clearTimer(reconnectTimerRef);
+    clearTimer(stallTimerRef);
     missStreakRef.current = 0;
+    pendingSeekRef.current = null;
+    offlineResumeRef.current = null;
     releaseAudio();
     // Nothing plays any more: no object URL of the listener's files is kept.
     pruneLocalSources(new Set());
@@ -1389,7 +1615,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     } catch {
       // Storage unavailable (private mode): nothing to clear.
     }
-  }, [pruneLocalSources, releaseAudio, showNowPlaying]);
+  }, [pruneLocalSources, releaseAudio, setElapsedSeconds, showNowPlaying]);
 
   // Al logout (o al cambio account) ferma e svuota il player. Il muro di login lascia montato il
   // player sulle rotte pubbliche (es. /login, dove porta "Esci" dalla dashboard), quindi senza
@@ -1465,10 +1691,18 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       } catch {
         // Player not ready.
       }
+      if (status === 'loading') {
+        // In pausa mentre il player ufficiale si prepara (non ancora pronto, pauseVideo ignorato):
+        // il suo onReady non deve poi far partire il video con l'autoplay.
+        playRequestRef.current += 1;
+        setStatus('paused');
+        setSessionPlaybackState('paused');
+      }
       return;
     }
     // Paused while the next item was starting: cancel that start, do not restart it.
     if (status === 'loading') playRequestRef.current += 1;
+    resumeRequestRef.current = null;
     clearTimer(reconnectTimerRef);
     decks.current?.pause();
     setStatus('paused');
@@ -1484,6 +1718,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
    */
   const resumeElement = (track: ActiveTrack, audio: HTMLAudioElement) => {
     const request = playRequestRef.current;
+    resumeRequestRef.current = request;
     declarePlaybackSession();
     setErrorMessage(null);
     audio.play().then(
@@ -1493,6 +1728,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       (error: unknown) => {
         if (request !== playRequestRef.current || isDomError(error, 'AbortError')) return;
         if (isDomError(error, 'NotAllowedError')) {
+          resumeRequestRef.current = null;
           setStatus('paused');
           return;
         }
@@ -1515,7 +1751,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   };
 
   /** Play from a button, the lock screen, the notification or the headset. */
-  const resumePlayback = (): Promise<void> | undefined => {
+  const resumePlayback = (): Promise<unknown> | undefined => {
     const track = currentTrack;
     if (!track) return undefined;
     if (isYouTubeTrack(track) || track.playbackMode === 'song') {
@@ -1570,8 +1806,16 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const toggleAutoplay = useCallback(() => setAutoplay(!autoplayRef.current), []);
   // Brani già visti dall'autoplay in questa sessione: niente ripetizioni immediate.
   const autoplaySeenRef = useRef<Set<string>>(new Set());
-  // Evita continuazioni concorrenti (una fetch alla volta).
-  const autoplayBusyRef = useRef(false);
+  // Evita continuazioni concorrenti: la richiesta (playRequestRef) per cui una è in corso.
+  const autoplayBusyRef = useRef<number | null>(null);
+  // Lotto dell'autoplay preparato ~20 s prima della fine della coda (vedi prepareAutoplay), per il
+  // brano `from` ("indice|qualifiedId"), e l'ultimo brano per cui si è tentata la preparazione.
+  const autoplayNextRef = useRef<{
+    from: string;
+    picks: ActiveTrack[];
+    rights: RightsVerdict;
+  } | null>(null);
+  const autoplayPrepRef = useRef<string | null>(null);
 
   const live = isLiveTrack(currentTrack);
   const hasNext =
@@ -1726,11 +1970,56 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   // About 20 s before the end: freeze the next item and check it with requests that never
   // consume a Free play (rights: GET …/playback; quota: GET /api/music/access); warm its artwork.
   // Then the spare deck preloads its first seconds (Audius/Solco only, see preloadOnSpare).
+  /**
+   * Autoplay continuo, fine coda: ~20 s prima della fine si preparano il lotto che segue (Audius
+   * trending), i diritti del primo brano e il limite Free, con richieste che non consumano ascolti.
+   * A 'ended' il primo parte così nello stesso evento (startPreparedAutoplay), senza tre attese di
+   * rete in silenzio: iOS sospende una pagina bloccata che tace. Se qualcosa manca, a fine coda resta
+   * il percorso con la rete (continueAutoplay).
+   */
+  const prepareAutoplay = () => {
+    if (!currentTrack || isLiveTrack(currentTrack)) return;
+    const from = `${queueIndex}|${currentTrack.qualifiedId}`;
+    // Un tentativo per brano, anche se fallisce: timeupdate arriva ~4 volte al secondo e un errore
+    // non deve diventare una raffica di richieste (a fine brano resta il percorso con la rete).
+    if (autoplayPrepRef.current === from) return;
+    autoplayPrepRef.current = from;
+    const request = playRequestRef.current;
+    const seen = new Set(autoplaySeenRef.current);
+    for (const item of queue) seen.add(item.qualifiedId);
+    void (async () => {
+      try {
+        const data = await apiFetch('/api/music/trending', {
+          schema: MusicTrendingResponseSchema,
+          signal: AbortSignal.timeout(AUTOPLAY_FETCH_TIMEOUT_MS),
+        });
+        if (request !== playRequestRef.current) return;
+        const picks = selectAutoplayCandidates(data.tracks, seen, AUTOPLAY_BATCH)
+          .map(audiusResultToTrack)
+          .flatMap((track): ActiveTrack[] => {
+            const path = trackStreamPath(track);
+            return path ? [{ ...track, streamPath: path }] : [];
+          });
+        const first = picks[0];
+        if (!first) return;
+        const [rights] = await Promise.all([prefetchRights(first), loadAccess()]);
+        if (request !== playRequestRef.current) return;
+        autoplayNextRef.current = { from, picks, rights };
+      } catch {
+        // Lotto non disponibile adesso: a fine coda resta il percorso con la rete.
+      }
+    })();
+  };
+
   const prepareNext = () => {
     if (!currentTrack) return;
     const index = followingIndex(repeat === 'all');
     const next = index === null ? undefined : queue[index];
-    if (index === null || !next) return;
+    if (index === null || !next) {
+      // Ultimo elemento della coda con l'autoplay continuo acceso: si prepara il lotto che segue.
+      if (index === null && autoplayRef.current && repeat !== 'one') prepareAutoplay();
+      return;
+    }
     // "Ripeti brano" loops this item: no object URL for a next file that will not play.
     if (repeat === 'one' && isLocalTrack(next)) return;
     const from = `${queueIndex}|${currentTrack.qualifiedId}`;
@@ -1881,9 +2170,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       },
       (error: unknown) => {
         if (request !== playRequestRef.current) return;
-        // iOS refused a start without a tap (page already suspended): wait for the listener, and
-        // show the lock screen / notification as paused too (it was set to 'playing' above).
-        if (isDomError(error, 'NotAllowedError')) {
+        // iOS refused a start without a tap (page already suspended), or the system paused the
+        // element while it was starting (call, Siri, headphones): wait for the listener, and show
+        // the lock screen / notification as paused too (it was set to 'playing' above). Never
+        // stuck on 'loading', which disables the play buttons.
+        if (startHeldBack(error, audio)) {
           setStatus('paused');
           setSessionPlaybackState('paused');
         }
@@ -1943,7 +2234,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       },
       (error: unknown) => {
         // A newer request (pause while loading, another item, close) owns the decks now.
-        if (request !== playRequestRef.current || isDomError(error, 'AbortError')) return;
+        if (request !== playRequestRef.current) return;
+        if (isDomError(error, 'AbortError')) {
+          // Messo in pausa dal sistema mentre partiva: in pausa, non bloccato su 'loading'.
+          if (decks.isActive(spare) && startHeldBack(error, spare)) {
+            setStatus('paused');
+            setSessionPlaybackState('paused');
+          }
+          return;
+        }
         if (!decks.isActive(spare)) return;
         // Never a silent queue: back to the deck that was playing, with today's src switch.
         decks.swap();
@@ -2035,22 +2334,27 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   // Autoplay continuo: a coda finita (senza ripetizione) prosegue da solo con brani consigliati da
   // una fonte lecita (Audius trending). Niente YouTube/terzi. Si ferma da solo quando non ci sono più
   // brani nuovi (dedup per sessione), quindi non cresce all'infinito.
-  const continueAutoplay = () => {
-    if (autoplayBusyRef.current) return;
-    autoplayBusyRef.current = true;
+  // false: non è partita (una continuazione per questa stessa richiesta è già in corso).
+  const continueAutoplay = (): boolean => {
+    // Una sola continuazione per richiesta. È legata a playRequestRef: una rimasta appesa (rete) non
+    // blocca quelle delle code successive, perché chiudere o avviare altro fa avanzare la richiesta.
+    if (autoplayBusyRef.current === playRequestRef.current) return false;
+    // Istantanea della richiesta: se durante il fetch l'utente chiude il player o avvia altro
+    // (stopPlayback/un nuovo brano incrementano playRequestRef), la continuazione si annulla e non
+    // resuscita la riproduzione.
+    const request = playRequestRef.current;
+    autoplayBusyRef.current = request;
     setStatus('loading');
     const seen = autoplaySeenRef.current;
     for (const item of queue) seen.add(item.qualifiedId);
     const current = currentTrackRef.current;
     if (current) seen.add(current.qualifiedId);
-    // Istantanea della richiesta: se durante il fetch l'utente chiude il player o avvia altro
-    // (stopPlayback/un nuovo brano incrementano playRequestRef), la continuazione si annulla e non
-    // resuscita la riproduzione.
-    const request = playRequestRef.current;
     void (async () => {
       try {
         const data = await apiFetch('/api/music/trending', {
           schema: MusicTrendingResponseSchema,
+          // Una richiesta appesa non lascia il player in 'loading' (pulsanti disattivati).
+          signal: AbortSignal.timeout(AUTOPLAY_FETCH_TIMEOUT_MS),
         });
         if (request !== playRequestRef.current) return;
         const picks = selectAutoplayCandidates(data.tracks, seen, AUTOPLAY_BATCH).map(
@@ -2071,13 +2375,62 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           setStatus('ended');
         }
       } finally {
-        autoplayBusyRef.current = false;
+        if (autoplayBusyRef.current === request) autoplayBusyRef.current = null;
       }
     })();
+    return true;
+  };
+
+  /**
+   * Autoplay continuo con il lotto preparato prima della fine (prepareAutoplay): il primo brano
+   * parte nello stesso evento 'ended', senza attese di rete, come un normale passaggio al successivo.
+   * false: niente di pronto per questo brano, o un limite/diritto da verificare (percorso di rete).
+   */
+  const startPreparedAutoplay = (): boolean => {
+    const prepared = autoplayNextRef.current;
+    autoplayNextRef.current = null;
+    const audio = decks.current;
+    const current = currentTrack;
+    if (!prepared || !audio || !current) return false;
+    if (prepared.from !== `${queueIndex}|${current.qualifiedId}`) return false;
+    const first = prepared.picks[0];
+    if (!first) return false;
+    const decision = decideAdvance({
+      mode: first.playbackMode,
+      qualifiedId: first.qualifiedId,
+      rights: prepared.rights,
+      access: accessRef.current,
+      replay: isReplay(startedAtRef.current, first.qualifiedId, Date.now()),
+    });
+    if (decision.kind !== 'switch') return false;
+    const seen = autoplaySeenRef.current;
+    for (const item of queue) seen.add(item.qualifiedId);
+    for (const pick of prepared.picks) seen.add(pick.qualifiedId);
+    // Una coda nuova, come in playTrack: nulla della coda finita (piani, preparazioni, playlist
+    // YouTube, punto di ripresa) passa a questa.
+    releaseSpare();
+    nextPlanRef.current = null;
+    preparedRef.current = null;
+    pendingSeekRef.current = null;
+    missStreakRef.current = 0;
+    ytRunRef.current = null;
+    ytAtRef.current = null;
+    ytPendingRef.current = null;
+    queueRef.current = prepared.picks;
+    setQueue(prepared.picks);
+    setSessionPlaybackState('playing');
+    return startSynchronously(0, first, audio);
   };
 
   const handleEnded = () => {
     const audio = decks.current;
+    if (currentTrack && audio && isLiveTrack(currentTrack)) {
+      // Una diretta non «finisce»: il server ha chiuso la connessione (riavvio dell'encoder, mount
+      // di riserva, limite di connessioni) e il browser ha suonato il buffer. Si riconnette come
+      // dopo un errore, invece di passare a un'altra stazione della coda o fermarsi.
+      if (!reconnectLive(currentTrack, audio)) failLive(currentTrack);
+      return;
+    }
     if (repeat === 'one' && isYouTubeTrack(currentTrack) && ytPlayerRef.current) {
       ytPlayerRef.current.seekTo(0, true);
       ytPlayerRef.current.playVideo();
@@ -2097,10 +2450,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (autoplayRef.current) {
-      // Coda finita e autoplay acceso: prosegui con brani consigliati, senza fermarti.
-      setSessionPlaybackState('playing');
-      continueAutoplay();
-      return;
+      // Coda finita e autoplay acceso: prosegui con brani consigliati, senza fermarti. Il lotto
+      // preparato prima della fine parte subito; altrimenti lo si chiede alla rete.
+      if (startPreparedAutoplay()) return;
+      if (continueAutoplay()) {
+        setSessionPlaybackState('playing');
+        return;
+      }
+      // Continuazione già in corso per questa richiesta: il player non resta «in riproduzione»
+      // senza audio, finisce come senza autoplay.
     }
     releaseAudio();
     setStatus('ended');
@@ -2114,7 +2472,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     src: string = track.streamPath,
   ) => {
     const request = ++playRequestRef.current;
-    pendingSeekRef.current = position !== null && position > 1 ? position : null;
+    pendingSeekRef.current =
+      position !== null && position > 1
+        ? { qualifiedId: track.qualifiedId, seconds: position }
+        : null;
     declarePlaybackSession();
     audio.src = src;
     audio.load();
@@ -2124,9 +2485,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       },
       (error: unknown) => {
         if (request !== playRequestRef.current) return;
-        // iOS refused play() in a suspended page: no 'error' event follows, so stop 'loading'
-        // (it disables the play buttons) and wait for the listener.
-        if (isDomError(error, 'NotAllowedError')) {
+        // iOS refused play() in a suspended page, or the system paused the element while it was
+        // restarting: no 'error' event follows, so stop 'loading' (it disables the play buttons)
+        // and wait for the listener.
+        if (startHeldBack(error, audio)) {
           setStatus('paused');
           setSessionPlaybackState('paused');
         }
@@ -2135,14 +2497,72 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     );
   };
 
-  /** A stream failed: GET /api/music/access (never consumes a play) tells if the Free limit is why. */
-  const explainStreamFailure = (track: ActiveTrack) => {
+  /**
+   * Live radio dropped (an error, a connection the server closed, a stream stuck waiting): up to
+   * MAX_RECONNECTS in a row. The first one runs right here, on the same element: timers do not fire
+   * in a suspended (locked) iOS page. false: no attempts left.
+   */
+  const reconnectLive = (track: ActiveTrack, audio: HTMLAudioElement): boolean => {
+    if (reconnectsRef.current >= MAX_RECONNECTS) return false;
+    clearTimer(stallTimerRef);
+    const attempt = reconnectsRef.current;
+    reconnectsRef.current += 1;
+    setStatus('loading');
+    if (attempt === 0) {
+      restartStream(track, audio, null);
+    } else {
+      // Closing, pausing or picking another item moves playRequestRef on: the retry is dropped.
+      const request = playRequestRef.current;
+      clearTimer(reconnectTimerRef);
+      reconnectTimerRef.current = window.setTimeout(
+        () => {
+          reconnectTimerRef.current = null;
+          if (request === playRequestRef.current) void playCurrentTrack(track);
+        },
+        1000 * 2 ** (attempt - 1),
+      );
+    }
+    return true;
+  };
+
+  /** Diretta che non si riesce a riconnettere: ferma, con il motivo (Play riprova da capo). */
+  const failLive = (track: ActiveTrack) => {
+    clearTimer(stallTimerRef);
+    setStatus('error');
+    setErrorMessage(failureMessage(null, track));
+    releaseAudio();
+  };
+
+  /**
+   * Il punto da cui riprendere `track` dopo un'interruzione (vedi pendingSeekRef). Un elemento appena
+   * ripartito da 0 (ritentativo) tiene il punto già noto per lo stesso brano; la diretta non ne ha.
+   */
+  const rememberResumePoint = (track: ActiveTrack, position: number) => {
+    if (isLiveTrack(track)) {
+      pendingSeekRef.current = null;
+      return;
+    }
+    if (Number.isFinite(position) && position > 1) {
+      pendingSeekRef.current = { qualifiedId: track.qualifiedId, seconds: position };
+    } else if (pendingSeekRef.current?.qualifiedId !== track.qualifiedId) {
+      pendingSeekRef.current = null;
+    }
+  };
+
+  /**
+   * A stream failed: GET /api/music/access (never consumes a play) tells if the Free limit is why.
+   * `onNoBlock`: what to do when the limit is not the reason (e.g. skip an item that never started).
+   */
+  const explainStreamFailure = (track: ActiveTrack, onNoBlock?: () => void) => {
     const request = playRequestRef.current;
     const replay = isReplay(startedAtRef.current, track.qualifiedId, Date.now());
     void loadAccess().then((access) => {
       if (request !== playRequestRef.current) return;
       const block = predictPlayBlock(access, { qualifiedId: track.qualifiedId, replay });
-      if (!block) return;
+      if (!block) {
+        onNoBlock?.();
+        return;
+      }
       setErrorMessage(null);
       setPlayBlock(block);
       setStatus('idle');
@@ -2187,30 +2607,39 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     // An error of a released element (no source) belongs to a playback already stopped.
     if (!audio.getAttribute('src')) return;
     const track = currentTrack;
+    clearTimer(stallTimerRef);
+    // Play premuto dopo una pausa e play() non ancora partito: l'errore segue le regole di chi suona
+    // (ritentativo dal punto o messaggio), altrimenti la richiesta andrebbe persa in silenzio.
+    const resumeRequested = resumeRequestRef.current === playRequestRef.current;
+    resumeRequestRef.current = null;
+    if (status === 'paused' && !resumeRequested) {
+      // In pausa (dall'ascoltatore o dal sistema): un errore (rete cambiata, connessione chiusa dal
+      // server) non deve far ripartire l'audio da solo. Si libera la sorgente e si ricorda il punto:
+      // il prossimo Play riparte da lì (playCurrentTrack; una diretta si riconnette da capo).
+      rememberResumePoint(track, audio.currentTime);
+      clearTimer(reconnectTimerRef);
+      releaseAudio();
+      if (isLocalTrack(track)) {
+        // L'object URL che ha fallito non si riusa: il prossimo Play rilegge il file da IndexedDB.
+        localAudioRef.current.get(track.qualifiedId)?.revoke();
+        localAudioRef.current.delete(track.qualifiedId);
+      }
+      return;
+    }
     if (isLocalTrack(track)) {
       handleLocalError(track, audio);
       return;
     }
-    if (isLiveTrack(track) && reconnectsRef.current < MAX_RECONNECTS) {
-      // Live radio drops on network changes (Wi-Fi ↔ mobile). The first reconnect runs right here,
-      // on the same element: timers do not fire in a suspended (locked) iOS page.
-      const attempt = reconnectsRef.current;
-      reconnectsRef.current += 1;
-      setStatus('loading');
-      if (attempt === 0) {
-        restartStream(track, audio, null);
-      } else {
-        // Closing, pausing or picking another item moves playRequestRef on: the retry is dropped.
-        const request = playRequestRef.current;
-        clearTimer(reconnectTimerRef);
-        reconnectTimerRef.current = window.setTimeout(
-          () => {
-            reconnectTimerRef.current = null;
-            if (request === playRequestRef.current) void playCurrentTrack(track);
-          },
-          1000 * 2 ** (attempt - 1),
-        );
-      }
+    // Live radio drops on network changes (Wi-Fi ↔ mobile): reconnect (see reconnectLive).
+    if (isLiveTrack(track) && reconnectLive(track, audio)) return;
+    if (!isLiveTrack(track) && isOffline()) {
+      // Senza rete il ritentativo fallirebbe subito (e il messaggio darebbe la colpa alla fonte):
+      // si ricorda il punto e si riprende da soli quando torna la connessione (evento 'online').
+      rememberResumePoint(track, audio.currentTime);
+      offlineResumeRef.current = track.qualifiedId;
+      releaseAudio();
+      setStatus('error');
+      setErrorMessage(OFFLINE_RESUME_MESSAGE);
       return;
     }
     if (
@@ -2227,6 +2656,17 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       restartStream(track, audio, audio.currentTime);
       return;
     }
+    // Non è partito affatto (rifiutato al primo byte, file sparito dopo un aggiornamento del
+    // catalogo, nodo Audius in errore) e non è un ritentativo fallito: escluso il limite Free, si
+    // passa al successivo come per video e file locali, invece di fermare tutta la coda. Una ripresa
+    // con un punto salvato per questo elemento (coda ripristinata, errore in pausa, ritorno della
+    // rete) era già partita: non si salta, e il prossimo Play riprende da quel punto.
+    const neverStarted =
+      !isLiveTrack(track) &&
+      !isYouTubeTrack(track) &&
+      audio.currentTime === 0 &&
+      mediaRetryRef.current === 0 &&
+      pendingSeekRef.current?.qualifiedId !== track.qualifiedId;
     setStatus('error');
     setErrorMessage(
       isOpenStream(track)
@@ -2236,7 +2676,37 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           : 'Lo stream Audius è terminato con un errore. L’audio è stato fermato.',
     );
     releaseAudio();
-    explainStreamFailure(track);
+    explainStreamFailure(
+      track,
+      neverStarted ? () => skipUnavailableRef.current(track.qualifiedId) : undefined,
+    );
+  };
+
+  /**
+   * Diretta che aspetta dati ('waiting'/'stalled') senza un 'error': connessione appesa (encoder
+   * bloccato, cambio di rete senza reset). Se dopo LIVE_STALL_MS il tempo non è avanzato si
+   * riconnette come dopo un errore. Annullato da 'playing', pausa, errore, chiusura o altro avvio.
+   */
+  const watchLiveStall = () => {
+    const audio = decks.current;
+    if (!currentTrack || !audio || !isLiveTrack(currentTrack) || stallTimerRef.current !== null) {
+      return;
+    }
+    const request = playRequestRef.current;
+    const position = audio.currentTime;
+    stallTimerRef.current = window.setTimeout(() => {
+      stallTimerRef.current = null;
+      stallRecoveryRef.current(request, position);
+    }, LIVE_STALL_MS);
+  };
+  stallRecoveryRef.current = (request, position) => {
+    const audio = decks.current;
+    const track = currentTrack;
+    if (request !== playRequestRef.current || !track || !audio || !isLiveTrack(track)) return;
+    if (status !== 'playing' && status !== 'loading') return;
+    // Avanzato nel frattempo (un 'stalled' mentre suonava il buffer): nessun blocco.
+    if (!audio.getAttribute('src') || audio.currentTime > position + 1) return;
+    if (!reconnectLive(track, audio)) failLive(track);
   };
 
   /** Keeps the system scrubber in step with the element (the OS extrapolates between updates). */
@@ -2336,6 +2806,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     );
     setStatus('playing');
     setBuffering(false);
+    clearTimer(stallTimerRef);
     setSessionPlaybackState('playing');
     syncPositionState();
     // WebKit drops handlers registered before the page became "Now Playing": set them again.
@@ -2362,9 +2833,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     // load() riporta playbackRate a defaultPlaybackRate: riapplica la velocità sulla nuova sorgente
     // (la diretta radio resta a 1×).
     applyElementSpeed(audio, isLiveTrack(currentTrackRef.current) ? 1 : playbackSpeedRef.current);
-    if (audio && pendingSeekRef.current !== null && Number.isFinite(audio.duration)) {
-      audio.currentTime = Math.min(pendingSeekRef.current, audio.duration);
-      pendingSeekRef.current = null;
+    const pending = pendingSeekRef.current;
+    if (audio && pending !== null) {
+      // Solo l'elemento a cui appartiene riprende da quel punto; per qualunque altro si scarta.
+      if (currentTrackRef.current?.qualifiedId !== pending.qualifiedId) {
+        pendingSeekRef.current = null;
+      } else if (Number.isFinite(audio.duration)) {
+        audio.currentTime = Math.min(pending.seconds, audio.duration);
+        pendingSeekRef.current = null;
+      }
     }
     handleTimeUpdate();
     syncPositionState();
@@ -2391,6 +2868,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     const audio = decks.current;
     restartListeningSample(listeningRef.current);
     setBuffering(false);
+    clearTimer(stallTimerRef);
+    // Una pausa (anche di sistema) annulla la ripresa chiesta prima (vedi resumeRequestRef).
+    resumeRequestRef.current = null;
     // The 'pause' fired at the end of an item: 'ended' moves on, Now Playing stays "playing".
     if (!audio || audio.ended) return;
     // Also follows pauses decided by the system: calls, Siri, headphones unplugged.
@@ -2492,6 +2972,21 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     if (missStreakRef.current >= Math.max(1, queue.length)) return;
     const index = followingIndex(repeat === 'all');
     if (index !== null && index !== queueIndex) void playQueueIndex(index);
+  };
+  // An on-demand item that never started (see handleError), once the Free limit is ruled out: the
+  // next item starts and the message stays while it plays. Stops after a full lap, or after
+  // MAX_START_FAILURE_SKIPS in a row (then the cause is not the item).
+  skipUnavailableRef.current = (qualifiedId) => {
+    if (currentTrack?.qualifiedId !== qualifiedId) return;
+    missStreakRef.current += 1;
+    if (missStreakRef.current >= Math.max(1, Math.min(queue.length, MAX_START_FAILURE_SKIPS))) {
+      return;
+    }
+    const index = followingIndex(repeat === 'all');
+    if (index === null || index === queueIndex) return;
+    if (!advanceRef.current(index)) void playQueueIndex(index);
+    // The next item clears the message as it starts: keep it (a notice that item set wins).
+    setErrorMessage((current) => current ?? UNAVAILABLE_SKIP_MESSAGE);
   };
   // A local item whose file is gone or cannot be decoded (see localSkip): the next item starts and
   // the message stays while it plays. Like imported songs, the skipping stops after a full lap.
@@ -2671,6 +3166,16 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       if (deferredVideoRef.current === track.qualifiedId) return;
       const at = ytAtRef.current;
       if (at?.index === index && at.videoId === videoId) {
+        if (playBlock !== null || status === 'paused') {
+          // Creato con autoplay, ma intanto l'avvio è stato rifiutato (accesso richiesto) o messo
+          // in pausa: il video resta fermo invece di partire da solo.
+          try {
+            player.pauseVideo();
+          } catch {
+            // Player not ready.
+          }
+          return;
+        }
         const run = youtubeRunsEnabled ? youtubeRunAt(queueRef.current, index) : null;
         if (!run || run.videoIds.length < 2 || typeof player.loadPlaylist !== 'function') return;
         let position = 0;
@@ -2800,14 +3305,26 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           }),
         }).catch(() => undefined);
       }
+      // Video che non partono di fila: dopo un giro completo della coda ci si ferma, come per i
+      // brani importati non trovati, invece di saltare all'infinito con «Ripeti tutta la coda» o in
+      // casuale (caricamenti, richieste e batteria senza fine). onPlaying azzera il conteggio.
+      missStreakRef.current += 1;
+      const lapDone = missStreakRef.current >= Math.max(1, queue.length);
+      const index = lapDone ? null : followingIndex(repeat === 'all', failedIndex);
+      const moving = index !== null && index !== failedIndex;
       // 101/150: the uploader blocked embedding; 100: removed; 2/5: invalid or HTML5 error.
-      setErrorMessage(
+      const reason =
         code === 101 || code === 150
-          ? 'Questo video non può essere riprodotto fuori da YouTube. Passo al successivo.'
-          : 'Il video non è disponibile. Passo al successivo.',
+          ? 'Questo video non può essere riprodotto fuori da YouTube.'
+          : 'Il video non è disponibile.';
+      setErrorMessage(
+        moving
+          ? `${reason} Passo al successivo.`
+          : lapDone && queue.length > 1
+            ? YOUTUBE_QUEUE_UNPLAYABLE_MESSAGE
+            : reason,
       );
-      const index = followingIndex(repeat === 'all', failedIndex);
-      if (index !== null && index !== failedIndex) void playQueueIndex(index);
+      if (moving && index !== null) void playQueueIndex(index);
       else setStatus('error');
     },
     onProgress: (elapsed, duration) => {
@@ -2860,9 +3377,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
     let cancelled = false;
     const qualifiedId = currentTrack.qualifiedId;
+    // Avvio a cui appartiene la creazione: se nel frattempo è stato rifiutato (accesso richiesto),
+    // messo in pausa o sostituito, il player non si crea (con autoplay partirebbe da solo).
+    const request = playRequestRef.current;
     loadYouTubeIframeApi()
       .then((api) => {
-        if (cancelled || !ytHostRef.current) return;
+        if (cancelled || !ytHostRef.current || request !== playRequestRef.current) return;
         if (isPageHidden()) {
           deferHiddenVideo(qualifiedId);
           return;
@@ -3017,11 +3537,18 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('focus', check);
   }, [loadAccess]);
 
-  // Network back after a drop: resume live radio automatically.
+  // Network back after a drop: resume live radio automatically, and an on-demand item stopped
+  // because the device was offline (once, from where it stopped: see handleError).
   useEffect(() => {
     const resume = () => {
-      if (currentTrack && isLiveTrack(currentTrack) && status === 'error' && !previewEnded) {
+      if (!currentTrack || status !== 'error' || previewEnded) return;
+      if (isLiveTrack(currentTrack)) {
         reconnectsRef.current = 0;
+        void playCurrentTrack(currentTrack);
+        return;
+      }
+      if (offlineResumeRef.current === currentTrack.qualifiedId) {
+        offlineResumeRef.current = null;
         void playCurrentTrack(currentTrack);
       }
     };
@@ -3056,7 +3583,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     if (typeof saved.index !== 'number') return;
     const savedQueue = saved.queue as MusicPlayerTrack[];
     const savedPosition = typeof saved.position === 'number' ? saved.position : null;
+    const request = playRequestRef.current;
     const apply = (items: MusicPlayerTrack[], index: number, position: number | null) => {
+      // Solo in un player vuoto: se l'ascoltatore ha già avviato qualcosa (sessione arrivata in
+      // ritardo), la coda salvata non sostituisce coda, titolo e schermata di blocco di ciò che suona.
+      if (request !== playRequestRef.current || currentTrackRef.current) return;
       const restored = items
         .map((item) => {
           const path = item ? trackStreamPath(item) : null;
@@ -3070,7 +3601,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       setCurrentTrack(track);
       setStatus('idle');
       if (!isLiveTrack(track) && position !== null && position > 5) {
-        pendingSeekRef.current = position;
+        // YouTube (e i brani importati, che diventano video) non usano mai questo punto.
+        if (!isYouTubeTrack(track) && track.playbackMode !== 'song') {
+          pendingSeekRef.current = { qualifiedId: track.qualifiedId, seconds: position };
+        }
         setElapsedSeconds(position);
       }
     };
@@ -3080,18 +3614,16 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
     // The saved queue holds only the ids of the listener's own files: titles, artists and albums
     // are read again from IndexedDB on this device, and files no longer there leave the queue.
-    const request = playRequestRef.current;
     void restoreLocalItems(savedQueue, saved.index, getTrack).then((restored) => {
       // The listener started something meanwhile: that wins.
       if (!restored || request !== playRequestRef.current || currentTrackRef.current) return;
       apply(restored.items, restored.index, restored.sameTrack ? savedPosition : null);
     });
-  }, [authKnown, authUserId]);
+  }, [authKnown, authUserId, setElapsedSeconds]);
 
-  // Save queue and position (throttled to whole seconds), tagged with the account it belongs to.
-  const savedSecond = Math.floor(elapsedSeconds / 5);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: saves every 5 s of progress, not every tick.
-  useEffect(() => {
+  // Save queue and position, tagged with the account it belongs to: when the queue changes and
+  // every 5 s of progress. Il tempo arriva dallo store: per salvarlo il provider non si ridisegna.
+  const saveQueue = () => {
     if (!restoredRef.current || !currentTrack || queueIndex < 0 || !authUserId) return;
     try {
       window.localStorage.setItem(
@@ -3104,13 +3636,28 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             .slice(0, 100)
             .map(({ streamPath: _path, ...item }) => persistedQueueItem(item)),
           index: queueIndex,
-          position: isLiveTrack(currentTrack) ? 0 : elapsedSeconds,
+          position: isLiveTrack(currentTrack) ? 0 : elapsedStore.get(),
         }),
       );
     } catch {
       // Quota or private mode: persistence is best-effort.
     }
-  }, [currentTrack, queue, queueIndex, savedSecond]);
+  };
+  const saveQueueRef = useRef(saveQueue);
+  saveQueueRef.current = saveQueue;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: saves when the queue or its item changes; progress below.
+  useEffect(() => {
+    saveQueueRef.current();
+  }, [currentTrack, queue, queueIndex]);
+  useEffect(() => {
+    let bucket = Math.floor(elapsedStore.get() / 5);
+    return elapsedStore.subscribe(() => {
+      const next = Math.floor(elapsedStore.get() / 5);
+      if (next === bucket) return;
+      bucket = next;
+      saveQueueRef.current();
+    });
+  }, [elapsedStore]);
 
   // Navigating to another page collapses the full-screen player.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reacts to route changes only.
@@ -3215,17 +3762,33 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   // Unmounted: no handler or pending reconnect may point at a dead player, and nothing keeps
   // sounding (e.g. the login wall unmounts the provider after the session ends).
-  const releaseAudioRef = useRef(releaseAudio);
-  releaseAudioRef.current = releaseAudio;
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // Captured now: at unmount React has already detached the deck refs (decks.current is null
+    // then), so releasing "the current deck" would release nothing.
+    const elements = [decks.current, decks.spareDeck];
+    return () => {
       playRequestRef.current += 1;
       clearTimer(reconnectTimerRef);
-      try {
-        releaseAudioRef.current();
-      } catch {
-        // Elements already gone.
+      clearTimer(stallTimerRef);
+      for (const element of elements) {
+        // A deck with no source holds nothing to release.
+        if (!element?.getAttribute('src')) continue;
+        try {
+          releaseDeck(element);
+        } catch {
+          // Element already gone.
+        }
       }
+      // The official YouTube player and its callbacks must not outlive the provider.
+      try {
+        ytPlayerRef.current?.destroy();
+      } catch {
+        // Already removed from the DOM.
+      }
+      ytPlayerRef.current = null;
+      // Nothing plays any more: other apps may take the audio again, and the lock screen or the
+      // Android notification must not keep showing a "playing" item with dead buttons.
+      releasePlaybackSession();
       const session = mediaSessionOrNull();
       if (!session) return;
       for (const action of MEDIA_SESSION_ACTIONS) {
@@ -3235,9 +3798,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           // Unsupported action; there is no handler to remove.
         }
       }
-    },
-    [],
-  );
+      try {
+        session.metadata = null;
+      } catch {
+        // Read-only in some engines.
+      }
+      applyPositionState(session, null);
+      setSessionPlaybackState('none');
+    };
+  }, [decks]);
 
   // A stopped, failed or blocked item shows as paused (play retries it); 'none' only when closed.
   useEffect(() => {
@@ -3327,7 +3896,11 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       // Status follows the element: 'playing' only once audio really flows, not on play().
       onPlaying={onActiveDeck(handlePlaying)}
       onPause={onActiveDeck(handlePause)}
-      onWaiting={onActiveDeck(() => setBuffering(true))}
+      onWaiting={onActiveDeck(() => {
+        setBuffering(true);
+        watchLiveStall();
+      })}
+      onStalled={onActiveDeck(watchLiveStall)}
       onSeeking={onActiveDeck(() => restartListeningSample(listeningRef.current))}
       onSeeked={onActiveDeck(syncPositionState)}
       onRateChange={onActiveDeck(syncPositionState)}
@@ -3349,8 +3922,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         : null
       : (item.artworkUrl ?? null);
   const currentArtwork = currentTrack ? artworkOf(currentTrack) : null;
-  const progress =
-    !live && durationSeconds > 0 ? Math.min(100, (elapsedSeconds / durationSeconds) * 100) : 0;
   const playLabel = currentTrack
     ? status === 'playing'
       ? `Metti in pausa ${currentTrack.title}`
@@ -3363,44 +3934,80 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         ? 'Ripeti: tutta la coda'
         : 'Ripeti: solo questo brano';
 
+  // Stesso oggetto finché non cambia qualcosa che i consumer mostrano: il tempo trascorso non c'è
+  // (useMusicPlayerElapsed), quindi l'avanzamento non ridisegna chi legge useMusicPlayer().
+  const playerValue = useMemo<MusicPlayerValue>(
+    () => ({
+      currentTrack,
+      status,
+      durationSeconds,
+      queue,
+      queueIndex,
+      errorMessage,
+      shuffle,
+      repeat,
+      autoplay,
+      playbackSpeed,
+      expanded,
+      premium,
+      previewEnded,
+      playBlock,
+      playsUsed,
+      playsLimit,
+      playTrack,
+      togglePlayback,
+      previousTrack,
+      nextTrack,
+      seekTo,
+      stopPlayback,
+      forgetLocalTracks,
+      toggleShuffle,
+      cycleRepeat,
+      toggleAutoplay,
+      setSpeed: setPlaybackSpeed,
+      setExpanded,
+      primeAudio,
+      isCurrentTrack,
+      replaceCurrentTrack,
+    }),
+    [
+      currentTrack,
+      status,
+      durationSeconds,
+      queue,
+      queueIndex,
+      errorMessage,
+      shuffle,
+      repeat,
+      autoplay,
+      playbackSpeed,
+      expanded,
+      premium,
+      previewEnded,
+      playBlock,
+      playsUsed,
+      playsLimit,
+      playTrack,
+      togglePlayback,
+      previousTrack,
+      nextTrack,
+      seekTo,
+      stopPlayback,
+      forgetLocalTracks,
+      toggleShuffle,
+      cycleRepeat,
+      toggleAutoplay,
+      primeAudio,
+      isCurrentTrack,
+      replaceCurrentTrack,
+    ],
+  );
+
   return (
-    <MusicPlayerContext.Provider
-      value={{
-        currentTrack,
-        status,
-        elapsedSeconds,
-        durationSeconds,
-        queue,
-        queueIndex,
-        errorMessage,
-        shuffle,
-        repeat,
-        autoplay,
-        playbackSpeed,
-        expanded,
-        premium,
-        previewEnded,
-        playBlock,
-        playsUsed,
-        playsLimit,
-        playTrack,
-        togglePlayback,
-        previousTrack,
-        nextTrack,
-        seekTo,
-        stopPlayback,
-        forgetLocalTracks,
-        toggleShuffle,
-        cycleRepeat,
-        toggleAutoplay,
-        setSpeed: setPlaybackSpeed,
-        setExpanded,
-        primeAudio,
-        isCurrentTrack,
-        replaceCurrentTrack,
-      }}
-    >
-      {children}
+    <MusicPlayerContext.Provider value={playerValue}>
+      <MusicPlayerElapsedContext.Provider value={elapsedStore}>
+        {children}
+      </MusicPlayerElapsedContext.Provider>
       {renderDeck(decks.bindFirst)}
       {GAPLESS_DECKS_ENABLED ? renderDeck(decks.bindSecond) : null}
       {currentTrack && !hidePlayer ? (
@@ -3526,13 +4133,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
               <output className={styles.upsell} aria-live="polite">
                 {playBlock === 'login_required' ? (
                   <>
-                    Per ascoltare serve un account gratuito. <a href="/signup">Registrati</a> o{' '}
-                    <a href="/login">accedi</a>.
+                    {/* Link client-side: una navigazione completa smonterebbe il player. */}
+                    Per ascoltare serve un account gratuito. <Link href="/signup">Registrati</Link>{' '}
+                    o <Link href="/login">accedi</Link>.
                   </>
                 ) : (
                   <>
                     Hai usato i {playsLimit ?? 40} ascolti gratuiti di questo mese.{' '}
-                    <a href="/piani">Passa a Premium per ascolti illimitati</a>.
+                    <Link href="/piani">Passa a Premium per ascolti illimitati</Link>.
                   </>
                 )}
               </output>
@@ -3550,9 +4158,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                 ) : null}
               </output>
             ) : null}
-            <span className={styles.miniProgress} aria-hidden="true">
-              <span style={{ width: `${progress}%` }} />
-            </span>
+            <MiniProgress store={elapsedStore} duration={durationSeconds} live={live} />
           </aside>
 
           <section
@@ -3616,7 +4222,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                 {showCounter && playsLimit !== null && playsUsed !== null ? (
                   <p className={styles.adNote}>
                     Ascolti gratuiti questo mese: {Math.min(playsUsed, playsLimit)} di {playsLimit}.{' '}
-                    <a href="/piani">Illimitati con Premium</a>
+                    {/* Link client-side: con <a> la pagina si ricaricava e la musica si fermava. */}
+                    <Link href="/piani">Illimitati con Premium</Link>
                   </p>
                 ) : null}
                 {backgroundVideo ? (
@@ -3723,16 +4330,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
               </div>
 
               <div className={styles.playerControls}>
-                <input
-                  className={styles.seek}
-                  type="range"
-                  min={0}
-                  max={durationSeconds || 0}
-                  step={1}
-                  value={Math.min(elapsedSeconds, durationSeconds || 0)}
-                  onChange={(event) => seekTo(Number(event.target.value))}
+                <SeekBar
+                  store={elapsedStore}
+                  duration={durationSeconds}
+                  onSeek={seekTo}
                   disabled={live || durationSeconds <= 0 || status === 'loading'}
-                  aria-label={
+                  label={
                     live
                       ? 'Diretta radio: avanzamento non disponibile'
                       : isLocalTrack(currentTrack)
@@ -3741,7 +4344,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                   }
                 />
                 <span className={styles.time}>
-                  <span>{formattedTime(elapsedSeconds)}</span>
+                  <ElapsedTime store={elapsedStore} />
                   <span>
                     {live
                       ? 'In diretta'
@@ -3761,15 +4364,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                   >
                     <Shuffle aria-hidden="true" />
                   </button>
-                  <button
-                    className={styles.skip}
-                    type="button"
-                    onClick={() => void previousTrack()}
-                    disabled={queueIndex <= 0 && (live || elapsedSeconds <= 5)}
-                    aria-label="Brano precedente"
-                  >
-                    <SkipBack aria-hidden="true" />
-                  </button>
+                  <PreviousButton
+                    store={elapsedStore}
+                    firstItem={queueIndex <= 0}
+                    live={live}
+                    onPrevious={() => void previousTrack()}
+                  />
                   <button
                     ref={fullPlayRef}
                     className={styles.control}

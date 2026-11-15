@@ -163,6 +163,55 @@ describe('pulsante Ascolta in background', () => {
     expect(mocks.success).not.toHaveBeenCalled();
   });
 
+  it('se la versione audio non parte, niente «In background»: lo dice e rimanda al player', async () => {
+    mocks.replaceCurrentTrack.mockResolvedValue(false);
+    const container = await mount([audiusTrack]);
+    await click(container);
+    expect(mocks.replaceCurrentTrack).toHaveBeenCalledTimes(1);
+    expect(mocks.success).not.toHaveBeenCalled();
+    expect(mocks.toast).toHaveBeenCalledWith(
+      'Non riesco ad avviare la versione audio.',
+      expect.anything(),
+    );
+  });
+
+  it('se la versione audio parte, conferma l’ascolto in background', async () => {
+    mocks.replaceCurrentTrack.mockResolvedValue(true);
+    const container = await mount([audiusTrack]);
+    await click(container);
+    expect(mocks.success).toHaveBeenCalledWith('In background: Notte Chiara · Audius');
+  });
+
+  it('un controllo fallito si ripete quando torna la rete, senza rimontare il pulsante', async () => {
+    vi.resetModules();
+    let failing = true;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (failing && String(url).includes('source-status')) throw new TypeError('offline');
+        return new Response(JSON.stringify(respond(String(url), [audiusTrack])));
+      }),
+    );
+    const { BackgroundListenButton } = await import(
+      '@/components/custom/music/background-listen-button'
+    );
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    roots.push(root);
+    await act(async () => root.render(<BackgroundListenButton video={video} />));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container.querySelector('button')).toBeNull();
+
+    failing = false;
+    await act(async () => {
+      window.dispatchEvent(new Event('online'));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(container.querySelector('button')).not.toBeNull();
+  });
+
   it('un controllo dei cataloghi fallito non resta in memoria: il controllo successivo riprova', async () => {
     vi.resetModules();
     let failing = true;

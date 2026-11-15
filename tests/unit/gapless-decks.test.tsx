@@ -21,6 +21,7 @@ import {
   type MusicPlayerTrack,
   trackStreamPath,
   useMusicPlayer,
+  useMusicPlayerElapsed,
 } from '@/components/custom/music/music-player';
 
 const audiusA: MusicPlayerTrack = {
@@ -76,6 +77,7 @@ const queues: Record<string, MusicPlayerTrack[]> = {
 
 function Probe() {
   const player = useMusicPlayer();
+  const elapsed = useMusicPlayerElapsed();
   return (
     <>
       {Object.entries(queues).map(([label, queue]) => {
@@ -91,7 +93,7 @@ function Probe() {
         );
       })}
       <output data-testid="status">{player.status}</output>
-      <output data-testid="elapsed">{Math.floor(player.elapsedSeconds)}</output>
+      <output data-testid="elapsed">{Math.floor(elapsed)}</output>
     </>
   );
 }

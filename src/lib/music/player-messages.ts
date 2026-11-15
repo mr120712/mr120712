@@ -7,6 +7,12 @@ type MessageTrack = { playbackMode?: string | null; sourceUrl?: string | null } 
 export const LICENSE_NOT_ALLOWED_MESSAGE =
   "L'artista ha scelto una licenza diversa: questo brano si ascolta solo su Audius.";
 const UNAVAILABLE_MESSAGE = 'Questo brano non è disponibile al momento.';
+/** Brano on-demand che non è partito affatto: il player passa da solo al successivo della coda. */
+export const UNAVAILABLE_SKIP_MESSAGE = 'Brano non disponibile, passo al successivo.';
+/** Stream interrotto senza rete: il player riprende da solo, dal punto in cui era, quando torna. */
+export const OFFLINE_RESUME_MESSAGE = 'Connessione assente: riprendo appena torna la rete.';
+/** Un giro completo della coda senza un video che parta: il player si ferma invece di girare a vuoto. */
+export const YOUTUBE_QUEUE_UNPLAYABLE_MESSAGE = 'Nessun video della coda è riproducibile qui.';
 
 /** Why an ascolto failed, in Italian. `error` carries the server's JSON body in `cause`. */
 export function failureMessage(error: unknown, track: MessageTrack): string {
@@ -14,6 +20,9 @@ export function failureMessage(error: unknown, track: MessageTrack): string {
     return 'La stazione radio non risponde in questo momento. Prova un’altra stazione.';
   if (track?.playbackMode === 'podcast')
     return 'L’episodio non è disponibile dal feed del podcast. Riprova più tardi.';
+  // Brano in evidenza o caricato: un file servito da Solco, niente a che vedere con Audius.
+  if (track?.playbackMode === 'upload')
+    return 'Il file di questo brano non è disponibile in questo momento. Riprova più tardi.';
   const cause =
     error instanceof Error && typeof error.cause === 'object' && error.cause !== null
       ? (error.cause as { error?: unknown; reason?: unknown; retryAfterSeconds?: unknown })
