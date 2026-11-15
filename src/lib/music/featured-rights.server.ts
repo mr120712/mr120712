@@ -62,15 +62,18 @@
 //   anche questi diritti sono coperti (brano tuo con testo tuo, contratto che include il testo,
 //   accordo con l'editore). Nel dubbio lascialo fuori: Solco non mostra testi presi altrove.
 //   Il file .lrc/.txt va caricato come PRIVATO (UTF-8, al massimo 64 KB); non compare mai fra i
-//   brani o le copertine della Home. Una revoca ("testo" tolto o false) vale entro ~5 minuti.
+//   brani o le copertine della Home. Una revoca ("testo" tolto o false) vale di solito entro
+//   ~30-90 secondi (cambia la versione del catalogo), al più ~5 minuti.
 // - Nessun altro campo: un campo in più rende NON valida quella voce (o tutto il manifest, se è al
 //   primo livello). Una voce non valida viene ignorata da sola, le altre restano; una voce ripetuta
 //   conta una volta (vale la prima), ma il testo si mostra solo se TUTTE le voci di quel file
 //   hanno "testo": true.
-// - Tempi (cache): una REVOCA vale nella ricerca entro ~6 minuti al massimo con il manifest privato
-//   (indice fino a 5 minuti + risposte con brani in evidenza in cache al massimo 1 minuto); da
-//   pubblico si aggiunge la propagazione del CDN. Un brano appena dichiarato compare di solito
-//   entro ~5 minuti, fino a ~20 per una ricerca già in cache. Dettagli in featured-search.server.ts.
+// - Tempi (cache): diritti.json fa parte della versione del catalogo (featured-catalog.server),
+//   quindi una REVOCA vale nella ricerca di solito entro ~30-90 secondi, comunque mai oltre i ~6
+//   minuti di prima, con il manifest privato; da pubblico si aggiunge la propagazione del CDN. Un
+//   brano appena dichiarato compare di solito entro un minuto, fino a ~20 per una ricerca già in
+//   cache. «Aggiorna ora» nella pagina admin «Diritti e testi» lo anticipa. Dettagli in
+//   featured-search.server.ts.
 //
 // Un brano scaricato da siti che copiano Spotify (o comunque senza licenza) NON va dichiarato.
 //
@@ -370,7 +373,8 @@ async function readManifestText(
  * Legge e valida diritti.json con il token dello store (anche se il file è privato), entro una
  * scadenza breve. `file` è l'oggetto trovato nell'elenco dello store (null = non caricato). Non fa
  * mai throw: errore di rete o scadenza → 'unavailable'. Chi chiama (featured-search.server) tiene
- * il risultato in cache: ~5 minuti se valido, ~1 minuto altrimenti.
+ * il risultato in cache finché non cambia la versione del catalogo (al più ~5 minuti), ~1 minuto
+ * dopo un errore di lettura.
  */
 export async function readRightsManifest(
   token: string,

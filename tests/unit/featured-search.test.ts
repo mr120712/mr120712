@@ -1,8 +1,9 @@
 // @polsia:user-owned — indice dei brani in evidenza per la ricerca globale: solo i brani dichiarati
 // in diritti.json (un brano non dichiarato con il titolo cercato non compare MAI), dati identici
-// alla Home (copertina, streamUrl), cache (~5 minuti se valido, ~1 minuto dopo un problema, una
-// sola scansione dello store per finestra anche con ricerche concorrenti), stato quando Blob non è
-// configurato o non risponde.
+// alla Home (copertina, streamUrl), cache (elenco dello store condiviso ~30 secondi; indice
+// ricostruito quando cambia la versione del catalogo, al più tardi ~5 minuti; ~1 minuto dopo un
+// problema; una sola scansione per finestra anche con ricerche concorrenti), stato quando Blob non
+// è configurato o non risponde.
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -208,7 +209,7 @@ describe('searchFeaturedTracks: stato della fonte', () => {
 });
 
 describe('searchFeaturedTracks: cache', () => {
-  it('elenca lo store e legge il manifest UNA volta per finestra (~5 minuti), non a ogni ricerca', async () => {
+  it('elenco condiviso ~30 secondi; il manifest si rilegge solo se cambia la versione (al più ~5 minuti)', async () => {
     serveStore();
     await searchFeaturedTracks('caruso');
     await searchFeaturedTracks('lucio');
@@ -216,31 +217,40 @@ describe('searchFeaturedTracks: cache', () => {
     expect(mocks.list).toHaveBeenCalledTimes(1);
     expect(mocks.get).toHaveBeenCalledTimes(1);
 
-    vi.setSystemTime(T0 + 4 * 60_000);
+    // Dentro la finestra dell'elenco: nessuna chiamata allo store.
+    vi.setSystemTime(T0 + 20_000);
     await searchFeaturedTracks('caruso');
     expect(mocks.list).toHaveBeenCalledTimes(1);
 
-    vi.setSystemTime(T0 + 5 * 60_000 + 1);
+    // Elenco scaduto da tempo: si rielenca (una volta), ma lo store è invariato → stessa versione,
+    // l'indice resta quello (diritti.json non si rilegge).
+    vi.setSystemTime(T0 + 4 * 60_000);
     await searchFeaturedTracks('caruso');
     expect(mocks.list).toHaveBeenCalledTimes(2);
+    expect(mocks.get).toHaveBeenCalledTimes(1);
+
+    // Dopo ~5 minuti l'indice si ricostruisce comunque dall'elenco condiviso (solo diritti.json).
+    vi.setSystemTime(T0 + 5 * 60_000 + 1);
+    await searchFeaturedTracks('caruso');
     expect(mocks.get).toHaveBeenCalledTimes(2);
   });
 
-  it('manifest assente (stato stabile): si ricontrolla dopo ~5 minuti, non ogni minuto', async () => {
+  it('manifest appena caricato: cambia la versione e la ricerca lo vede entro la finestra (non ~5 minuti)', async () => {
     serveStore(STORE.filter((item) => item.pathname !== 'diritti.json'));
     expect((await searchFeaturedTracks('caruso')).tracks).toEqual([]);
 
     // L'amministratore carica diritti.json.
     serveStore();
-    vi.setSystemTime(T0 + 61_000);
-    expect((await searchFeaturedTracks('caruso')).tracks).toEqual([]);
-    vi.setSystemTime(T0 + 2 * 61_000);
+    vi.setSystemTime(T0 + 20_000);
     expect((await searchFeaturedTracks('caruso')).tracks).toEqual([]);
     expect(mocks.list).toHaveBeenCalledTimes(1);
 
-    vi.setSystemTime(T0 + 5 * 60_000 + 1);
+    // Finestra scaduta: si risponde ancora con l'ultimo elenco mentre se ne prepara uno nuovo…
+    vi.setSystemTime(T0 + 31_000);
+    expect((await searchFeaturedTracks('caruso')).tracks).toEqual([]);
+    await vi.waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(2));
+    // …e la ricerca successiva usa la versione nuova (indice ricostruito subito).
     expect((await searchFeaturedTracks('caruso')).tracks).toHaveLength(1);
-    expect(mocks.list).toHaveBeenCalledTimes(2);
   });
 
   it.each([
@@ -255,16 +265,19 @@ describe('searchFeaturedTracks: cache', () => {
         ),
     ],
   ])(
-    'manifest %s (stato stabile): nessun brano, ricontrollato dopo ~5 minuti',
+    'manifest %s (stato stabile, store invariato): nessun brano, indice tenuto finché la versione non cambia (al più ~5 minuti)',
     async (_label, serve) => {
       serve();
       expect((await searchFeaturedTracks('caruso')).tracks).toEqual([]);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
       vi.setSystemTime(T0 + 2 * 61_000);
       expect((await searchFeaturedTracks('caruso')).tracks).toEqual([]);
-      expect(mocks.list).toHaveBeenCalledTimes(1);
+      // Rielencato (elenco condiviso scaduto) ma stessa versione: indice non ricostruito.
+      expect(mocks.list).toHaveBeenCalledTimes(2);
+      expect(warnSpy).toHaveBeenCalledTimes(1);
       vi.setSystemTime(T0 + 5 * 60_000 + 1);
       await searchFeaturedTracks('caruso');
-      expect(mocks.list).toHaveBeenCalledTimes(2);
+      expect(warnSpy).toHaveBeenCalledTimes(2);
     },
   );
 
@@ -275,11 +288,11 @@ describe('searchFeaturedTracks: cache', () => {
 
     vi.setSystemTime(T0 + 30_000);
     expect((await searchFeaturedTracks('caruso')).outcome).toBe('unavailable');
-    expect(mocks.list).toHaveBeenCalledTimes(1);
+    expect(mocks.get).toHaveBeenCalledTimes(1);
 
     vi.setSystemTime(T0 + 60_001);
     expect((await searchFeaturedTracks('caruso')).tracks).toHaveLength(1);
-    expect(mocks.list).toHaveBeenCalledTimes(2);
+    expect(mocks.get).toHaveBeenCalledTimes(2);
   });
 
   it('elenco interrotto prima del manifest: si riprova dopo ~1 minuto', async () => {
@@ -308,9 +321,10 @@ describe('searchFeaturedTracks: cache', () => {
     expect((await searchFeaturedTracks('caruso')).tracks).toHaveLength(1);
     expect(mocks.list).toHaveBeenCalledTimes(20);
 
+    // Scaduto: risponde con l'ultimo elenco e rielenca in background (20 pagine, una volta).
     vi.setSystemTime(T0 + 5 * 60_000 + 1);
-    await searchFeaturedTracks('caruso');
-    expect(mocks.list).toHaveBeenCalledTimes(40);
+    expect((await searchFeaturedTracks('caruso')).tracks).toHaveLength(1);
+    await vi.waitFor(() => expect(mocks.list).toHaveBeenCalledTimes(40));
   });
 
   it('un diritto tolto dal manifest sparisce dalla ricerca alla ricostruzione successiva', async () => {

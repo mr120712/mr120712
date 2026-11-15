@@ -10,8 +10,9 @@
 // 2. il testo incorporato nel file audio (USLT/SYLT, LYRICS/UNSYNCEDLYRICS, ©lyr), letto con
 //    music-metadata dai PRIMI 4 MB al massimo (richiesta Range, mai il brano intero).
 // Cache in memoria: ~10 minuti se il testo c'è, ~2 minuti se manca o la lettura fallisce. Il
-// permesso ("testo": true) si ricontrolla a ogni richiesta sull'indice della ricerca (al massimo ~5
-// minuti di ritardo per una revoca). Scadenza complessiva breve. Non fa mai throw.
+// permesso ("testo": true) si ricontrolla a ogni richiesta sull'indice della ricerca (che segue la
+// versione del catalogo: di solito ~30-90 secondi per una revoca, al più ~5 minuti). Scadenza
+// complessiva breve. Non fa mai throw.
 //
 // La pagina admin «Diritti e testi» usa getFeaturedLyricsAvailability: STESSA ricerca e STESSA
 // cache, ma esce solo se il testo c'è, da dove viene (.lrc, .txt, incorporato), il tipo e quante

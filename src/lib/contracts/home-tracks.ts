@@ -107,10 +107,43 @@ export const HomeTrackSectionSchema = z.object({
 });
 export type HomeTrackSection = z.infer<typeof HomeTrackSectionSchema>;
 
+/**
+ * Versione del catalogo dei brani in evidenza: 16 cifre esadecimali calcolate dal server
+ * dall'impronta dello store (vedi featured-catalog.server). Cambia quando l'amministratore aggiunge,
+ * toglie o sostituisce un brano, una copertina, un testo o diritti.json, o preme «Aggiorna ora».
+ */
+export const HomeTracksVersionValueSchema = z.string().regex(/^[0-9a-f]{16}$/);
+
 export const HomeTracksResponseSchema = z.object({
   /** Tutti i brani mostrati, dal più recente (compatibilità con i client meno recenti). */
   items: z.array(HomeTrackSchema),
   /** Le stesse tracce divise per sezione (cartella), nell'ordine in cui mostrarle. */
   sections: z.array(HomeTrackSectionSchema).default([]),
+  /**
+   * La versione del catalogo di QUESTO contenuto, solo se definitivo (link pronti, elenco non
+   * degradato). Assente = il client lo richiede al controllo successivo (anche dai server meno
+   * recenti, che non la mandano).
+   */
+  version: HomeTracksVersionValueSchema.optional(),
+  /**
+   * Quando è riuscito l'elenco dello store dietro questa risposta (ISO). Il client non applica un
+   * elenco più vecchio di quello che mostra (istanza rimasta indietro). Assente dai server meno
+   * recenti o senza un elenco buono.
+   */
+  listedAt: z.string().datetime().optional(),
 });
 export type HomeTracksResponse = z.infer<typeof HomeTracksResponseSchema>;
+
+/** GET /api/music/home-tracks/version: la versione attuale del catalogo (nessun dato utente). */
+export const HomeTracksVersionSchema = z.object({
+  version: HomeTracksVersionValueSchema,
+  /** Quando il server ha visto per la prima volta questa versione (ISO). */
+  updatedAt: z.string().datetime(),
+  /**
+   * Quando è riuscito l'elenco dello store che conferma questa versione (ISO). Va solo avanti: il
+   * client ignora una versione con un `listedAt` più vecchio di quello che mostra, così non torna
+   * mai indietro se due istanze sono sfasate per qualche secondo.
+   */
+  listedAt: z.string().datetime().optional(),
+});
+export type HomeTracksVersion = z.infer<typeof HomeTracksVersionSchema>;

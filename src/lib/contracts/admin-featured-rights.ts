@@ -177,3 +177,18 @@ export type FeaturedRightsLyrics = z.infer<typeof FeaturedRightsLyricsSchema>;
 export type FeaturedRightsTrack = z.infer<typeof FeaturedRightsTrackSchema>;
 export type FeaturedRightsTranscription = NonNullable<FeaturedRightsTrack['transcription']>;
 export type AdminFeaturedRights = z.infer<typeof AdminFeaturedRightsSchema>;
+
+/**
+ * POST /api/admin/featured-rights/refresh («Aggiorna ora»): il nuovo valore del contatore condiviso
+ * e la versione del catalogo vista subito dopo da questa istanza. `stale` = lo store non ha risposto
+ * all'elenco: resta l'ultimo elenco buono e le istanze riprovano da sole.
+ */
+export const AdminFeaturedRefreshResponseSchema = z
+  .object({
+    generation: CountSchema,
+    version: z.string().regex(/^[0-9a-f]{16}$/),
+    updatedAt: z.string().datetime(),
+    stale: z.boolean(),
+  })
+  .strict();
+export type AdminFeaturedRefreshResponse = z.infer<typeof AdminFeaturedRefreshResponseSchema>;

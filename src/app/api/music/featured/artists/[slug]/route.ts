@@ -1,6 +1,7 @@
 // @polsia:user-owned — GET /api/music/featured/artists/<slug>: la pagina d'artista dei "brani in
 // evidenza". Elenca SOLO i brani con i diritti dichiarati in diritti.json (indice in cache di
-// featured-search.server, ~5 minuti, lo stesso della ricerca): lo store contiene anche brani
+// featured-search.server, lo stesso della ricerca, che segue la versione del catalogo: di solito
+// ~30-90 secondi, al più ~5 minuti): lo store contiene anche brani
 // commerciali senza licenza, che qui non compaiono mai, nemmeno dello stesso artista. I brani hanno
 // gli stessi dati della Home (copertina, streamUrl), così la riproduzione è identica.
 // Serve una sessione (come l'ascolto e i testi); limite per utente con lo stesso bucket della

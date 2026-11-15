@@ -73,11 +73,16 @@ let listing: Promise<ListingSnapshot | null> | null = null;
 /** Cambia a ogni svuotamento: un elenco partito prima non scrive più nella cache. */
 let generation = 0;
 
-/** Svuota la cache dell'elenco (solo per i test). */
-export function clearFeaturedRightsReportCacheForTests() {
+/** Butta l'elenco in cache: il prossimo «Aggiorna» rilegge lo store (dopo «Aggiorna ora»). */
+export function invalidateFeaturedRightsReportListing() {
   cachedListing = null;
   listing = null;
   generation += 1;
+}
+
+/** Svuota la cache dell'elenco (solo per i test). */
+export function clearFeaturedRightsReportCacheForTests() {
+  invalidateFeaturedRightsReportListing();
 }
 
 /** L'elenco dello store dalla cache, oppure letto UNA volta anche con più richieste insieme. */

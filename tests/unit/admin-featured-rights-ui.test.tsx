@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
   pathname: '/admin/diritti-testi',
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
 }));
 vi.mock('@/lib/api-client', () => ({ apiFetch: mocks.apiFetch }));
 vi.mock('next/navigation', () => ({ usePathname: () => mocks.pathname }));
@@ -222,6 +222,7 @@ beforeEach(() => {
   mocks.apiFetch.mockReset();
   mocks.toast.success.mockReset();
   mocks.toast.error.mockReset();
+  mocks.toast.warning.mockReset();
   mocks.pathname = '/admin/diritti-testi';
   writeText = vi.fn(async () => undefined);
   Object.defineProperty(navigator, 'clipboard', {
@@ -532,6 +533,131 @@ describe('pagina diritti e testi: stati', () => {
     expect(alert?.textContent).toContain('Aggiornamento non riuscito.');
     expect(alert?.textContent).toContain('Connessione non riuscita');
     expect(shownTitles(container)).toHaveLength(6);
+  });
+});
+
+describe('«Aggiorna ora» (brani in evidenza subito ovunque)', () => {
+  const REFRESH = '/api/admin/featured-rights/refresh';
+  const refreshed = {
+    generation: 3,
+    version: '0123456789abcdef',
+    updatedAt: '2026-11-14T14:30:00.000Z',
+    stale: false,
+  };
+
+  function routed(onRefresh: () => unknown) {
+    return async (path: string, init?: FetchInit & { method?: string }) => {
+      if (path === REFRESH) {
+        const value = await onRefresh();
+        return init?.schema ? init.schema.parse(value) : value;
+      }
+      return respond(report())(path, init);
+    };
+  }
+
+  it('dopo «Aggiorna»: POST al server, avviso di conferma e diagnosi riletta', async () => {
+    mocks.apiFetch.mockImplementation(routed(() => refreshed));
+    const container = await mount();
+    const buttons = [...container.querySelectorAll('button')].map((b) => b.textContent?.trim());
+    // Dopo il pulsante «Aggiorna» della diagnosi.
+    expect(buttons.indexOf('Aggiorna ora')).toBeGreaterThan(buttons.indexOf('Aggiorna'));
+
+    await click(buttonByText(container, 'Aggiorna ora'));
+    await flush();
+    const refreshCall = mocks.apiFetch.mock.calls.find(([path]) => path === REFRESH);
+    expect(refreshCall?.[1]).toMatchObject({ method: 'POST' });
+    expect(mocks.toast.success).toHaveBeenCalledWith(
+      'Brani in evidenza aggiornati: compariranno ovunque entro un minuto',
+    );
+    // La diagnosi si rilegge subito (2 letture: apertura + dopo l'aggiornamento).
+    expect(mocks.apiFetch.mock.calls.filter(([path]) => path === ENDPOINT)).toHaveLength(2);
+  });
+
+  it('lo store Blob non ha risposto (`stale`): avviso, mai la conferma', async () => {
+    mocks.apiFetch.mockImplementation(routed(() => ({ ...refreshed, stale: true })));
+    const container = await mount();
+    await click(buttonByText(container, 'Aggiorna ora'));
+    await flush();
+    expect(mocks.toast.success).not.toHaveBeenCalled();
+    expect(mocks.toast.warning).toHaveBeenCalledWith(
+      'Lo store Blob non ha risposto: i brani in evidenza si aggiorneranno appena torna disponibile. Riprova tra poco.',
+    );
+    // La diagnosi si rilegge comunque.
+    expect(mocks.apiFetch.mock.calls.filter(([path]) => path === ENDPOINT)).toHaveLength(2);
+  });
+
+  it('se finisce mentre la diagnosi si sta ancora caricando, la diagnosi si rilegge comunque', async () => {
+    let releaseFirst: (value: unknown) => void = () => undefined;
+    let diagnosis = 0;
+    mocks.apiFetch.mockImplementation(async (path: string, init?: FetchInit) => {
+      const parse = (value: unknown) => (init?.schema ? init.schema.parse(value) : value);
+      if (path === REFRESH) return parse(refreshed);
+      diagnosis += 1;
+      if (diagnosis === 1) {
+        // La prima lettura (partita prima dello svuotamento delle cache) è lenta.
+        return parse(
+          await new Promise((resolve) => {
+            releaseFirst = resolve;
+          }),
+        );
+      }
+      return parse(report({ generatedAt: '2026-11-14T14:35:00.000Z' }));
+    });
+    const container = await mount();
+    await click(buttonByText(container, 'Aggiorna ora'));
+    await flush();
+    expect(mocks.toast.success).toHaveBeenCalledTimes(1);
+    expect(mocks.apiFetch.mock.calls.filter(([path]) => path === ENDPOINT)).toHaveLength(2);
+    // La lettura vecchia arriva dopo: scartata, resta quella nuova.
+    await act(async () => releaseFirst(report({ generatedAt: '2026-11-14T14:00:00.000Z' })));
+    await flush();
+    expect(container.querySelector('time')?.getAttribute('dateTime')).toBe(
+      '2026-11-14T14:35:00.000Z',
+    );
+  });
+
+  it('limite raggiunto o errore: avviso con il messaggio del server, nessuna conferma', async () => {
+    mocks.apiFetch.mockImplementation(
+      routed(() => {
+        throw new Error(`apiFetch ${REFRESH} failed (429)`, {
+          cause: {
+            error: 'rate_limited',
+            message:
+              'Hai già aggiornato i brani in evidenza più volte di recente. Riprova tra 5 minuti.',
+          },
+        });
+      }),
+    );
+    const container = await mount();
+    await click(buttonByText(container, 'Aggiorna ora'));
+    await flush();
+    expect(mocks.toast.success).not.toHaveBeenCalled();
+    expect(mocks.toast.error).toHaveBeenCalledWith(
+      'Hai già aggiornato i brani in evidenza più volte di recente. Riprova tra 5 minuti.',
+    );
+    expect(mocks.apiFetch.mock.calls.filter(([path]) => path === ENDPOINT)).toHaveLength(1);
+  });
+
+  it('mentre l’aggiornamento è in corso il pulsante è occupato e non parte due volte', async () => {
+    let release: () => void = () => undefined;
+    mocks.apiFetch.mockImplementation(
+      routed(
+        () =>
+          new Promise((resolve) => {
+            release = () => resolve(refreshed);
+          }),
+      ),
+    );
+    const container = await mount();
+    const button = buttonByText(container, 'Aggiorna ora');
+    await click(button);
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    await click(button);
+    expect(mocks.apiFetch.mock.calls.filter(([path]) => path === REFRESH)).toHaveLength(1);
+    await act(async () => release());
+    await flush();
+    expect(button.getAttribute('aria-disabled')).toBeNull();
+    expect(mocks.toast.success).toHaveBeenCalledTimes(1);
   });
 });
 

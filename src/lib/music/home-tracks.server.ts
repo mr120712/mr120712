@@ -241,7 +241,11 @@ type ListedBlob = Awaited<ReturnType<typeof list>>['blobs'][number];
 /** Un oggetto dello store chiesto per nome (es. il manifest diritti.json della ricerca). */
 export type HomeStoreFile = { pathname: string; url: string; size: number; uploadedAt: Date };
 
-type CollectedBlobs = {
+/**
+ * Un elenco dello store ridotto a ciò che serve ai brani in evidenza (mai gli upload degli utenti).
+ * È la materia prima condivisa da Home, ricerca e versione del catalogo (featured-catalog.server).
+ */
+export type HomeStoreListing = {
   audio: ListedBlob[];
   images: ListedBlob[];
   /** Gli oggetti con un pathname fra quelli chiesti (`wanted`), se presenti nello store. */
@@ -250,13 +254,34 @@ type CollectedBlobs = {
   sidecars: ListedBlob[];
   /** True se lo store è stato elencato fino in fondo (niente errore, scadenza o tetto di pagine). */
   complete: boolean;
+  /**
+   * True se l'elenco si è interrotto per un errore o per la scadenza (dati parziali, da non
+   * prendere per buoni). False anche quando ci si ferma al tetto di pagine: quello è un elenco
+   * stabile (sempre le stesse prime pagine), solo incompleto.
+   */
+  failed: boolean;
 };
 
-/** Raccoglie brani e immagini dello store (paginando), esclusi gli upload degli utenti. */
-async function collectHomeBlobs(
+/** Un elenco vuoto e completo (store non configurato). */
+export const EMPTY_HOME_STORE_LISTING: HomeStoreListing = {
+  audio: [],
+  images: [],
+  named: [],
+  sidecars: [],
+  complete: true,
+  failed: false,
+};
+
+/**
+ * Raccoglie brani, immagini, file di testo e gli oggetti chiesti per nome (paginando), esclusi gli
+ * upload degli utenti. Ogni chiamata è UN elenco dello store (una list() per pagina da 1000
+ * oggetti): chi lo usa spesso passa dalla cache condivisa di featured-catalog.server. Non fa mai
+ * throw.
+ */
+export async function collectHomeStore(
   token: string,
   wanted: ReadonlySet<string> = new Set(),
-): Promise<CollectedBlobs> {
+): Promise<HomeStoreListing> {
   // list() torna UNA pagina per volta (max 1000, ordinata per pathname). Gli upload degli utenti
   // vivono nello stesso store: senza paginare, oltre i 1000 oggetti un brano in evidenza potrebbe
   // sparire e l'ordine "più recenti prima" sarebbe sbagliato. Si pagina con il cursore raccogliendo
@@ -272,12 +297,16 @@ async function collectHomeBlobs(
   const named: ListedBlob[] = [];
   const sidecars: ListedBlob[] = [];
   let complete = false;
+  let failed = false;
   try {
     let cursor: string | undefined;
     let page = 0;
     do {
       const remaining = deadline - Date.now();
-      if (remaining <= 0) break;
+      if (remaining <= 0) {
+        failed = true;
+        break;
+      }
       let timer: ReturnType<typeof setTimeout> | undefined;
       const result = await Promise.race([
         list({ token, limit: 1000, cursor, abortSignal: abortAfter(remaining) }),
@@ -285,7 +314,10 @@ async function collectHomeBlobs(
           timer = setTimeout(() => resolve(null), remaining);
         }),
       ]).finally(() => clearTimeout(timer));
-      if (!result) break;
+      if (!result) {
+        failed = true;
+        break;
+      }
       for (const blob of result.blobs) {
         if (isHomeAudioBlob(blob.pathname)) audio.push(blob);
         else if (isHomeImageBlob(blob.pathname)) images.push(blob);
@@ -298,8 +330,9 @@ async function collectHomeBlobs(
     } while (cursor && page < MAX_PAGES);
   } catch {
     // Degrada: si usa quanto raccolto finora (anche niente).
+    failed = true;
   }
-  return { audio, images, named, sidecars, complete };
+  return { audio, images, named, sidecars, complete, failed };
 }
 
 function abortAfter(ms: number): AbortSignal | undefined {
@@ -366,8 +399,15 @@ export type HomeTracksListing = { items: HomeTrack[]; sections: HomeTrackSection
 export async function listHomeTrackSections(): Promise<HomeTracksListing> {
   const token = env.BLOB_READ_WRITE_TOKEN;
   if (!token) return { items: [], sections: [] };
+  return homeTrackSectionsFromListing(await collectHomeStore(token));
+}
 
-  const { audio, images } = await collectHomeBlobs(token);
+/**
+ * Le sezioni della Home da un elenco già fatto (vedi listHomeTrackSections): nessuna chiamata allo
+ * store. La route della Home lo usa con l'elenco condiviso di featured-catalog.server.
+ */
+export function homeTrackSectionsFromListing(listing: HomeStoreListing): HomeTracksListing {
+  const { audio, images } = listing;
   if (audio.length === 0) return { items: [], sections: [] };
   const artworkFor = artworkResolver(images);
 
@@ -455,11 +495,20 @@ export async function listHomeTrackCatalog(
 ): Promise<HomeTrackCatalog | null> {
   const token = env.BLOB_READ_WRITE_TOKEN;
   if (!token) return null;
+  return homeTrackCatalogFromListing(await collectHomeStore(token, new Set(files)), files);
+}
 
-  const { audio, images, named, sidecars, complete } = await collectHomeBlobs(
-    token,
-    new Set(files),
-  );
+/**
+ * Il catalogo completo da un elenco già fatto (vedi listHomeTrackCatalog): nessuna chiamata allo
+ * store. `files` filtra gli oggetti chiesti per nome fra quelli che l'elenco ha raccolto.
+ */
+export function homeTrackCatalogFromListing(
+  listing: HomeStoreListing,
+  files: readonly string[] = [],
+): HomeTrackCatalog {
+  const { audio, images, sidecars, complete } = listing;
+  const wanted = new Set(files);
+  const named = listing.named.filter((blob) => wanted.has(blob.pathname));
   const artworkFor = artworkResolver(images);
   const tracks = [...audio]
     .sort(newestFirst)

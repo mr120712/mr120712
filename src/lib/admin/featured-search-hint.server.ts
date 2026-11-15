@@ -65,11 +65,16 @@ let building: Promise<HintSnapshot> | null = null;
 /** Cambia a ogni svuotamento: una lettura partita prima non scrive più nella cache. */
 let generation = 0;
 
-/** Svuota la cache dell'avviso (solo per i test). */
-export function clearFeaturedSearchHintCacheForTests() {
+/** Butta lo stato in cache dell'avviso: la prossima ricerca lo rilegge (dopo «Aggiorna ora»). */
+export function invalidateFeaturedSearchHint() {
   cached = null;
   building = null;
   generation += 1;
+}
+
+/** Svuota la cache dell'avviso (solo per i test). */
+export function clearFeaturedSearchHintCacheForTests() {
+  invalidateFeaturedSearchHint();
 }
 
 /** Elenco + diritti.json, con le stesse decisioni di buildIndex in featured-search.server. */

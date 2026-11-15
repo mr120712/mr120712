@@ -1,0 +1,13 @@
+// @polsia:user-owned — stato condiviso dei "brani in evidenza" (store Vercel Blob) fra tutte le
+// istanze del server: un contatore che il pulsante «Aggiorna ora» della pagina admin «Diritti e
+// testi» incrementa. Ogni istanza lo rilegge al massimo ogni ~10 secondi e, quando cambia,
+// rielenca subito lo store e ricostruisce l'indice di ricerca/artisti/condivisione; il contatore
+// entra anche nella versione del catalogo che la Home controlla (vedi
+// src/lib/music/featured-catalog.server.ts). Una sola riga (id "singleton"), nessun dato utente.
+model FeaturedCatalogState {
+  id         String   @id @default("singleton")
+  /// Incrementato a ogni «Aggiorna ora»: mai all'indietro.
+  generation Int      @default(0)
+  /// Momento dell'ultimo «Aggiorna ora».
+  bumpedAt   DateTime @default(now())
+}

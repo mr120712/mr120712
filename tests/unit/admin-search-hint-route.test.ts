@@ -485,11 +485,15 @@ describe('search-hint: cache dello store', () => {
     expect(mocks.list).toHaveBeenCalledTimes(2);
     expect(mocks.get).toHaveBeenCalledTimes(2);
 
+    // Avviso ancora in cache. L'elenco CONDIVISO dell'indice (featured-catalog, ~30 secondi) si
+    // rinnova una volta, ma lo store è invariato: stessa versione, indice e manifest non riletti.
     vi.setSystemTime(T0 + SEARCH_HINT_TTL_MS - 1);
     await hint('caruso');
-    expect(mocks.list).toHaveBeenCalledTimes(2);
+    expect(mocks.list).toHaveBeenCalledTimes(3);
+    expect(mocks.get).toHaveBeenCalledTimes(2);
 
-    // Finestra scaduta: un elenco per l'avviso e uno per l'indice (che search-all rifarebbe).
+    // Finestra scaduta: un elenco per l'avviso; l'indice (al più tardi ~5 minuti) rilegge solo
+    // diritti.json dall'elenco condiviso appena fatto.
     vi.setSystemTime(T0 + SEARCH_HINT_TTL_MS + 1);
     await hint('caruso');
     expect(mocks.list).toHaveBeenCalledTimes(4);
@@ -511,7 +515,8 @@ describe('search-hint: cache dello store', () => {
     // Avviso + indice, una volta sola.
     expect(mocks.list).toHaveBeenCalledTimes(2);
 
-    vi.setSystemTime(T0 + SEARCH_HINT_FAILURE_TTL_MS - 1);
+    // Dentro le finestre (elenco condiviso dell'indice ~30 secondi, avviso ~1 minuto): niente.
+    vi.setSystemTime(T0 + 20_000);
     await hint('caruso');
     expect(mocks.list).toHaveBeenCalledTimes(2);
 
@@ -631,11 +636,12 @@ describe('search-hint: coerente con ciò che la ricerca mostra, anche subito dop
   });
 
   it('indice della ricerca non leggibile → unavailable (la ricerca non mostra brani in evidenza)', async () => {
-    // L'indice fallisce (store giù a T0) e resta così per ~1 minuto; l'avviso legge dopo.
+    // L'indice fallisce (store giù a T0) e resta così finché l'elenco condiviso non si rinnova
+    // (~30 secondi); l'avviso legge prima, a store tornato.
     mocks.list.mockRejectedValue(new Error('rete'));
     expect((await searchFeaturedTracks('caruso')).outcome).toBe('unavailable');
     serveStore();
-    vi.setSystemTime(T0 + 30_000);
+    vi.setSystemTime(T0 + 20_000);
     expect(await hint('caruso')).toEqual({
       manifest: 'unavailable',
       matchedDeclared: 0,

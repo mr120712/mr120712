@@ -40,22 +40,31 @@
 // 3. Il brano compare cercando titolo, artista o "Artista Titolo" (in cima a parità di
 //    rilevanza, con il distintivo «In evidenza»). Una voce sbagliata viene ignorata da sola; un
 //    manifest assente, non valido o troppo grande = nessun brano in evidenza nella ricerca.
-// TEMPI (cache): una REVOCA (voce tolta, manifest rimosso o reso non valido) vale nella ricerca
-// entro ~6 minuti al massimo (indice in memoria fino a 5 minuti + risposte con brani in evidenza in
-// cache condivisa al massimo 1 minuto), con diritti.json PRIVATO; da pubblico va aggiunto il tempo
-// di propagazione del CDN di Vercel Blob. Un brano APPENA dichiarato compare di solito entro ~5
-// minuti, ma una ricerca già fatta di recente può restare in cache fino a ~20 minuti.
+// TEMPI (cache): l'indice segue la VERSIONE del catalogo (featured-catalog.server: impronta dello
+// store, diritti.json compreso, rielencato al massimo ogni ~30 secondi per istanza). Una REVOCA
+// (voce tolta, manifest rimosso o reso non valido: diritti.json cambia, quindi cambia la versione)
+// vale nella ricerca di solito entro ~30-90 secondi (elenco condiviso + risposte con brani in
+// evidenza in cache condivisa al massimo 1 minuto), comunque mai oltre i ~6 minuti di prima, con
+// diritti.json PRIVATO; da pubblico va aggiunto il tempo di propagazione del CDN di Vercel Blob (la
+// lettura può restituire la copia precedente anche dopo il cambio di versione, e nemmeno «Aggiorna
+// ora» lo evita: l'indice la rilegge dopo ~5 minuti, e per questo la Home non mette in cache lunga
+// i link costruiti da un manifest pubblico, vedi `manifestPublic`). Un brano APPENA dichiarato
+// compare di solito entro un minuto, ma una ricerca già fatta di recente può restare in cache fino
+// a ~20 minuti. «Aggiorna ora» nella pagina admin «Diritti e testi» forza subito un nuovo elenco su
+// tutte le istanze (entro ~10 secondi).
 // Tutte le regole sono in featured-rights.server.ts.
 //
 // Funzionamento: un indice in memoria (brani dichiarati, costruiti ESATTAMENTE come in Home:
-// stessa copertina e stesso streamUrl, quindi la riproduzione è identica) ricostruito al massimo
-// ogni ~5 minuti (anche con manifest assente, non valido o troppo grande; ~1 minuto dopo un errore
-// di lettura); lo store si elenca una volta per finestra di cache, mai a ogni ricerca, e le ricerche
-// concorrenti condividono la stessa ricostruzione. Non fa mai throw.
+// stessa copertina e stesso streamUrl, quindi la riproduzione è identica) costruito dall'elenco
+// CONDIVISO dello store (lo stesso della Home e della versione: nessun elenco in più) e ricostruito
+// quando cambia la versione del catalogo (o il contatore «Aggiorna ora»), al più tardi ogni ~5
+// minuti anche a versione invariata (rilegge solo diritti.json); ~1 minuto dopo un errore di
+// lettura. Mai a ogni ricerca: le ricerche concorrenti condividono la stessa ricostruzione. Non fa
+// mai throw.
 //
 // Lo stesso indice dice anche quali brani possono mostrare il TESTO nel player (voci con
 // "testo": true, vedi featured-lyrics.server.ts): stessa lettura dello store e del manifest, quindi
-// stessi tempi di revoca (~5 minuti).
+// stessi tempi di revoca.
 //
 // E raggruppa i brani dichiarati per ARTISTA (pagina /artista/<slug>, regole in
 // featured-artists.ts): ogni brano dell'indice porta `artistSlug` (il suo artista principale), una
@@ -65,8 +74,8 @@
 // E dà a ogni brano dichiarato il suo link diretto «Condividi» (/evidenza/<shareId>): `shareId` è
 // l'HMAC opaco del pathname (featured-share.server), calcolato qui mentre si costruisce l'indice, e
 // la mappa shareId → brano contiene SOLO i dichiarati. Un brano non dichiarato non ha id e un id
-// sconosciuto non porta a nulla (404). Una revoca vale alla ricostruzione successiva (~5 minuti)
-// per l'API del brano, la pagina e i nuovi disegni; le copie già sulla CDN durano di più: la
+// sconosciuto non porta a nulla (404). Una revoca vale alla ricostruzione successiva (al cambio di
+// versione, di solito entro ~30-90 secondi) per l'API del brano, la pagina e i nuovi disegni; le copie già sulla CDN durano di più: la
 // copertina per id fino a ~1 giorno (+ ~1 ora nei browser), la scheda JPEG fino a ~1 giorno più la
 // finestra stale (fino a una settimana). Nessuna delle due contiene l'audio.
 import 'server-only';
@@ -81,6 +90,12 @@ import {
   primaryArtistSlug,
 } from '@/lib/music/featured-artists';
 import {
+  clearFeaturedCatalogCacheForTests,
+  type FeaturedCatalogState,
+  loadFeaturedCatalogState,
+} from '@/lib/music/featured-catalog.server';
+import { clearFeaturedCatalogGenerationForTests } from '@/lib/music/featured-catalog-generation.server';
+import {
   declaredTrackEntries,
   lyricsDeclared,
   RIGHTS_MANIFEST_PATHNAME,
@@ -90,15 +105,16 @@ import { isFeaturedShareId } from '@/lib/music/featured-share';
 import { featuredShareId, featuredShareSecret } from '@/lib/music/featured-share.server';
 import {
   type HomeStoreFile,
-  listHomeTrackCatalog,
+  homeTrackCatalogFromListing,
+  isPublicBlobUrl,
   lyricsSidecarMatcher,
 } from '@/lib/music/home-tracks.server';
 import { featuredRelevance } from '@/lib/music/unified-search';
 
 /**
- * Esito certo, riusato per ~5 minuti: indice valido, oppure manifest assente (elenco completo), non
- * valido o troppo grande (stati stabili decisi dall'amministratore: nessun brano ricercabile, senza
- * rielencare tutto lo store ogni minuto).
+ * Esito certo (indice valido, oppure manifest assente, non valido o troppo grande): vale finché non
+ * cambia la versione del catalogo, al più tardi ~5 minuti (poi si rilegge solo diritti.json
+ * dall'elenco condiviso, senza rielencare lo store).
  */
 const HIT_TTL_MS = 5 * 60_000;
 /** Dopo un problema transitorio (store o manifest non leggibili, lenti o in errore): ~1 minuto. */
@@ -144,6 +160,14 @@ export type FeaturedHomeLinks = {
   artists: ReadonlySet<string>;
   /** pathname → shareId, solo per i brani dichiarati. */
   shareIds: ReadonlyMap<string, string>;
+  /** La versione del catalogo per cui è stato costruito l'indice (la Home la confronta con la sua). */
+  version: string;
+  /**
+   * true = diritti.json è PUBBLICO: la sua lettura passa dal CDN di Vercel Blob e può essere la
+   * copia precedente anche a versione già cambiata, quindi i link possono cambiare senza che cambi
+   * la versione. La Home allora non li mette in cache lunga.
+   */
+  manifestPublic: boolean;
 };
 
 /** Esito della pagina d'artista. */
@@ -157,16 +181,29 @@ export type FeaturedSearchResult = {
   tracks: HomeTrack[];
 };
 
-let cached: { index: FeaturedIndex; expiresAt: number } | null = null;
-let building: Promise<FeaturedIndex> | null = null;
-/** Cambia a ogni svuotamento: una ricostruzione partita prima non scrive più nella cache. */
-let generation = 0;
+/** Un indice con la versione (e il `seq`) del catalogo da cui è stato costruito. */
+type IndexEntry = { index: FeaturedIndex; version: string; seq: number; manifestPublic: boolean };
 
-/** Svuota la cache dell'indice (solo per i test). */
-export function clearFeaturedSearchCacheForTests() {
+let cached: (IndexEntry & { expiresAt: number }) | null = null;
+let building: { seq: number; promise: Promise<IndexEntry> } | null = null;
+/** Cambia a ogni svuotamento: una ricostruzione partita prima non scrive più nella cache. */
+let cacheEpoch = 0;
+
+/**
+ * Butta l'indice di questa istanza: la prossima richiesta lo ricostruisce dall'elenco condiviso
+ * («Aggiorna ora» della pagina admin).
+ */
+export function invalidateFeaturedSearchIndex() {
   cached = null;
   building = null;
-  generation += 1;
+  cacheEpoch += 1;
+}
+
+/** Svuota indice, elenco condiviso e contatore «Aggiorna ora» in memoria (solo per i test). */
+export function clearFeaturedSearchCacheForTests() {
+  invalidateFeaturedSearchIndex();
+  clearFeaturedCatalogCacheForTests();
+  clearFeaturedCatalogGenerationForTests();
 }
 
 const NO_LYRICS: ReadonlyMap<string, FeaturedLyricsSource> = new Map();
@@ -206,14 +243,18 @@ function withShareIds(tracks: HomeTrack[]): {
   return { tracks: linked, shares };
 }
 
-async function buildIndex(token: string): Promise<{ index: FeaturedIndex; ttl: number }> {
-  // UN solo elenco dello store per brani, copertine e manifest.
-  const catalog = await listHomeTrackCatalog([RIGHTS_MANIFEST_PATHNAME]);
-  if (!catalog) return { index: UNAVAILABLE, ttl: FAILURE_TTL_MS };
+type BuiltIndex = { index: FeaturedIndex; ttl: number; manifestPublic?: boolean };
+
+async function buildIndex(token: string, state: FeaturedCatalogState): Promise<BuiltIndex> {
+  // L'elenco CONDIVISO dello store (brani, copertine e manifest): nessuna list() in più qui.
+  if (!state.configured) return { index: UNAVAILABLE, ttl: FAILURE_TTL_MS };
+  const catalog = homeTrackCatalogFromListing(state.listing, [RIGHTS_MANIFEST_PATHNAME]);
 
   const manifestFile = catalog.files.get(RIGHTS_MANIFEST_PATHNAME) ?? null;
   // Elenco interrotto prima di trovare il manifest: non si sa se c'è → non leggibile, non "assente".
   if (!manifestFile && !catalog.complete) return { index: UNAVAILABLE, ttl: FAILURE_TTL_MS };
+  // Manifest pubblico: letto dal CDN di Vercel Blob, può essere la copia precedente.
+  const manifestPublic = manifestFile !== null && isPublicBlobUrl(manifestFile.url);
 
   const rights = await readRightsManifest(token, manifestFile);
   if (rights.status !== 'ok') {
@@ -234,6 +275,7 @@ async function buildIndex(token: string): Promise<{ index: FeaturedIndex; ttl: n
         shares: NO_SHARES,
       },
       ttl: transient ? FAILURE_TTL_MS : HIT_TTL_MS,
+      manifestPublic,
     };
   }
 
@@ -272,27 +314,48 @@ async function buildIndex(token: string): Promise<{ index: FeaturedIndex; ttl: n
   // Elenco parziale (oltre il tetto di pagine o scaduto) ma manifest trovato: si usa quanto trovato
   // (al più MENO brani ricercabili, mai di più) per la finestra normale. Uno store sempre oltre il
   // tetto non rifà così 20 elenchi ogni minuto.
-  return { index: { available: true, tracks, lyrics, artists, shares }, ttl: HIT_TTL_MS };
+  return {
+    index: { available: true, tracks, lyrics, artists, shares },
+    ttl: HIT_TTL_MS,
+    manifestPublic,
+  };
 }
 
-/** L'indice dalla cache, oppure ricostruito una sola volta anche con più ricerche in parallelo. */
-async function loadIndex(token: string): Promise<FeaturedIndex> {
-  if (cached && cached.expiresAt > Date.now()) return cached.index;
-  if (!building) {
-    const started = generation;
-    const store = (index: FeaturedIndex, ttl: number) => {
-      if (started === generation) cached = { index, expiresAt: Date.now() + ttl };
-      return index;
-    };
-    const current: Promise<FeaturedIndex> = buildIndex(token)
-      .then(({ index, ttl }) => store(index, ttl))
-      .catch(() => store(UNAVAILABLE, FAILURE_TTL_MS))
-      .finally(() => {
-        if (building === current) building = null;
-      });
-    building = current;
+/**
+ * L'indice per lo stato del catalogo `state`: dalla cache se costruito per lo stesso contenuto (e
+ * non scaduto) o per uno più recente, altrimenti ricostruito UNA volta anche con più richieste in
+ * parallelo. Un cambio di versione (nuovo `seq`) lo ricostruisce subito, senza aspettare HIT_TTL_MS.
+ */
+async function indexFor(token: string, state: FeaturedCatalogState): Promise<IndexEntry> {
+  const now = Date.now();
+  // Un indice di un contenuto PIÙ recente vale anche per chi ha in mano uno stato appena superato:
+  // niente ricostruzioni avanti e indietro fra due versioni.
+  if (cached && (cached.seq > state.seq || (cached.seq === state.seq && cached.expiresAt > now))) {
+    return cached;
   }
-  return building;
+  if (building && building.seq >= state.seq) return building.promise;
+  const started = cacheEpoch;
+  const store = ({ index, ttl, manifestPublic = false }: BuiltIndex): IndexEntry => {
+    const entry = { index, version: state.version, seq: state.seq, manifestPublic };
+    if (started === cacheEpoch && (!cached || state.seq >= cached.seq)) {
+      cached = { ...entry, expiresAt: Date.now() + ttl };
+    }
+    return entry;
+  };
+  const promise: Promise<IndexEntry> = buildIndex(token, state)
+    .then(store)
+    .catch(() => store({ index: UNAVAILABLE, ttl: FAILURE_TTL_MS }))
+    .finally(() => {
+      if (building?.promise === promise) building = null;
+    });
+  building = { seq: state.seq, promise };
+  return promise;
+}
+
+/** L'indice per lo stato attuale del catalogo (elenco condiviso, ~30 secondi). */
+async function loadIndex(token: string): Promise<FeaturedIndex> {
+  const state = await loadFeaturedCatalogState();
+  return (await indexFor(token, state)).index;
 }
 
 /**
@@ -386,18 +449,28 @@ export async function loadFeaturedArtistSlugs(): Promise<ReadonlySet<string> | n
 
 /**
  * Per la Home (che elenca anche brani NON dichiarati): gli artisti con almeno un brano dichiarato e
- * il link diretto dei SOLI brani dichiarati, dallo stesso indice in cache. null se l'indice non è
- * disponibile (Blob non configurato o non leggibile): nessun link. Mai throw.
+ * il link diretto dei SOLI brani dichiarati, dallo stesso indice in cache, con la versione del
+ * catalogo per cui è stato costruito. Con `state` usa quello stato del catalogo (lo stesso elenco
+ * della risposta della Home), altrimenti quello attuale. null se l'indice non è disponibile (Blob
+ * non configurato o non leggibile): nessun link. Mai throw.
  */
-export async function loadFeaturedHomeLinks(): Promise<FeaturedHomeLinks | null> {
+export async function loadFeaturedHomeLinks(
+  state?: FeaturedCatalogState,
+): Promise<FeaturedHomeLinks | null> {
   const token = env.BLOB_READ_WRITE_TOKEN;
   if (!token) return null;
   try {
-    const index = await loadIndex(token);
+    const entry = await indexFor(token, state ?? (await loadFeaturedCatalogState()));
+    const { index } = entry;
     if (!index.available) return null;
     const shareIds = new Map<string, string>();
     for (const [shareId, track] of index.shares) shareIds.set(track.id, shareId);
-    return { artists: new Set(index.artists.keys()), shareIds };
+    return {
+      artists: new Set(index.artists.keys()),
+      shareIds,
+      version: entry.version,
+      manifestPublic: entry.manifestPublic,
+    };
   } catch {
     return null;
   }

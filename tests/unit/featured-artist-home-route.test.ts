@@ -142,8 +142,8 @@ describe('GET /api/music/home-tracks: link all’artista', () => {
     serveStore();
     await home();
     await home();
-    // 2 elenchi della Home + 1 solo per l'indice (poi in cache); il manifest letto una volta.
-    expect(mocks.list).toHaveBeenCalledTimes(3);
+    // UN solo elenco dello store, condiviso da Home e indice (poi in cache); manifest letto una volta.
+    expect(mocks.list).toHaveBeenCalledTimes(1);
     expect(mocks.get).toHaveBeenCalledTimes(1);
   });
 
@@ -168,6 +168,8 @@ describe('GET /api/music/home-tracks: link all’artista', () => {
   it('Blob non configurato: Home vuota come sempre', async () => {
     mocks.token = undefined;
     const { body } = await home();
-    expect(body).toEqual({ items: [], sections: [] });
+    expect(body.items).toEqual([]);
+    expect(body.sections).toEqual([]);
+    expect(mocks.list).not.toHaveBeenCalled();
   });
 });

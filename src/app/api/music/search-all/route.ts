@@ -182,7 +182,8 @@ const FEATURED_UNAVAILABLE: FeaturedSection = { status: 'unavailable', tracks: [
  *   secondo le regole delle route di catalogo; niente cache se non c'è nulla da mostrare;
  * - con brani in evidenza nella risposta al massimo 1 minuto in cache condivisa (niente cache nel
  *   browser né stale-while-revalidate): un diritto revocato in diritti.json sparisce dalla ricerca
- *   entro la finestra dell'indice (~5 minuti) più questo minuto.
+ *   quando l'indice segue la nuova versione del catalogo (di solito ~30-90 secondi, al più ~5
+ *   minuti) più questo minuto.
  */
 function unifiedCacheControl(
   youtubeRequested: boolean,

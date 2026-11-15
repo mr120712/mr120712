@@ -1,6 +1,7 @@
 // @polsia:user-owned — GET /api/music/featured/tracks/<shareId>: il brano del link diretto
 // /evidenza/<shareId>. Esiste SOLO per i brani con i diritti dichiarati in diritti.json (indice in
-// cache di featured-search.server, ~5 minuti, lo stesso di ricerca e pagina d'artista): lo store
+// cache di featured-search.server, lo stesso di ricerca e pagina d'artista, che segue la versione
+// del catalogo: di solito ~30-90 secondi, al più ~5 minuti): lo store
 // contiene anche brani commerciali senza licenza, che qui non hanno mai un link.
 // - Senza sessione: solo i metadati pubblici (titolo, artista, link all'artista, copertina servita
 //   per id). QUESTA risposta non contiene mai lo stream né il pathname del file nello store.

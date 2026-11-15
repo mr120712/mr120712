@@ -44,6 +44,7 @@ import {
 import { useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { ZodError } from 'zod';
+import { FeaturedCatalogRefreshButton } from '@/components/custom/admin/featured-catalog-refresh-button';
 import { AppSurface } from '@/components/custom/app-ui/app-shell';
 import { EmptyState } from '@/components/custom/app-ui/empty-state';
 import { ListToolbar } from '@/components/custom/app-ui/list-toolbar';
@@ -252,6 +253,7 @@ export function FeaturedRightsDashboard() {
     if (loadingRef.current) return;
     void load(true);
   };
+  const reloadAfterRefresh = () => void load(true);
 
   const { data, loading, error } = state;
 
@@ -262,15 +264,25 @@ export function FeaturedRightsDashboard() {
           title="Diritti e testi"
           description="Perché un brano in evidenza è (o non è) ricercabile e se il suo testo è disponibile nel player. La diagnosi non mostra mai il testo dei brani; solo per quelli dichiarati con “testo”: true puoi trascriverlo con l'IA e salvarlo come .lrc."
           actions={
-            <Button
-              type="button"
-              onClick={refresh}
-              aria-disabled={loading || undefined}
-              className="aria-disabled:cursor-progress aria-disabled:opacity-70"
-            >
-              <RefreshCw aria-hidden="true" className={loading ? 'motion-safe:animate-spin' : ''} />
-              {loading && data ? 'Aggiornamento…' : 'Aggiorna'}
-            </Button>
+            <>
+              <Button
+                type="button"
+                onClick={refresh}
+                aria-disabled={loading || undefined}
+                className="aria-disabled:cursor-progress aria-disabled:opacity-70"
+              >
+                <RefreshCw
+                  aria-hidden="true"
+                  className={loading ? 'motion-safe:animate-spin' : ''}
+                />
+                {loading && data ? 'Aggiornamento…' : 'Aggiorna'}
+              </Button>
+              {/* Dopo modifiche nel pannello Blob: le pubblica subito ovunque, poi rilegge la
+                  diagnosi (l'elenco in cache di questa pagina è stato svuotato dal server). Sempre
+                  una lettura nuova, anche se ce n'è una in corso: quella partì prima dello
+                  svuotamento e la sua risposta viene scartata. */}
+              <FeaturedCatalogRefreshButton onRefreshed={reloadAfterRefresh} />
+            </>
           }
         />
         <div className={styles.status}>
@@ -463,7 +475,7 @@ function ManifestPanel({ manifest }: { manifest: FeaturedRightsManifest }) {
   return (
     <Panel
       title="diritti.json"
-      description="Il manifest nella radice dello store: rende ricercabili i brani in evidenza di cui dichiari i diritti. La ricerca lo rilegge ogni ~5 minuti; qui lo vedi subito."
+      description="Il manifest nella radice dello store: rende ricercabili i brani in evidenza di cui dichiari i diritti. Home e ricerca seguono da sole le modifiche dello store entro circa un minuto (subito con «Aggiorna ora»); qui lo vedi subito. Caricalo come privato: da pubblico il CDN di Vercel Blob può servirne per qualche minuto la copia precedente, anche dopo «Aggiorna ora»."
       actions={<StatusBadge tone={status.tone}>{status.label}</StatusBadge>}
     >
       <div className={styles.manifest}>

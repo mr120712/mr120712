@@ -6,6 +6,21 @@
 // con i diritti dichiarati: nessun link a una pagina vuota. Un brano DICHIARATO (il server manda
 // `shareId`) ha anche il pulsante «Condividi» (link diretto /evidenza/<id>) sopra la copertina,
 // fuori dal pulsante che lo suona; gli altri nessun pulsante.
+//
+// Aggiornamento automatico (nessun webhook avvisa dei file caricati dal pannello Blob): la sezione
+// chiede al server solo la VERSIONE del catalogo (/api/music/home-tracks/version, in cache sulla
+// CDN) ogni ~30 secondi mentre la scheda è visibile, e al ritorno sulla scheda; riscarica l'elenco
+// (/api/music/home-tracks?v=<versione>, in cache sulla CDN per versione) SOLO quando la versione
+// cambia. Mai richieste con la scheda in background, mai query-string per aggirare la cache: il
+// numero di ascoltatori non moltiplica le letture dello store. Se la versione non risponde si torna
+// all'elenco senza versione, più di rado. L'aggiornamento non smonta la sezione (niente sfarfallio
+// né salti di scorrimento) e non tocca la coda né il brano in riproduzione.
+//
+// Robustezza: ogni richiesta si interrompe dopo ~10 secondi (una connessione bloccata non ferma
+// per sempre gli aggiornamenti della scheda); mai indietro a una versione più vecchia (`listedAt`:
+// due istanze del server possono essere sfasate per qualche secondo e la CDN servire ora l'una ora
+// l'altra); un elenco vuoto e non definitivo (store non leggibile su un'istanza) non nasconde i
+// brani già mostrati.
 'use client';
 
 import { Pause, Play } from 'lucide-react';
@@ -21,14 +36,22 @@ import {
   type HomeTrack,
   type HomeTrackSection,
   HomeTracksResponseSchema,
+  type HomeTracksVersion,
+  HomeTracksVersionSchema,
 } from '@/lib/contracts/home-tracks';
 import { featuredArtistPath } from '@/lib/music/featured-artists';
 import styles from './home-tracks-section.module.css';
 
-/** Intervallo minimo tra due aggiornamenti automatici (anti-martellamento). */
+const LISTING_ENDPOINT = '/api/music/home-tracks';
+const VERSION_ENDPOINT = '/api/music/home-tracks/version';
+/** Controllo della versione mentre la scheda è aperta e visibile. */
+const VERSION_POLL_MS = 30_000;
+/** Intervallo minimo tra due controlli (focus + visibilitychange insieme, anti-martellamento). */
 const REFRESH_THROTTLE_MS = 15_000;
-/** Backstop: ricontrolla lo store Blob ogni tanto mentre la scheda è aperta e visibile. */
-const BACKGROUND_REFRESH_MS = 60_000;
+/** Versione non disponibile: si torna all'elenco senza versione, al massimo ogni 2 minuti. */
+const FALLBACK_REFRESH_MS = 120_000;
+/** Attesa massima di una richiesta: oltre si interrompe e il controllo successivo riprova. */
+export const HOME_TRACKS_REQUEST_TIMEOUT_MS = 10_000;
 /** «Condividi» sopra la copertina: tondo, scuro e leggibile su qualsiasi immagine. */
 const OVERLAY_SHARE_BUTTON =
   'size-8 rounded-full bg-black/55 text-white shadow-md backdrop-blur-sm hover:bg-black/75 hover:text-white focus-visible:ring-2 focus-visible:ring-white';
@@ -45,56 +68,153 @@ function sectionsFrom(response: {
     : [];
 }
 
+/** Stesso contenuto (stessi brani, link e ordine): si tiene l'array attuale, niente nuovo render. */
+function sameSections(a: readonly HomeTrackSection[], b: readonly HomeTrackSection[]): boolean {
+  return a.length === b.length && JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** Un segnale che interrompe la richiesta dopo `ms` (setTimeout: va anche sui browser meno recenti). */
+function requestDeadline(ms: number) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return { signal: controller.signal, done: () => clearTimeout(timer) };
+}
+
+/** `listedAt` in millisecondi; null se assente (server meno recenti) o non leggibile. */
+function listedTime(iso: string | undefined): number | null {
+  if (!iso) return null;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : null;
+}
+
 export function HomeTracksSection() {
   const player = useMusicPlayer();
   const [sections, setSections] = useState<HomeTrackSection[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
-  const lastLoadRef = useRef(0);
+  /** Inizio dell'ultimo controllo (versione o, in riserva, elenco). */
+  const lastCheckRef = useRef(0);
+  /** La versione del contenuto mostrato (null = nessuno, o non definitivo: si richiede). */
+  const shownVersionRef = useRef<string | null>(null);
+  /** Il più recente `listedAt` (ms) del contenuto mostrato: mai indietro a un elenco più vecchio. */
+  const shownListedAtRef = useRef(0);
+  /** Quante sezioni ci sono a schermo (per non nasconderle con un elenco degradato). */
+  const shownCountRef = useRef(0);
+  /** true = l'ultima richiesta della versione è fallita: si va più piano, senza versione. */
+  const versionFailedRef = useRef(false);
+  const busyRef = useRef(false);
+  const mountedRef = useRef(false);
 
-  // `fresh` aggira la cache CDN (query-string): serve a vedere SUBITO un file appena caricato nel
-  // pannello Vercel Blob. Il primo caricamento usa invece l'endpoint in cache (economico). Non
-  // mette mai in stato 'loading': un aggiornamento in background non deve nascondere la sezione.
-  const load = useCallback(async (fresh = false) => {
-    // Segna il momento SUBITO (prima dell'await): così due eventi ravvicinati (focus +
-    // visibilitychange al ritorno sulla scheda) non fanno partire due richieste identiche — la
-    // seconda cade dentro la finestra di throttle.
-    lastLoadRef.current = Date.now();
+  // Non mette mai in stato 'loading': un aggiornamento in background non deve nascondere la sezione.
+  // `vouchedAt` = il `listedAt` della versione che ha chiesto questo elenco.
+  const loadListing = useCallback(async (version: string | null, vouchedAt: number | null) => {
+    const url = version ? `${LISTING_ENDPOINT}?v=${encodeURIComponent(version)}` : LISTING_ENDPOINT;
+    const deadline = requestDeadline(HOME_TRACKS_REQUEST_TIMEOUT_MS);
     try {
-      const url = fresh ? `/api/music/home-tracks?t=${Date.now()}` : '/api/music/home-tracks';
-      const response = await apiFetch(url, { schema: HomeTracksResponseSchema });
-      setSections(sectionsFrom(response as { items: HomeTrack[]; sections?: HomeTrackSection[] }));
+      const response = await apiFetch(url, {
+        schema: HomeTracksResponseSchema,
+        signal: deadline.signal,
+      });
+      if (!mountedRef.current) return;
+      const listedAt = listedTime(response.listedAt);
+      // L'elenco della versione chiesta vale sempre (la versione è già risultata più recente); un
+      // altro (riserva senza versione, o un'istanza con un'altra versione) solo se non è più vecchio
+      // di quello mostrato: si riprova al controllo successivo.
+      const asked = version !== null && response.version === version;
+      if (!asked && listedAt !== null && listedAt < shownListedAtRef.current) return;
+      const next = sectionsFrom(response as { items: HomeTrack[]; sections?: HomeTrackSection[] });
+      // Vuoto e non definitivo (store non leggibile su quell'istanza): i brani a schermo restano e
+      // si richiede al prossimo controllo. Una rimozione vera di tutti i brani arriva con `version`.
+      if (next.length === 0 && response.version === undefined && shownCountRef.current > 0) {
+        shownVersionRef.current = null;
+        return;
+      }
+      shownCountRef.current = next.length;
+      setSections((current) => (sameSections(current, next) ? current : next));
+      // Il server manda `version` solo per un contenuto definitivo: senza, si richiede al prossimo
+      // controllo (es. link d'artista non ancora pronti).
+      shownVersionRef.current = response.version ?? null;
+      shownListedAtRef.current = Math.max(
+        shownListedAtRef.current,
+        listedAt ?? 0,
+        asked ? (vouchedAt ?? 0) : 0,
+      );
       setState('ready');
     } catch {
+      if (!mountedRef.current) return;
       setState((current) => (current === 'loading' ? 'error' : current));
+    } finally {
+      deadline.done();
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const check = useCallback(async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    // Segna il momento SUBITO (prima dell'await): così due eventi ravvicinati (focus +
+    // visibilitychange al ritorno sulla scheda) non fanno partire due controlli — il secondo cade
+    // dentro la finestra di throttle.
+    lastCheckRef.current = Date.now();
+    try {
+      let latest: HomeTracksVersion | null = null;
+      const deadline = requestDeadline(HOME_TRACKS_REQUEST_TIMEOUT_MS);
+      try {
+        latest = await apiFetch(VERSION_ENDPOINT, {
+          schema: HomeTracksVersionSchema,
+          signal: deadline.signal,
+        });
+      } catch {
+        latest = null;
+      } finally {
+        deadline.done();
+      }
+      if (!mountedRef.current) return;
+      if (latest === null) {
+        // Riserva: l'elenco senza versione (in cache sulla CDN ~1 minuto), come prima ma più di rado.
+        versionFailedRef.current = true;
+        await loadListing(null, null);
+        return;
+      }
+      versionFailedRef.current = false;
+      const listedAt = listedTime(latest.listedAt);
+      // Un'istanza rimasta indietro (elenco più vecchio di quello mostrato): mai tornare a una
+      // versione precedente; la prossima risposta della CDN sarà quella giusta.
+      if (listedAt !== null && listedAt < shownListedAtRef.current) return;
+      if (latest.version === shownVersionRef.current) {
+        shownListedAtRef.current = Math.max(shownListedAtRef.current, listedAt ?? 0);
+        return;
+      }
+      await loadListing(latest.version, listedAt);
+    } finally {
+      busyRef.current = false;
+    }
+  }, [loadListing]);
 
-  // Auto-aggiornamento: ogni volta che carichi un file nel pannello Vercel (altra scheda) e torni su
-  // Solco, l'elenco si aggiorna da solo interrogando di nuovo lo store Blob. Trigger: ritorno di
-  // focus / scheda di nuovo visibile, più un controllo periodico di riserva mentre resti sulla
-  // pagina. Il throttle evita richieste ravvicinate; l'API resta protetta dal suo rate-limit.
+  // Primo caricamento (versione, poi l'elenco di quella versione) e aggiornamento automatico: ogni
+  // volta che carichi un file nel pannello Vercel (altra scheda) e torni su Solco, o mentre resti
+  // sulla pagina, la versione cambia e l'elenco si aggiorna da solo. Trigger: ritorno di focus /
+  // scheda di nuovo visibile, più un controllo ogni 30 secondi SOLO a scheda visibile.
   useEffect(() => {
+    mountedRef.current = true;
+    void check();
     const refresh = () => {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-      if (Date.now() - lastLoadRef.current < REFRESH_THROTTLE_MS) return;
-      void load(true);
+      const gap = versionFailedRef.current ? FALLBACK_REFRESH_MS : REFRESH_THROTTLE_MS;
+      if (Date.now() - lastCheckRef.current < gap) return;
+      void check();
     };
     const onVisible = () => {
       if (document.visibilityState === 'visible') refresh();
     };
     window.addEventListener('focus', refresh);
     document.addEventListener('visibilitychange', onVisible);
-    const interval = setInterval(refresh, BACKGROUND_REFRESH_MS);
+    const interval = setInterval(refresh, VERSION_POLL_MS);
     return () => {
+      mountedRef.current = false;
       window.removeEventListener('focus', refresh);
       document.removeEventListener('visibilitychange', onVisible);
       clearInterval(interval);
     };
-  }, [load]);
+  }, [check]);
 
   // Stesso avvio della ricerca globale (playHomeTrack). La coda è la sezione: si ascolta la
   // cartella, dal brano toccato in poi.
