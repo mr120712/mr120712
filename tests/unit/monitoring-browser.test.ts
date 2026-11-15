@@ -47,7 +47,9 @@ import {
 } from '../../scripts/monitor/browser-check';
 import { PUBLIC_PAGES as SITE_CHECK_PAGES } from '../../scripts/monitor/check-site';
 
-const BASE = 'https://www.solcomusic.online';
+const BASE = 'https://solcomusic.vercel.app';
+/** Il dominio predefinito degli script (senza BASE_URL): quello ufficiale. */
+const DEFAULT_BASE = 'https://www.solcomusic.online';
 
 const PROBE_OK: PageProbe = {
   hasVisibleMain: true,
@@ -159,7 +161,7 @@ describe('helpers', () => {
   });
 
   it('accept only http(s) base URLs and keep the origin', () => {
-    expect(normalizeBaseUrl(undefined)).toBe(BASE);
+    expect(normalizeBaseUrl(undefined)).toBe(DEFAULT_BASE);
     expect(normalizeBaseUrl(' https://example.com/x/ ')).toBe('https://example.com');
     expect(() => normalizeBaseUrl('ftp://example.com')).toThrow();
   });
@@ -1153,6 +1155,6 @@ describe('main', () => {
     }
     expect(code).toBe(0);
     expect(log.launches).toEqual([{ headless: true }]);
-    expect(log.gotos[0]).toBe(`${BASE}/`);
+    expect(log.gotos[0]).toBe(`${DEFAULT_BASE}/`);
   });
 });
