@@ -67,6 +67,7 @@ import {
   decidePlay,
   FREE_MONTHLY_PLAYS,
   isValidPlayId,
+  permitRecordsPlay,
   romeMonth,
 } from '@/lib/business/play-quota';
 import { consumePlay, monthlyPlays } from '@/lib/business/play-quota.server';
@@ -224,5 +225,70 @@ describe('limite di ascolti per gli account free', () => {
     expect(mocks.plays).toHaveLength(0);
     expect(isValidPlayId('youtube:dQw4w9WgXcQ')).toBe(true);
     expect(isValidPlayId('youtube:../../etc')).toBe(false);
+  });
+});
+
+describe('brani di audio.com (audiocom:<id>) nel limite Free', () => {
+  it('id valido solo con l’id numerico di audio.com; l’id storico upload:audiocom~ no', () => {
+    expect(isValidPlayId('audiocom:123')).toBe(true);
+    expect(isValidPlayId(`audiocom:${'9'.repeat(24)}`)).toBe(true);
+    for (const invalid of [
+      'audiocom:',
+      'audiocom:abc',
+      'audiocom:12a',
+      `audiocom:${'9'.repeat(25)}`,
+      'audiocom:../1',
+      'upload:audiocom~123',
+    ]) {
+      expect(isValidPlayId(invalid), invalid).toBe(false);
+    }
+  });
+
+  it('contano come Audius e podcast; gli upload pubblici restano esclusi', () => {
+    expect(countsTowardFreeQuota('audiocom:123')).toBe(true);
+    expect(countsTowardFreeQuota(`upload:${'c'.repeat(25)}`)).toBe(false);
+    expect(countsTowardFreeQuota('upload:audiocom~123')).toBe(false);
+  });
+
+  it('solo per audio.com il permesso del player registra l’ascolto', () => {
+    expect(permitRecordsPlay('audiocom:123')).toBe(true);
+    for (const other of [
+      'audius:track',
+      'podcast:1~ep',
+      'radio:station-1',
+      'youtube:dQw4w9WgXcQ',
+      'jamendo:1532771',
+      `upload:${'c'.repeat(25)}`,
+      'upload:audiocom~123',
+    ]) {
+      expect(permitRecordsPlay(other), other).toBe(false);
+    }
+  });
+
+  it('il 41° ascolto del mese di audio.com è bloccato; riascoltare entro 30 minuti non conta', async () => {
+    const user = { id: 'audiocom-user' };
+    const now = new Date('2026-11-20T10:00:00Z');
+    for (let i = 0; i < FREE_MONTHLY_PLAYS - 1; i += 1) {
+      expect((await consumePlay(user, `audius:track${5000 + i}`, now)).allowed).toBe(true);
+    }
+    expect(await consumePlay(user, 'audiocom:111', now)).toMatchObject({
+      allowed: true,
+      counted: true,
+      used: FREE_MONTHLY_PLAYS,
+    });
+    expect(await consumePlay(user, 'audiocom:111', now)).toMatchObject({
+      allowed: true,
+      counted: false,
+    });
+    expect(await consumePlay(user, 'audiocom:222', now)).toMatchObject({
+      allowed: false,
+      reason: 'monthly_limit',
+      used: FREE_MONTHLY_PLAYS,
+    });
+    expect(mocks.plays.filter((p) => p.qualifiedId.startsWith('audiocom:'))).toHaveLength(1);
+    expect(await consumePlay(null, 'audiocom:222', now)).toMatchObject({
+      allowed: false,
+      reason: 'login_required',
+    });
   });
 });

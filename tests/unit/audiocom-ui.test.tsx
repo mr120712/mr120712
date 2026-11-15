@@ -211,8 +211,10 @@ describe('righe di audio.com', () => {
     await act(async () => play.click());
     expect(mocks.playTrack).toHaveBeenCalledTimes(1);
     const [track, path, queue] = mocks.playTrack.mock.calls[0] ?? [];
+    // Id proprio di audio.com (accesso e conteggio Free nel player), stream diretto come i file
+    // pubblici.
     expect(track).toMatchObject({
-      qualifiedId: 'upload:audiocom~111',
+      qualifiedId: 'audiocom:111',
       playbackMode: 'upload',
       artistName: 'Anna Rossi',
       sourceLabel: 'audio.com · CC BY 4.0',
@@ -221,7 +223,7 @@ describe('righe di audio.com', () => {
     expect(path).toBe(ccTrack.streamUrl);
     // In coda solo i brani riproducibili (mai quello «Tutti i diritti riservati»).
     expect((queue as Array<{ qualifiedId: string }>).map((item) => item.qualifiedId)).toEqual([
-      'upload:audiocom~111',
+      'audiocom:111',
     ]);
   });
 

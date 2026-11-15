@@ -63,6 +63,9 @@ describe('interruttore e fonti', () => {
     expect(wantsSparePreload({ ...base, repeatOne: true })).toBe(false);
     expect(wantsSparePreload({ ...base, mode: 'podcast' })).toBe(false);
     expect(wantsSparePreload({ ...base, mode: 'youtube' })).toBe(false);
+    // Upload pubblici e brani di audio.com (stream diretto 'upload'): mai precaricati. Per audio.com
+    // sarebbe audio scaricato prima del permesso, l'unico controllo che registra l'ascolto.
+    expect(wantsSparePreload({ ...base, mode: 'upload' })).toBe(false);
     // Rights not verified yet, Free limit or guest predicted, rights denied: no download at all.
     expect(wantsSparePreload({ ...base, decision: { kind: 'async' } })).toBe(false);
     expect(

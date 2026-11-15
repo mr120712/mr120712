@@ -2,8 +2,9 @@
 // (solo CC0, CC BY, CC BY-SA, CC BY-ND con stream https su audio.com) oppure solo player ufficiale
 // di audio.com; le cover mai nel player di Solco; etichette e link al testo della licenza;
 // indirizzi solo https su audio.com; il contratto rifiuta uno stream con una licenza non
-// riproducibile o per una cover; l'elemento del player porta
-// l'attribuzione e riusa la via generica dello stream diretto (nessuna modifica al player).
+// riproducibile o per una cover; l'elemento del player porta l'attribuzione, suona con lo stream
+// diretto dei file pubblici e ha un id proprio, `audiocom:<id>` (accesso e conteggio Free), in cui
+// confluiscono anche gli id storici `upload:audiocom~<id>`.
 import { describe, expect, it } from 'vitest';
 import { audioComToPlayerTrack } from '@/components/custom/music/audiocom-tracks';
 import { type AudioComTrack, AudioComTrackSchema } from '@/lib/contracts/audiocom';
@@ -11,12 +12,15 @@ import {
   AUDIOCOM_LICENSE_VALUES,
   type AudioComLicense,
   audioComEmbedUrl,
+  audioComIdFromQualifiedId,
   audioComImageUrl,
   audioComLicenseDeedUrl,
   audioComLicenseName,
   audioComLicenseShortLabel,
   audioComPageUrl,
+  audioComQualifiedId,
   audioComStreamUrl,
+  currentAudioComQualifiedId,
   isAudioComHost,
   isAudioComPageUrl,
   isAudioComPlayable,
@@ -162,7 +166,7 @@ describe('contratto del brano', () => {
 describe('elemento del player', () => {
   it('stream diretto (via generica upload) con attribuzione nella riga della fonte', () => {
     expect(audioComToPlayerTrack(track('cc-by-sa'))).toEqual({
-      qualifiedId: 'upload:audiocom~123',
+      qualifiedId: 'audiocom:123',
       title: 'Notturno',
       artistName: 'Anna Rossi',
       artworkUrl: 'https://s3.audio.com/images/123.jpg',
@@ -173,5 +177,34 @@ describe('elemento del player', () => {
       streamUrl: STREAM,
       playbackMode: 'upload',
     });
+  });
+});
+
+describe('id del brano nel player e nel registro degli ascolti', () => {
+  it('audiocom:<id>, con l’id numerico di audio.com', () => {
+    expect(audioComQualifiedId('123')).toBe('audiocom:123');
+    expect(audioComIdFromQualifiedId('audiocom:123')).toBe('123');
+    expect(audioComIdFromQualifiedId(`audiocom:${'9'.repeat(24)}`)).toBe('9'.repeat(24));
+    for (const invalid of [
+      'audiocom:',
+      'audiocom:12a',
+      'audiocom:-1',
+      `audiocom:${'9'.repeat(25)}`,
+      'audiocom:1/2',
+      'upload:audiocom~123',
+      'audius:123',
+    ]) {
+      expect(audioComIdFromQualifiedId(invalid), invalid).toBeNull();
+    }
+  });
+
+  it('gli id storici upload:audiocom~<id> diventano audiocom:<id>, gli altri restano', () => {
+    expect(currentAudioComQualifiedId('upload:audiocom~123')).toBe('audiocom:123');
+    expect(currentAudioComQualifiedId('audiocom:123')).toBe('audiocom:123');
+    // Un upload pubblico, un brano in evidenza o un id storico malformato non cambiano.
+    expect(currentAudioComQualifiedId(`upload:${'c'.repeat(25)}`)).toBe(`upload:${'c'.repeat(25)}`);
+    expect(currentAudioComQualifiedId('upload:Pop/A - B.mp3')).toBe('upload:Pop/A - B.mp3');
+    expect(currentAudioComQualifiedId('upload:audiocom~abc')).toBe('upload:audiocom~abc');
+    expect(currentAudioComQualifiedId('audius:track')).toBe('audius:track');
   });
 });

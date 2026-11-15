@@ -10,7 +10,14 @@
 //
 // Mai consumare un ascolto in anticipo: niente POST /api/music/plays prima che il brano parta. Il
 // precaricamento chiede allo /stream solo un Range da 0, servito come primo blocco che non conta.
-import { countsTowardFreeQuota, REPLAY_WINDOW_MS } from '@/lib/business/play-quota';
+// audio.com (`audiocom:<id>`) non ha una route di stream di Solco: il suo permesso REGISTRA
+// l'ascolto (permitRecordsPlay), quindi parte solo quando parte il brano (nel cambio sincrono
+// insieme all'audio), mai nella preparazione, e la riserva non ne precarica mai l'audio.
+import {
+  countsTowardFreeQuota,
+  permitRecordsPlay,
+  REPLAY_WINDOW_MS,
+} from '@/lib/business/play-quota';
 
 /** Quanti secondi prima della fine si prepara il brano successivo. */
 export const PREFETCH_LEAD_SECONDS = 20;
@@ -162,6 +169,11 @@ export function decideAdvance(input: {
   if (!playsWhileHidden(input.mode)) return { kind: 'async' };
   if (input.rights === 'denied') return { kind: 'denied' };
   if (needsRightsCheck(input.mode) && input.rights !== 'allowed') return { kind: 'async' };
+  // audio.com: nessuna route di Solco davanti allo stream, l'unico controllo è il permesso, che
+  // nel cambio sincrono parte insieme all'audio. Senza i dati di /api/music/access non si può
+  // prevedere un ospite o un limite raggiunto: percorso normale, che aspetta il permesso prima
+  // dell'audio (così un ospite non ne sente nemmeno un istante).
+  if (permitRecordsPlay(input.qualifiedId) && !input.access) return { kind: 'async' };
   const blocked = predictPlayBlock(input.access, {
     qualifiedId: input.qualifiedId,
     replay: input.replay,

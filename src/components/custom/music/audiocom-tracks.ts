@@ -3,14 +3,16 @@
 // audio.com) e mai per le cover: in ogni altro caso restituisce null e il brano si ascolta solo nel
 // player ufficiale di audio.com (AudioComEmbedDialog).
 //
-// Nessuna modifica al player: si riusa la via generica dei file pubblici con stream diretto
-// (playbackMode 'upload' + streamUrl https, come i brani pubblici e i brani in evidenza pubblici).
-// L'id `upload:audiocom~<id>` segue le regole di quella via: nessun permesso /api/music/plays,
-// quindi NESSUN controllo dell'accesso (i brani CC di audio.com suonano anche per chi non ha fatto
-// l'accesso, come i brani pubblici) e nessun conteggio del piano Free (lo stream va dal browser ad
-// audio.com, nessuna route di Solco lo vede), niente cronologia, niente pannello «Testo». Per
-// chiedere l'accesso (ed eventualmente il limite Free) serve un prefisso proprio (es.
-// `audiocom:<id>`) gestito dal player e da isValidPlayId: è lavoro del player, non di questo file.
+// Lo stream segue la via dei file pubblici con stream diretto (playbackMode 'upload' + streamUrl
+// https, come i brani pubblici e i brani in evidenza pubblici): il browser scarica l'audio
+// direttamente da audio.com. L'id però è proprio, `audiocom:<id>` (audioComQualifiedId), e il
+// player lo tratta come le fonti contate: prima di far partire l'audio chiede il permesso a
+// /api/music/plays, quindi serve un account (gli ospiti vedono l'invito ad accedere) e l'ascolto
+// conta nei 40 ascolti Free del mese come Audius e podcast (Premium illimitato; riascoltare lo
+// stesso brano entro 30 minuti non conta). Siccome nessuna route di stream di Solco vede
+// quell'audio, è il permesso stesso a registrare l'ascolto (vedi permitRecordsPlay in
+// play-quota.ts). Come i file pubblici: niente cronologia (non porta lo streamUrl), niente
+// precaricamento sul secondo deck, niente pannello «Testo».
 // L'attribuzione richiesta dalle licenze CC compare anche nel player: autore (artistName),
 // «audio.com · <licenza>» nella riga della fonte e il link «Il brano su audio.com» alla pagina.
 import type { MusicPlayerTrack } from '@/components/custom/music/music-player';

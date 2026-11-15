@@ -175,7 +175,8 @@ async function recordFreePlay(userId: string, qualifiedId: string, now: Date) {
 
 /**
  * Autorizza e registra l'avvio di un brano per l'utente indicato. Da chiamare solo quando
- * l'audio parte davvero (route di stream, tramite `recordStreamPlay`). Lancia
+ * l'audio parte davvero (route di stream, tramite `recordStreamPlay`), oppure dal permesso del
+ * player per le fonti che nessuna route di stream vede (audio.com: permitRecordsPlay). Lancia
  * `PlayQuotaUnavailableError` se i conflitti non si risolvono: nessuna riga scritta, e le route
  * rispondono 503 senza audio.
  */

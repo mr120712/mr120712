@@ -15,7 +15,9 @@ export type StreamPlayCheck = {
  * La decisione di `consumePlay` senza scrivere nulla (stessa funzione, `decidePlayFor`): ospiti e
  * account Free oltre i 40 ascolti vengono fermati qui, prima di qualsiasi richiesta alla fonte
  * o byte audio, con la stessa risposta di prima (`playDeniedResponse`). Usata anche dal permesso
- * del player (POST /api/music/plays), che quindi non consuma mai un ascolto.
+ * del player (POST /api/music/plays), che quindi non consuma mai un ascolto, tranne per le fonti
+ * senza route di stream di Solco (audio.com, vedi permitRecordsPlay): lì è il permesso a chiamare
+ * `recordStreamPlay`.
  */
 export async function checkStreamPlay(
   qualifiedId: string,
@@ -38,6 +40,8 @@ export function willCountStreamPlay(check: StreamPlayCheck) {
  * restituirlo. `consumePlay` rifà il controllo e scrive la riga: due richieste ravvicinate dello
  * stesso brano (Range) contano una volta sola e, se il limite è stato raggiunto nel frattempo,
  * la decisione torna un rifiuto (da inoltrare con `playDeniedResponse`, senza audio).
+ * Eccezione: per audio.com (permitRecordsPlay) la chiama il permesso del player, perché l'audio va
+ * dal browser direttamente ad audio.com e nessuna route di stream di Solco lo vedrà mai.
  */
 export async function recordStreamPlay(check: StreamPlayCheck): Promise<PlayDecision> {
   if (!willCountStreamPlay(check)) return check.decision;

@@ -66,7 +66,9 @@ describe('perimetro dell’assistenza Solco', () => {
     );
     // Diary entries and plays are two different 40-limits: only plays are "ascolti".
     expect(messages[0]?.content).toContain('40 registrazioni nel diario al mese');
-    expect(messages[0]?.content).toContain('fino a 40 ascolti al mese di brani Audius e podcast');
+    expect(messages[0]?.content).toContain(
+      'fino a 40 ascolti al mese di brani Audius, brani di audio.com e podcast',
+    );
     // Current plans, as sold on /piani (same prices as solco-pro-pricing.ts).
     expect(messages[0]?.content).toContain(
       "I piani sono Free (gratis), Premium (4,99 € al mese o 49,99 € all'anno), Premium Plus (7,99 € al mese o 79,99 € all'anno), Family (12,99 € al mese o 129,99 € all'anno)",

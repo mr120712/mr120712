@@ -12,10 +12,11 @@ export const metadata: Metadata = {
   alternates: { canonical: '/piani' },
 };
 
-// I 40 ascolti Free valgono per brani Audius e podcast. Radio e video YouTube sono senza limiti
-// per tutti (non contano: vedi countsTowardFreeQuota), quindi non sono vantaggi Premium.
+// I 40 ascolti Free valgono per brani Audius, brani di audio.com e podcast. Radio e video YouTube
+// sono senza limiti per tutti (non contano: vedi countsTowardFreeQuota), quindi non sono vantaggi
+// Premium.
 const freeBenefits = [
-  `${FREE_MONTHLY_PLAYS} ascolti al mese di brani Audius e podcast con un account gratuito`,
+  `${FREE_MONTHLY_PLAYS} ascolti al mese di brani Audius, audio.com e podcast con un account gratuito`,
   'Brani completi da Audius e podcast, anche in background',
   `Radio dal vivo da tutto il mondo senza limiti: non contano nei ${FREE_MONTHLY_PLAYS} ascolti`,
   `Video YouTube senza limiti nel player ufficiale: non contano nei ${FREE_MONTHLY_PLAYS} ascolti`,
@@ -23,7 +24,7 @@ const freeBenefits = [
 ];
 
 const proBenefits = [
-  'Ascolti illimitati di brani Audius e podcast',
+  'Ascolti illimitati di brani Audius, audio.com e podcast',
   'Cerca con l’AI: descrivi la musica che vuoi e Claude Opus 5.5 la trova per te',
   'Ascolto illimitato in background di brani Audius e podcast: continua a schermo bloccato o in un’altra app (non vale per i video YouTube)',
   'Statistiche avanzate',
@@ -55,7 +56,7 @@ const faq = [
   },
   {
     q: `Cosa conta nei ${FREE_MONTHLY_PLAYS} ascolti del piano Free?`,
-    a: 'Ogni brano Audius o episodio di podcast che avvii; riprendere lo stesso brano entro 30 minuti non conta di nuovo. Le radio dal vivo e i video YouTube non contano mai, e nemmeno i brani di Apple Music ascoltati con il tuo abbonamento Apple. Il conteggio riparte ogni mese; con Premium non c’è limite.',
+    a: 'Ogni brano di Audius o di audio.com e ogni episodio di podcast che avvii; riprendere lo stesso brano entro 30 minuti non conta di nuovo. Le radio dal vivo e i video YouTube non contano mai, e nemmeno i brani di Apple Music ascoltati con il tuo abbonamento Apple. Il conteggio riparte ogni mese; con Premium non c’è limite.',
   },
   {
     q: 'Ci sono pubblicità?',

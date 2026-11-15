@@ -209,7 +209,45 @@ export function isAudioComPlayable(track: {
   return isAudioComStreamAllowed(track) && audioComStreamUrl(track.streamUrl) !== null;
 }
 
-/** Id del brano nel player: stessa via dei file pubblici con stream diretto (vedi audiocom-tracks). */
+/**
+ * Prefisso degli id dei brani di audio.com nel player e nel registro degli ascolti Free
+ * (`audiocom:<id>`, con <id> come AUDIOCOM_ID_PATTERN). Il prefisso proprio (non `upload:`) serve
+ * al player per chiedere il permesso di /api/music/plays: account obbligatorio e conteggio nei 40
+ * ascolti Free, come Audius e podcast (vedi play-quota.ts).
+ */
+export const AUDIOCOM_QUALIFIED_PREFIX = 'audiocom:';
+
+/**
+ * Id usato fino a quando audio.com non contava nel limite Free: `upload:audiocom~<id>`, con le
+ * regole dei file pubblici (nessun accesso richiesto, nessun conteggio). Può essere ancora salvato
+ * nella coda del player (localStorage) di chi ha ascoltato un brano di audio.com prima del cambio.
+ */
+const LEGACY_AUDIOCOM_PREFIX = 'upload:audiocom~';
+
+/** Id del brano nel player: `audiocom:<id>` (stream diretto come i file pubblici, vedi audiocom-tracks). */
 export function audioComQualifiedId(id: string): string {
-  return `upload:audiocom~${id}`;
+  return `${AUDIOCOM_QUALIFIED_PREFIX}${id}`;
+}
+
+/** L'id numerico di audio.com di un id del player `audiocom:<id>`, oppure null. */
+export function audioComIdFromQualifiedId(qualifiedId: string): string | null {
+  if (!qualifiedId.startsWith(AUDIOCOM_QUALIFIED_PREFIX)) return null;
+  const id = qualifiedId.slice(AUDIOCOM_QUALIFIED_PREFIX.length);
+  return AUDIOCOM_ID_PATTERN.test(id) ? id : null;
+}
+
+/**
+ * Un id storico `upload:audiocom~<id>` diventa `audiocom:<id>`; ogni altro id resta com'è.
+ *
+ * Scelta più sicura per i brani già salvati: continuano a suonare (stesso stream https di
+ * audio.com), ma con le regole di oggi, cioè accesso obbligatorio e conteggio nel limite Free.
+ * Lasciarli sulla via `upload:` li avrebbe fatti suonare per sempre senza account e senza
+ * contare, aggirando il limite con una coda salvata prima del cambio. Il player lo applica a ogni
+ * brano che entra in coda (anche dalla coda ripristinata dopo un ricaricamento) e prima di chiedere
+ * il permesso; il server accetta solo la forma nuova (isValidPlayId).
+ */
+export function currentAudioComQualifiedId(qualifiedId: string): string {
+  if (!qualifiedId.startsWith(LEGACY_AUDIOCOM_PREFIX)) return qualifiedId;
+  const id = qualifiedId.slice(LEGACY_AUDIOCOM_PREFIX.length);
+  return AUDIOCOM_ID_PATTERN.test(id) ? audioComQualifiedId(id) : qualifiedId;
 }

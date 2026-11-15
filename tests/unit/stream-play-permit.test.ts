@@ -1,5 +1,7 @@
 // @polsia:user-owned — il permesso del player (POST /api/music/plays) verifica soltanto: un
-// ascolto Free si registra solo nella route di stream, quando l'audio parte davvero.
+// ascolto Free si registra solo nella route di stream, quando l'audio parte davvero. Eccezione:
+// audio.com (audiocom:<id>), il cui audio non passa da nessuna route di Solco: lì il permesso
+// registra l'ascolto (una volta, con la finestra di 30 minuti per i riascolti).
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -224,6 +226,162 @@ describe('permesso del player: verifica senza consumare ascolti', () => {
   });
 });
 
+describe('permesso di audio.com: registra l’ascolto (nessuna route di stream lo vede)', () => {
+  const audioComRows = () => mocks.plays.filter((row) => row.qualifiedId.startsWith('audiocom:'));
+
+  it('ospite: 401 login_required, nessun ascolto registrato', async () => {
+    mocks.user.mockResolvedValue(null);
+    const response = await permit('audiocom:111');
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({
+      allowed: false,
+      reason: 'login_required',
+      used: 0,
+      limit: FREE_MONTHLY_PLAYS,
+    });
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.plays).toHaveLength(0);
+  });
+
+  it('Free sotto il limite: permesso e un ascolto registrato; lo stesso brano entro 30 minuti non riconta', async () => {
+    const first = await permit('audiocom:111');
+    expect(first.status).toBe(200);
+    expect(first.headers.get('cache-control')).toBe('private, no-store');
+    expect(await first.json()).toEqual({ allowed: true, used: 1, limit: FREE_MONTHLY_PLAYS });
+    expect(audioComRows()).toEqual([
+      expect.objectContaining({
+        userId: 'free-user',
+        qualifiedId: 'audiocom:111',
+        month: romeMonth(new Date()),
+      }),
+    ]);
+    // Same Serializable transaction as the stream routes.
+    expect(mocks.transaction.mock.calls[0]?.[1]).toEqual({ isolationLevel: 'Serializable' });
+
+    // Pause and Play again, a reload, a second tab: still one play within the replay window.
+    const again = await permit('audiocom:111');
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual({ allowed: true, used: 1, limit: FREE_MONTHLY_PLAYS });
+    expect(mocks.create).toHaveBeenCalledTimes(1);
+
+    // Another audio.com track is a new play.
+    expect(await (await permit('audiocom:222')).json()).toEqual({
+      allowed: true,
+      used: 2,
+      limit: FREE_MONTHLY_PLAYS,
+    });
+    expect(audioComRows().map((row) => row.qualifiedId)).toEqual(['audiocom:111', 'audiocom:222']);
+  });
+
+  it('dopo la finestra di 30 minuti lo stesso brano conta di nuovo', async () => {
+    mocks.plays.push({
+      userId: 'free-user',
+      qualifiedId: 'audiocom:111',
+      month: romeMonth(new Date()),
+      createdAt: new Date(Date.now() - REPLAY_WINDOW_MS - 60_000),
+    });
+    expect(await (await permit('audiocom:111')).json()).toEqual({
+      allowed: true,
+      used: 2,
+      limit: FREE_MONTHLY_PLAYS,
+    });
+    expect(audioComRows()).toHaveLength(2);
+  });
+
+  it('oltre il limite: 402 monthly_limit, nessun ascolto; un riascolto entro 30 minuti sì', async () => {
+    fillMonthlyQuota();
+    const blocked = await permit('audiocom:111');
+    expect(blocked.status).toBe(402);
+    expect(await blocked.json()).toEqual({
+      allowed: false,
+      reason: 'monthly_limit',
+      used: FREE_MONTHLY_PLAYS,
+      limit: FREE_MONTHLY_PLAYS,
+    });
+    expect(audioComRows()).toHaveLength(0);
+
+    // The 40th play was this track a few minutes ago: resuming it is allowed and not counted.
+    mocks.plays.pop();
+    mocks.plays.push({
+      userId: 'free-user',
+      qualifiedId: 'audiocom:333',
+      month: romeMonth(new Date()),
+      createdAt: new Date(Date.now() - 5 * 60_000),
+    });
+    const resumed = await permit('audiocom:333');
+    expect(resumed.status).toBe(200);
+    expect(await resumed.json()).toEqual({
+      allowed: true,
+      used: FREE_MONTHLY_PLAYS,
+      limit: FREE_MONTHLY_PLAYS,
+    });
+    expect(mocks.plays).toHaveLength(FREE_MONTHLY_PLAYS);
+  });
+
+  it('limite raggiunto tra verifica e scrittura: la transazione rifiuta (402), nessuna riga', async () => {
+    mocks.transaction.mockImplementationOnce(
+      (run: (transaction: unknown) => Promise<unknown>, _options: unknown, client: unknown) => {
+        // Another device used the last free play meanwhile.
+        fillMonthlyQuota();
+        return run(client);
+      },
+    );
+    const response = await permit('audiocom:111');
+    expect(response.status).toBe(402);
+    expect(await response.json()).toMatchObject({ allowed: false, reason: 'monthly_limit' });
+    expect(audioComRows()).toHaveLength(0);
+  });
+
+  it('Premium: permesso senza limite e senza registrare nulla', async () => {
+    mocks.premium.mockResolvedValue(true);
+    const response = await permit('audiocom:111');
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ allowed: true, used: 0, limit: null });
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.plays).toHaveLength(0);
+  });
+
+  it('registro non disponibile (conflitti oltre i tentativi): 503 e nessun ascolto', async () => {
+    mocks.transaction.mockRejectedValue(
+      Object.assign(new Error('Transaction failed due to a write conflict or a deadlock'), {
+        code: 'P2034',
+      }),
+    );
+    const response = await permit('audiocom:111');
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: 'play_unavailable' });
+    expect(mocks.transaction).toHaveBeenCalledTimes(PLAY_RECORD_ATTEMPTS);
+    expect(mocks.plays).toHaveLength(0);
+  });
+
+  it('id non validi (anche quello storico upload:audiocom~): 400, nessuna lettura', async () => {
+    for (const qualifiedId of ['audiocom:abc', 'audiocom:', 'upload:audiocom~111']) {
+      const response = await permit(qualifiedId);
+      expect(response.status, qualifiedId).toBe(400);
+      expect(await response.json()).toEqual({ error: 'invalid_track' });
+    }
+    expect(mocks.user).not.toHaveBeenCalled();
+    expect(mocks.plays).toHaveLength(0);
+  });
+
+  it('le altre fonti restano solo verificate: nessuna riga dal permesso', async () => {
+    mocks.jamendoOn = true;
+    for (const qualifiedId of [
+      'audius:only-checked',
+      'podcast:123~episode-1',
+      'jamendo:1532771',
+      'radio:station-71',
+      'youtube:dQw4w9WgXcQ',
+    ]) {
+      const response = await permit(qualifiedId);
+      expect(response.status, qualifiedId).toBe(200);
+    }
+    expect(mocks.transaction).not.toHaveBeenCalled();
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.plays).toHaveLength(0);
+  });
+});
+
 describe('registro degli ascolti in conflitto: si fallisce chiusi', () => {
   const writeConflict = () =>
     Object.assign(new Error('Transaction failed due to a write conflict or a deadlock'), {
@@ -272,6 +430,7 @@ describe('checkStreamPlay e consumePlay prendono la stessa decisione', () => {
     'radio:station-71',
     'youtube:dQw4w9WgXcQ',
     'jamendo:1532771',
+    'audiocom:111',
   ];
   const states = [
     { name: 'Free sotto il limite', setup: () => undefined },

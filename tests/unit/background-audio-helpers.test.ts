@@ -314,6 +314,52 @@ describe('preparazione del brano successivo', () => {
       }),
     ).toEqual({ kind: 'blocked', reason: 'monthly_limit' });
   });
+
+  it('audio.com: sincrono solo con l’accesso noto (il permesso parte con l’audio), come le fonti contate', () => {
+    const access = { signedIn: true, premium: false, playsUsed: 3, playsLimit: 40 };
+    const base = { qualifiedId: 'audiocom:111', mode: 'upload', rights: null, replay: false };
+    expect(decideAdvance({ ...base, access })).toEqual({ kind: 'switch' });
+    // Without /api/music/access nothing predicts a guest or the limit: the normal path waits for
+    // the permit before any audio.
+    expect(decideAdvance({ ...base, access: null })).toEqual({ kind: 'async' });
+    expect(decideAdvance({ ...base, access: { ...access, signedIn: false } })).toEqual({
+      kind: 'blocked',
+      reason: 'login_required',
+    });
+    expect(decideAdvance({ ...base, access: { ...access, playsUsed: 40 } })).toEqual({
+      kind: 'blocked',
+      reason: 'monthly_limit',
+    });
+    // Resumed within the replay window: the server does not count it again.
+    expect(decideAdvance({ ...base, access: { ...access, playsUsed: 40 }, replay: true })).toEqual({
+      kind: 'switch',
+    });
+    expect(decideAdvance({ ...base, access: { ...access, premium: true, playsUsed: 90 } })).toEqual(
+      { kind: 'switch' },
+    );
+    // A public upload (same stream mode) never counts and needs no access snapshot.
+    expect(
+      decideAdvance({
+        ...base,
+        qualifiedId: `upload:${'c'.repeat(25)}`,
+        access: { ...access, playsUsed: 40 },
+      }),
+    ).toEqual({ kind: 'switch' });
+    expect(
+      decideAdvance({ ...base, qualifiedId: `upload:${'c'.repeat(25)}`, access: null }),
+    ).toEqual({ kind: 'switch' });
+  });
+
+  it('prevede il limite Free anche per audio.com', () => {
+    const free = { signedIn: true, premium: false, playsUsed: 40, playsLimit: 40 };
+    expect(predictPlayBlock(free, { qualifiedId: 'audiocom:111', replay: false })).toBe(
+      'monthly_limit',
+    );
+    expect(predictPlayBlock(free, { qualifiedId: 'audiocom:111', replay: true })).toBeNull();
+    expect(
+      predictPlayBlock({ ...free, playsUsed: 39 }, { qualifiedId: 'audiocom:111', replay: false }),
+    ).toBeNull();
+  });
 });
 
 describe('tempo di ascolto per i premi (dal tempo del brano, non dai timer)', () => {

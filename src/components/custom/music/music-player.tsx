@@ -37,6 +37,7 @@ import {
 import { ShareMenu } from '@/components/custom/share-menu';
 import { apiFetch } from '@/lib/api-client';
 import { useSession } from '@/lib/auth-client';
+import { permitRecordsPlay } from '@/lib/business/play-quota';
 import {
   audiusTrackIdFromQualifiedId,
   songShareImagePath,
@@ -73,6 +74,7 @@ import {
   primeMediaElement,
   releasePlaybackSession,
 } from '@/lib/music/audio-session';
+import { currentAudioComQualifiedId } from '@/lib/music/audiocom-license';
 import {
   AUTOPLAY_BATCH,
   selectAutoplayCandidates,
@@ -123,6 +125,7 @@ import {
   failureLink,
   failureMessage,
   OFFLINE_RESUME_MESSAGE,
+  PLAY_PERMIT_UNCONFIRMED_MESSAGE,
   showsFreePlayCounter,
   UNAVAILABLE_SKIP_MESSAGE,
   YOUTUBE_QUEUE_UNPLAYABLE_MESSAGE,
@@ -174,6 +177,9 @@ export type MusicPlaybackMode =
   | 'local'
   // A song uploaded to the public library (qualifiedId upload:<id>): a PUBLIC file on Vercel Blob,
   // streamed directly from its CDN URL (track.streamUrl). See public-uploads.server.ts.
+  // Anche i brani di audio.com (qualifiedId audiocom:<id>, solo licenze CC ammesse, mai cover):
+  // stesso stream https diretto, ma con il permesso di /api/music/plays prima dell'audio (accesso
+  // obbligatorio, conteggio nel limite Free: vedi permitRecordsPlay e audiocom-tracks.ts).
   | 'upload';
 
 export type MusicPlayerTrack = {
@@ -191,7 +197,7 @@ export type MusicPlayerTrack = {
   albumId?: string | null;
   /** For a YouTube video found from an imported song: the song's qualifiedId (song:…). */
   importedFrom?: string | null;
-  /** Direct public stream URL (playbackMode 'upload': the Vercel Blob CDN URL). */
+  /** Direct public stream URL (playbackMode 'upload': the Vercel Blob CDN URL, or audio.com's). */
   streamUrl?: string | null;
   playbackMode?: MusicPlaybackMode;
   credits?: string[];
@@ -351,8 +357,23 @@ export function isOpenStream(track: Pick<MusicPlayerTrack, 'playbackMode'>) {
     track.playbackMode === 'jamendo' ||
     track.playbackMode === 'youtube' ||
     // Brano pubblico caricato dagli utenti: file pubblico su Blob, stream diretto, niente diritti.
+    // Anche audio.com (licenza già filtrata dal server): niente /playback, ma il suo audio parte
+    // solo dopo il permesso, che è l'unico controllo (vedi permitRecordsPlay in playCurrentTrack).
     track.playbackMode === 'upload'
   );
+}
+
+/**
+ * Un brano di audio.com con l'id storico `upload:audiocom~<id>` (coda salvata nel browser prima che
+ * audio.com contasse nel limite Free) prende l'id di oggi, `audiocom:<id>`: continua a suonare dallo
+ * stesso stream, ma con accesso obbligatorio e conteggio come ogni brano di audio.com. Ogni altro
+ * elemento resta identico (vedi currentAudioComQualifiedId).
+ */
+function withCurrentPlayId<T extends MusicPlayerTrack>(track: T): T {
+  // Coda letta dal browser: un elemento rovinato (id non testuale) resta com'è, senza eccezioni.
+  if (typeof track.qualifiedId !== 'string') return track;
+  const qualifiedId = currentAudioComQualifiedId(track.qualifiedId);
+  return qualifiedId === track.qualifiedId ? track : { ...track, qualifiedId };
 }
 
 const STORAGE_KEY = PLAYER_STORAGE_KEY;
@@ -504,7 +525,8 @@ function safeStreamPath(path: string, track: MusicPlayerTrack) {
   const expected = trackStreamPath(track);
   if (!expected) return null;
   // Un brano della libreria pubblica suona da un URL pubblico su Vercel Blob (cross-origin, https,
-  // *.blob.vercel-storage.com), ricavato dal suo streamUrl già validato dal contratto API. Il valore
+  // *.blob.vercel-storage.com), ricavato dal suo streamUrl già validato dal contratto API; un brano
+  // di audio.com dal suo stream https su audio.com (contratto AudioComTrackSchema). Il valore
   // autorevole è `expected` stesso: lo si accetta direttamente invece di pretendere un percorso
   // same-origin.
   if (track.playbackMode === 'upload') return expected;
@@ -645,7 +667,17 @@ function formattedTime(seconds: number) {
 
 export type PlayBlock = 'login_required' | 'monthly_limit';
 
-type PlayPermit = { allowed: boolean; reason?: PlayBlock; used?: number; limit?: number | null };
+type PlayPermit = {
+  allowed: boolean;
+  reason?: PlayBlock;
+  used?: number;
+  limit?: number | null;
+  /**
+   * audio.com: il server non ha confermato il permesso (rete assente, errore, registro degli
+   * ascolti non disponibile). Nessuna route di stream ricontrolla quell'audio, quindi non parte.
+   */
+  unconfirmed?: true;
+};
 
 /** Chiede al server il permesso di avviare un brano (limite di 40 ascolti al mese per i free). */
 /** Finds the YouTube video of an imported song; a ready-to-play track or a message. */
@@ -712,10 +744,16 @@ function isDeviceOnly(track: Pick<MusicPlayerTrack, 'playbackMode' | 'qualifiedI
   return track.playbackMode === 'local' || track.qualifiedId.startsWith('local:');
 }
 
-export async function requestPlayPermit(qualifiedId: string): Promise<PlayPermit> {
+export async function requestPlayPermit(requestedId: string): Promise<PlayPermit> {
+  // Un id storico di audio.com (`upload:audiocom~<id>`) vale come `audiocom:<id>`: chiede il
+  // permesso come oggi, non passa per la via dei file pubblici (vedi withCurrentPlayId).
+  const qualifiedId = currentAudioComQualifiedId(requestedId);
   // A local file needs no permit and counts for nothing (its id never leaves the device).
   if (qualifiedId.startsWith('local:') || qualifiedId.startsWith('upload:'))
     return { allowed: true };
+  // audio.com: nessuna route di stream di Solco vedrà quell'audio, quindi questo permesso è l'unico
+  // controllo (accesso e limite Free) e REGISTRA l'ascolto. Senza un sì esplicito: niente audio.
+  const failClosed = permitRecordsPlay(qualifiedId);
   try {
     const response = await fetch('/api/music/plays', {
       method: 'POST',
@@ -740,6 +778,11 @@ export async function requestPlayPermit(qualifiedId: string): Promise<PlayPermit
         limit: typeof body.limit === 'number' ? body.limit : null,
       };
     }
+    // audio.com: vale solo un 200 con allowed true (un 503 del registro degli ascolti, un errore o
+    // una risposta strana non confermano nulla, e nessuna route di stream deciderà dopo).
+    if (failClosed && (!response.ok || body.allowed !== true)) {
+      return { allowed: false, unconfirmed: true };
+    }
     return {
       allowed: true,
       used: typeof body.used === 'number' ? body.used : undefined,
@@ -747,7 +790,8 @@ export async function requestPlayPermit(qualifiedId: string): Promise<PlayPermit
     };
   } catch {
     // Network failure: let the server-side stream check decide (it enforces the same limit).
-    return { allowed: true };
+    // audio.com non ha quel controllo: senza rete verso Solco l'audio non parte.
+    return failClosed ? { allowed: false, unconfirmed: true } : { allowed: true };
   }
 }
 
@@ -758,7 +802,9 @@ export async function requestPlayPermit(qualifiedId: string): Promise<PlayPermit
 export function recordPlay(track: MusicPlayerTrack) {
   // I file locali e i brani della libreria pubblica non vanno nella cronologia: la cronologia non
   // porta lo streamUrl, quindi un upload ricostruito da lì non sarebbe riproducibile (voce morta).
-  // Gli upload restano ascoltabili dalla pagina /pubblica (che ha lo streamUrl).
+  // Gli upload restano ascoltabili dalla pagina /pubblica (che ha lo streamUrl). Lo stesso per i
+  // brani di audio.com (playbackMode 'upload', id audiocom:<id>): si ritrovano con la Cerca; il
+  // conteggio del limite Free non dipende dalla cronologia (lo registra il permesso).
   if (isDeviceOnly(track) || track.playbackMode === 'upload') return;
   void apiFetch('/api/music/library', {
     method: 'POST',
@@ -1350,15 +1396,27 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         // Open streams start synchronously inside the tap: iOS Safari blocks play() after an await.
         // The permit request runs alongside: open streams must start inside the tap (iOS).
         const permitRequest = requestPlayPermit(track.qualifiedId);
-        if (!isOpenStream(track)) {
+        // audio.com è uno stream aperto, ma nessuna route di Solco lo vede: l'audio parte solo
+        // dopo il sì del permesso (che registra l'ascolto), così un ospite o un account Free oltre
+        // il limite non ne sentono nemmeno un istante. Come per Audius, il load() di releaseAudio
+        // dentro il tocco ha già sbloccato l'elemento su iOS: play() dopo l'attesa funziona.
+        if (!isOpenStream(track) || permitRecordsPlay(track.qualifiedId)) {
           const early = await permitRequest;
           if (request !== playRequestRef.current) return false;
           applyPermit(early);
           if (!early.allowed) {
             releaseAudio();
-            setStatus('idle');
+            if (early.unconfirmed) {
+              // Permesso di audio.com non confermato (rete, registro degli ascolti): il motivo,
+              // senza saltare al successivo (fallirebbe allo stesso modo).
+              setStatus('error');
+              setErrorMessage(PLAY_PERMIT_UNCONFIRMED_MESSAGE);
+            } else {
+              setStatus('idle');
+            }
             return false;
           }
+          // Nessuna verifica /playback per gli stream aperti (audio.com compreso): ritorna subito.
           await verifyPlayback(track);
           if (request !== playRequestRef.current) return false;
         }
@@ -1409,10 +1467,13 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
 
   const playTrack = useCallback(
     async (
-      track: MusicPlayerTrack,
+      requested: MusicPlayerTrack,
       streamPath: string,
-      nextQueue: MusicPlayerTrack[] = [track],
+      requestedQueue: MusicPlayerTrack[] = [requested],
     ): Promise<boolean> => {
+      // Brani di audio.com con l'id storico: entrano in coda con l'id di oggi (withCurrentPlayId).
+      const track = withCurrentPlayId(requested);
+      const nextQueue = requestedQueue.map(withCurrentPlayId);
       // A local file has no stream path: the caller passes '' (see local-tracks.ts).
       const safePath = isLocalTrack(track)
         ? trackStreamPath(track)
@@ -1660,7 +1721,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   );
 
   const replaceCurrentTrack = useCallback(
-    (track: MusicPlayerTrack, streamPath: string) => {
+    (requested: MusicPlayerTrack, streamPath: string) => {
+      const track = withCurrentPlayId(requested);
       const items = queueRef.current;
       const index = queueIndexRef.current;
       // Il brano trovato prende il posto di quello corrente; altre sue copie nella coda (rare)
@@ -2130,6 +2192,36 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  /**
+   * audio.com in un passaggio sincrono (fine brano, «successivo» dalla schermata di blocco, brano
+   * che non parte): suona nello stesso evento, senza attese di rete (iOS sospende una pagina
+   * bloccata che tace), solo se i dati di /api/music/access non prevedono un blocco (decideAdvance).
+   * Il permesso, che registra l'ascolto, parte insieme all'audio: se il server rifiuta (ospite,
+   * limite raggiunto nel frattempo) o non conferma, l'audio si ferma con lo stesso invito o
+   * messaggio del percorso normale. Le altre fonti non chiedono nulla qui: l'ascolto lo registra la
+   * loro route di stream. (audio.com non passa mai dal deck di riserva: preloadsOnSpare.)
+   */
+  const confirmPermitAlongside = (track: ActiveTrack, src: string) => {
+    if (!permitRecordsPlay(track.qualifiedId)) return;
+    void requestPlayPermit(track.qualifiedId).then((permit) => {
+      // Vale finché il deck attivo ha questo stream (anche in pausa): un altro brano o la chiusura
+      // del player nel frattempo l'hanno sostituito o liberato, e la risposta non li riguarda.
+      if (decks.current?.getAttribute('src') !== src) return;
+      applyPermit(permit);
+      if (permit.allowed) return;
+      // Annulla l'avvio in corso (i suoi esiti non cambiano più lo stato) e libera l'audio.
+      playRequestRef.current += 1;
+      releaseAudio();
+      setSessionPlaybackState('paused');
+      if (permit.unconfirmed) {
+        setStatus('error');
+        setErrorMessage(PLAY_PERMIT_UNCONFIRMED_MESSAGE);
+      } else {
+        setStatus('idle');
+      }
+    });
+  };
+
   /** Same element, same event: new src + play() with no network wait before it. */
   const startSynchronously = (
     index: number,
@@ -2150,13 +2242,15 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     reconnectsRef.current = 0;
     pendingSeekRef.current = null;
     // The stream request itself counts the play on the server: refresh the counter once it plays
-    // (never for a local file: nothing is counted and nothing is asked of the server).
+    // (never for a local file: nothing is counted and nothing is asked of the server). Per
+    // audio.com lo conta il permesso inviato qui sotto insieme all'audio.
     refreshOnPlayingRef.current = !isLocalTrack(next);
     restartListeningSample(listeningRef.current);
     declarePlaybackSession();
     audio.src = src;
     audio.load();
     const playing = audio.play();
+    confirmPermitAlongside(next, src);
     showNowPlaying(next);
     setSessionPlaybackState('playing');
     setQueueIndex(index);
@@ -2260,7 +2354,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
    * verified ahead (Audius/Solco) or an open stream (Jamendo, podcast, radio), with no Free-plan
    * block predicted. iOS suspends a locked page soon after its audio stops, so a network wait
    * here would stop the queue until the phone is unlocked. Returns false when the normal path
-   * (with its network checks) has to run instead.
+   * (with its network checks) has to run instead. Un brano di audio.com passa di qui solo con i
+   * dati di accesso noti, e il suo permesso parte insieme all'audio (confirmPermitAlongside).
    */
   const advanceTo = (index: number): boolean => {
     const next = queue[index];
@@ -3591,10 +3686,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       // Solo in un player vuoto: se l'ascoltatore ha già avviato qualcosa (sessione arrivata in
       // ritardo), la coda salvata non sostituisce coda, titolo e schermata di blocco di ciò che suona.
       if (request !== playRequestRef.current || currentTrackRef.current) return;
+      // Un brano di audio.com salvato con l'id storico `upload:audiocom~<id>` torna in coda come
+      // `audiocom:<id>`: suona ancora, ma con accesso e conteggio Free (withCurrentPlayId).
       const restored = items
         .map((item) => {
           const path = item ? trackStreamPath(item) : null;
-          return path ? { ...item, streamPath: path } : null;
+          return path ? { ...withCurrentPlayId(item), streamPath: path } : null;
         })
         .filter((item): item is ActiveTrack => item !== null);
       const track = restored[index];
@@ -3886,7 +3983,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   // YouTube, radio, podcast): il server decide poi se il brano ha davvero un testo autorizzato.
   const lyricsTarget = lyricsTargetFor(currentTrack);
   const showCounter =
-    playsLimit !== null && playsUsed !== null && showsFreePlayCounter(currentTrack?.playbackMode);
+    playsLimit !== null &&
+    playsUsed !== null &&
+    showsFreePlayCounter(currentTrack?.playbackMode, currentTrack?.qualifiedId);
 
   // Both decks get the same attributes; only the active one drives the player (see onActiveDeck).
   const renderDeck = (bind: (element: HTMLAudioElement | null) => void) => (

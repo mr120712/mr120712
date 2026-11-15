@@ -108,4 +108,12 @@ describe('contatore "Ascolti gratuiti": solo per le fonti che lo usano', () => {
     expect(showsFreePlayCounter('jamendo')).toBe(false);
     expect(showsFreePlayCounter(undefined)).toBe(false);
   });
+
+  it('audio.com sì (decide l’id audiocom:<id>); gli upload pubblici, con lo stesso stream, no', () => {
+    expect(showsFreePlayCounter('upload', 'audiocom:111')).toBe(true);
+    expect(showsFreePlayCounter('upload', `upload:${'c'.repeat(25)}`)).toBe(false);
+    expect(showsFreePlayCounter('upload', 'upload:Pop/A - B.mp3')).toBe(false);
+    expect(showsFreePlayCounter('upload', 'audiocom:not-a-number')).toBe(false);
+    expect(showsFreePlayCounter('upload')).toBe(false);
+  });
 });
