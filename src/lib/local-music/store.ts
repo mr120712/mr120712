@@ -19,6 +19,7 @@
 // sulla schermata Home, e ogni browser può liberarlo sotto pressione. requestPersistence chiede al
 // browser di non farlo (navigator.storage.persist, dove esiste).
 
+import { downloadSourceKey, featuredCopyShareId } from '@/lib/local-music/download-key';
 import type { LocalMusicDb, LocalMusicWrite } from '@/lib/local-music/idb';
 import {
   browserCanPlayType,
@@ -79,7 +80,11 @@ export type LocalMusicStoreDeps = {
 export type DownloadedTrackInput = {
   /** Audio scaricato, con il tipo dichiarato dalla fonte. */
   blob: Blob;
-  /** Chiave stabile anti-duplicato della fonte (es. l'id Audius o 'podcastId~episodeKey'). */
+  /**
+   * Chiave stabile anti-duplicato della fonte (es. l'id Audius, 'podcastId~episodeKey' o
+   * 'featured:<shareId>' per la copia di un brano in evidenza). Resta nel record e si rilegge come
+   * LocalTrack.downloadKey.
+   */
   downloadKey: string;
   source: DownloadedTrackSource;
   title: string;
@@ -103,9 +108,15 @@ export type LocalMusicStore = LocalMusicReader & {
     files: FileList | ArrayLike<LocalFileInput> | Iterable<LocalFileInput>,
     options?: AddFilesOptions,
   ): Promise<AddFilesResult>;
-  /** Salva un brano scaricato (Audius/podcast) nella libreria sul dispositivo. */
+  /** Salva un brano scaricato (Audius, podcast, brano in evidenza) nella libreria sul dispositivo. */
   addDownloadedTrack(input: DownloadedTrackInput): Promise<AddDownloadedResult>;
   listTracks(): Promise<LocalTrack[]>;
+  /**
+   * Rimette SUL DISCO la fonte 'featured-download' ai record che si rileggono come copia di un
+   * brano in evidenza (chiave esatta, vedi reader.ts) ma ne hanno salvata un'altra: quelli che la
+   * versione precedente ha riscritto come 'local'. Torna quanti ne ha riscritti (0 = tutto a posto).
+   */
+  repairFeaturedCopySources(): Promise<number>;
   removeTrack(id: string): Promise<void>;
   clearAll(): Promise<void>;
   usage(): Promise<LocalMusicUsage>;
@@ -122,16 +133,24 @@ function compareTracks(a: LocalTrack, b: LocalTrack): number {
   return b.addedAt - a.addedAt || a.title.localeCompare(b.title);
 }
 
+/**
+ * Chiave anti-duplicato di un file dell'ascoltatore: [nome, dimensione, data di modifica]. Il
+ * secondo elemento è un numero, mentre la chiave di un download (download-key.ts) ha lì la fonte:
+ * un file locale non si può scambiare per un download, qualunque nome abbia.
+ */
 function sourceKeyFor(file: LocalFileInput): string {
   return JSON.stringify([String(file.name), file.size, file.lastModified ?? 0]);
 }
 
 /**
- * Chiave anti-duplicato di un download: il primo elemento è la stringa 'download', il secondo la
- * fonte, così non può mai coincidere con la chiave di un file locale ([nome, dimensione, data]).
+ * L'id di un record che si rilegge come copia di un brano in evidenza ma sul disco ha salvata
+ * un'altra fonte, o null. È il caso dei record riscritti come 'local' dalla versione precedente:
+ * la chiave esatta dice ancora che cosa sono, il campo `source` no.
  */
-function downloadSourceKey(source: DownloadedTrackSource, downloadKey: string): string {
-  return JSON.stringify(['download', source, downloadKey]);
+function mislabeledFeaturedCopyId(row: unknown): string | null {
+  const record = readStoredTrack(row);
+  if (!record || record.source !== 'featured-download') return null;
+  return (row as { source?: unknown }).source === 'featured-download' ? null : record.id;
 }
 
 /** Scritture (audio + copertina + metadati) di un brano in un'unica transazione. */
@@ -296,6 +315,11 @@ export function createLocalMusicStore(
     const mimeType = resolveAudioType(input.mimeType, input.title, deps.canPlayType);
     if (!mimeType || !finiteNumber(size) || size <= 0) return { ok: false, reason: 'unsupported' };
     if (size > MAX_LOCAL_FILE_BYTES) return { ok: false, reason: 'too_large' };
+    // La copia di un brano in evidenza deve restare verificabile (e quindi revocabile): si salva
+    // solo con la sua chiave esatta 'featured:<shareId>', da cui la verifica rilegge l'id.
+    if (input.source === 'featured-download' && featuredCopyShareId(input.downloadKey) === null) {
+      return { ok: false, reason: 'unsupported' };
+    }
 
     const sourceKey = downloadSourceKey(input.source, input.downloadKey);
     const known = new Set((await loadRecords()).map((row) => row.sourceKey));
@@ -389,6 +413,25 @@ export function createLocalMusicStore(
       return (await loadRecords()).map(toPublic).sort(compareTracks);
     },
 
+    async repairFeaturedCopySources() {
+      const rows = await deps.db.getAll('tracks');
+      let repaired = 0;
+      for (const row of rows) {
+        const id = mislabeledFeaturedCopyId(row);
+        if (id === null) continue;
+        let written = false;
+        // Rilettura e scrittura nella stessa transazione (un brano tolto nel frattempo non
+        // ricompare); cambia SOLO la fonte, ogni altro campo del record resta com'è sul disco.
+        await deps.db.update('tracks', id, (current) => {
+          if (mislabeledFeaturedCopyId(current) !== id) return undefined;
+          written = true;
+          return { ...(current as Record<string, unknown>), source: 'featured-download' };
+        });
+        if (written) repaired += 1;
+      }
+      return repaired;
+    },
+
     getTrack: reader.getTrack,
     getTrackBlob: reader.getTrackBlob,
     getArtworkBlob: reader.getArtworkBlob,
@@ -468,6 +511,10 @@ export function addDownloadedTrack(input: DownloadedTrackInput): Promise<AddDown
 
 export function listTracks(): Promise<LocalTrack[]> {
   return getLocalMusicStore().listTracks();
+}
+
+export function repairFeaturedCopySources(): Promise<number> {
+  return getLocalMusicStore().repairFeaturedCopySources();
 }
 
 export function removeTrack(id: string): Promise<void> {

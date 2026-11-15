@@ -1,7 +1,10 @@
 // @polsia:user-owned — TESTO incorporato nei file audio del dispositivo ("La tua musica"). Si legge
 // nel browser, dal Blob salvato in IndexedDB, solo quando l'ascoltatore apre il pannello "Testo":
 // nessuna rete, il testo non lascia mai il dispositivo (fonte 'local', credito "Dal tuo file").
-// Solo i file dell'ascoltatore (fonte 'local'): mai i brani scaricati da Audius o dai podcast.
+// Solo i file dell'ascoltatore (fonte 'local'): mai i brani scaricati da Audius o dai podcast, e
+// mai la copia offline di un "brano in evidenza" (fonte 'featured-download', letta dal record sul
+// dispositivo: vale anche senza il registro delle copie in localStorage). Il testo di un brano in
+// evidenza si mostra solo dal server, se diritti.json dichiara "testo": true per quel file.
 //
 // Formati: ID3v2 USLT/SYLT (v2.3/2.4) e ULT/SLT (v2.2) negli MP3 (come riserva i TXXX "USLT" o
 // "LYRICS" scritti da ffmpeg), '©lyr' negli M4A/MP4, commenti
@@ -234,7 +237,9 @@ export async function readLocalLyrics(blob: Blob): Promise<ParsedLyrics | null> 
 
 /**
  * Il testo di un brano di "La tua musica" per il player: solo un file dell'ascoltatore (fonte
- * 'local', mai un download Audius o podcast), letto dal dispositivo. null se non c'è.
+ * 'local', mai un download Audius o podcast né la copia di un brano in evidenza), letto dal
+ * dispositivo. null se non c'è. La fonte è quella del record in IndexedDB (reader.ts): per un
+ * brano scaricato il file non viene nemmeno aperto.
  */
 export async function loadLocalLyrics(
   id: string,
@@ -242,6 +247,7 @@ export async function loadLocalLyrics(
 ): Promise<Lyrics | null> {
   try {
     const track = await reader.getTrack(id);
+    // Qualunque download (Audius, podcast, brano in evidenza): niente testo dai tag del file.
     if (!track || localTrackSource(track) !== 'local') return null;
     const blob = await reader.getTrackBlob(id);
     if (!blob) return null;

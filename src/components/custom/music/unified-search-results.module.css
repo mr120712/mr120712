@@ -97,6 +97,13 @@ a.title:hover {
   flex: none;
 }
 
+/* «Scarica offline» di un brano in evidenza con la copia offline consentita, prima di «Condividi»:
+   stessa misura (36 px), non si restringe mai. */
+.featuredDownload {
+  display: inline-flex;
+  flex: none;
+}
+
 /* Distintivo della fonte (In evidenza / Audius / YouTube / Radio / Podcast). */
 .badge {
   flex: none;
@@ -177,7 +184,11 @@ a.title:hover {
   color: var(--foreground);
 }
 
+/* flex: none: l'icona resta di 14 px anche quando il testo va a capo. Un <svg> dentro un flex ha
+   overflow: hidden di default, quindi il suo minimo automatico è 0 e si restringeva insieme al
+   testo (fino a 7 px a 320 px). */
 .secondaryBtn svg {
+  flex: none;
   width: 14px;
   height: 14px;
 }
@@ -190,4 +201,34 @@ a.title:hover {
 /* La riga porta l'azione secondaria sotto: lascia che il contenuto si disponga su due livelli. */
 .rowStacked {
   align-items: start;
+}
+
+/* Riga con «Scarica offline» su un telefono: i tre pulsanti (116 px) lascerebbero al titolo, accanto
+   al distintivo «In evidenza», una cinquantina di pixel a 390 px. Solo qui il distintivo va sopra
+   il titolo, che così ha tutta la colonna (circa 150 px a 390 px) e resta su una riga con i
+   puntini. La griglia della riga, la copertina e i pulsanti non cambiano; le altre righe nemmeno. */
+@media (max-width: 480px) {
+  .rowDownloadable .titleLine {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+  }
+
+  .rowDownloadable .title {
+    max-width: 100%;
+  }
+
+  /* Sotto i 330 px circa la colonna è più stretta del distintivo: resta su una riga. */
+  .rowDownloadable .badge {
+    white-space: nowrap;
+  }
+
+  /* «Ascolta su YouTube» sotto un brano che ha anche «Scarica offline»: con il margine di sempre
+     (10 px) la pillola è larga circa 153 px e a 390 px, dove la colonna è di 150, andava su due
+     righe. Con 6 px è larga circa 145: una riga da 390 px in su, con qualche pixel di scorta per
+     le differenze di resa del carattere fra un browser e l'altro. Più stretto di così (360-375 px)
+     va ancora a capo, ma con l'icona intera. */
+  .rowDownloadable .secondaryBtn {
+    padding: 0 6px;
+  }
 }

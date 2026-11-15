@@ -3,17 +3,35 @@
 // casuale), l'id opaco del brano (shareId, lo stesso del link diretto: mai il percorso nello store)
 // e l'attribuzione da mostrare (titolare, licenza, link alla licenza).
 //
-// Perché un registro a parte: la libreria sul dispositivo (src/lib/local-music) salva il file e la
-// fonte 'featured-download' così come sono, ma oggi rilegge come file locali le fonti che non
-// conosce e non espone la chiave del download. Senza questo registro una copia non si potrebbe
-// né attribuire né REVOCARE: per questo, se il registro non è scrivibile, la copia non si salva
-// (fail closed, vedi offline-download.ts) e la verifica delle copie (featured-offline-sync.ts)
-// lo usa come elenco delle copie da controllare.
+// LA FONTE DI VERITÀ È INDEXEDDB, non questo registro: il record della libreria sul dispositivo
+// (src/lib/local-music) porta la fonte 'featured-download', la chiave 'featured:<shareId>' e
+// l'attribuzione, e li conserva a ogni riscrittura. Questo registro è la sua COPIA VELOCE in
+// localStorage, per chi deve rispondere in modo sincrono senza aprire IndexedDB: il player
+// (featuredCopyFor: attribuzione, niente pannello "Testo"), il pulsante «Scarica offline» (copia
+// già presente?) e il mount che avvia la verifica in ogni pagina. Se una voce va persa mentre il
+// file resta in IndexedDB, la copia resta comunque una copia (mai un file dell'ascoltatore) e la
+// verifica (featured-offline-sync.ts) ricostruisce la voce dal disco e la controlla come le altre.
+// Una voce di questo registro vale per l'INTERFACCIA finché il brano è nella libreria (nel dubbio
+// resta attribuito e senza pannello "Testo"), ma da sola non basta mai a TOGLIERE un file: la
+// verifica toglie solo ciò che il disco riconosce come copia, e una voce rimasta su un brano che
+// copia non è (un file dell'ascoltatore: registro rovinato o manomesso) la dimentica.
+//
+// «Scarica offline» resta fail closed: se il registro non è scrivibile la copia non si salva (vedi
+// offline-download.ts), così l'interfaccia la riconosce subito.
 //
 // Solo localStorage, nessuna rete: si legge anche offline (lo usa «La tua musica», che non fa mai
 // richieste, e il player per attribuire le copie e non mostrarne mai il testo). Voci rovinate o di
 // versioni future si scartano in lettura; un registro intero illeggibile (JSON rovinato) non si
 // sovrascrive mai: le nuove copie non si salvano (fail closed) invece di perdere le vecchie.
+//
+// Qui stanno anche due piccoli segnali per il mount che avvia la verifica in ogni pagina
+// (featured-offline-sync-mount), che non deve caricare il resto per chi non ha copie:
+//  - il promemoria «sul disco non c'è nessuna copia» (emptyDiskLookIsFresh): con il registro vuoto
+//    il mount guarda nella libreria sul dispositivo, ma non a ogni pagina; il promemoria si toglie
+//    PRIMA che una copia possa esistere (forgetEmptyDiskLook), ogni volta che se ne registra una
+//    e ogni volta che la verifica ne vede una sul disco;
+//  - l'evento «la verifica ha tolto queste copie» (subscribeFeaturedCopiesRemoved): il player le
+//    toglie dalla coda e smette di suonarle, come dopo «Rimuovi» in Libreria.
 import type { OfflineAttribution } from '@/lib/contracts/offline';
 
 /** La fonte delle copie dei brani in evidenza (salvata nel record della libreria). */
@@ -139,6 +157,21 @@ export function readFeaturedCopies(
   return storage ? readRegistry(storage).copies : [];
 }
 
+/**
+ * Le copie registrate e se il registro si è potuto LEGGERE. `readable` false (localStorage
+ * assente o negato, JSON rovinato, forma sconosciuta) vuol dire «non si sa che cosa contiene»: è
+ * diverso da un registro vuoto, e chi verifica le copie non deve trattare come «senza voce» una
+ * copia solo perché il registro adesso non si legge.
+ */
+export function readFeaturedCopyRegistry(storage: CopyStorage | null = defaultStorage()): {
+  readable: boolean;
+  copies: FeaturedOfflineCopy[];
+} {
+  if (!storage) return { readable: false, copies: [] };
+  const registry = readRegistry(storage);
+  return { readable: registry.state !== 'unreadable', copies: registry.copies };
+}
+
 /** Ultimo registro letto da featuredCopyFor (stesso testo = stessa mappa, senza rileggere il JSON). */
 let lookupCache: { raw: string; byLocalId: Map<string, FeaturedOfflineCopy> } | null = null;
 
@@ -178,6 +211,102 @@ function announceChange(): void {
   } catch {
     // Un browser senza Event funzionale: la verifica partirà al prossimo caricamento.
   }
+}
+
+/**
+ * Promemoria in localStorage: l'ultima volta (epoch ms) che il mount ha guardato nella libreria
+ * sul dispositivo SENZA trovare copie di brani in evidenza. Versionato come il registro.
+ */
+export const FEATURED_OFFLINE_DISK_LOOK_KEY = 'solco:featured-offline-disk-look:v1';
+
+/** Per quanto vale un «sul disco non c'è nessuna copia»: poi si guarda di nuovo. */
+export const FEATURED_OFFLINE_DISK_LOOK_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * True se di recente (meno di FEATURED_OFFLINE_DISK_LOOK_TTL_MS fa) si è già guardato nella
+ * libreria sul dispositivo senza trovare copie: non serve riaprire IndexedDB a ogni pagina per chi
+ * non ne ha. Nel dubbio false (si guarda): promemoria assente, illeggibile, rovinato o con una
+ * data nel futuro (orologio cambiato), localStorage non disponibile.
+ */
+export function emptyDiskLookIsFresh(
+  now = Date.now(),
+  storage: CopyStorage | null = defaultStorage(),
+): boolean {
+  if (!storage) return false;
+  let raw: string | null;
+  try {
+    raw = storage.getItem(FEATURED_OFFLINE_DISK_LOOK_KEY);
+  } catch {
+    return false;
+  }
+  if (!raw || !/^\d{1,16}$/.test(raw)) return false;
+  const age = now - Number(raw);
+  return age >= 0 && age < FEATURED_OFFLINE_DISK_LOOK_TTL_MS;
+}
+
+/** Ricorda che adesso nella libreria sul dispositivo non c'è nessuna copia di brani in evidenza. */
+export function rememberEmptyDiskLook(
+  now = Date.now(),
+  storage: CopyStorage | null = defaultStorage(),
+): void {
+  if (!storage) return;
+  try {
+    storage.setItem(FEATURED_OFFLINE_DISK_LOOK_KEY, String(Math.floor(now)));
+  } catch {
+    // Spazio esaurito o accesso negato: si guarderà di nuovo alla prossima pagina.
+  }
+}
+
+/**
+ * Toglie il promemoria: sul dispositivo c'è (o sta per esserci) una copia. «Scarica offline» lo
+ * chiama PRIMA di salvare il file, così nemmeno una scheda chiusa a metà (file salvato, voce del
+ * registro non ancora scritta) lascia un «nessuna copia» che non è più vero.
+ */
+export function forgetEmptyDiskLook(storage: CopyStorage | null = defaultStorage()): void {
+  if (!storage) return;
+  try {
+    storage.removeItem(FEATURED_OFFLINE_DISK_LOOK_KEY);
+  } catch {
+    // Accesso negato: il promemoria non c'era o non si legge comunque.
+  }
+}
+
+/** Evento di finestra dopo che la verifica ha TOLTO copie dal dispositivo (detail: i loro id). */
+export const FEATURED_OFFLINE_COPIES_REMOVED_EVENT = 'solco:featured-offline-copies-removed';
+
+/**
+ * Segnala gli id della libreria delle copie appena tolte dal dispositivo (revocate, o non
+ * verificabili). Solo id casuali della libreria, e solo dentro questa pagina: nessun titolo, nessun
+ * dato del brano.
+ */
+export function announceFeaturedCopiesRemoved(localIds: readonly string[]): void {
+  if (localIds.length === 0) return;
+  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return;
+  try {
+    window.dispatchEvent(
+      new CustomEvent(FEATURED_OFFLINE_COPIES_REMOVED_EVENT, {
+        detail: { localIds: [...localIds] },
+      }),
+    );
+  } catch {
+    // Un browser senza CustomEvent funzionale: il brano esce dal player quando prova a
+    // ricaricarlo e non lo trova più.
+  }
+}
+
+/** Ascolta le copie tolte dalla verifica; torna la funzione per smettere. */
+export function subscribeFeaturedCopiesRemoved(listener: (localIds: string[]) => void): () => void {
+  if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') {
+    return () => undefined;
+  }
+  const onRemoved = (event: Event) => {
+    const detail = (event as CustomEvent<{ localIds?: unknown } | null>).detail;
+    const raw = detail && Array.isArray(detail.localIds) ? detail.localIds : [];
+    const localIds = raw.filter((id): id is string => typeof id === 'string');
+    if (localIds.length > 0) listener(localIds);
+  };
+  window.addEventListener(FEATURED_OFFLINE_COPIES_REMOVED_EVENT, onRemoved);
+  return () => window.removeEventListener(FEATURED_OFFLINE_COPIES_REMOVED_EVENT, onRemoved);
 }
 
 function writeCopies(copies: readonly FeaturedOfflineCopy[], storage: CopyStorage): boolean {
@@ -220,7 +349,38 @@ export function rememberFeaturedCopy(
   const others = registry.copies.filter((item) => item.localId !== copy.localId);
   if (others.length >= FEATURED_OFFLINE_COPIES_MAX) return false;
   const written = writeCopies([...others, copy], storage);
-  if (written) announceChange();
+  if (written) {
+    // Una copia c'è: «sul disco non c'è nessuna copia» non vale più.
+    forgetEmptyDiskLook(storage);
+    announceChange();
+  }
+  return written;
+}
+
+/**
+ * Registra (o corregge) più copie con UNA scrittura e un solo annuncio: la verifica delle copie
+ * ricostruisce così le voci che il registro ha perso, a partire dai record della libreria sul
+ * dispositivo. Le voci non valide si saltano. false = il registro non si legge o non si scrive
+ * (nulla è cambiato): le copie restano comunque riconosciute dal loro record in IndexedDB.
+ */
+export function rememberFeaturedCopies(
+  copies: readonly FeaturedOfflineCopy[],
+  storage: CopyStorage | null = defaultStorage(),
+): boolean {
+  if (!storage) return false;
+  const valid = new Map<string, FeaturedOfflineCopy>();
+  for (const copy of copies) if (readCopy(copy)) valid.set(copy.localId, copy);
+  if (valid.size === 0) return true;
+  const registry = readRegistry(storage);
+  // Registro illeggibile: non si sovrascrive (le copie già salvate resterebbero senza voce).
+  if (registry.state === 'unreadable') return false;
+  const others = registry.copies.filter((item) => !valid.has(item.localId));
+  if (others.length + valid.size > FEATURED_OFFLINE_COPIES_MAX) return false;
+  const written = writeCopies([...others, ...valid.values()], storage);
+  if (written) {
+    forgetEmptyDiskLook(storage);
+    announceChange();
+  }
   return written;
 }
 

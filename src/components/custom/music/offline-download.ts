@@ -8,9 +8,11 @@
 // (`offline` true nelle risposte del server, ricontrollato dalla rotta a ogni download). Non si
 // scarica MAI da YouTube, dalla radio o da Jamendo: quelli restano online con una nota.
 //
-// Una copia di un brano in evidenza si registra anche in featured-offline-copies (id opaco +
-// attribuzione), così «La tua musica» la attribuisce e la verifica dei permessi la può revocare: se
-// il registro non è scrivibile la copia non si salva (fail closed).
+// Una copia di un brano in evidenza si salva nella libreria sul dispositivo con la sua fonte
+// ('featured-download'), la sua chiave ('featured:<shareId>') e la sua attribuzione: è il record in
+// IndexedDB a dire che cos'è, e da lì la verifica dei permessi la ritrova e la può revocare. Si
+// registra anche in featured-offline-copies (localStorage), che resta la copia veloce per le letture
+// sincrone dell'interfaccia: se quel registro non è scrivibile la copia non si salva (fail closed).
 //
 // Il download vero e proprio passa SEMPRE da una rotta same-origin del server (richiede il login, è
 // limitata, SSRF-safe, con tetto di 50 MB e conteggio solo a byte confermati). Qui il client chiama la
@@ -20,6 +22,8 @@
 import {
   type CopyStorage,
   canRememberFeaturedCopies,
+  FEATURED_OFFLINE_SOURCE,
+  forgetEmptyDiskLook,
   forgetFeaturedCopies,
   readFeaturedCopies,
   rememberFeaturedCopy,
@@ -41,12 +45,14 @@ import {
 import {
   type AddDownloadedResult,
   type DownloadedTrackInput,
-  type DownloadedTrackSource,
   addDownloadedTrack as defaultAddDownloaded,
   getTrack as defaultGetTrack,
+  listTracks as defaultListTracks,
   removeTrack as defaultRemoveTrack,
   type LocalTrack,
 } from '@/lib/local-music';
+// Dal modulo puro, non dall'indice: solo la lettura di fonte e attribuzione, niente IndexedDB.
+import { localTrackAttribution, localTrackSource } from '@/lib/local-music/types';
 import { FEATURED_SHARE_API_PREFIX, isFeaturedShareId } from '@/lib/music/featured-share';
 import { OFFLINE_INELIGIBLE_REASONS, offlineEligibility } from '@/lib/music/offline-eligibility';
 
@@ -309,12 +315,20 @@ export type OfflineDownloadDeps = {
   copyStorage?: CopyStorage | null;
   /** Legge un brano della libreria sul dispositivo (per sapere se una copia c'è ancora). */
   getLocalTrack?: (id: string) => Promise<LocalTrack | null>;
+  /**
+   * Elenca la libreria sul dispositivo (soli metadati): al tocco di «Scarica offline», per trovare
+   * una copia che c'è già ma di cui il registro ha perso la voce.
+   */
+  listLocalTracks?: () => Promise<LocalTrack[]>;
 };
 
 /**
  * True se su questo dispositivo c'è GIÀ la copia offline del brano in evidenza `shareId`: voce nel
  * registro e file ancora nella libreria. Una voce il cui file non c'è più si dimentica (si potrà
- * riscaricare). Nessuna rete; mai throw (nel dubbio false: si riscarica, il server decide).
+ * riscaricare). Nessuna rete; mai throw (nel dubbio false: si riscarica, il server decide). Legge
+ * solo il registro, perché la chiama ogni pulsante «Scarica offline» della pagina: se il registro
+ * ha perso la voce ma la copia è ancora nella libreria lo scopre downloadOne, al tocco
+ * (restoreFeaturedCopyEntry), e comunque la verifica delle copie ricostruisce la voce dal disco.
  */
 export async function featuredCopySaved(
   shareId: string,
@@ -337,6 +351,46 @@ export async function featuredCopySaved(
   }
   forgetFeaturedCopies(gone, deps.copyStorage);
   return false;
+}
+
+/**
+ * Cerca NELLA LIBRERIA sul dispositivo (la fonte di verità) la copia offline del brano in evidenza
+ * `shareId` di cui il registro non ha la voce: se c'è, ricostruisce la voce (id dalla chiave del
+ * download, attribuzione e data dal record) e torna true. Senza questo il tocco chiederebbe di
+ * nuovo il file al server (un download contato, fino a 50 MB) solo per scoprire che è un duplicato,
+ * e il pulsante tornerebbe a «Scarica». Una lettura dei soli metadati, al tocco. Mai throw:
+ * libreria illeggibile → false (si chiede al server, come prima). La copia ritrovata non salta
+ * nessun controllo: la voce ricostruita fa partire la verifica dei permessi, che la toglie se è
+ * stata revocata.
+ */
+async function restoreFeaturedCopyEntry(
+  shareId: string,
+  deps: Pick<OfflineDownloadDeps, 'copyStorage' | 'listLocalTracks'>,
+): Promise<boolean> {
+  let tracks: LocalTrack[];
+  try {
+    tracks = await (deps.listLocalTracks ?? defaultListTracks)();
+  } catch {
+    return false;
+  }
+  const downloadKey = `${FEATURED_DOWNLOAD_KEY_PREFIX}${shareId}`;
+  // Solo un record che la libreria riconosce come copia di QUESTO brano: mai un file
+  // dell'ascoltatore, qualunque nome abbia (la chiave del download la portano solo i download).
+  const track = tracks.find(
+    (item) =>
+      localTrackSource(item) === FEATURED_OFFLINE_SOURCE && item.downloadKey === downloadKey,
+  );
+  if (!track) return false;
+  rememberFeaturedCopy(
+    {
+      localId: track.id,
+      featuredId: shareId,
+      attribution: localTrackAttribution(track),
+      savedAt: track.addedAt,
+    },
+    deps.copyStorage,
+  );
+  return true;
 }
 
 function decodeMetaHeader(value: string | null): unknown {
@@ -411,10 +465,12 @@ export async function downloadOne(
     return { status: 'failed', target, message: OFFLINE_STORE_FAIL };
   }
   // Copia già sul dispositivo: nessuna richiesta (non si consuma un download del giorno né si
-  // ritrasferisce il file). La verifica dei permessi la toglie se viene revocata.
+  // ritrasferisce il file). La verifica dei permessi la toglie se viene revocata. Lo dice il
+  // registro e, se ha perso la voce, la libreria stessa.
   if (
     target.endpoint.kind === 'featured' &&
-    (await featuredCopySaved(target.endpoint.shareId, deps))
+    ((await featuredCopySaved(target.endpoint.shareId, deps)) ||
+      (await restoreFeaturedCopyEntry(target.endpoint.shareId, deps)))
   ) {
     return { status: 'already', target };
   }
@@ -459,15 +515,18 @@ export async function downloadOne(
   }
   if (blob.size === 0) return { status: 'failed', target, message: OFFLINE_GENERIC_FAIL };
 
+  // Sta per esserci una copia sul dispositivo: il promemoria «sul disco non c'è nessuna copia»
+  // (featured-offline-sync-mount) si toglie PRIMA di salvare, non dopo.
+  if (featured) forgetEmptyDiskLook(copyStorage);
+
   let result: AddDownloadedResult;
   try {
     result = await addDownloaded({
       blob,
       downloadKey: meta.downloadKey,
-      // La libreria sul dispositivo (src/lib/local-music) non elenca ancora 'featured-download'
-      // fra le sue fonti: il record la conserva com'è (dedupe per fonte + chiave), e finché non la
-      // riconosce identità e attribuzione stanno nel registro delle copie (qui sotto).
-      source: meta.source as DownloadedTrackSource,
+      // La fonte resta nel record della libreria (per una copia di un brano in evidenza:
+      // 'featured-download' con la chiave 'featured:<shareId>'), che è la fonte di verità.
+      source: meta.source,
       title: meta.title,
       artist: meta.artist,
       album: meta.album,

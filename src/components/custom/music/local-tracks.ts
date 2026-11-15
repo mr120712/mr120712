@@ -9,18 +9,79 @@
 // album si rileggono da IndexedDB al ripristino, così "Rimuovi" nella libreria li cancella davvero
 // dal dispositivo; un brano che non c'è più si toglie dalla coda.
 //
-// Le copie offline dei "brani in evidenza" («Scarica offline») si riconoscono dal loro registro sul
-// dispositivo (featured-offline-copies): nel player portano la loro fonte e attribuzione e non
-// valgono mai come file dell'ascoltatore (quindi niente pannello "Testo", vedi lyrics-target.ts),
-// da qualunque parte partano (Libreria, scheda in Home, coda ripristinata).
-import { featuredCopyFor } from '@/components/custom/music/featured-offline-copies';
+// Le copie offline dei "brani in evidenza" («Scarica offline») si riconoscono dal record della
+// libreria sul dispositivo (fonte 'featured-download', la fonte di verità) e, in più, dal registro
+// delle copie (featured-offline-copies): basta che lo dica uno dei due. Nel player portano la loro
+// fonte e non valgono MAI come file dell'ascoltatore (quindi niente pannello "Testo", vedi
+// lyrics-target.ts), da qualunque parte partano (Libreria, scheda in Home, coda ripristinata) e
+// anche se il registro ha perso la loro voce. Per l'interfaccia vale anche la sola voce del
+// registro (nel dubbio un brano resta attribuito e senza "Testo"); per TOGLIERE un file dal
+// dispositivo no: lì decide solo il disco (featured-offline-sync).
+//
+// Che cosa si VEDE: il player mostra di un brano la fonte (`sourceLabel`) e il link all'originale,
+// non il campo `credits`. Titolare e licenza di una copia (e la licenza di un download Audius) si
+// leggono nella riga di «La tua musica» (DownloadedTrackCredit); qui `credits` li porta con il
+// brano per quando il player li mostrerà, e nessuno deve contare sul fatto che lo faccia già.
+import {
+  type FeaturedOfflineCopy,
+  featuredCopyFor,
+} from '@/components/custom/music/featured-offline-copies';
 import type { MusicPlayerTrack } from '@/components/custom/music/music-player';
-import { type LocalTrack, localTrackAttribution, localTrackSource } from '@/lib/local-music';
+import {
+  type LocalTrack,
+  type LocalTrackAttribution,
+  type LocalTrackSource,
+  localTrackAttribution,
+  localTrackSource,
+} from '@/lib/local-music';
 
 export const LOCAL_SOURCE_LABEL = 'La tua musica';
 
 /** Fonte di una copia di un brano in evidenza salvata senza attribuzione. */
 export const FEATURED_COPY_SOURCE_LABEL = 'Solco · In evidenza';
+
+/**
+ * La fonte di un brano della libreria per l'interfaccia: quella del record sul dispositivo, ma
+ * 'featured-download' anche quando a dirlo è solo il registro delle copie (`copy`). Una copia di
+ * un brano in evidenza non risulta mai 'local', né un download Audius o podcast.
+ */
+export function localTrackKind(
+  track: Pick<LocalTrack, 'source'>,
+  copy: FeaturedOfflineCopy | null | undefined,
+): LocalTrackSource {
+  return copy ? 'featured-download' : localTrackSource(track);
+}
+
+/**
+ * L'attribuzione di una copia di un brano in evidenza: quella salvata nel record sul dispositivo,
+ * altrimenti quella del registro delle copie.
+ */
+export function featuredCopyAttribution(
+  track: Pick<LocalTrack, 'attribution'>,
+  copy: FeaturedOfflineCopy | null | undefined,
+): LocalTrackAttribution | null {
+  return localTrackAttribution(track) ?? copy?.attribution ?? null;
+}
+
+/**
+ * Fonte e crediti di una copia di un brano in evidenza nel brano che va al player. La fonte (che il
+ * player mostra) non è mai «La tua musica»: quell'etichetta accende il pannello "Testo" dei file
+ * dell'ascoltatore. I crediti viaggiano nel campo `credits`, che il player oggi non mostra.
+ */
+function featuredCopyPlayerFields(
+  attribution: LocalTrackAttribution | null,
+): Pick<MusicPlayerTrack, 'sourceLabel' | 'credits'> {
+  const credits = [
+    attribution?.creditLine ?? null,
+    attribution?.licenseName ? `Licenza: ${attribution.licenseName}` : null,
+  ].filter((entry): entry is string => Boolean(entry));
+  const sourceName = attribution?.sourceName;
+  return {
+    sourceLabel:
+      sourceName && sourceName !== LOCAL_SOURCE_LABEL ? sourceName : FEATURED_COPY_SOURCE_LABEL,
+    credits: credits.length > 0 ? credits : undefined,
+  };
+}
 
 export const LOCAL_MISSING_MESSAGE =
   'Il file non è più su questo dispositivo: aggiungilo di nuovo da La tua musica.';
@@ -55,30 +116,37 @@ function downloadSourceLinkLabel(source: 'audius-download' | 'podcast-download')
  * revoca lui): qui artworkUrl resta null. Uso: `player.playTrack(track, '', queue)`.
  *
  * I file locali mantengono la forma storica (fonte "La tua musica", nessun link). I brani SCARICATI
- * ("Scarica il permesso") portano invece la loro attribuzione nel player: fonte leggibile, link al
- * brano/episodio originale e, per Audius, la Open Music License fra i crediti. Resta playbackMode
- * 'local': si riproducono dal dispositivo, offline, senza nessuna richiesta al server.
+ * ("Scarica il permesso") portano invece la loro attribuzione: fonte leggibile e link al
+ * brano/episodio originale (che il player mostra) e, per Audius, la Open Music License nel campo
+ * `credits`. Le copie dei brani in evidenza portano la fonte, senza link, e titolare e licenza in
+ * `credits`. Il player oggi NON mostra `credits`: quei crediti si leggono nella riga della
+ * Libreria. Resta playbackMode 'local': si riproducono dal dispositivo, offline, senza nessuna
+ * richiesta al server.
  */
 export function localTrackToPlayerTrack(track: LocalTrack): MusicPlayerTrack {
-  const source = localTrackSource(track);
-  const featured = featuredCopyFor(track.id);
-  if (featured) {
-    const attribution = featured.attribution;
-    const credits = [
-      attribution?.creditLine ?? null,
-      attribution?.licenseName ? `Licenza: ${attribution.licenseName}` : null,
-    ].filter((entry): entry is string => Boolean(entry));
+  return localTrackToPlayerTrackWithCopy(track, featuredCopyFor(track.id));
+}
+
+/**
+ * Come localTrackToPlayerTrack, con la voce del registro delle copie già letta da chi chiama
+ * (null: nessuna). «La tua musica» la legge una volta insieme all'elenco e la passa qui.
+ */
+export function localTrackToPlayerTrackWithCopy(
+  track: LocalTrack,
+  copy: FeaturedOfflineCopy | null,
+): MusicPlayerTrack {
+  const source = localTrackKind(track, copy);
+  if (source === 'featured-download') {
     return {
       qualifiedId: `local:${track.id}`,
       title: track.title,
       artistName: track.artist ?? '',
       album: track.album,
       artworkUrl: null,
-      sourceLabel: attribution?.sourceName ?? FEATURED_COPY_SOURCE_LABEL,
       sourceUrl: null,
       durationSeconds: track.durationSeconds,
       playbackMode: 'local',
-      credits: credits.length > 0 ? credits : undefined,
+      ...featuredCopyPlayerFields(featuredCopyAttribution(track, copy)),
     };
   }
   if (source === 'local') {

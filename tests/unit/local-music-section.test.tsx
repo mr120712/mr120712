@@ -1151,4 +1151,56 @@ describe('copie offline dei brani in evidenza', () => {
     const other = container.querySelector<HTMLLIElement>(`li[data-local-id="${trackA.id}"]`);
     expect(other?.textContent).not.toContain('In evidenza');
   });
+
+  it('senza nessuna voce nel registro: distintivo e attribuzione dal record sul dispositivo', async () => {
+    // La libreria rilegge la copia con la sua fonte, la sua chiave e la sua attribuzione; il
+    // registro in localStorage è vuoto (perso).
+    const copy = localFile('dddd-4444', {
+      title: 'Dorsale',
+      artist: 'Banda Quattro',
+      album: null,
+      addedAt: 4,
+      source: 'featured-download',
+      downloadKey: 'featured:AAAAAAAAAAAAAAAAAAAAAA',
+      attribution: {
+        sourceName: 'Solco · In evidenza',
+        sourceUrl: null,
+        licenseName: 'Creative Commons Attribuzione (CC BY)',
+        licenseUrl: 'https://creativecommons.org/licenses/by/4.0/deed.it',
+        creditLine: '© Banda Quattro',
+      },
+    });
+    lib.state.tracks = [copy, trackA];
+    expect(window.localStorage.getItem('solco:featured-offline-copies:v1')).toBeNull();
+    await renderSection();
+
+    const row = container.querySelector<HTMLLIElement>(`li[data-local-id="${copy.id}"]`);
+    expect(row?.textContent).toContain('In evidenza');
+    expect(row?.textContent).toContain('© Banda Quattro');
+    expect(row?.textContent).not.toContain('Audius');
+    expect(row?.textContent).not.toContain('Podcast');
+    const licence = row?.querySelector<HTMLAnchorElement>(
+      'a[href="https://creativecommons.org/licenses/by/4.0/deed.it"]',
+    );
+    expect(licence?.textContent).toContain('Creative Commons Attribuzione (CC BY)');
+    const other = container.querySelector<HTMLLIElement>(`li[data-local-id="${trackA.id}"]`);
+    expect(other?.textContent).not.toContain('In evidenza');
+
+    // Al player va con la sua fonte e i suoi crediti (campo `credits`), mai come «La tua musica».
+    const player = playerState.value as FakePlayer;
+    await act(async () => buttonByLabel('Riproduci Dorsale').click());
+    const [item, , queue] = player.playTrack.mock.calls[0] ?? [];
+    expect(item).toMatchObject({
+      qualifiedId: `local:${copy.id}`,
+      sourceLabel: 'Solco · In evidenza',
+      sourceUrl: null,
+      credits: ['© Banda Quattro', 'Licenza: Creative Commons Attribuzione (CC BY)'],
+    });
+    expect(queue.map((entry: { sourceLabel: string }) => entry.sourceLabel)).toEqual([
+      'Solco · In evidenza',
+      'La tua musica',
+    ]);
+    // Nessuna richiesta di rete: la sezione resta del tutto offline.
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
 });

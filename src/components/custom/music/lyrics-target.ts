@@ -6,8 +6,12 @@
 //   confermato dall'autore, e solo con la libreria pubblica attiva (src/lib/features.ts);
 // - file dell'ascoltatore in "La tua musica" (qualifiedId "local:<id>", fonte "La tua musica"):
 //   letto sul dispositivo, mai inviato. I brani SCARICATI (Audius, podcast) restano esclusi, e
-//   così le copie offline dei brani in evidenza (registro featured-offline-copies): il loro testo
-//   si mostra solo dal server, con "testo": true in diritti.json, mai dai tag del file.
+//   così le copie offline dei brani in evidenza: il loro testo si mostra solo dal server, con
+//   "testo": true in diritti.json, mai dai tag del file. Una copia non porta mai la fonte «La tua
+//   musica» (local-tracks.ts la riconosce dal record sul dispositivo, anche senza la voce nel
+//   registro delle copie); qui il registro (featured-offline-copies) è un secondo controllo, e
+//   comunque il lettore dei tag (src/lib/local-music/lyrics) rilegge la fonte dal record e non
+//   apre mai il file di un download.
 // Mai per Audius, YouTube, brani importati, radio, podcast, Jamendo o anteprime.
 import { featuredCopyFor } from '@/components/custom/music/featured-offline-copies';
 import type { MusicPlayerTrack } from '@/components/custom/music/music-player';
@@ -48,8 +52,9 @@ export function lyricsTargetFor(
   if (track.playbackMode === 'local') {
     const id = localTrackId(track.qualifiedId);
     // Solo i file dell'ascoltatore: i download (Audius, podcast) hanno un'altra fonte e un link;
-    // una copia di un brano in evidenza non è mai un file dell'ascoltatore (nemmeno se il brano del
-    // player è stato costruito senza la sua attribuzione).
+    // una copia di un brano in evidenza ha la sua fonte («Solco · In evidenza») e non è mai un file
+    // dell'ascoltatore (nemmeno se il brano del player è stato costruito senza la sua attribuzione:
+    // il registro delle copie lo dice comunque).
     if (!id || track.sourceLabel !== LOCAL_SOURCE_LABEL || track.sourceUrl) return null;
     if (featuredCopyFor(id)) return null;
     return { source: 'local', id };

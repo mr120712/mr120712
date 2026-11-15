@@ -14,11 +14,13 @@
 // Il controllo del supporto avviene dopo il montaggio (sul server IndexedDB non esiste): l'HTML
 // iniziale mostra solo titolo, spiegazione e attesa.
 //
-// Le copie offline dei "brani in evidenza" («Scarica offline») si riconoscono dal registro sul
-// dispositivo (featured-offline-copies, solo localStorage): distintivo «In evidenza» e attribuzione
-// (titolare, licenza, link alla licenza per le Creative Commons). La verifica dei permessi, che fa
-// rete, sta fuori da questa sezione (featured-offline-sync, avviata in ogni pagina da
-// featured-offline-sync-mount e dalla Libreria).
+// Le copie offline dei "brani in evidenza" («Scarica offline») si riconoscono dal record della
+// libreria sul dispositivo (fonte 'featured-download' con la sua attribuzione: vale anche se il
+// registro delle copie ha perso la voce) e, in più, dal registro stesso (featured-offline-copies,
+// solo localStorage): distintivo «In evidenza» e attribuzione (titolare, licenza, link alla licenza
+// per le Creative Commons), mai i distintivi «Audius» o «Podcast» e mai la fonte «La tua musica».
+// La verifica dei permessi, che fa rete, sta fuori da questa sezione (featured-offline-sync,
+// avviata in ogni pagina da featured-offline-sync-mount e dalla Libreria).
 'use client';
 
 import {
@@ -49,8 +51,13 @@ import { DownloadedTrackCredit } from '@/components/custom/music/downloaded-trac
 import {
   type FeaturedOfflineCopy,
   featuredCopiesByLocalId,
+  featuredCopyFor,
 } from '@/components/custom/music/featured-offline-copies';
-import { localTrackToPlayerTrack } from '@/components/custom/music/local-tracks';
+import {
+  featuredCopyAttribution,
+  localTrackKind,
+  localTrackToPlayerTrackWithCopy,
+} from '@/components/custom/music/local-tracks';
 import type { MusicPlayerTrack } from '@/components/custom/music/music-player';
 import { useOptionalMusicPlayer } from '@/components/custom/music/music-player';
 import { subscribeLocalMusicChanged } from '@/components/custom/music/offline-download';
@@ -83,9 +90,9 @@ import {
   type LocalMusicUsage,
   type LocalSkipReason,
   type LocalTrack,
+  type LocalTrackSource,
   listTracks,
   localTrackAttribution,
-  localTrackSource,
   MAX_LOCAL_FILE_BYTES,
   type ObjectUrlHandle,
   type PersistenceResult,
@@ -145,31 +152,29 @@ export const SKIP_REASON_LABELS: Record<LocalSkipReason, string> = {
   error: 'errore',
 };
 
-/** Fonte mostrata per una copia di un brano in evidenza senza attribuzione salvata. */
-const FEATURED_COPY_SOURCE_LABEL = 'Solco · In evidenza';
-
 const NO_FEATURED_COPIES: ReadonlyMap<string, FeaturedOfflineCopy> = new Map();
 
+/** Distintivo della fonte di una riga: solo per i brani scaricati, ognuno con il suo. */
+const SOURCE_BADGES: Record<LocalTrackSource, string | null> = {
+  local: null,
+  'audius-download': 'Audius',
+  'podcast-download': 'Podcast',
+  'featured-download': 'In evidenza',
+};
+
 /**
- * Il brano del player per un file della libreria; una copia di un brano in evidenza porta anche la
- * sua attribuzione (fonte, titolare, licenza) fra i crediti, come le copie Audius.
+ * Il brano del player per un file della libreria; una copia di un brano in evidenza porta la sua
+ * fonte (che il player mostra) e, nel campo `credits`, titolare e licenza, come le copie Audius. Il
+ * player oggi non mostra `credits`: a schermo quei crediti stanno nella riga qui sotto
+ * (DownloadedTrackCredit). La copia si riconosce dal record sul dispositivo o dal registro: `copy`
+ * è la voce del registro letta insieme all'elenco (vale anche se il registro è cambiato nel
+ * frattempo); senza, si rilegge il registro.
  */
 export function localTrackForPlayer(
   track: LocalTrack,
   copy: FeaturedOfflineCopy | null | undefined,
 ): MusicPlayerTrack {
-  const item = localTrackToPlayerTrack(track);
-  if (!copy) return item;
-  const attribution = copy.attribution;
-  const credits = [
-    attribution?.creditLine ?? null,
-    attribution?.licenseName ? `Licenza: ${attribution.licenseName}` : null,
-  ].filter((entry): entry is string => Boolean(entry));
-  return {
-    ...item,
-    sourceLabel: attribution?.sourceName ?? FEATURED_COPY_SOURCE_LABEL,
-    credits: credits.length > 0 ? credits : undefined,
-  };
+  return localTrackToPlayerTrackWithCopy(track, copy ?? featuredCopyFor(track.id));
 }
 
 function countLabel(count: number): string {
@@ -419,7 +424,10 @@ type RowProps = {
   playing: boolean;
   durationSeconds: number | null;
   canPlay: boolean;
-  /** La copia di un brano in evidenza registrata per questa riga, o null. */
+  /**
+   * La voce del registro delle copie per questa riga, o null. Una copia di un brano in evidenza
+   * si riconosce anche senza: lo dice la fonte del record sul dispositivo.
+   */
   featuredCopy: FeaturedOfflineCopy | null;
   onPlay: (track: LocalTrack) => void;
   onRemove: (track: LocalTrack, index: number) => void;
@@ -438,17 +446,14 @@ const LocalTrackRow = memo(function LocalTrackRow({
   onPlay,
   onRemove,
 }: RowProps) {
-  const source = localTrackSource(track);
-  // Copia di un brano in evidenza: attribuzione dalla libreria se la conosce, altrimenti dal
-  // registro delle copie.
-  const attribution = localTrackAttribution(track) ?? featuredCopy?.attribution ?? null;
-  const sourceBadge = featuredCopy
-    ? 'In evidenza'
-    : source === 'audius-download'
-      ? 'Audius'
-      : source === 'podcast-download'
-        ? 'Podcast'
-        : null;
+  // Copia di un brano in evidenza: lo dice il record sul dispositivo o la voce del registro; la
+  // sua attribuzione viene dal record, altrimenti dal registro.
+  const source = localTrackKind(track, featuredCopy);
+  const attribution =
+    source === 'featured-download'
+      ? featuredCopyAttribution(track, featuredCopy)
+      : localTrackAttribution(track);
+  const sourceBadge = SOURCE_BADGES[source];
   const meta = [track.artist, track.album].filter(Boolean).join(' · ') || 'Artista sconosciuto';
   const duration = formatTrackDuration(durationSeconds);
   const playLabel = current
@@ -492,12 +497,9 @@ const LocalTrackRow = memo(function LocalTrackRow({
           {spokenDuration ? <span className={styles.metaDuration}>{spokenDuration}</span> : null}
           {current ? <span className="sr-only"> · in riproduzione</span> : null}
         </span>
-        {/* Attribuzione dei brani scaricati (Audius: avviso OML + link; podcast: show). */}
-        <DownloadedTrackCredit
-          source={featuredCopy ? 'featured-download' : source}
-          attribution={attribution}
-          title={track.title}
-        />
+        {/* Attribuzione dei brani scaricati (Audius: avviso OML + link; podcast: show; brano in
+            evidenza: titolare e licenza). */}
+        <DownloadedTrackCredit source={source} attribution={attribution} title={track.title} />
       </div>
       <span className={styles.duration}>{spokenDuration}</span>
       <div className={styles.rowActions}>
@@ -541,7 +543,7 @@ type ListProps = {
   /** What the player knows of the current local item's duration (for files saved without one). */
   currentDuration: number | null;
   canPlay: boolean;
-  /** Le copie dei brani in evidenza per id della libreria (registro sul dispositivo). */
+  /** Le voci del registro delle copie dei brani in evidenza, per id della libreria. */
   featuredCopies: ReadonlyMap<string, FeaturedOfflineCopy>;
   onPlay: (track: LocalTrack) => void;
   onRemove: (track: LocalTrack, index: number) => void;
@@ -641,7 +643,8 @@ export function LocalMusicSection() {
       const [list, measured] = await Promise.all([listTracks(), usage().catch(() => null)]);
       if (!aliveRef.current || seq !== loadSeqRef.current) return;
       setTracks(list);
-      // Il registro delle copie dei brani in evidenza (solo localStorage, nessuna rete).
+      // Il registro delle copie dei brani in evidenza (solo localStorage, nessuna rete): in più
+      // rispetto alla fonte che ogni record porta con sé.
       setFeaturedCopies(featuredCopiesByLocalId());
       setStats(measured);
       setPhase('ready');

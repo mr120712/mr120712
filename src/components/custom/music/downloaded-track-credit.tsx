@@ -1,21 +1,32 @@
-// @polsia:user-owned — attribuzione di un brano SCARICATO ("Scarica il permesso") nella Libreria e, se
-// serve, nel player. Per un brano Audius mostra copyright, la Audius Open Music License (OML §1.5) e il
-// link al brano; per un episodio podcast mostra lo show e il credito; per la copia offline di un
-// brano in evidenza il titolare e, per le Creative Commons, la licenza con il link al suo testo. Per
-// i file locali non compare nulla (nessuna attribuzione). I link si aprono in una nuova scheda, in modo sicuro.
+// @polsia:user-owned — attribuzione di un brano SCARICATO ("Scarica il permesso") nella riga di «La
+// tua musica» in Libreria: è l'UNICO posto in cui titolare e licenza si vedono (il player mostra la
+// fonte del brano, non i suoi crediti). Per un brano Audius mostra copyright, la Audius Open Music
+// License (OML §1.5) e il link al brano; per un episodio podcast mostra lo show e il credito; per la
+// copia offline di un brano in evidenza il titolare e, per le Creative Commons, la licenza con il
+// link al suo testo. Per i file locali non compare nulla (nessuna attribuzione). I link si aprono in
+// una nuova scheda, in modo sicuro.
 import type { LocalTrackAttribution, LocalTrackSource } from '@/lib/local-music';
 import styles from './downloaded-track-credit.module.css';
 
 /**
- * La fonte di un brano della Libreria per i crediti: quelle della libreria sul dispositivo più la
- * copia offline di un "brano in evidenza" (riconosciuta dal registro delle copie).
+ * La fonte di un brano della Libreria per i crediti: quelle della libreria sul dispositivo, fra cui
+ * 'featured-download' per la copia offline di un "brano in evidenza" (riconosciuta dal record sul
+ * dispositivo o dal registro delle copie: vedi localTrackKind in local-tracks.ts).
  */
-export type CreditSource = LocalTrackSource | 'featured-download';
+export type CreditSource = LocalTrackSource;
 
-/** Testo accanto al link al brano/episodio, in base alla fonte. */
+/** Testo accanto al link al brano/episodio, in base alla fonte (mai «Audius» per un'altra fonte). */
 function sourceLinkLabel(source: CreditSource): string {
-  if (source === 'featured-download') return 'Brano su Solco';
-  return source === 'audius-download' ? 'Brano su Audius' : 'Episodio originale';
+  switch (source) {
+    case 'featured-download':
+      return 'Brano su Solco';
+    case 'audius-download':
+      return 'Brano su Audius';
+    case 'podcast-download':
+      return 'Episodio originale';
+    default:
+      return 'Fonte originale';
+  }
 }
 
 export function DownloadedTrackCredit({

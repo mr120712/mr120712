@@ -3,6 +3,8 @@
 // salvataggio con registro delle copie (fail closed se il registro non si scrive), endpoint di
 // verifica (same-origin, zod, sessione facoltativa, 503 = copie tenute) e sincronizzazione (toglie
 // SOLO le copie revocate, tiene tutto con errori di rete, manda solo gli id delle copie in evidenza).
+// Nella libreria una copia è il record con la fonte 'featured-download' e la chiave
+// 'featured:<shareId>': è il disco a dire che un brano è una copia, non il registro.
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -26,6 +28,7 @@ vi.mock('@/lib/local-music', () => ({
   addDownloadedTrack: vi.fn(),
   removeTrack: vi.fn(),
   listTracks: vi.fn(async () => []),
+  repairFeaturedCopySources: vi.fn(async () => 0),
 }));
 vi.mock('sonner', () => ({ toast: mocks.toast }));
 
@@ -33,10 +36,12 @@ import { POST as offlineStatus } from '@/app/api/music/featured/offline-status/r
 import {
   type CopyStorage,
   canRememberFeaturedCopies,
+  emptyDiskLookIsFresh,
   FEATURED_OFFLINE_COPIES_KEY,
   featuredCopiesByLocalId,
   forgetFeaturedCopies,
   readFeaturedCopies,
+  rememberEmptyDiskLook,
   rememberFeaturedCopy,
 } from '@/components/custom/music/featured-offline-copies';
 import {
@@ -117,6 +122,11 @@ function localTrack(id: string): LocalTrack {
     addedAt: 1,
     hasArtwork: false,
   };
+}
+
+/** Una copia come la rilegge la libreria: fonte e chiave del download nel record. */
+function copyTrack(id: string, featuredId: string): LocalTrack {
+  return { ...localTrack(id), source: 'featured-download', downloadKey: `featured:${featuredId}` };
 }
 
 beforeEach(() => {
@@ -243,6 +253,147 @@ describe('downloadOne: copia di un brano in evidenza', () => {
     expect(addDownloaded).not.toHaveBeenCalled();
   });
 
+  it('registro senza voce ma copia già nella libreria: nessuna richiesta, voce ricostruita dal disco', async () => {
+    const storage = memoryStorage();
+    const fetcher = vi.fn();
+    const addDownloaded = vi.fn();
+    const attribution = featuredMeta(ID_A).attribution;
+    const listLocalTracks = vi.fn(async () => [
+      // Un file dell'ascoltatore con un nome che imita la chiave, e la copia di un ALTRO brano.
+      { ...localTrack('mio-1'), title: `featured:${ID_A}` },
+      copyTrack('altra', ID_B),
+      { ...copyTrack('local-7', ID_A), attribution, addedAt: 4321 },
+    ]);
+
+    const outcome = await downloadOne(target, {
+      fetcher,
+      addDownloaded,
+      listLocalTracks,
+      copyStorage: storage,
+    });
+
+    // Niente download contato né file ritrasferito: la copia c'è già.
+    expect(outcome).toEqual({ status: 'already', target });
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(addDownloaded).not.toHaveBeenCalled();
+    expect(listLocalTracks).toHaveBeenCalledTimes(1);
+    // La voce torna nel registro (id dalla chiave, attribuzione e data dal record), così il
+    // pulsante resta «Offline» e la verifica dei permessi la controlla come le altre.
+    expect(readFeaturedCopies(storage)).toEqual([
+      { localId: 'local-7', featuredId: ID_A, attribution, savedAt: 4321 },
+    ]);
+    // Al tocco successivo basta il registro: la libreria non si rilegge.
+    const getLocalTrack = vi.fn(async (id: string) => copyTrack(id, ID_A));
+    expect(
+      await downloadOne(target, { fetcher, listLocalTracks, getLocalTrack, copyStorage: storage }),
+    ).toEqual({ status: 'already', target });
+    expect(listLocalTracks).toHaveBeenCalledTimes(1);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('nella libreria non c’è la copia di QUESTO brano: si chiede al server come sempre', async () => {
+    const candidates: LocalTrack[][] = [
+      [],
+      // Un file dell'ascoltatore non è mai la copia, qualunque nome abbia.
+      [{ ...localTrack('mio-1'), title: `featured:${ID_A}` }],
+      // La copia di un altro brano in evidenza.
+      [copyTrack('altra', ID_B)],
+      // Un download di un'altra fonte con la stessa chiave.
+      [{ ...localTrack('a1'), source: 'audius-download', downloadKey: `featured:${ID_A}` }],
+      // Una copia in evidenza senza chiave leggibile.
+      [{ ...localTrack('rotta'), source: 'featured-download' }],
+    ];
+    for (const tracks of candidates) {
+      const storage = memoryStorage();
+      const fetcher = vi.fn(async () => okResponse(featuredMeta(ID_A)));
+      const addDownloaded = vi.fn(async () => ({
+        ok: true as const,
+        track: localTrack('local-1'),
+      }));
+      const outcome = await downloadOne(target, {
+        fetcher,
+        addDownloaded,
+        listLocalTracks: async () => tracks,
+        copyStorage: storage,
+      });
+      expect(outcome.status).toBe('saved');
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(readFeaturedCopies(storage).map((copy) => copy.localId)).toEqual(['local-1']);
+    }
+  });
+
+  it('libreria illeggibile al tocco: nel dubbio si chiede al server (come prima)', async () => {
+    const fetcher = vi.fn(async () =>
+      Response.json({ error: 'offline_not_allowed', message: 'No.' }, { status: 403 }),
+    );
+    const outcome = await downloadOne(target, {
+      fetcher,
+      listLocalTracks: async () => {
+        throw new Error('idb');
+      },
+      copyStorage: memoryStorage(),
+    });
+    expect(outcome.status).toBe('online-only');
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('Audius e podcast non guardano nella libreria prima di scaricare', async () => {
+    const listLocalTracks = vi.fn(async () => []);
+    await downloadOne(
+      { id: 'x', title: 'X', endpoint: { kind: 'audius', trackId: 'trk' } },
+      {
+        fetcher: vi.fn(async () => Response.json({ error: 'e', message: 'm' }, { status: 500 })),
+        listLocalTracks,
+      },
+    );
+    expect(listLocalTracks).not.toHaveBeenCalled();
+  });
+
+  it('il promemoria «sul disco non c’è nessuna copia» si toglie PRIMA di salvare il file', async () => {
+    const storage = memoryStorage();
+    rememberEmptyDiskLook(Date.now(), storage);
+    expect(emptyDiskLookIsFresh(Date.now(), storage)).toBe(true);
+    const seenAtSave: boolean[] = [];
+    const addDownloaded = vi.fn(async () => {
+      // Nel momento in cui la copia arriva sul disco il promemoria non deve più esserci: se la
+      // scheda si chiudesse adesso, la prossima pagina guarderebbe di nuovo nella libreria.
+      seenAtSave.push(emptyDiskLookIsFresh(Date.now(), storage));
+      return { ok: true as const, track: localTrack('local-1') };
+    });
+    const outcome = await downloadOne(target, {
+      fetcher: vi.fn(async () => okResponse(featuredMeta(ID_A))),
+      addDownloaded,
+      listLocalTracks: async () => [],
+      copyStorage: storage,
+    });
+    expect(outcome.status).toBe('saved');
+    expect(seenAtSave).toEqual([false]);
+    expect(emptyDiskLookIsFresh(Date.now(), storage)).toBe(false);
+  });
+
+  it('un download Audius non tocca quel promemoria; un rifiuto del server nemmeno', async () => {
+    const storage = memoryStorage();
+    rememberEmptyDiskLook(Date.now(), storage);
+    await downloadOne(
+      { id: 'x', title: 'X', endpoint: { kind: 'audius', trackId: 'trk' } },
+      {
+        fetcher: vi.fn(async () =>
+          okResponse({ ...featuredMeta(ID_A), source: 'audius-download', downloadKey: 'trk' }),
+        ),
+        addDownloaded: vi.fn(async () => ({ ok: true as const, track: localTrack('a1') })),
+        copyStorage: storage,
+      },
+    );
+    await downloadOne(target, {
+      fetcher: vi.fn(async () =>
+        Response.json({ error: 'offline_not_allowed', message: 'No.' }, { status: 403 }),
+      ),
+      listLocalTracks: async () => [],
+      copyStorage: storage,
+    });
+    expect(emptyDiskLookIsFresh(Date.now(), storage)).toBe(true);
+  });
+
   it('403 dalla rotta (permesso revocato nel frattempo): resta solo in streaming', async () => {
     const outcome = await downloadOne(target, {
       fetcher: vi.fn(async () =>
@@ -349,7 +500,14 @@ describe('syncFeaturedOfflineCopies: revoca delle copie salvate', () => {
       rememberFeaturedCopy({ localId, featuredId, attribution: null, savedAt: 1 }, storage);
     }
     const removeTrack = vi.fn(async () => undefined);
-    const listTracks = vi.fn(async () => present.map(localTrack));
+    // I brani registrati sono copie anche per la libreria; gli altri sono file dell'ascoltatore.
+    const featuredIds = new Map(copies);
+    const listTracks = vi.fn(async () =>
+      present.map((id) => {
+        const featuredId = featuredIds.get(id);
+        return featuredId ? copyTrack(id, featuredId) : localTrack(id);
+      }),
+    );
     return { storage, removeTrack, listTracks };
   }
 

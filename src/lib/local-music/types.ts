@@ -8,15 +8,43 @@
  * Da dove viene un brano della libreria:
  *  - 'local': file scelto dall'ascoltatore (comportamento storico, nessuna attribuzione);
  *  - 'audius-download': brano Audius scaricato con "Scarica il permesso" (licenza aperta);
- *  - 'podcast-download': episodio podcast scaricato dalla sua enclosure RSS.
+ *  - 'podcast-download': episodio podcast scaricato dalla sua enclosure RSS;
+ *  - 'featured-download': copia offline di un "brano in evidenza" dichiarato in diritti.json con
+ *    il permesso della copia («Scarica offline»). NON è mai un file dell'ascoltatore: resta
+ *    revocabile (featured-offline-sync la toglie quando il server la dichiara revocata) e il suo
+ *    testo non si legge mai dai tag del file (lyrics.ts), solo dal server.
  * I file scaricati stanno negli stessi store di IndexedDB dei file locali e si riproducono allo
  * stesso modo (object URL, Media Session), senza contare per gli ascolti Free.
+ *
+ * La fonte è salvata nel record ed è la fonte di verità: sopravvive a ogni riscrittura
+ * (setTrackDuration) e, per le copie dei brani in evidenza, si ricava anche dalla chiave del
+ * download (download-key.ts) se un record più vecchio l'avesse persa. Quella regola della chiave
+ * resta per sempre (una scheda con la versione precedente può ancora riscrivere un record come
+ * 'local'); store.ts (repairFeaturedCopySources) rimette poi la fonte anche sul disco.
+ *
+ * Chi aggiunge una fonte la aggiunge QUI: il download di una fonte che questo elenco non conosce
+ * non viene letto affatto (reader.ts), invece di passare per un file dell'ascoltatore.
  */
-export type LocalTrackSource = 'local' | 'audius-download' | 'podcast-download';
+export type LocalTrackSource =
+  | 'local'
+  | 'audius-download'
+  | 'podcast-download'
+  | 'featured-download';
 
 /** Le sole fonti che producono un download (non un file già locale). */
-export const DOWNLOADED_TRACK_SOURCES = ['audius-download', 'podcast-download'] as const;
+export const DOWNLOADED_TRACK_SOURCES = [
+  'audius-download',
+  'podcast-download',
+  'featured-download',
+] as const;
 export type DownloadedTrackSource = (typeof DOWNLOADED_TRACK_SOURCES)[number];
+
+/** True per una fonte di download (mai 'local', mai un valore sconosciuto). */
+export function isDownloadedTrackSource(value: unknown): value is DownloadedTrackSource {
+  return (
+    typeof value === 'string' && (DOWNLOADED_TRACK_SOURCES as readonly string[]).includes(value)
+  );
+}
 
 /**
  * Attribuzione di un brano scaricato, mostrata nella Libreria e dal player. Per i file locali è
@@ -57,6 +85,13 @@ export type LocalTrack = {
   source?: LocalTrackSource;
   /** Attribuzione dei brani scaricati; assente/null per i file locali. */
   attribution?: LocalTrackAttribution | null;
+  /**
+   * Chiave del download presso la sua fonte (id Audius, 'podcastId~episodeKey',
+   * 'featured:<shareId>' per la copia di un brano in evidenza). Presente SOLO sui brani scaricati
+   * il cui record porta la chiave di quella stessa fonte: mai su un file dell'ascoltatore,
+   * qualunque nome abbia (vedi download-key.ts). Resta sul dispositivo come tutto il resto.
+   */
+  downloadKey?: string;
 };
 
 /** Fonte di un brano, con 'local' come valore sicuro quando il campo è assente. */

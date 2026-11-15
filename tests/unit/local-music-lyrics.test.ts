@@ -1,6 +1,6 @@
 // @polsia:user-owned — testo incorporato nei file del dispositivo ("La tua musica"), letto nel
 // browser e mai inviato: ID3v2 USLT/SYLT (anche v2.2 ULT), MP4 '©lyr', commenti Vorbis dei FLAC.
-// Solo i file dell'ascoltatore: mai i brani scaricati (Audius, podcast).
+// Solo i file dell'ascoltatore: mai i brani scaricati (Audius, podcast, copie dei brani in evidenza).
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -326,8 +326,8 @@ describe('loadLocalLyrics', () => {
     });
   });
 
-  it('brani scaricati (Audius, podcast) esclusi: il file non si legge nemmeno', async () => {
-    for (const source of ['audius-download', 'podcast-download'] as const) {
+  it('brani scaricati (Audius, podcast, copia di un brano in evidenza) esclusi: il file non si legge nemmeno', async () => {
+    for (const source of ['audius-download', 'podcast-download', 'featured-download'] as const) {
       const reader = {
         getTrack: vi.fn(async () => track(source)),
         getTrackBlob: vi.fn(async () => id3(3, [frameV23('USLT', usltUtf8('No'))])),

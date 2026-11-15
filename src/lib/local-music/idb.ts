@@ -121,6 +121,33 @@ function runTransaction<T>(
 }
 
 /**
+ * Dice se il database della libreria esiste già in questo browser SENZA crearlo: true o false dove
+ * il browser sa elencare i database (indexedDB.databases), null se non si può sapere senza aprirlo
+ * (API assente o in errore). Senza IndexedDB risponde false: non c'è nessuna libreria. Chi vuole
+ * solo guardare (il mount della verifica delle copie offline, in ogni pagina) evita così di creare
+ * un database vuoto a chi non ha mai usato «La tua musica».
+ */
+export async function localMusicDbExists(
+  getFactory: () => IDBFactory | undefined = () =>
+    typeof indexedDB === 'undefined' ? undefined : indexedDB,
+): Promise<boolean | null> {
+  let factory: IDBFactory | undefined;
+  try {
+    factory = getFactory();
+  } catch {
+    factory = undefined;
+  }
+  if (!factory) return false;
+  if (typeof factory.databases !== 'function') return null;
+  try {
+    const databases = await factory.databases();
+    return databases.some((database) => database.name === LOCAL_MUSIC_DB_NAME);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * LocalMusicDb su IndexedDB. La connessione si apre alla prima operazione (import sicuro anche
  * lato server) e si riapre se il browser la chiude.
  */

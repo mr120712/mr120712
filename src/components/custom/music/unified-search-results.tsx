@@ -4,8 +4,11 @@
 // bruciare la quota mentre si scrive. Mostra UN elenco misto, deduplicato e ordinato per rilevanza
 // con un piccolo distintivo di fonte per riga; ogni riga suona nel player Solco (i brani «In
 // evidenza» esattamente come in Home, con playHomeTrack, più il loro «Condividi» con link diretto
-// quando il server manda shareId, cioè solo per i brani dichiarati). Quando la quota YouTube è finita resta
-// l'avviso con i risultati salvati e il link «Cerca su YouTube» (riusa youtube-search-notice).
+// quando il server manda shareId, cioè solo per i brani dichiarati, e «Scarica offline» SOLO quando
+// il server manda anche `offline` true: la voce di diritti.json consente la copia offline; è lo
+// stesso pulsante a icona delle pagine d'artista e di cartella, e senza accesso dice che serve
+// accedere). Quando la quota YouTube è finita resta l'avviso con i risultati salvati e il link
+// «Cerca su YouTube» (riusa youtube-search-notice).
 // Chip-filtro opzionali (Tutto / Le tue / Brani / Radio / Podcast) restringono lo stesso elenco.
 // Consuma UnifiedSearchResponseSchema via apiFetch. Per chi ha fatto l'accesso, in parallelo e da un
 // endpoint PRIVATO (/api/music/library/search, mai dentro search-all che è in cache condivisa), la
@@ -46,6 +49,8 @@ import {
   trackStreamPath,
   useMusicPlayer,
 } from '@/components/custom/music/music-player';
+import { featuredDownloadTarget } from '@/components/custom/music/offline-download';
+import { SingleOfflineDownloadButton } from '@/components/custom/music/offline-download-button';
 import {
   describeYouTubeSearch,
   YOUTUBE_RETRY_DELAY_MS,
@@ -82,6 +87,8 @@ type Filter = 'all' | 'mine' | 'tracks' | 'radio' | 'podcast';
 const DEBOUNCE_MS = 350;
 /** «Condividi» di un brano in evidenza: tondo come gli altri pulsanti della riga (36 px). */
 const SEARCH_SHARE_BUTTON = 'size-9 rounded-full text-muted-foreground hover:text-foreground';
+/** «Scarica offline» di un brano in evidenza: come «Condividi». */
+const SEARCH_DOWNLOAD_BUTTON = 'size-9 rounded-full text-muted-foreground hover:text-foreground';
 
 const SOURCE_LABEL: Record<UnifiedResult['kind'], string> = {
   featured: 'In evidenza',
@@ -638,6 +645,7 @@ export function UnifiedSearchResults({
                     <ResultRow
                       key={result.key}
                       result={result}
+                      signedIn={signedIn}
                       isPlayingNow={isPlayingNow}
                       onPlayFeatured={playFeatured}
                       onPlayAudius={playAudius}
@@ -710,6 +718,7 @@ function YouTubeAlternative({
 
 function ResultRow({
   result,
+  signedIn,
   isPlayingNow,
   onPlayFeatured,
   onPlayAudius,
@@ -719,6 +728,8 @@ function ResultRow({
   onPlayStation,
 }: {
   result: UnifiedResult;
+  /** false: «Scarica offline» spiega che serve accedere (il download richiede il login). */
+  signedIn: boolean;
   isPlayingNow: (qualifiedId: string) => boolean;
   onPlayFeatured: (item: HomeTrack) => void;
   onPlayAudius: (track: AudiusTrackSearchResult) => void;
@@ -733,8 +744,16 @@ function ResultRow({
     const playing = isPlayingNow(`upload:${track.id}`);
     const byline = track.artist ?? 'Solco';
     const stacked = youtubeAlternative ? ` ${styles.rowStacked}` : '';
+    // «Scarica offline»: solo se il server ha detto che la copia offline è consentita (`offline`
+    // true) e il brano ha il suo id opaco. Per ogni altra riga non cambia nulla.
+    const download = featuredDownloadTarget(track);
+    const downloadable = download ? ` ${styles.rowDownloadable}` : '';
     return (
-      <li className={`${discover.row}${stacked}`} data-kind="featured">
+      <li
+        className={`${discover.row}${stacked}${downloadable}`}
+        data-kind="featured"
+        data-downloadable={download ? 'true' : undefined}
+      >
         <div className={discover.rowArt}>
           <FallbackArt src={track.artworkUrl} label={track.title} size={104} />
         </div>
@@ -767,6 +786,19 @@ function ResultRow({
           ) : null}
         </div>
         <div className={discover.rowActions}>
+          {/* «Scarica offline» (salva il brano in «La tua musica»): accanto a «Condividi», mai
+              dentro il pulsante che suona il brano. */}
+          {download ? (
+            <span className={styles.featuredDownload}>
+              <SingleOfflineDownloadButton
+                target={download}
+                signedIn={signedIn}
+                variant="ghost"
+                iconOnly
+                className={SEARCH_DOWNLOAD_BUTTON}
+              />
+            </span>
+          ) : null}
           {/* Link diretto «Condividi»: solo per i brani dichiarati (il server manda shareId). */}
           <FeaturedShareButton
             track={track}

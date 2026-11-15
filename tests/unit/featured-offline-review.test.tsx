@@ -26,6 +26,7 @@ vi.mock('@/lib/local-music', () => ({
   getTrack: mocks.getTrack,
   listTracks: mocks.listTracks,
   removeTrack: mocks.removeTrack,
+  repairFeaturedCopySources: vi.fn(async () => 0),
   localTrackSource: (track: { source?: string }) => track.source ?? 'local',
   localTrackAttribution: () => null,
 }));
@@ -93,6 +94,11 @@ function localTrack(id: string, extra: Partial<LocalTrack> = {}): LocalTrack {
   } as LocalTrack;
 }
 
+/** La stessa copia come la rilegge la libreria: fonte e chiave del download nel record. */
+function copyTrack(id: string, featuredId: string): LocalTrack {
+  return localTrack(id, { source: 'featured-download', downloadKey: `featured:${featuredId}` });
+}
+
 function copy(localId: string, featuredId: string): FeaturedOfflineCopy {
   return {
     localId,
@@ -149,7 +155,10 @@ beforeEach(() => {
   ]) {
     mock.mockReset();
   }
-  mocks.getTrack.mockImplementation(async (id: string) => localTrack(id));
+  // Nella libreria le copie («copia-…») portano la loro fonte; gli altri sono file dell'ascoltatore.
+  mocks.getTrack.mockImplementation(async (id: string) =>
+    id.startsWith('copia-') ? copyTrack(id, ID_A) : localTrack(id),
+  );
   mocks.listTracks.mockResolvedValue([]);
   mocks.removeTrack.mockResolvedValue(undefined);
   resetFeaturedSyncForTests();
@@ -318,6 +327,60 @@ describe('pulsante a icona «Scarica offline»', () => {
   });
 });
 
+describe('registro senza voce, copia ancora nella libreria: il tocco non riscarica', () => {
+  it('nessuna richiesta, il pulsante resta «Offline» e la voce torna nel registro', async () => {
+    // Il registro ha perso la voce; il file è ancora in IndexedDB con la sua fonte e la sua chiave.
+    expect(readFeaturedCopies()).toEqual([]);
+    mocks.listTracks.mockResolvedValue([localTrack('mio-file'), copyTrack('copia-1', ID_A)]);
+    const { container } = await mount(
+      <SingleOfflineDownloadButton target={featuredTarget(ID_A)} signedIn iconOnly />,
+    );
+    const button = container.querySelector('button') as HTMLButtonElement;
+    // Senza la voce il pulsante parte «Scarica» (legge solo il registro, per non aprire la
+    // libreria da ogni pulsante della pagina).
+    expect(button.getAttribute('aria-label')).toBe('Scarica Concessa per l’ascolto offline');
+
+    await act(async () => button.click());
+    await flush();
+
+    expect(mocks.fetch).not.toHaveBeenCalled();
+    expect(mocks.addDownloaded).not.toHaveBeenCalled();
+    expect(mocks.toast.success).toHaveBeenCalledWith(
+      'Già nella tua Libreria per l’ascolto offline.',
+    );
+    // Resta «Offline» (prima tornava a «Scarica», e ogni tocco era un download contato).
+    expect(button.getAttribute('aria-label')).toBe(
+      'Concessa è nella tua Libreria per l’ascolto offline',
+    );
+    expect(button.getAttribute('title')).toBe('Disponibile offline');
+    expect(readFeaturedCopies().map((item) => [item.localId, item.featuredId])).toEqual([
+      ['copia-1', ID_A],
+    ]);
+
+    // Un secondo tocco non fa nulla.
+    await act(async () => button.click());
+    await flush();
+    expect(mocks.fetch).not.toHaveBeenCalled();
+    expect(mocks.listTracks).toHaveBeenCalledTimes(1);
+  });
+
+  it('cartella intera con il registro perso: nessun brano già salvato viene richiesto di nuovo', async () => {
+    const ids = Array.from({ length: 4 }, (_, index) => String(index).repeat(22));
+    // Tre copie su quattro sono già nella libreria; il registro è vuoto.
+    mocks.listTracks.mockResolvedValue(
+      ids.slice(0, 3).map((id, index) => copyTrack(`copia-${index}`, id)),
+    );
+    mocks.fetch.mockResolvedValue(
+      Response.json({ error: 'offline_not_allowed', message: 'No.' }, { status: 403 }),
+    );
+    const result = await runOfflineDownloadBatch(ids.map((id) => featuredTarget(id)));
+    expect(result.already).toHaveLength(3);
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+    expect(String(mocks.fetch.mock.calls[0]?.[0])).toContain(ids[3]);
+    expect(readFeaturedCopies().map((item) => item.featuredId)).toEqual(ids.slice(0, 3));
+  });
+});
+
 describe('elenco «solo streaming» di una cartella grande', () => {
   it('300 brani: frase breve come descrizione, motivo detto una volta, elenco chiuso', async () => {
     const tracks = [
@@ -376,7 +439,7 @@ describe('verifica dei permessi in ogni pagina', () => {
   beforeEach(() => {
     setOnline(true);
     register(copy('copia-1', ID_A));
-    mocks.listTracks.mockResolvedValue([localTrack('copia-1')]);
+    mocks.listTracks.mockResolvedValue([copyTrack('copia-1', ID_A)]);
   });
 
   it('errore di rete: copia tenuta, nuovo tentativo dopo qualche minuto, poi tolta con UN avviso', async () => {
@@ -395,6 +458,53 @@ describe('verifica dei permessi in ogni pagina', () => {
     expect(mocks.removeTrack).toHaveBeenCalledWith('copia-1');
     expect(mocks.toast).toHaveBeenCalledTimes(1);
     expect(String(mocks.toast.mock.calls[0]?.[0])).toContain('non è più disponibile offline');
+    stop();
+  });
+
+  it('libreria illeggibile e registro perso: nuovo tentativo dopo qualche minuto, e la copia revocata va via', async () => {
+    vi.useFakeTimers();
+    // Il browser ha IndexedDB (una libreria può esistere) ma adesso non si legge; il registro
+    // delle copie è vuoto: non si sa se ci sono copie, quindi non è una verifica riuscita.
+    vi.stubGlobal('indexedDB', {});
+    window.localStorage.clear();
+    mocks.listTracks.mockReset();
+    mocks.listTracks.mockRejectedValueOnce(new Error('idb'));
+    mocks.listTracks.mockResolvedValue([copyTrack('copia-1', ID_A)]);
+    mocks.fetch.mockImplementation(async () => revokedAnswer());
+
+    const stop = startFeaturedOfflineSync();
+    await flush();
+    expect(mocks.listTracks).toHaveBeenCalledTimes(1);
+    expect(mocks.fetch).not.toHaveBeenCalled();
+
+    // Nessun evento (né ritorno online né ricaricamento): si riprova da soli.
+    await act(async () => vi.advanceTimersByTime(FEATURED_SYNC_RETRY_MS));
+    await flush();
+    expect(mocks.listTracks).toHaveBeenCalledTimes(2);
+    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+    expect(mocks.removeTrack).toHaveBeenCalledWith('copia-1');
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it('copia revocata che non si riesce a togliere: nuovo tentativo dopo qualche minuto, poi UN avviso', async () => {
+    vi.useFakeTimers();
+    mocks.fetch.mockImplementation(async () => revokedAnswer());
+    mocks.removeTrack.mockRejectedValueOnce(new Error('idb'));
+
+    const stop = startFeaturedOfflineSync();
+    await flush();
+    expect(mocks.removeTrack).toHaveBeenCalledTimes(1);
+    // Non tolta: nessun avviso, la voce resta, e non vale come verifica riuscita.
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(readFeaturedCopies().map((item) => item.localId)).toEqual(['copia-1']);
+
+    await act(async () => vi.advanceTimersByTime(FEATURED_SYNC_RETRY_MS));
+    await flush();
+    expect(mocks.fetch).toHaveBeenCalledTimes(2);
+    expect(mocks.removeTrack).toHaveBeenCalledTimes(2);
+    expect(mocks.toast).toHaveBeenCalledTimes(1);
+    expect(readFeaturedCopies()).toEqual([]);
     stop();
   });
 

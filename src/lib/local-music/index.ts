@@ -6,6 +6,7 @@
 // del browser si toccano solo alla prima chiamata). Il player importa '@/lib/local-music/playback'
 // (solo lettura), non questo indice: l'aggiunta con i lettori di tag resta fuori dal suo bundle.
 
+export { featuredCopyShareId } from '@/lib/local-music/download-key';
 export { LocalMusicUnavailableError } from '@/lib/local-music/idb';
 export {
   createObjectUrlForArtwork,
@@ -16,6 +17,7 @@ export {
   getArtworkBlob,
   getTrack,
   getTrackBlob,
+  hasDownloadedTrack,
   setTrackDuration,
 } from '@/lib/local-music/reader';
 export {
@@ -27,6 +29,7 @@ export {
   isLocalMusicSupported,
   listTracks,
   removeTrack,
+  repairFeaturedCopySources,
   requestPersistence,
   usage,
 } from '@/lib/local-music/store';
@@ -36,6 +39,7 @@ export {
   type AddFilesResult,
   DOWNLOADED_TRACK_SOURCES,
   type DownloadedTrackSource,
+  isDownloadedTrackSource,
   type LocalMusicUsage,
   type LocalSkippedFile,
   type LocalSkipReason,
