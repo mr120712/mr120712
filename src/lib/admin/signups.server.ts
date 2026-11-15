@@ -24,7 +24,10 @@
 //     isSubscriptionActive;
 //   - PayPal: l'ULTIMO abbonamento (LATEST_PAYPAL_SUBSCRIPTION_ORDER) giudicato da
 //     isPayPalSubscriptionActive;
-//   - acquisti in-app: iapAccessWhere, poi iapGrantsAccess su ogni riga (basta una).
+//   - acquisti in-app: iapAccessWhere, poi iapGrantsAccess su ogni riga (basta una);
+//   - illimitato: le concessioni non revocate di PremiumAccessGrant sulle email VERIFICATE degli
+//     account (come hasEmailPremiumGrant). Le sue righe non hanno "userId" (sono per email): gli
+//     account bloccati si escludono già nella sua query, che non entra in quella degli esclusi.
 // Le regole "ultima riga per utente" e la verifica finale in TypeScript (durata esatta di un mese
 // di calendario per Solco Pro) non si possono scrivere come un solo COUNT senza ricopiarle in SQL:
 // per questo ogni fonte restituisce gli id dei candidati (righe già filtrate dal database) e
@@ -54,6 +57,7 @@ import {
   isPayPalSubscriptionActive,
   LATEST_PAYPAL_SUBSCRIPTION_ORDER,
 } from '@/lib/business/paypal-subscriptions.server';
+import { isPhoneAccountEmail } from '@/lib/business/phone-auth';
 import { activePremiumGrantWhere } from '@/lib/business/rewards.server';
 import {
   isActiveSolcoProEntitlement,
@@ -75,11 +79,17 @@ export type SignupsDb = Pick<
   | 'solcoSubscription'
   | 'payPalSubscription'
   | 'solcoIapSubscription'
+  | 'premiumAccessGrant'
+  | 'user'
 >;
 
 type PremiumSource = {
-  /** Tabella Postgres delle righe della fonte (nome del modello Prisma: nessun @@map). */
-  table: string;
+  /**
+   * Tabella Postgres delle righe della fonte (nome del modello Prisma: nessun @@map), con la colonna
+   * "userId": entra nella query degli utenti da escludere. Assente per una fonte che legge già solo
+   * account esistenti e non bloccati (illimitato).
+   */
+  table?: string;
   /** Utenti a cui le righe SALVATE danno Premium adesso, con le regole di hasPremiumAccess. */
   userIds: (db: SignupsDb, now: Date) => Promise<Set<string>>;
 };
@@ -158,6 +168,31 @@ export const PREMIUM_SOURCES: Readonly<Record<AdminPremiumSource, PremiumSource>
       return new Set(rows.map((row) => row.userId));
     },
   },
+  unlimited: {
+    async userIds(db, now) {
+      // Come hasEmailPremiumGrant: concessione non revocata ed email VERIFICATA dell'account, mai
+      // le email segnaposto degli account col telefono. Qui anche senza blocco in corso (stessa
+      // regola di `totals.banned`), perché questa fonte non passa dalla query degli esclusi.
+      const grants = await db.premiumAccessGrant.findMany({
+        where: { revokedAt: null },
+        select: { email: true },
+      });
+      if (grants.length === 0) return new Set<string>();
+      const accounts = await db.user.findMany({
+        where: {
+          email: { in: grants.map((grant) => grant.email) },
+          emailVerified: true,
+          OR: [{ banned: false }, { banned: null }, { banExpires: { lte: now } }],
+        },
+        select: { id: true, email: true },
+      });
+      return new Set(
+        accounts
+          .filter((account) => !isPhoneAccountEmail(account.email))
+          .map((account) => account.id),
+      );
+    },
+  },
 };
 
 const SQL_IDENTIFIER = /^[A-Za-z][A-Za-z0-9_]*$/;
@@ -191,8 +226,8 @@ async function premiumSourceUserIds(db: SignupsDb, now: Date) {
  */
 async function premiumSplit(db: SignupsDb, now: Date, nowIso: string): Promise<RawPremiumSplit> {
   const sourceUserIds = Prisma.join(
-    Object.values(PREMIUM_SOURCES).map(
-      ({ table }) => Prisma.sql`SELECT "userId" FROM ${tableName(table)}`,
+    Object.values(PREMIUM_SOURCES).flatMap(({ table }) =>
+      table ? [Prisma.sql`SELECT "userId" FROM ${tableName(table)}`] : [],
     ),
     ' UNION ',
   );

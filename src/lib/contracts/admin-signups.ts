@@ -32,9 +32,17 @@ export const AdminSignupTotalsSchema = z
 
 /**
  * Fonti del Premium, nell'ordine della pagina: abbonamenti Stripe e PayPal, acquisti in-app (App
- * Store e Google Play), accesso Solco Pro di un mese e Premium regalato dai premi.
+ * Store e Google Play), accesso Solco Pro di un mese, Premium regalato dai premi e Premium
+ * illimitato concesso dall'amministratore a un'email verificata («Gestione account»).
  */
-export const ADMIN_PREMIUM_SOURCES = ['stripe', 'paypal', 'inApp', 'solcoPro', 'rewards'] as const;
+export const ADMIN_PREMIUM_SOURCES = [
+  'stripe',
+  'paypal',
+  'inApp',
+  'solcoPro',
+  'rewards',
+  'unlimited',
+] as const;
 export type AdminPremiumSource = (typeof ADMIN_PREMIUM_SOURCES)[number];
 
 /** Utenti Pro per fonte. Un utente può avere più fonti: la somma può superare `pro`. */
@@ -45,6 +53,8 @@ export const AdminProBySourceSchema = z
     inApp: CountSchema,
     solcoPro: CountSchema,
     rewards: CountSchema,
+    /** Premium illimitato concesso dall'admin per email («Gestione account»). */
+    unlimited: CountSchema,
   })
   .strict();
 

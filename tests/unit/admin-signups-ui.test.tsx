@@ -49,7 +49,7 @@ function stats(
       free: 12000,
       pro: 345,
       proShare: 2.8,
-      proBySource: { stripe: 200, paypal: 60, inApp: 70, solcoPro: 10, rewards: 30 },
+      proBySource: { stripe: 200, paypal: 60, inApp: 70, solcoPro: 10, rewards: 30, unlimited: 0 },
     },
     daily: signupDayKeys(NOW).map((day) => ({ day, count: counts[day] ?? 0 })),
     ...extra,
@@ -245,6 +245,7 @@ describe('pagina iscritti: dati', () => {
       { source: 'inApp', name: 'App Store', count: '70', bar: `${(70 / 345) * 100}%` },
       { source: 'solcoPro', name: 'Solco Pro', count: '10', bar: `${(10 / 345) * 100}%` },
       { source: 'rewards', name: 'Premi', count: '30', bar: `${(30 / 345) * 100}%` },
+      { source: 'unlimited', name: 'Illimitato', count: '0', bar: '0%' },
     ]);
     // Le barre sono decorative: il numero è nel testo della definizione.
     for (const bar of panel.querySelectorAll('dd [aria-hidden="true"]')) {
@@ -264,7 +265,7 @@ describe('pagina iscritti: dati', () => {
       free: 12344,
       pro: 1,
       proShare: 0,
-      proBySource: { stripe: 0, paypal: 0, inApp: 0, solcoPro: 0, rewards: 1 },
+      proBySource: { stripe: 0, paypal: 0, inApp: 0, solcoPro: 0, rewards: 1, unlimited: 0 },
     };
     mocks.apiFetch.mockImplementation(respond(tiny));
     const container = await mount();
@@ -280,7 +281,7 @@ describe('pagina iscritti: dati', () => {
       free: 0,
       pro: 0,
       proShare: 0,
-      proBySource: { stripe: 0, paypal: 0, inApp: 0, solcoPro: 0, rewards: 0 },
+      proBySource: { stripe: 0, paypal: 0, inApp: 0, solcoPro: 0, rewards: 0, unlimited: 0 },
     };
     mocks.apiFetch.mockImplementation(respond(none));
     await click(buttonByText(container, 'Aggiorna'));
@@ -289,7 +290,7 @@ describe('pagina iscritti: dati', () => {
       detail: 'Nessun utente attivo',
     });
     expect(sourceRows(container).map((row) => [row.count, row.bar])).toEqual(
-      Array.from({ length: 5 }, () => ['0', '0%']),
+      Array.from({ length: 6 }, () => ['0', '0%']),
     );
   });
 
@@ -311,7 +312,7 @@ describe('pagina iscritti: dati', () => {
         free,
         pro,
         proShare,
-        proBySource: { stripe: pro, paypal: 0, inApp: 0, solcoPro: 0, rewards: 0 },
+        proBySource: { stripe: pro, paypal: 0, inApp: 0, solcoPro: 0, rewards: 0, unlimited: 0 },
       };
       mocks.apiFetch.mockImplementation(respond(data));
       const container = await mount();

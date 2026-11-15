@@ -35,6 +35,7 @@ const SOURCE_TEXT: Record<AdminPremiumSource, { label: string; hint: string }> =
   inApp: { label: 'App Store', hint: 'Acquisto in-app, Google Play compreso' },
   solcoPro: { label: 'Solco Pro', hint: 'Accesso di un mese' },
   rewards: { label: 'Premi', hint: 'Premium regalato: inviti, fondatori, ascolto…' },
+  unlimited: { label: 'Illimitato', hint: 'Concesso dall’admin in «Gestione account»' },
 };
 
 const STORED_DATA_NOTE =
@@ -386,7 +387,7 @@ function PlansSplit({ plans }: { plans: AdminPlans }) {
         </p>
         <dl className={styles.sourceList}>
           {ADMIN_PREMIUM_SOURCES.map((source) => {
-            const count = plans.proBySource[source];
+            const count = plans.proBySource[source] ?? 0;
             const { label, hint } = SOURCE_TEXT[source];
             return (
               <div key={source} className={styles.source} data-source={source}>

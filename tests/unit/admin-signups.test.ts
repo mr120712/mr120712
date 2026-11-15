@@ -60,7 +60,7 @@ function flattenSql(strings: readonly string[], values: readonly unknown[]) {
 
 /** Nessun Pro e nessun utente escluso. */
 const noPremium: RawPremiumSplit = {
-  sources: { stripe: [], paypal: [], inApp: [], solcoPro: [], rewards: [] },
+  sources: { stripe: [], paypal: [], inApp: [], solcoPro: [], rewards: [], unlimited: [] },
   ineligible: [],
 };
 
@@ -237,7 +237,7 @@ describe('buildSignupStats', () => {
       free: 9,
       pro: 0,
       proShare: 0,
-      proBySource: { stripe: 0, paypal: 0, inApp: 0, solcoPro: 0, rewards: 0 },
+      proBySource: { stripe: 0, paypal: 0, inApp: 0, solcoPro: 0, rewards: 0, unlimited: 0 },
     });
     expect(JSON.stringify(stats)).not.toMatch(/mario|user-1|@/i);
   });
@@ -267,15 +267,16 @@ describe('buildPlanSplit: Free e Pro dagli id delle fonti', () => {
         inApp: new Set(['a', 'ghost-1']),
         solcoPro: new Set(),
         rewards: new Set(['a', 'd']),
+        unlimited: new Set(['e', 'banned-1']),
       },
       ineligible: [{ userId: 'banned-1' }, { userId: 'ghost-1' }],
     });
-    // Pro distinti: a, b, c, d (a ha tre fonti; bloccato e account cancellato esclusi).
+    // Pro distinti: a, b, c, d, e (a ha tre fonti; bloccato e account cancellato esclusi).
     expect(plans).toEqual({
-      free: 6,
-      pro: 4,
-      proShare: 40,
-      proBySource: { stripe: 2, paypal: 1, inApp: 1, solcoPro: 0, rewards: 2 },
+      free: 5,
+      pro: 5,
+      proShare: 50,
+      proBySource: { stripe: 2, paypal: 1, inApp: 1, solcoPro: 0, rewards: 2, unlimited: 1 },
     });
     expect(JSON.stringify(plans)).not.toMatch(/banned|ghost|"a"|"b"/);
   });
@@ -318,7 +319,7 @@ describe('buildPlanSplit: Free e Pro dagli id delle fonti', () => {
       ...base,
       plans: { free: 1, pro, proShare: 66.7, proBySource },
     });
-    const ok = { stripe: 2, paypal: 0, inApp: 1, solcoPro: 0, rewards: 0 };
+    const ok = { stripe: 2, paypal: 0, inApp: 1, solcoPro: 0, rewards: 0, unlimited: 0 };
     expect(AdminSignupsSchema.safeParse(plans(ok)).success).toBe(true);
     // Una fonte con più utenti dei Pro, o Pro senza nessuna fonte.
     expect(AdminSignupsSchema.safeParse(plans({ ...ok, stripe: 3 })).success).toBe(false);
@@ -361,6 +362,9 @@ describe('getSignupStats: query aggregate parametrizzate', () => {
       solcoIapSubscription: delegate('inApp', []),
       solcoProStripeEntitlement: delegate('solcoPro', []),
       premiumGrant: delegate('rewards', [{ userId: 'stripe-user' }]),
+      // Premium illimitato: nessuna concessione, quindi nessuna lettura degli account.
+      premiumAccessGrant: delegate('unlimited', []),
+      user: delegate('users', []),
     };
     return { db: db as unknown as SignupsDb, calls, delegateCalls };
   }
@@ -485,7 +489,7 @@ describe('getSignupStats: query aggregate parametrizzate', () => {
       free: 10,
       pro: 1,
       proShare: 9.1,
-      proBySource: { stripe: 1, paypal: 0, inApp: 0, solcoPro: 0, rewards: 1 },
+      proBySource: { stripe: 1, paypal: 0, inApp: 0, solcoPro: 0, rewards: 1, unlimited: 0 },
     });
     expect(stats.daily).toHaveLength(30);
     expect(stats.daily[0]).toEqual({ day: '2026-10-16', count: 3 });
@@ -532,20 +536,23 @@ describe('getSignupStats: query aggregate parametrizzate', () => {
       solcoIapSubscription: { findMany: vi.fn(held([])) },
       solcoProStripeEntitlement: { findMany: vi.fn(held([])) },
       premiumGrant: { findMany: vi.fn(held([])) },
+      premiumAccessGrant: { findMany: vi.fn(held([])) },
+      user: { findMany: vi.fn(held([])) },
     } as unknown as SignupsDb;
 
     const pending = getSignupStats(now, db);
     await Promise.resolve();
     await Promise.resolve();
-    // 3 query SQL + 5 fonti, tutte già partite prima che una qualsiasi risponda.
-    expect(started).toBe(8);
+    // 3 query SQL + 6 fonti, tutte già partite prima che una qualsiasi risponda (l'illimitato legge
+    // gli account solo dopo le concessioni, che qui non ci sono).
+    expect(started).toBe(9);
     release();
     const stats = await pending;
     expect(stats.plans).toEqual({
       free: 1,
       pro: 0,
       proShare: 0,
-      proBySource: { stripe: 0, paypal: 0, inApp: 0, solcoPro: 0, rewards: 0 },
+      proBySource: { stripe: 0, paypal: 0, inApp: 0, solcoPro: 0, rewards: 0, unlimited: 0 },
     });
   });
 

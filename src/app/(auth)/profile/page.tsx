@@ -4,6 +4,7 @@
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { AccountDeletionPanel } from '@/components/custom/account-deletion-panel';
+import { AccountUidRow } from '@/components/custom/account-uid-row';
 import { CommunitySettingsPanel } from '@/components/custom/community/community-settings';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -74,6 +75,9 @@ export default function ProfilePage() {
               </span>
               <span className="max-w-full break-all">{accountLabel(session.user)}</span>
             </div>
+            <Separator />
+            {/* UID leggibile dell'account (es. SOL-7K2M-9QXD), da dare all'assistenza. */}
+            <AccountUidRow />
           </CardContent>
         </Card>
         <CommunitySettingsPanel />

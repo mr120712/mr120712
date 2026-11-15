@@ -7,6 +7,7 @@ import {
   Clapperboard,
   FileCheck2,
   Send,
+  UserCog,
   Users,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -31,6 +32,20 @@ export default function AdminPage() {
           <Button asChild variant="outline" className="mt-1 justify-between">
             <Link href="/admin/iscritti">
               Apri iscritti
+              <ArrowRight aria-hidden="true" className="size-4" />
+            </Link>
+          </Button>
+        </article>
+        <article className="grid content-start gap-3 rounded-xl border border-border bg-card p-6">
+          <UserCog aria-hidden="true" className="size-5 text-primary" />
+          <h2 className="font-semibold text-card-foreground">Gestione account</h2>
+          <p className="text-sm leading-6 text-muted-foreground">
+            Ogni account con il suo UID, il modo di accesso e il Premium attivo. Da qui concedi o
+            revochi il Premium illimitato a un’email.
+          </p>
+          <Button asChild variant="outline" className="mt-1 justify-between">
+            <Link href="/admin/account">
+              Apri gestione account
               <ArrowRight aria-hidden="true" className="size-4" />
             </Link>
           </Button>

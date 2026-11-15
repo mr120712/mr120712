@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   inApp: vi.fn(),
   solcoPro: vi.fn(),
   rewards: vi.fn(),
+  unlimitedGrants: vi.fn(),
+  users: vi.fn(),
 }));
 
 vi.mock('server-only', () => ({}));
@@ -26,6 +28,8 @@ vi.mock('@/lib/db', () => ({
     solcoIapSubscription: { findMany: mocks.inApp },
     solcoProStripeEntitlement: { findMany: mocks.solcoPro },
     premiumGrant: { findMany: mocks.rewards },
+    premiumAccessGrant: { findMany: mocks.unlimitedGrants },
+    user: { findMany: mocks.users },
   },
 }));
 
@@ -101,6 +105,8 @@ beforeEach(() => {
   mocks.inApp.mockResolvedValue(iapRows);
   mocks.solcoPro.mockResolvedValue([]);
   mocks.rewards.mockResolvedValue([]);
+  mocks.unlimitedGrants.mockResolvedValue([]);
+  mocks.users.mockResolvedValue([]);
 });
 
 function expectNoDatabase() {
@@ -186,7 +192,7 @@ describe('GET /api/admin/signups: risposta', () => {
       free: 1244,
       pro: 3,
       proShare: 0.2,
-      proBySource: { stripe: 2, paypal: 1, inApp: 1, solcoPro: 0, rewards: 0 },
+      proBySource: { stripe: 2, paypal: 1, inApp: 1, solcoPro: 0, rewards: 0, unlimited: 0 },
     });
     expect(mocks.queryRaw).toHaveBeenCalledTimes(3);
     for (const source of [mocks.stripe, mocks.paypal, mocks.inApp, mocks.solcoPro, mocks.rewards]) {
@@ -218,6 +224,7 @@ describe('GET /api/admin/signups: risposta', () => {
       'rewards',
       'solcoPro',
       'stripe',
+      'unlimited',
     ]);
     expect(Object.keys(body.totals as object).sort()).toEqual([
       'admins',

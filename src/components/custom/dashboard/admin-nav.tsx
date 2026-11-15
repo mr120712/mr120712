@@ -10,6 +10,7 @@ import {
   FileCheck2,
   History,
   LayoutDashboard,
+  UserCog,
   Users,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -20,6 +21,7 @@ import { cn } from '@/lib/utils';
 const navItems = [
   { href: '/admin', label: 'Panoramica', icon: LayoutDashboard },
   { href: '/admin/iscritti', label: 'Iscritti', icon: Users },
+  { href: '/admin/account', label: 'Gestione account', icon: UserCog },
   { href: '/admin/utenti-vecchi', label: 'Utenti del vecchio sito', icon: History },
   { href: '/admin/assistente', label: 'Assistente IA', icon: Bot },
   { href: '/admin/music-rights', label: 'Diritti musicali', icon: AudioLines },

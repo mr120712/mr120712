@@ -1,0 +1,173 @@
+/* @polsia:user-owned — «Gestione account» (/admin/account): modulo del Premium illimitato, righe
+   delle concessioni e degli account, UID copiabile. Su telefono tutto in colonna. */
+
+.panels {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.headerNote {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.headerNote svg {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+}
+
+.form {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.field {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.field label {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.error {
+  margin: 0;
+  color: var(--destructive);
+  font-size: 0.8rem;
+}
+
+.submit {
+  white-space: nowrap;
+}
+
+.search {
+  display: flex;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.85rem;
+  background: color-mix(in srgb, var(--card) 85%, var(--background));
+}
+
+.rowMain {
+  display: grid;
+  min-width: 0;
+  gap: 0.35rem;
+}
+
+.rowActions {
+  display: flex;
+  align-items: flex-start;
+}
+
+.name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  font-weight: 650;
+}
+
+.adminIcon {
+  width: 1rem;
+  height: 1rem;
+  color: var(--primary);
+}
+
+.email {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+
+.badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.meta,
+.muted {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.uid {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.uid code {
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--muted);
+  color: var(--foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+}
+
+.copy {
+  width: 2rem;
+  height: 2rem;
+}
+
+.copy svg {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.state {
+  display: grid;
+  justify-items: start;
+  gap: 0.6rem;
+}
+
+.skeletons {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+@media (max-width: 720px) {
+  .form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .row {
+    flex-direction: column;
+  }
+}

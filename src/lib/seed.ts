@@ -52,6 +52,26 @@ export async function seed(): Promise<void> {
     requestedAdmin?.id,
   );
 
+  // Gestione account: l'UID leggibile a ogni account che non l'ha ancora e il Premium illimitato del
+  // proprietario (REQUESTED_ADMIN_EMAIL: vale solo con l'email verificata, es. accesso con Google).
+  // Nei log solo lo stato, mai l'email. Best-effort: non deve mai impedire l'avvio del server.
+  try {
+    const [{ backfillAccountUids }, grants] = await Promise.all([
+      import('@/lib/account/uid.server'),
+      import('@/lib/business/premium-grants.server'),
+    ]);
+    await grants.ensureOwnerPremiumGrant();
+    const created = await backfillAccountUids();
+    const status = await grants.ownerAccountStatus();
+    // biome-ignore lint/suspicious/noConsole: riga di stato all'avvio, senza email né id interni.
+    console.info(`${grants.formatOwnerStatus(status)}; UID assegnati ora: ${created}`);
+  } catch (error) {
+    // biome-ignore lint/suspicious/noConsole: solo il nome dell'errore, nessun dettaglio.
+    console.warn(
+      '[solco] gestione account all’avvio non riuscita:',
+      error instanceof Error ? error.name : typeof error,
+    );
+  }
   // Annuncia sul canale Telegram la build appena distribuita (una sola volta, senza dati sensibili).
   // Best-effort: non deve mai impedire l'avvio del server.
   await announceBuildIfNew().catch(() => undefined);

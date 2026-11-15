@@ -100,6 +100,8 @@ const store = vi.hoisted(() => {
     return {
       findMany: async (args?: Row) => findMany(table, args),
       findFirst: async (args?: Row) => findMany(table, args)[0] ?? null,
+      findUnique: async (args?: Row) =>
+        findMany(table, { where: args?.where, select: args?.select })[0] ?? null,
       update: write('update'),
       updateMany: write('updateMany'),
       upsert: write('upsert'),
@@ -113,6 +115,9 @@ const store = vi.hoisted(() => {
     solcoSubscription: delegate('solcoSubscription'),
     payPalSubscription: delegate('payPalSubscription'),
     solcoIapSubscription: delegate('solcoIapSubscription'),
+    // Premium illimitato per email: le concessioni e gli account (email verificata o no).
+    premiumAccessGrant: delegate('premiumAccessGrant'),
+    user: delegate('user'),
   };
   return { tables, writes, prisma, matches };
 });
@@ -147,6 +152,7 @@ import {
   isPayPalSubscriptionActive,
 } from '@/lib/business/paypal-subscriptions.server';
 import { hasPremiumAccess } from '@/lib/business/premium-access.server';
+import { hasEmailPremiumGrant } from '@/lib/business/premium-grants.server';
 import { getActiveGrant } from '@/lib/business/rewards.server';
 import { findActiveSolcoProEntitlement } from '@/lib/business/solco-pro-entitlement';
 import {
@@ -202,7 +208,8 @@ type Table =
   | 'payPalSubscription'
   | 'solcoIapSubscription'
   | 'solcoProStripeEntitlement'
-  | 'premiumGrant';
+  | 'premiumGrant'
+  | 'premiumAccessGrant';
 
 const NOW = new Date('2026-11-14T12:00:00.000Z');
 const DAY = 86_400_000;
@@ -310,6 +317,22 @@ const grant = (startsAt: Date, endsAt: Date) => {
   return {
     table: 'premiumGrant' as const,
     row: { id: `grant-row-${n}`, reason: 'listening', days: 7, startsAt, endsAt, refKey: `r${n}` },
+  };
+};
+
+/** Premium illimitato concesso a un'email (la riga non ha userId: vale l'email dell'account). */
+const unlimited = (email: string, revokedAt: Date | null = null) => {
+  const n = next();
+  return {
+    table: 'premiumAccessGrant' as const,
+    row: {
+      id: `unlimited-row-${n}`,
+      email,
+      note: null,
+      createdBy: 'admin',
+      createdAt: NOW,
+      revokedAt,
+    },
   };
 };
 
@@ -642,6 +665,55 @@ const CASES: Case[] = [
     rows: [grant(days(-1), days(6))],
   },
 
+  // Premium illimitato concesso dall'admin: solo con l'email dell'account VERIFICATA.
+  {
+    id: 'unlimited-active',
+    rule: 'email verificata, concessione attiva',
+    sources: ['unlimited'],
+    user: { email: 'illimitato@example.com', emailVerified: true },
+    rows: [unlimited('illimitato@example.com')],
+  },
+  {
+    id: 'unlimited-unverified',
+    rule: 'email NON verificata: nessun Premium',
+    sources: [],
+    user: { email: 'non-verificata@example.com', emailVerified: false },
+    rows: [unlimited('non-verificata@example.com')],
+  },
+  {
+    id: 'unlimited-revoked',
+    rule: 'concessione revocata',
+    sources: [],
+    user: { email: 'revocata@example.com', emailVerified: true },
+    rows: [unlimited('revocata@example.com', days(-1))],
+  },
+  {
+    id: 'unlimited-phone',
+    rule: 'email segnaposto di un account col telefono: mai',
+    sources: [],
+    user: { email: '393331234567@telefono.solcomusic.invalid', emailVerified: true },
+    rows: [unlimited('393331234567@telefono.solcomusic.invalid')],
+  },
+  {
+    id: 'unlimited-banned',
+    rule: 'blocco in corso: escluso dal conteggio (hasPremiumAccess non guarda i blocchi)',
+    sources: ['unlimited'],
+    user: {
+      email: 'bloccato-illimitato@example.com',
+      emailVerified: true,
+      banned: true,
+      banExpires: null,
+    },
+    rows: [unlimited('bloccato-illimitato@example.com')],
+  },
+  {
+    id: 'ghost-unlimited',
+    rule: 'concessione a un’email senza account: non conta',
+    sources: [],
+    orphan: true,
+    rows: [unlimited('nessun-account@example.com')],
+  },
+
   // Account cancellati: le righe di pagamento restano, l'utente no.
   {
     id: 'ghost-stripe',
@@ -686,6 +758,8 @@ function activeBan(user: Row) {
 
 const users = CASES.filter((item) => !item.orphan).map((item) => ({
   id: item.id,
+  email: `${item.id}@example.com`,
+  emailVerified: true,
   role: 'user',
   banned: false,
   banExpires: null,
@@ -704,6 +778,8 @@ function loadFixtures() {
       store.tables[table] = [...(store.tables[table] ?? []), { ...row, userId: item.id }];
     }
   }
+  // Gli account (per il Premium illimitato, che si lega all'email dell'account).
+  store.tables.user = users.map((user) => ({ ...user }));
 }
 
 const rawQueries: Array<{ sql: string; values: unknown[] }> = [];
@@ -789,6 +865,7 @@ const sourceChecks: Record<AdminPremiumSource, (userId: string) => Promise<boole
   inApp: (userId) => hasActiveIapSubscription(userId, NOW),
   solcoPro: async (userId) => (await findActiveSolcoProEntitlement(userId, NOW)) !== null,
   rewards: async (userId) => (await getActiveGrant(userId, NOW)) !== null,
+  unlimited: (userId) => hasEmailPremiumGrant(userId),
 };
 
 beforeEach(() => {
@@ -822,7 +899,8 @@ afterEach(() => {
 describe('Pro e Free dell’admin = hasPremiumAccess sugli stessi dati', () => {
   it('i casi coprono ogni fonte con almeno un Pro e un Free', () => {
     for (const source of ADMIN_PREMIUM_SOURCES) {
-      const table = PREMIUM_SOURCES[source].table.toLowerCase();
+      // L'illimitato non ha una tabella con "userId": le sue righe sono le concessioni per email.
+      const table = (PREMIUM_SOURCES[source].table ?? 'PremiumAccessGrant').toLowerCase();
       const withRows = CASES.filter((item) =>
         (item.rows ?? []).some((entry) => entry.table.toLowerCase() === table),
       );
@@ -856,12 +934,12 @@ describe('Pro e Free dell’admin = hasPremiumAccess sugli stessi dati', () => {
       Math.round((proByAccess.length / activeCases.length) * 1000) / 10,
     );
     // Numeri attesi scritti per esteso, così un errore uguale nei due percorsi non passa.
-    // 58 account, 6 bloccati: 52 attivi, 22 Pro (multi-source conta una volta sola).
+    // 63 account, 7 bloccati: 56 attivi, 23 Pro (multi-source conta una volta sola).
     expect(stats.plans).toEqual({
-      free: 30,
-      pro: 22,
-      proShare: 42.3,
-      proBySource: { stripe: 7, paypal: 3, inApp: 7, solcoPro: 3, rewards: 4 },
+      free: 33,
+      pro: 23,
+      proShare: 41.1,
+      proBySource: { stripe: 7, paypal: 3, inApp: 7, solcoPro: 3, rewards: 4, unlimited: 1 },
     });
   });
 
@@ -897,11 +975,12 @@ describe('Pro e Free dell’admin = hasPremiumAccess sugli stessi dati', () => {
         'ghost-reward',
         'ghost-solco',
         'ghost-stripe',
+        'unlimited-banned',
       ].sort(),
     );
     // Le righe danno davvero accesso: li esclude solo la regola del blocco o l'account mancante.
     for (const item of excluded) expect(await hasPremiumAccess(item.id)).toBe(true);
-    expect(stats.totals.banned).toBe(6);
+    expect(stats.totals.banned).toBe(7);
     expect(stats.plans.free + stats.plans.pro).toBe(activeCases.length);
   });
 
@@ -921,7 +1000,7 @@ describe('Pro e Free dell’admin = hasPremiumAccess sugli stessi dati', () => {
     expect(live.apple).not.toHaveBeenCalled();
     expect(live.google).not.toHaveBeenCalled();
     // Conta lo stato salvato: lo stesso risultato di prima.
-    expect(stats.plans.pro).toBe(22);
+    expect(stats.plans.pro).toBe(23);
     // Solo le tre query SQL, tutte parametrizzate con l'istante del calcolo.
     expect(rawQueries).toHaveLength(3);
     for (const query of rawQueries) expect(query.sql).not.toContain('2026-');

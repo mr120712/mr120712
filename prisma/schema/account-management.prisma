@@ -1,0 +1,27 @@
+// @polsia:user-owned — gestione degli account: l'UID leggibile di ogni account e il Premium
+// illimitato che l'amministratore concede a un'email. Tabelle a parte: il modello User appartiene al
+// modulo di autenticazione (nessuna colonna in più lì). Solo tabelle nuove: sicure per `db push`.
+
+/// UID leggibile e stabile di un account (es. SOL-7K2M-9QXD), per l'assistenza e la gestione del
+/// database. Una riga per utente; casuale, mai derivato da email o id (src/lib/account/uid.ts).
+/// Cancellata con l'account.
+model UserUid {
+  userId    String   @id
+  uid       String   @unique
+  createdAt DateTime @default(now())
+}
+
+/// Premium illimitato concesso dall'amministratore all'email `email` (minuscole). Vale SOLO per un
+/// account con quella email VERIFICATA (es. accesso con Google), anche se l'account nasce dopo la
+/// concessione. `revokedAt` valorizzato = revocato (la riga resta: una concessione revocata non
+/// torna da sola all'avvio).
+model PremiumAccessGrant {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  /// Nota dell'amministratore (perché è stato concesso), al massimo 200 caratteri.
+  note      String?
+  /// Chi l'ha concesso: id dell'amministratore, oppure "avvio" per quella del proprietario.
+  createdBy String?
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+}
