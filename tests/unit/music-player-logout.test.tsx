@@ -53,6 +53,11 @@ function Probe() {
   );
 }
 
+function PremiumProbe() {
+  const player = useMusicPlayer();
+  return <output data-testid="premium">{String(player.premium)}</output>;
+}
+
 afterEach(async () => {
   for (const root of roots.splice(0)) await act(async () => root.unmount());
   vi.unstubAllGlobals();
@@ -160,5 +165,50 @@ describe('player: logout', () => {
     });
     expect(container.querySelector('[data-testid="current"]')?.textContent).toBe('');
     expect(window.localStorage.getItem(PLAYER_STORAGE_KEY)).toBeNull();
+  });
+
+  it('accesso senza ricaricare la pagina: rilegge il Premium (stellina nella barra e contatori)', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    auth.state = { data: null, isPending: false };
+    let signedIn = false;
+    const fetchMock = vi.fn(
+      async (_url: string) =>
+        new Response(JSON.stringify({ premium: signedIn, signedIn }), { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const accessCalls = () =>
+      fetchMock.mock.calls.filter(([url]) => String(url) === '/api/music/access').length;
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    roots.push(root);
+    const render = () =>
+      root.render(
+        <MusicPlayerProvider>
+          <PremiumProbe />
+        </MusicPlayerProvider>,
+      );
+    await act(async () => render());
+    await act(async () => {
+      for (let i = 0; i < 5; i += 1) await Promise.resolve();
+    });
+    expect(container.querySelector('[data-testid="premium"]')?.textContent).toBe('false');
+    const before = accessCalls();
+
+    // Accesso con email: la sessione arriva senza ricaricare la pagina.
+    signedIn = true;
+    auth.state = { data: { user: { id: 'u1' } }, isPending: false };
+    await act(async () => {
+      render();
+      for (let i = 0; i < 5; i += 1) await Promise.resolve();
+    });
+    expect(accessCalls()).toBe(before + 1);
+    expect(container.querySelector('[data-testid="premium"]')?.textContent).toBe('true');
+
+    // Stessa sessione rilette (es. ritorno sulla scheda): nessun controllo in più.
+    await act(async () => {
+      render();
+      for (let i = 0; i < 5; i += 1) await Promise.resolve();
+    });
+    expect(accessCalls()).toBe(before + 1);
   });
 });

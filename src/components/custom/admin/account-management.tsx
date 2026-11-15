@@ -17,6 +17,7 @@ import { AppSurface } from '@/components/custom/app-ui/app-shell';
 import { PageHeader } from '@/components/custom/app-ui/page-header';
 import { Panel } from '@/components/custom/app-ui/panel';
 import { StatusBadge } from '@/components/custom/app-ui/status-badge';
+import { PremiumBadge } from '@/components/custom/premium-badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -384,9 +385,10 @@ function AccountRow({ account }: { account: AdminAccount }) {
         </p>
         <div className={styles.badges}>
           {account.premium.length > 0 ? (
-            <StatusBadge tone="positive">
-              Premium · {account.premium.map((source) => SOURCE_LABEL[source]).join(', ')}
-            </StatusBadge>
+            <PremiumBadge
+              size="sm"
+              detail={account.premium.map((source) => SOURCE_LABEL[source]).join(', ')}
+            />
           ) : (
             <StatusBadge>Free</StatusBadge>
           )}

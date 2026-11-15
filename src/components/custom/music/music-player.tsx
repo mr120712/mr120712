@@ -1636,9 +1636,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     if (authResolvedRef.current && previousUserId !== null && previousUserId !== authUserId) {
       stopPlayback();
     }
+    // Accesso, uscita o cambio account senza ricaricare la pagina (es. accesso con email): Premium e
+    // contatori Free seguono l'account, quindi si rileggono (il primo controllo lo fa il montaggio).
+    if (authResolvedRef.current && previousUserId !== authUserId) void loadAccess();
     previousUserIdRef.current = authUserId;
     authResolvedRef.current = true;
-  }, [authUserId, authPending, stopPlayback]);
+  }, [authUserId, authPending, stopPlayback, loadAccess]);
 
   // "Esci" (signOutAndStopMusic): fermati subito, PRIMA che la sessione cambi e prima che il muro di
   // login smonti il player. stopPlayback dimentica anche la coda salvata e svuota la Media Session.

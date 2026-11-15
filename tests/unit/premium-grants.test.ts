@@ -127,7 +127,7 @@ vi.mock('@/lib/business/iap/entitlement.server', () => ({
 }));
 vi.mock('@/lib/require-auth', () => ({ getSessionUser: vi.fn() }));
 
-import { hasPremiumAccess } from '@/lib/business/premium-access.server';
+import { hasPremiumAccess, premiumAccessSource } from '@/lib/business/premium-access.server';
 import {
   ensureSeededPremiumGrants,
   formatSeededStatus,
@@ -359,5 +359,29 @@ describe('hasPremiumAccess', () => {
   it('Free senza nessuna fonte', async () => {
     user('u6', 'free@example.com', true);
     expect(await hasPremiumAccess('u6')).toBe(false);
+  });
+});
+
+describe('premiumAccessSource (il badge «Premium» del profilo)', () => {
+  it('la prima fonte attiva, nell’ordine dei controlli', async () => {
+    user('u7', 'fonti@example.com', true);
+    grant('fonti@example.com');
+    expect(await premiumAccessSource('u7')).toBe('unlimited');
+    sources.iap.mockResolvedValue(true);
+    expect(await premiumAccessSource('u7')).toBe('inApp');
+    sources.subscription.mockResolvedValue(true);
+    expect(await premiumAccessSource('u7')).toBe('subscription');
+    sources.reward.mockResolvedValue({ id: 'reward-1' });
+    expect(await premiumAccessSource('u7')).toBe('rewards');
+    sources.pro.mockResolvedValue({ id: 'pro-1' });
+    expect(await premiumAccessSource('u7')).toBe('solcoPro');
+  });
+
+  it('Free: null; un controllo che non risponde: null (fail closed)', async () => {
+    user('u8', 'free2@example.com', true);
+    expect(await premiumAccessSource('u8')).toBeNull();
+    sources.subscription.mockRejectedValue(new Error('stripe down'));
+    expect(await premiumAccessSource('u8')).toBeNull();
+    expect(await hasPremiumAccess('u8')).toBe(false);
   });
 });

@@ -1,20 +1,26 @@
-// @polsia:user-owned — profile view supplied by better-auth.
+// @polsia:user-owned — profile view supplied by better-auth. Per un account Premium: anello e stellina
+// sull'avatar, badge «⭐ Premium» accanto al nome e la fonte nella riga «Piano» (GET /api/account/premium).
 'use client';
 
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { AccountDeletionPanel } from '@/components/custom/account-deletion-panel';
+import { AccountPlanRow } from '@/components/custom/account-plan-row';
 import { AccountUidRow } from '@/components/custom/account-uid-row';
 import { CommunitySettingsPanel } from '@/components/custom/community/community-settings';
+import { PremiumAvatarRing, PremiumBadge } from '@/components/custom/premium-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { useAccountPremium } from '@/hooks/use-account-premium';
 import { useSession } from '@/lib/auth-client';
 import { accountLabel, isPhoneAccount } from '@/lib/business/phone-auth';
 import { SIGN_OUT_FAILED_MESSAGE, signOutAndStopMusic } from '@/lib/music/player-session';
 
 export default function ProfilePage() {
   const { data: session, isPending } = useSession();
+  const plan = useAccountPremium(session?.user?.id);
+  const premium = plan.status === 'ready' && plan.premium;
 
   if (isPending) {
     return (
@@ -46,14 +52,20 @@ export default function ProfilePage() {
     <main className="min-h-dvh px-gutter py-section">
       <div className="mx-auto grid w-full max-w-lg grid-cols-1 gap-6 min-w-0">
         <header className="flex items-center gap-4">
-          <div
-            className="grid size-14 place-items-center rounded-full bg-secondary font-display text-2xl text-secondary-foreground"
-            aria-hidden="true"
-          >
-            {session.user.name?.charAt(0).toLocaleUpperCase('it-IT') ?? 'S'}
-          </div>
+          <PremiumAvatarRing premium={premium}>
+            <div
+              className="grid size-14 place-items-center rounded-full bg-secondary font-display text-2xl text-secondary-foreground"
+              aria-hidden="true"
+            >
+              {session.user.name?.charAt(0).toLocaleUpperCase('it-IT') ?? 'S'}
+            </div>
+          </PremiumAvatarRing>
           <div className="min-w-0">
-            <h1 className="truncate font-display text-3xl">{session.user.name}</h1>
+            {/* Un nome lungo resta intero: il badge va a capo invece di accorciarlo. */}
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+              <h1 className="min-w-0 truncate font-display text-3xl">{session.user.name}</h1>
+              {premium ? <PremiumBadge /> : null}
+            </div>
             <p className="truncate text-sm text-muted-foreground">{accountLabel(session.user)}</p>
           </div>
         </header>
@@ -75,6 +87,9 @@ export default function ProfilePage() {
               </span>
               <span className="max-w-full break-all">{accountLabel(session.user)}</span>
             </div>
+            <Separator />
+            {/* Premium (con la fonte) o Free, con il link ai piani. */}
+            <AccountPlanRow state={plan} />
             <Separator />
             {/* UID leggibile dell'account (es. SOL-7K2M-9QXD), da dare all'assistenza. */}
             <AccountUidRow />
