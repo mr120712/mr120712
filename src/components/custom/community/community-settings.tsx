@@ -1,9 +1,28 @@
-// @polsia:user-owned
+// @polsia:user-owned — «Il tuo profilo Solco» (pagina /profile): ruolo e visibilità di profilo e
+// liste, ognuno su una riga con icona, etichetta, suggerimento e un controllo segmentato premium che
+// cambia la scelta con un tocco. Il salvataggio resta esplicito sul pulsante «Salva impostazioni»
+// (stesso PATCH di sempre su /api/community/me); un avviso discreto segnala le modifiche non salvate.
 'use client';
 
+import {
+  ArrowUpRight,
+  Eye,
+  Globe,
+  Headphones,
+  Lock,
+  Mic2,
+  UserRound,
+  UserRoundCheck,
+  Users,
+  UsersRound,
+} from 'lucide-react';
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useId, useState } from 'react';
 import { toast } from 'sonner';
+import {
+  SegmentedControl,
+  type SegmentedOption,
+} from '@/components/custom/ui-premium/segmented-control';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
 import { requestErrorMessage } from '@/lib/business/request-error-message';
@@ -14,8 +33,83 @@ import {
 } from '@/lib/contracts/community';
 import styles from './community-ui.module.css';
 
+type ProfileRole = CommunitySettings['profileRole'];
+type Visibility = CommunitySettings['profileVisibility'];
+
+const ROLE_OPTIONS: readonly SegmentedOption<ProfileRole>[] = [
+  { value: 'fan', label: 'Fan', icon: <Headphones /> },
+  { value: 'artist', label: 'Artista', icon: <Mic2 /> },
+];
+
+const PROFILE_VISIBILITY_OPTIONS: readonly SegmentedOption<Visibility>[] = [
+  { value: 'private', label: 'Privato', icon: <Lock /> },
+  { value: 'public', label: 'Pubblico', icon: <Globe /> },
+];
+
+const LIST_VISIBILITY_OPTIONS: readonly SegmentedOption<Visibility>[] = [
+  { value: 'private', label: 'Solo io', icon: <Lock /> },
+  { value: 'public', label: 'Tutti', icon: <Users /> },
+];
+
+const SETTING_KEYS = [
+  'profileRole',
+  'profileVisibility',
+  'followersVisibility',
+  'followingVisibility',
+] as const satisfies readonly (keyof CommunitySettings)[];
+
+function sameSettings(a: CommunitySettings, b: CommunitySettings) {
+  return SETTING_KEYS.every((key) => a[key] === b[key]);
+}
+
+/** Una impostazione: icona, etichetta, suggerimento e il controllo segmentato che li cita. */
+function SettingRow<V extends string>({
+  icon,
+  title,
+  hint,
+  value,
+  options,
+  onValueChange,
+}: {
+  icon: ReactNode;
+  title: string;
+  hint: string;
+  value: V;
+  options: readonly SegmentedOption<V>[];
+  onValueChange: (value: V) => void;
+}) {
+  const id = useId();
+  const labelId = `${id}-label`;
+  const hintId = `${id}-hint`;
+  return (
+    <div className={styles.settingRow}>
+      <span className={styles.settingIcon} aria-hidden="true">
+        {icon}
+      </span>
+      <div className={styles.settingText}>
+        <span id={labelId} className={styles.settingLabel}>
+          {title}
+        </span>
+        <span id={hintId} className={styles.settingHint}>
+          {hint}
+        </span>
+      </div>
+      <SegmentedControl
+        className={styles.settingControl}
+        aria-labelledby={labelId}
+        aria-describedby={hintId}
+        value={value}
+        options={options}
+        onValueChange={onValueChange}
+      />
+    </div>
+  );
+}
+
 export function CommunitySettingsPanel() {
   const [settings, setSettings] = useState<CommunitySettings | null>(null);
+  // Ultima versione caricata o salvata: serve solo all'avviso «Modifiche non salvate».
+  const [savedSettings, setSavedSettings] = useState<CommunitySettings | null>(null);
   const [profileId, setProfileId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -26,7 +120,9 @@ export function CommunitySettingsPanel() {
       const result = await apiFetch('/api/community/me', {
         schema: CommunitySelfResponseSchema,
       });
-      setSettings(CommunitySettingsSchema.parse(result.profile));
+      const loaded = CommunitySettingsSchema.parse(result.profile);
+      setSettings(loaded);
+      setSavedSettings(loaded);
       setProfileId(result.profile.id);
     } catch {
       toast.error('Non è stato possibile caricare le impostazioni community.');
@@ -52,7 +148,9 @@ export function CommunitySettingsPanel() {
         body: JSON.stringify(CommunitySettingsSchema.parse(settings)),
         schema: CommunitySelfResponseSchema,
       });
-      setSettings(CommunitySettingsSchema.parse(result.profile));
+      const stored = CommunitySettingsSchema.parse(result.profile);
+      setSettings(stored);
+      setSavedSettings(stored);
       setProfileId(result.profile.id);
       toast.success('Impostazioni community salvate.');
     } catch (error) {
@@ -64,116 +162,87 @@ export function CommunitySettingsPanel() {
     }
   }
 
+  const dirty =
+    settings !== null && savedSettings !== null && !sameSettings(settings, savedSettings);
+
   return (
-    <section className="grid gap-4" aria-labelledby="community-settings-title">
-      <div>
+    <section className={styles.settingsCard} aria-labelledby="community-settings-title">
+      <header className={styles.settingsHeader}>
         <p className={styles.eyebrow}>COMMUNITY</p>
-        <h2 id="community-settings-title" className="font-display text-2xl">
+        <h2 id="community-settings-title" className={styles.settingsTitle}>
           Il tuo profilo Solco
         </h2>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
+        <p className={styles.settingsIntro}>
           Scegli come apparire e quali liste rendere visibili. Il tuo nome dell’account diventa
           pubblico solo quando rendi pubblico il profilo.
         </p>
-      </div>
+      </header>
 
       {loading ? (
-        <output className="text-sm text-muted-foreground">Caricamento impostazioni…</output>
+        <output className={styles.settingsState}>Caricamento impostazioni…</output>
       ) : settings ? (
-        <div className={styles.settingsPanel}>
-          <label className={styles.settingRow}>
-            <span className={styles.settingLabel}>
-              Ruolo del profilo
-              <span className={styles.settingHint}>
-                “Artista” descrive il profilo, non è una verifica d’identità.
-              </span>
-            </span>
-            <select
-              className={styles.select}
+        <>
+          <div className={styles.settingsList}>
+            <SettingRow
+              icon={<UserRound />}
+              title="Ruolo del profilo"
+              hint="“Artista” descrive il profilo, non è una verifica d’identità."
               value={settings.profileRole}
-              onChange={(event) => {
-                if (event.target.value === 'fan' || event.target.value === 'artist') {
-                  update('profileRole', event.target.value);
-                }
-              }}
-            >
-              <option value="fan">Fan</option>
-              <option value="artist">Artista</option>
-            </select>
-          </label>
-          <label className={styles.settingRow}>
-            <span className={styles.settingLabel}>
-              Visibilità del profilo
-              <span className={styles.settingHint}>
-                I profili privati non compaiono nella community e non possono essere seguiti.
-              </span>
-            </span>
-            <select
-              className={styles.select}
+              options={ROLE_OPTIONS}
+              onValueChange={(value) => update('profileRole', value)}
+            />
+            <SettingRow
+              icon={<Eye />}
+              title="Visibilità del profilo"
+              hint="I profili privati non compaiono nella community e non possono essere seguiti."
               value={settings.profileVisibility}
-              onChange={(event) => {
-                if (event.target.value === 'public' || event.target.value === 'private') {
-                  update('profileVisibility', event.target.value);
-                }
-              }}
-            >
-              <option value="private">Privato</option>
-              <option value="public">Pubblico</option>
-            </select>
-          </label>
-          <label className={styles.settingRow}>
-            <span className={styles.settingLabel}>
-              Chi può vedere i tuoi follower
-              <span className={styles.settingHint}>
-                Nascondere la lista nasconde anche il conteggio agli altri utenti.
-              </span>
-            </span>
-            <select
-              className={styles.select}
+              options={PROFILE_VISIBILITY_OPTIONS}
+              onValueChange={(value) => update('profileVisibility', value)}
+            />
+            <SettingRow
+              icon={<UsersRound />}
+              title="Chi può vedere i tuoi follower"
+              hint="Nascondere la lista nasconde anche il conteggio agli altri utenti."
               value={settings.followersVisibility}
-              onChange={(event) => {
-                if (event.target.value === 'public' || event.target.value === 'private') {
-                  update('followersVisibility', event.target.value);
-                }
-              }}
-            >
-              <option value="private">Solo io</option>
-              <option value="public">Tutti</option>
-            </select>
-          </label>
-          <label className={styles.settingRow}>
-            <span className={styles.settingLabel}>
-              Chi può vedere i profili che segui
-              <span className={styles.settingHint}>
-                La visibilità è indipendente da quella dei follower.
-              </span>
-            </span>
-            <select
-              className={styles.select}
+              options={LIST_VISIBILITY_OPTIONS}
+              onValueChange={(value) => update('followersVisibility', value)}
+            />
+            <SettingRow
+              icon={<UserRoundCheck />}
+              title="Chi può vedere i profili che segui"
+              hint="La visibilità è indipendente da quella dei follower."
               value={settings.followingVisibility}
-              onChange={(event) => {
-                if (event.target.value === 'public' || event.target.value === 'private') {
-                  update('followingVisibility', event.target.value);
-                }
-              }}
-            >
-              <option value="private">Solo io</option>
-              <option value="public">Tutti</option>
-            </select>
-          </label>
-          <div className={styles.settingsActions}>
-            <Button type="button" onClick={save} disabled={saving}>
-              {saving ? 'Salvataggio…' : 'Salva impostazioni'}
-            </Button>
-            {profileId ? (
-              <Button asChild variant="outline">
-                <Link href={`/profiles/${encodeURIComponent(profileId)}`}>Anteprima profilo</Link>
-              </Button>
-            ) : null}
+              options={LIST_VISIBILITY_OPTIONS}
+              onValueChange={(value) => update('followingVisibility', value)}
+            />
           </div>
-        </div>
+          <div className={styles.settingsActions}>
+            <div className={styles.settingsButtons}>
+              <Button type="button" onClick={save} disabled={saving}>
+                {saving ? 'Salvataggio…' : 'Salva impostazioni'}
+              </Button>
+              {profileId ? (
+                <Button asChild variant="outline">
+                  <Link href={`/profiles/${encodeURIComponent(profileId)}`}>
+                    Anteprima profilo
+                    <ArrowUpRight aria-hidden="true" />
+                  </Link>
+                </Button>
+              ) : null}
+            </div>
+            {/* Sempre nel DOM: i lettori di schermo annunciano l'avviso quando compare. */}
+            <output className={styles.unsaved}>
+              {dirty ? (
+                <>
+                  <span className={styles.unsavedDot} aria-hidden="true" />
+                  Modifiche non salvate
+                </>
+              ) : null}
+            </output>
+          </div>
+        </>
       ) : (
-        <div className={styles.statePanel}>
+        <div className={styles.settingsState}>
           <p>Le impostazioni non sono disponibili.</p>
           <Button type="button" variant="outline" onClick={() => void load()}>
             Riprova

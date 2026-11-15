@@ -104,8 +104,7 @@
 
 .profileCard,
 .profileHeader,
-.statePanel,
-.settingsPanel {
+.statePanel {
   border: 1px solid var(--border);
   border-radius: calc(var(--radius) + 5px);
   background: color-mix(in srgb, var(--card) 94%, transparent);
@@ -304,62 +303,196 @@
   letter-spacing: -0.035em;
 }
 
-.settingsPanel {
-  display: grid;
-  gap: 20px;
-  padding: clamp(18px, 3vw, 26px);
+/* ---------- «Il tuo profilo Solco» (impostazioni community, pagina /profile) ---------- */
+.settingsCard {
+  --settings-pad: clamp(16px, 4.5vw, 24px);
+  container-type: inline-size;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 6px);
+  background:
+    radial-gradient(
+      120% 70% at 0% 0%,
+      color-mix(in srgb, var(--primary) 7%, transparent),
+      transparent 62%
+    ), var(--card);
+  box-shadow: 0 16px 44px -30px var(--elevation-3);
+  color: var(--card-foreground);
 }
 
+.settingsHeader {
+  padding: var(--settings-pad) var(--settings-pad) calc(var(--settings-pad) - 4px);
+}
+
+.settingsHeader .eyebrow {
+  margin-bottom: 8px;
+}
+
+.settingsTitle {
+  margin: 0;
+  font-family: var(--font-display), Arial, sans-serif;
+  font-size: clamp(22px, 5cqi, 26px);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+}
+
+.settingsIntro {
+  max-width: 60ch;
+  margin: 10px 0 0;
+  color: var(--muted-foreground);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+.settingsList {
+  padding: 0 var(--settings-pad);
+  border-top: 1px solid var(--border);
+}
+
+/* Una riga per impostazione: icona + testo, poi il controllo (a tutta larghezza sui telefoni). */
 .settingRow {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(180px, 250px);
+  grid-template-areas:
+    "icon text"
+    "control control";
+  grid-template-columns: 40px minmax(0, 1fr);
   align-items: center;
-  gap: 10px 18px;
-  padding-bottom: 17px;
-  border-bottom: 1px solid var(--border);
+  gap: 14px;
+  padding: 20px 0;
 }
 
-.settingRow:last-of-type {
-  padding-bottom: 0;
-  border-bottom: 0;
+.settingRow + .settingRow {
+  border-top: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+}
+
+.settingIcon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  grid-area: icon;
+  align-self: start;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--primary) 9%, var(--card));
+  color: color-mix(in srgb, var(--primary) 85%, var(--foreground));
+}
+
+.settingIcon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.settingText {
+  display: grid;
+  min-width: 0;
+  grid-area: text;
+  gap: 4px;
 }
 
 .settingLabel {
-  display: grid;
-  gap: 4px;
-  font-size: 13px;
+  color: var(--foreground);
+  font-size: 15px;
   font-weight: 650;
+  letter-spacing: -0.012em;
+  line-height: 1.3;
 }
 
 .settingHint {
   color: var(--muted-foreground);
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: 400;
   line-height: 1.5;
 }
 
-.select {
-  width: 100%;
-  min-height: 42px;
-  padding: 0 12px;
-  border: 1px solid var(--input);
-  border-radius: var(--radius);
-  background: var(--background);
-  color: var(--foreground);
-  font: inherit;
-  font-size: 12px;
+.settingControl {
+  grid-area: control;
 }
 
-.select:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
+/* Card larga (per esempio fuori dalla colonna stretta del profilo): controllo a destra. */
+@container (min-width: 620px) {
+  .settingRow {
+    grid-template-areas: "icon text control";
+    grid-template-columns: 40px minmax(0, 1fr) minmax(230px, 270px);
+    gap: 16px 20px;
+  }
 }
 
 .settingsActions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
+  gap: 0 16px;
+  padding: 16px var(--settings-pad) var(--settings-pad);
+  border-top: 1px solid var(--border);
+}
+
+.settingsButtons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.settingsButtons > a svg {
+  opacity: 0.8;
+}
+
+/* Avviso discreto: compare solo quando le scelte differiscono da quelle salvate. Vuoto resta nel
+   DOM (regione live, annunciata quando compare) ma non occupa spazio. */
+.unsaved {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12.5px;
+  font-weight: 550;
+}
+
+.unsaved:not(:empty) {
+  padding-block: 8px;
+}
+
+.unsavedDot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+.settingsState {
+  display: grid;
+  justify-items: start;
   gap: 12px;
+  padding: 18px var(--settings-pad) var(--settings-pad);
+  border-top: 1px solid var(--border);
+  color: var(--muted-foreground);
+  font-size: 13.5px;
+}
+
+.settingsState p {
+  margin: 0;
+}
+
+/* Telefono: pulsanti a tutta larghezza, uno sotto l'altro; l'avviso sotto di loro. */
+@container (max-width: 420px) {
+  .settingsActions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-content: stretch;
+  }
+
+  .settingsButtons {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .unsaved:not(:empty) {
+    padding-block: 12px 0;
+  }
 }
 
 .muted {
@@ -411,10 +544,6 @@
 
   .followButton {
     width: 100%;
-  }
-
-  .settingRow {
-    grid-template-columns: minmax(0, 1fr);
   }
 
   .identity {

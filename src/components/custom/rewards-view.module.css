@@ -102,8 +102,7 @@
   gap: 8px;
 }
 
-.inviteRow input,
-.inviteRow select {
+.inviteRow input {
   min-height: 40px;
   padding: 0 12px;
   border: 1px solid var(--border);
@@ -117,6 +116,36 @@
 .inviteRow input {
   flex: 1 1 220px;
   min-width: 0;
+}
+
+/* Compleanno: giorno e mese con i menu premium (SolcoSelect), poi «Salva». */
+.birthdayRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Doppia classe: vince sempre sullo stile base del menu, qualunque sia l'ordine dei CSS. */
+.birthdayRow .birthdaySelect {
+  flex: 1 1 132px;
+  max-width: 220px;
+}
+
+/* Telefono: giorno e mese affiancati a metà larghezza, «Salva» a tutta riga sotto. */
+@media (max-width: 480px) {
+  .birthdayRow {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .birthdayRow .birthdaySelect {
+    max-width: none;
+  }
+
+  .birthdayRow .birthdaySave {
+    grid-column: 1 / -1;
+  }
 }
 
 .progress {

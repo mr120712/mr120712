@@ -1,0 +1,466 @@
+/* @polsia:user-owned — menu a tendina premium (vedi solco-select.tsx). Solo token semantici: i temi
+   Pro e quello natalizio lo ricolorano da soli. */
+
+/* ---------- Pulsante ---------- */
+.trigger {
+  --select-height: 44px;
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  min-height: var(--select-height);
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px 0 14px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 6px);
+  background: color-mix(in srgb, var(--popover) 86%, var(--background));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--foreground) 5%, transparent);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 550;
+  line-height: 1.2;
+  text-align: start;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease,
+    transform 120ms ease;
+}
+
+@media (hover: hover) {
+  .trigger:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+    background: color-mix(in srgb, var(--popover) 94%, var(--primary));
+  }
+}
+
+.trigger:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+.trigger[data-state="open"] {
+  border-color: color-mix(in srgb, var(--primary) 72%, var(--border));
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--foreground) 5%, transparent);
+}
+
+.trigger:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.triggerIcon {
+  display: inline-flex;
+  flex: none;
+  color: var(--muted-foreground);
+  transition: color 160ms ease;
+}
+
+.triggerIcon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.trigger[data-state="open"] .triggerIcon {
+  color: var(--primary);
+}
+
+.value {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trigger[data-placeholder] .value {
+  color: var(--muted-foreground);
+  font-weight: 450;
+}
+
+.chevron {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin-inline-start: auto;
+  color: var(--muted-foreground);
+  transition:
+    transform 200ms cubic-bezier(0.25, 1, 0.5, 1),
+    color 160ms ease;
+}
+
+.trigger[data-state="open"] .chevron {
+  color: var(--primary);
+  transform: rotate(180deg);
+}
+
+.sm {
+  --select-height: 32px;
+  gap: 8px;
+  padding: 0 9px 0 11px;
+  border-radius: calc(var(--radius) + 2px);
+  font-size: 13px;
+}
+
+.sm .triggerIcon svg,
+.sm .chevron {
+  width: 14px;
+  height: 14px;
+}
+
+.pill {
+  border-radius: 999px;
+  padding-inline: 16px 14px;
+}
+
+@media (pointer: coarse) {
+  .trigger {
+    --select-height: 46px;
+  }
+
+  .sm {
+    --select-height: 38px;
+  }
+}
+
+/* ---------- Pannello (desktop e menu brevi) ---------- */
+.panel {
+  z-index: 80;
+  box-sizing: border-box;
+  min-width: max(var(--radix-popover-trigger-width, 0px), 184px);
+  max-width: min(360px, calc(100vw - 16px));
+  max-height: min(340px, var(--radix-popover-content-available-height, 340px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, var(--ambient-line) 62%, var(--border));
+  border-radius: 16px;
+  /* Superficie appena più chiara della pagina, con un velo rosa in alto: si stacca dal fondo scuro. */
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--primary) 7%, var(--popover)),
+      color-mix(in srgb, var(--foreground) 2%, var(--popover)) 120px
+    ), var(--popover);
+  box-shadow:
+    0 24px 56px -16px var(--elevation-3),
+    0 10px 24px -14px color-mix(in srgb, var(--primary) 30%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--foreground) 7%, transparent);
+  color: var(--popover-foreground);
+  outline: none;
+  scrollbar-color: color-mix(in srgb, var(--foreground) 22%, transparent) transparent;
+  scrollbar-width: thin;
+  transform-origin: var(--radix-popover-content-transform-origin);
+}
+
+.panel[data-state="open"] {
+  animation: panelIn 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.panel[data-state="closed"] {
+  animation: panelOut 140ms ease-in forwards;
+}
+
+.panel[data-side="top"] {
+  --panel-shift: 6px;
+}
+
+.panelSm {
+  border-radius: 14px;
+}
+
+/* ---------- Opzioni ---------- */
+.option {
+  position: relative;
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 12px;
+  border-radius: 10px;
+  color: var(--popover-foreground);
+  font-size: 14px;
+  line-height: 1.3;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease,
+    transform 120ms ease;
+}
+
+.panel .option[data-active] {
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+.option:active:not([aria-disabled="true"]) {
+  background: color-mix(in srgb, var(--primary) 19%, transparent);
+  transform: scale(0.985);
+}
+
+.option[aria-selected="true"] {
+  color: var(--foreground);
+  font-weight: 650;
+}
+
+.option[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.optionIcon {
+  display: inline-flex;
+  flex: none;
+  color: var(--muted-foreground);
+}
+
+.optionIcon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.option[aria-selected="true"] .optionIcon {
+  color: var(--primary);
+}
+
+.optionText {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 2px;
+}
+
+.optionLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optionDescription {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+.checkSlot {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  margin-inline-start: auto;
+}
+
+.check {
+  width: 17px;
+  height: 17px;
+  color: var(--primary);
+  stroke-width: 2.6;
+}
+
+.empty {
+  margin: 0;
+  padding: 12px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+
+/* ---------- Elenco nel bottom sheet (telefono) ---------- */
+.sheetList {
+  display: grid;
+  min-height: 0;
+  align-content: start;
+  gap: 2px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 12px 12px;
+  outline: none;
+}
+
+.sheetList .option {
+  min-height: 50px;
+  gap: 12px;
+  padding: 11px 14px;
+  border-radius: 14px;
+  font-size: 16px;
+}
+
+.sheetList .option[aria-selected="true"] {
+  background: color-mix(in srgb, var(--primary) 13%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 32%, transparent);
+}
+
+.sheetList .optionIcon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.sheetList .checkSlot,
+.sheetList .check {
+  width: 22px;
+  height: 22px;
+}
+
+@media (hover: hover) {
+  .sheetList .option[data-active]:not([aria-selected="true"]) {
+    background: color-mix(in srgb, var(--primary) 9%, transparent);
+  }
+}
+
+/* Con la tastiera l'anello di focus segue l'opzione attiva. */
+.sheetList:focus-visible .option[data-active] {
+  box-shadow: inset 0 0 0 2px var(--ring);
+}
+
+/* ---------- Griglia (opzioni brevi, es. i giorni del mese) ---------- */
+.panel[data-layout="grid"],
+.sheetList[data-layout="grid"] {
+  display: grid;
+  /* Ogni colonna è larga almeno quanto la sua etichetta più lunga (es. «settembre»). */
+  grid-template-columns: repeat(var(--columns, 7), minmax(max-content, 1fr));
+  align-content: start;
+  gap: 4px;
+}
+
+.panel[data-layout="grid"] {
+  min-width: max(
+    var(--radix-popover-trigger-width, 0px),
+    calc(var(--columns, 7) * 40px + (var(--columns, 7) - 1) * 4px + 14px)
+  );
+}
+
+.sheetList[data-layout="grid"] {
+  gap: 6px;
+  padding: 6px 16px 14px;
+}
+
+[data-layout="grid"] .option {
+  min-height: 38px;
+  justify-content: center;
+  padding: 0 10px;
+  border-radius: 10px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 550;
+  text-align: center;
+}
+
+.sheetList[data-layout="grid"] .option {
+  min-height: 46px;
+  padding: 0 8px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--foreground) 4%, transparent);
+  font-size: 16px;
+}
+
+[data-layout="grid"] .optionText {
+  flex: none;
+}
+
+[data-layout="grid"] .option[aria-selected="true"] {
+  background: color-mix(in srgb, var(--primary) 22%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 70%, transparent);
+  font-weight: 700;
+}
+
+/* In griglia la spunta rosa diventa un piccolo segno nell'angolo della cella scelta. */
+[data-layout="grid"] .checkSlot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 12px;
+  height: 12px;
+  margin: 0;
+}
+
+[data-layout="grid"] .check,
+.sheetList[data-layout="grid"] .checkSlot,
+.sheetList[data-layout="grid"] .check {
+  width: 12px;
+  height: 12px;
+}
+
+.sheetList[data-layout="grid"] .checkSlot {
+  top: 4px;
+  right: 4px;
+}
+
+/* Sonda invisibile: misura lo spazio di tab bar e mini player (vedi measureBottomObstruction). */
+.bottomProbe {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 1px;
+  height: var(--tab-bar-offset, 0px);
+  pointer-events: none;
+  visibility: hidden;
+}
+
+/* Con il mini player visibile (body.has-music-player) si aggiunge la sua altezza più il margine. */
+.bottomProbe.withPlayer {
+  height: calc(var(--tab-bar-offset, 0px) + var(--mini-player-height, 64px) + 12px);
+}
+
+@keyframes panelIn {
+  from {
+    opacity: 0;
+    transform: translateY(var(--panel-shift, -6px)) scale(0.97);
+  }
+}
+
+@keyframes panelOut {
+  to {
+    opacity: 0;
+    transform: translateY(var(--panel-shift, -6px)) scale(0.97);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trigger,
+  .triggerIcon,
+  .chevron,
+  .option {
+    transition: none;
+  }
+
+  .trigger:active:not(:disabled),
+  .option:active:not([aria-disabled="true"]) {
+    transform: none;
+  }
+
+  .panel[data-state="open"],
+  .panel[data-state="closed"] {
+    animation: none;
+  }
+}
+
+/* Contrasto elevato (Windows): l'opzione attiva e quella scelta restano riconoscibili. */
+@media (forced-colors: active) {
+  .panel .option[data-active],
+  .sheetList .option[data-active] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+
+  .panel .option[aria-selected="true"],
+  .sheetList .option[aria-selected="true"] {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .check {
+    color: Highlight;
+  }
+}

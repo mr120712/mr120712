@@ -1,10 +1,12 @@
 // @polsia:user-owned — scheda Radio: stazioni dal vivo per genere, paese o nome.
 'use client';
 
+import { Globe } from 'lucide-react';
 import { type FormEvent, useEffect, useState } from 'react';
 import { useLibrary } from '@/components/custom/music/library-context';
 import { savedStationToStation } from '@/components/custom/music/live-tracks';
 import { StationTile } from '@/components/custom/music/radio-station-tile';
+import { SolcoSelect, type SolcoSelectOption } from '@/components/custom/ui-premium/solco-select';
 import { apiFetch } from '@/lib/api-client';
 import { type RadioListResponse, RadioListResponseSchema } from '@/lib/contracts/library';
 import styles from './discover.module.css';
@@ -33,6 +35,21 @@ const countries = [
   { code: 'BR', label: 'Brasile' },
   { code: 'JP', label: 'Giappone' },
 ] as const;
+
+// Menu «Paese» (SolcoSelect): stessi valori ed etichette. Accanto a ogni paese la sigla in un
+// piccolo badge tipografico (niente bandiere emoji, che su Windows non si vedono); il globo
+// distingue «Tutto il mondo».
+const countryOptions: SolcoSelectOption[] = countries.map((country) => ({
+  value: country.code,
+  label: country.label,
+  icon: country.code ? (
+    <span className={styles.countryCode}>{country.code}</span>
+  ) : (
+    <span className={styles.countryWorld}>
+      <Globe />
+    </span>
+  ),
+}));
 
 type Filters = { q: string; tag: string; country: string };
 
@@ -105,22 +122,15 @@ export function RadioDirectory({ initialQuery = '' }: { initialQuery?: string })
           placeholder="Cerca una stazione"
           onChange={(event) => setDraft(event.target.value)}
         />
-        <label className="sr-only" htmlFor="radio-country">
-          Paese
-        </label>
-        <select
+        <SolcoSelect
           id="radio-country"
+          label="Paese"
+          shape="pill"
           value={filters.country}
-          onChange={(event) =>
-            setFilters((current) => ({ ...current, country: event.target.value }))
-          }
-        >
-          {countries.map((country) => (
-            <option key={country.code || 'all'} value={country.code}>
-              {country.label}
-            </option>
-          ))}
-        </select>
+          onValueChange={(value) => setFilters((current) => ({ ...current, country: value }))}
+          options={countryOptions}
+          className={styles.countrySelect}
+        />
       </form>
 
       <fieldset className={styles.chips}>

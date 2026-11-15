@@ -1,0 +1,216 @@
+/* @polsia:user-owned — bottom sheet premium (vedi bottom-sheet.tsx). Sopra la tab bar (z 40), il
+   mini player (z 39), il player a schermo intero (z 60) e i suoi menu (z 70); solo token semantici. */
+
+.backdrop {
+  position: fixed;
+  z-index: 74;
+  inset: 0;
+  background: rgb(3 1 8 / 64%);
+  transition: opacity 200ms ease;
+}
+
+.backdrop[data-state="open"] {
+  animation: backdropIn 240ms ease-out;
+}
+
+.backdrop[data-state="closed"] {
+  animation: backdropOut 200ms ease-in forwards;
+}
+
+.sheet {
+  --sheet-drag: 0px;
+  position: fixed;
+  z-index: 75;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  width: 100%;
+  max-width: 560px;
+  /* Mai a tutto schermo: in alto resta visibile un po' di pagina (contesto e tocco per chiudere). */
+  max-height: min(86dvh, calc(100dvh - env(safe-area-inset-top) - 48px));
+  flex-direction: column;
+  margin-inline: auto;
+  /* La safe area di iPhone resta libera: l'ultima opzione non finisce sotto l'indicatore Home. */
+  padding-bottom: env(safe-area-inset-bottom);
+  border: 1px solid color-mix(in srgb, var(--ambient-line) 55%, var(--border));
+  border-bottom: 0;
+  border-radius: 24px 24px 0 0;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--primary) 8%, var(--popover)) 0,
+      var(--popover) 132px
+    ), var(--popover);
+  color: var(--popover-foreground);
+  box-shadow:
+    0 -22px 60px -18px rgb(0 0 0 / 70%),
+    inset 0 1px 0 color-mix(in srgb, var(--foreground) 7%, transparent);
+  transform: translate3d(0, var(--sheet-drag), 0);
+  transition: transform 220ms cubic-bezier(0.32, 0.72, 0, 1);
+  outline: none;
+}
+
+.sheet[data-dragging] {
+  transition: none;
+}
+
+.sheet[data-state="open"] {
+  animation: sheetIn 280ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.sheet[data-state="closed"] {
+  animation: sheetOut 200ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+.header {
+  flex: none;
+  padding: 10px 14px 6px 20px;
+  border-radius: 24px 24px 0 0;
+}
+
+/* L'intestazione si trascina: niente scroll o zoom del browser mentre il dito la muove. */
+.header[data-draggable] {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.header[data-draggable]:active {
+  cursor: grabbing;
+}
+
+.grabber {
+  display: block;
+  width: 38px;
+  height: 4px;
+  margin: 0 auto 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foreground) 24%, transparent);
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.titles {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.title {
+  margin: 0;
+  overflow: hidden;
+  font-family: var(--font-display), Arial, sans-serif;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.description {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.close {
+  display: inline-grid;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+  color: var(--foreground);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    transform 120ms ease;
+}
+
+.close svg {
+  width: 18px;
+  height: 18px;
+}
+
+@media (hover: hover) {
+  .close:hover {
+    border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+    background: color-mix(in srgb, var(--foreground) 11%, transparent);
+  }
+}
+
+.close:active {
+  transform: scale(0.94);
+}
+
+.close:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Il contenuto scorre da solo (o lascia scorrere il figlio con min-height: 0). */
+.body {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 8px;
+}
+
+@keyframes backdropIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes backdropOut {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes sheetIn {
+  from {
+    transform: translate3d(0, 100%, 0);
+  }
+}
+
+@keyframes sheetOut {
+  from {
+    transform: translate3d(0, var(--sheet-drag), 0);
+  }
+
+  to {
+    transform: translate3d(0, 100%, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .backdrop,
+  .sheet,
+  .close {
+    transition: none;
+  }
+
+  .backdrop[data-state="open"],
+  .backdrop[data-state="closed"],
+  .sheet[data-state="open"],
+  .sheet[data-state="closed"] {
+    animation: none;
+  }
+}

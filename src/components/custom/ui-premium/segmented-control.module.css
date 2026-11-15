@@ -1,0 +1,187 @@
+/* @polsia:user-owned — controllo segmentato premium (vedi segmented-control.tsx). Solo token
+   semantici (--primary, --card, --border, --ring…): i temi Pro e quello natalizio lo ricolorano. */
+
+.root {
+  --seg-pad: 4px;
+  --seg-height: 40px;
+  --seg-dir: 1;
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--segments, 2), minmax(0, 1fr));
+  isolation: isolate;
+  width: 100%;
+  min-width: 0;
+  padding: var(--seg-pad);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background) 70%, var(--card));
+  box-shadow: inset 0 1px 3px var(--elevation-1);
+}
+
+.root:dir(rtl) {
+  --seg-dir: -1;
+}
+
+/* Il "pollice" rosa: largo quanto un segmento, scorre sotto l'opzione attiva. */
+.indicator {
+  position: absolute;
+  z-index: 0;
+  top: var(--seg-pad);
+  bottom: var(--seg-pad);
+  inset-inline-start: var(--seg-pad);
+  width: calc((100% - 2 * var(--seg-pad)) / var(--segments, 2));
+  border: 1px solid color-mix(in srgb, var(--primary) 70%, transparent);
+  border-radius: 999px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--primary) 30%, var(--card)),
+    color-mix(in srgb, var(--primary) 17%, var(--card))
+  );
+  box-shadow:
+    0 8px 22px -12px color-mix(in srgb, var(--primary) 85%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--foreground) 12%, transparent);
+  opacity: 0;
+  transform: translateX(calc(var(--active-index, 0) * 100% * var(--seg-dir)));
+  transition:
+    transform 200ms cubic-bezier(0.25, 1, 0.5, 1),
+    opacity 160ms ease;
+  pointer-events: none;
+}
+
+.root[data-has-value] .indicator {
+  opacity: 1;
+}
+
+.segment {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  min-width: 0;
+  min-height: var(--seg-height);
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  line-height: 1.2;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    color 200ms ease,
+    background-color 160ms ease,
+    transform 120ms ease;
+}
+
+.segment[aria-checked="true"] {
+  color: var(--foreground);
+}
+
+.icon {
+  display: inline-flex;
+  flex: none;
+  transition: color 200ms ease;
+}
+
+.icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.segment[aria-checked="true"] .icon {
+  color: color-mix(in srgb, var(--primary) 78%, var(--foreground));
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Pressione: un accenno di "click" fisico, niente di più. */
+.segment:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+@media (hover: hover) {
+  .segment:not([aria-checked="true"]):not(:disabled):hover {
+    background: color-mix(in srgb, var(--foreground) 6%, transparent);
+    color: var(--foreground);
+  }
+}
+
+.segment:focus-visible {
+  z-index: 2;
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.segment:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.root[aria-disabled="true"] .indicator {
+  opacity: 0.55;
+}
+
+.sm {
+  --seg-pad: 3px;
+  --seg-height: 32px;
+}
+
+.sm .segment {
+  gap: 6px;
+  padding: 0 10px;
+  font-size: 12.5px;
+}
+
+.sm .icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Dita, non puntatori: bersagli da 44 px. */
+@media (pointer: coarse) {
+  .root {
+    --seg-height: 44px;
+  }
+
+  .sm {
+    --seg-height: 38px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .indicator,
+  .segment,
+  .icon {
+    transition: none;
+  }
+
+  .segment:active:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* Contrasto elevato (Windows): gli sfondi spariscono, quindi la scelta usa i colori di sistema. */
+@media (forced-colors: active) {
+  .indicator {
+    border-color: Highlight;
+    background: Highlight;
+    box-shadow: none;
+    forced-color-adjust: none;
+  }
+
+  .segment[aria-checked="true"] {
+    color: HighlightText;
+    forced-color-adjust: none;
+  }
+}

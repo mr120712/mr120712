@@ -1,13 +1,14 @@
 // @polsia:user-owned — pagina Premi: inviti, fondatori, ascolta e guadagna, fedeltà e compleanno.
 'use client';
 
-import { Cake, Copy, Crown, Gem, Gift, Headphones, Users } from 'lucide-react';
+import { Cake, CalendarDays, Copy, Crown, Gem, Gift, Headphones, Users } from 'lucide-react';
 import Link from 'next/link';
 import { type FormEvent, useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { ShareMenu } from '@/components/custom/share-menu';
 import { TelegramLinkButton } from '@/components/custom/telegram-link-button';
 import { TelegramMiniAppButton } from '@/components/custom/telegram-mini-app-button';
+import { SolcoSelect, type SolcoSelectOption } from '@/components/custom/ui-premium/solco-select';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
 import { useSession } from '@/lib/auth-client';
@@ -39,6 +40,17 @@ const months = [
   'novembre',
   'dicembre',
 ];
+
+// Opzioni del compleanno: stessi valori ed etichette dei vecchi <select> ("1"–"31", "1"–"12").
+const dayOptions: SolcoSelectOption[] = Array.from({ length: 31 }, (_, i) => {
+  const value = String(i + 1);
+  return { value, label: value };
+});
+
+const monthOptions: SolcoSelectOption[] = months.map((name, index) => ({
+  value: String(index + 1),
+  label: name,
+}));
 
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString('it-IT', {
@@ -291,34 +303,35 @@ export function RewardsView() {
                 {months[Number(summary.birthday.slice(0, 2)) - 1]}
               </p>
             ) : (
-              <form className={styles.inviteRow} onSubmit={(event) => void saveBirthday(event)}>
-                <label className="sr-only" htmlFor="bday-day">
-                  Giorno
-                </label>
-                <select id="bday-day" value={day} onChange={(event) => setDay(event.target.value)}>
-                  <option value="">Giorno</option>
-                  {Array.from({ length: 31 }, (_, i) => String(i + 1)).map((value) => (
-                    <option key={value} value={value}>
-                      {value}
-                    </option>
-                  ))}
-                </select>
-                <label className="sr-only" htmlFor="bday-month">
-                  Mese
-                </label>
-                <select
+              <form className={styles.birthdayRow} onSubmit={(event) => void saveBirthday(event)}>
+                <SolcoSelect
+                  id="bday-day"
+                  label="Giorno"
+                  placeholder="Giorno"
+                  sheetTitle="Giorno del compleanno"
+                  icon={<CalendarDays />}
+                  columns={7}
+                  value={day}
+                  onValueChange={setDay}
+                  options={dayOptions}
+                  className={styles.birthdaySelect}
+                />
+                <SolcoSelect
                   id="bday-month"
+                  label="Mese"
+                  placeholder="Mese"
+                  sheetTitle="Mese del compleanno"
+                  columns={3}
                   value={month}
-                  onChange={(event) => setMonth(event.target.value)}
+                  onValueChange={setMonth}
+                  options={monthOptions}
+                  className={styles.birthdaySelect}
+                />
+                <Button
+                  type="submit"
+                  className={`h-11 px-5 ${styles.birthdaySave}`}
+                  disabled={!day || !month}
                 >
-                  <option value="">Mese</option>
-                  {months.map((name, index) => (
-                    <option key={name} value={String(index + 1)}>
-                      {name}
-                    </option>
-                  ))}
-                </select>
-                <Button type="submit" disabled={!day || !month}>
                   Salva
                 </Button>
               </form>

@@ -329,8 +329,7 @@ a.tileTitle:hover {
   gap: 10px;
 }
 
-.searchRow input,
-.searchRow select {
+.searchRow input {
   min-height: 44px;
   padding: 0 14px;
   border: 1px solid var(--border);
@@ -344,6 +343,47 @@ a.tileTitle:hover {
 .searchRow input {
   flex: 1 1 220px;
   min-width: 0;
+}
+
+/* Menu «Paese» delle radio (SolcoSelect): accanto alla ricerca, a tutta riga sui telefoni stretti.
+   Doppia classe: vince sempre sullo stile base del menu, qualunque sia l'ordine dei CSS. */
+.searchRow .countrySelect {
+  flex: 0 1 220px;
+  min-height: 44px;
+  background: var(--card);
+}
+
+@media (max-width: 480px) {
+  .searchRow .countrySelect {
+    flex: 1 1 100%;
+  }
+}
+
+/* Menu «Cartella di …» accanto a Condividi/Elimina nella Libreria (SolcoSelect, taglia piccola). */
+.folderSelect {
+  width: min(210px, 100%);
+}
+
+/* Sigla del paese nel menu: un piccolo badge tipografico al posto della bandiera. */
+.countryCode {
+  display: inline-grid;
+  min-width: 24px;
+  height: 18px;
+  place-items: center;
+  padding: 0 4px;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  font-size: 9.5px;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  line-height: 1;
+}
+
+/* Il globo di «Tutto il mondo» occupa lo stesso spazio del badge: le etichette restano allineate. */
+.countryWorld {
+  display: inline-grid;
+  min-width: 24px;
+  place-items: center;
 }
 
 .header {

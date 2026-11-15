@@ -2,7 +2,7 @@
 // cartelle, radio salvate, podcast seguiti, cronologia.
 'use client';
 
-import { FolderPlus, Pause, Pencil, Play, Trash2 } from 'lucide-react';
+import { Folder, FolderPlus, FolderX, Pause, Pencil, Play, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { type FormEvent, useState, useSyncExternalStore } from 'react';
@@ -19,6 +19,7 @@ import { StationTile } from '@/components/custom/music/radio-station-tile';
 import { useHistoryPlayback } from '@/components/custom/music/recently-played-row';
 import { SpotifyImport } from '@/components/custom/music/spotify-import';
 import { TrackListImport } from '@/components/custom/music/track-list-import';
+import { SolcoSelect, type SolcoSelectOption } from '@/components/custom/ui-premium/solco-select';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
 import { YouTubePlaylistImportResponseSchema } from '@/lib/contracts/library';
@@ -139,33 +140,32 @@ function PlaylistsTab({ focusCollectionId }: { focusCollectionId: string | null 
     }
   };
 
+  // Menu premium «Cartella di …»: stessi valori ("" = nessuna cartella) e stessa mutazione.
+  const folderOptions: SolcoSelectOption[] = [
+    { value: '', label: 'Nessuna cartella', icon: <FolderX /> },
+    ...folders.map((folder) => ({ value: folder.id, label: folder.name, icon: <Folder /> })),
+  ];
+
   const moveControl = (collection: MusicCollection) => (
-    <>
-      <label className="sr-only" htmlFor={`folder-${collection.id}`}>
-        Cartella di {collection.name}
-      </label>
-      <select
-        id={`folder-${collection.id}`}
-        value={collection.folderId ?? ''}
-        onChange={async (event) => {
-          const target = event.target.value || null;
-          if (
-            await library.mutate(
-              { action: 'move_playlist', collectionId: collection.id, folderId: target },
-              target ? 'Playlist spostata nella cartella.' : 'Playlist spostata nella Libreria.',
-            )
+    <SolcoSelect
+      id={`folder-${collection.id}`}
+      label={`Cartella di ${collection.name}`}
+      sheetTitle="Sposta nella cartella"
+      size="sm"
+      value={collection.folderId ?? ''}
+      options={folderOptions}
+      onValueChange={async (value) => {
+        const target = value || null;
+        if (
+          await library.mutate(
+            { action: 'move_playlist', collectionId: collection.id, folderId: target },
+            target ? 'Playlist spostata nella cartella.' : 'Playlist spostata nella Libreria.',
           )
-            setReloadKey((key) => key + 1);
-        }}
-      >
-        <option value="">Nessuna cartella</option>
-        {folders.map((folder) => (
-          <option key={folder.id} value={folder.id}>
-            {folder.name}
-          </option>
-        ))}
-      </select>
-    </>
+        )
+          setReloadKey((key) => key + 1);
+      }}
+      className={styles.folderSelect}
+    />
   );
 
   return (
