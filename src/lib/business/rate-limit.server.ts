@@ -178,6 +178,21 @@ export const ACTION_RATE_LIMITS = {
     { requests: 60, windowMs: 86_400_000 },
   ],
   'music.resolve_song.global': [{ requests: 40, windowMs: 86_400_000 }],
+  // «Potrebbe piacerti»: lettura dei consigli personali (Home e «Altri consigli»), per account.
+  // I candidati si rifanno al massimo ogni 6 ore: qui si ferma solo chi ricarica a raffica.
+  'music.recommendations': [
+    { requests: 30, windowMs: 60_000 },
+    { requests: 600, windowMs: 86_400_000 },
+  ],
+  // «Non mi interessa» / «Annulla» sui brani consigliati, per account.
+  'music.recommendations.feedback': [
+    { requests: 30, windowMs: 60_000 },
+    { requests: 300, windowMs: 86_400_000 },
+  ],
+  // Suggerimenti AI dei consigli (solo Premium): UNA richiesta a Claude ogni 24 ore per account,
+  // più un tetto giornaliero per l'intera app.
+  'music.recommendations.ai': [{ requests: 1, windowMs: 86_400_000 }],
+  'music.recommendations.ai.global': [{ requests: 300, windowMs: 86_400_000 }],
   'ai.chat': [
     { requests: 12, windowMs: 60_000 },
     { requests: 60, windowMs: 3_600_000 },
@@ -522,6 +537,10 @@ const actionLabels: Record<RateLimitAction, string> = {
   'tiktok.publish.global': 'le pubblicazioni su TikTok di oggi',
   'music.resolve_song': 'le ricerche dei brani importati',
   'music.resolve_song.global': 'le ricerche dei brani importati di oggi',
+  'music.recommendations': 'i brani consigliati',
+  'music.recommendations.feedback': 'i «Non mi interessa» sui consigli',
+  'music.recommendations.ai': 'i consigli con l’AI di oggi',
+  'music.recommendations.ai.global': 'i consigli con l’AI di oggi',
   'ai.chat': 'le richieste all’assistente',
   'solco.support': 'le richieste al supporto',
   'solco.support.global': 'le richieste al supporto di oggi',

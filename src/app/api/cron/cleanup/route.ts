@@ -8,7 +8,9 @@
 // con hash) fermi da 2 giorni, piani AI scaduti, esiti dei controlli automatici oltre 30
 // giorni e ascolti contati della classifica della community (chiavi HMAC) oltre 35 giorni.
 // Infine le trascrizioni IA dei testi conservate cifrate e non usate da 180 giorni (a lotti
-// limitati; se la loro pulizia fallisce si riprova il giorno dopo, senza fermare le altre).
+// limitati; se la loro pulizia fallisce si riprova il giorno dopo, senza fermare le altre) e i
+// consigli personali in cache («Potrebbe piacerti») più vecchi di 2 giorni; poi ricalcola la
+// classifica aggregata «Piace alla community» (solo conteggi, mai chi ha ascoltato).
 // A fine lavoro salva il battito 'cleanup', letto dal controllo "Pulizia giornaliera".
 // Vercel invia "Authorization: Bearer <CRON_SECRET>"; senza segreto valido risponde 401.
 import 'server-only';
@@ -18,6 +20,10 @@ import { prisma } from '@/lib/db';
 import { CLEANUP_HEARTBEAT } from '@/lib/monitoring/checks.server';
 import { recordHeartbeat } from '@/lib/monitoring/monitor.server';
 import { expireYouTubeCollectionMetadata } from '@/lib/music/collections.server';
+import {
+  purgeStaleRecommendations,
+  refreshRecommendationCommunity,
+} from '@/lib/music/recommendations-cache.server';
 import { FOUND_TTL_MS } from '@/lib/music/song-resolve.server';
 import { purgeStaleTranscriptions } from '@/lib/music/transcription-cache.server';
 import { deleteOldYouTubeQuotaUsage } from '@/lib/music/youtube-budget.server';
@@ -61,6 +67,7 @@ export async function GET(request: Request) {
     monitorRuns,
     communityPlays,
     transcriptions,
+    recommendations,
   ] = await Promise.all([
     expireYouTubeCollectionMetadata(new Date(now.getTime() + NEXT_RUN_MS)),
     // createdAt is when YouTube sent the data: rows written with the older 29-day expiry
@@ -101,6 +108,10 @@ export async function GET(request: Request) {
     }),
     // Trascrizioni cifrate non riusate da 180 giorni: al massimo un lotto per esecuzione, mai throw.
     purgeStaleTranscriptions(now),
+    // Consigli personali in cache oltre 2 giorni: mai throw (come le trascrizioni).
+    purgeStaleRecommendations(now),
+    // Classifica «Piace alla community» (conteggi aggregati) letta dai consigli: mai throw.
+    refreshRecommendationCommunity(now),
   ]);
   const removed = {
     youtubeCollectionItems: collections.count,
@@ -112,6 +123,7 @@ export async function GET(request: Request) {
     aiPlans: plans.count,
     monitorRuns: monitorRuns.count,
     communityPlays: communityPlays.count,
+    recommendations: recommendations.count,
   };
   await recordHeartbeat(
     CLEANUP_HEARTBEAT,
@@ -119,6 +131,7 @@ export async function GET(request: Request) {
       `${removed.youtubeSearches} ricerche salvate, ${removed.youtubeHistory} ascolti YouTube vecchi, ` +
       `${removed.aiPlans} piani AI, ${removed.monitorRuns} controlli vecchi, ` +
       `${removed.communityPlays} ascolti della community vecchi, ` +
+      `${removed.recommendations} consigli personali vecchi, ` +
       `${transcriptions.count} trascrizioni cifrate non usate`,
   );
   return NextResponse.json(removed, { headers: { 'Cache-Control': 'no-store' } });

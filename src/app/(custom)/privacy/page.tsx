@@ -131,6 +131,22 @@ export default function PrivacyPage() {
                   : ' Al momento la libreria pubblica dei brani caricati e questa classifica non sono attive: non si registrano nuovi ascolti e non si possono caricare nuovi brani.'}
               </li>
               <li>
+                <strong>Brani consigliati («Potrebbe piacerti»):</strong> i consigli sono calcolati
+                sui server di Solco dai tuoi ascolti su Solco (le voci YouTube servono solo a non
+                riproporti un brano già ascoltato), dai Preferiti, dalle playlist (non quelle
+                importate da Spotify) e dal diario, e non vengono mai mostrati ad altri; puoi
+                spegnerli in Impostazioni («Consigli personalizzati», su ogni dispositivo) e vedrai
+                solo i brani popolari su Solco. «Piace alla community» usa solo conteggi aggregati
+                (brani ascoltati da almeno 3 persone, ricalcolati una volta al giorno), mai i dati
+                di una singola persona. I consigli preparati restano in cache al massimo 2 giorni e
+                vengono cancellati quando cancelli la cronologia; i brani che segni «Non mi
+                interessa» restano salvati (al massimo 300) finché non elimini l’account. Con
+                Premium, al massimo una volta al giorno, i nomi di alcuni artisti che ascolti di più
+                e i tuoi generi preferiti (mai titoli o canali YouTube né dati di Spotify) vengono
+                inviati ad Anthropic (modello Claude) per suggerire brani, che vengono cercati su
+                YouTube solo quando li ascolti.
+              </li>
+              <li>
                 <strong>Assistenza automatizzata:</strong> la domanda inviata alla chat di supporto
                 viene trasmessa al proxy AI di Polsia per preparare la risposta; la chat non viene
                 salvata nel database applicativo dal percorso attuale.
@@ -149,9 +165,10 @@ export default function PrivacyPage() {
             <p>
               I dati account e il diario servono a fornire le funzioni richieste dall’utente; le
               ricerche servono a mostrare risultati di catalogo; le domande alla chat servono a
-              restituire assistenza. La base giuridica applicabile a ciascuna finalità, inclusa
-              l’eventuale analytics, deve essere confermata dal titolare in base ai servizi attivi e
-              ai mercati scelti.
+              restituire assistenza; cronologia, Preferiti, playlist e diario servono anche a
+              preparare i tuoi brani consigliati, se non li hai spenti in Impostazioni. La base
+              giuridica applicabile a ciascuna finalità, inclusa l’eventuale analytics, deve essere
+              confermata dal titolare in base ai servizi attivi e ai mercati scelti.
             </p>
           </section>
 

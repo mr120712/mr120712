@@ -1,0 +1,38 @@
+// @polsia:user-owned — «Potrebbe piacerti» (brani consigliati personali). Tre tabelle nuove: con
+// `prisma db push` (il comando di build su Vercel) si aggiungono senza toccare quelle esistenti.
+// Le due con dati di un utente vengono cancellate con l'account (account-deletion.ts); la terza
+// contiene solo conteggi aggregati.
+
+/// Candidati già raccolti per un utente (brani Audius riproducibili, suggerimenti AI "song"):
+/// una riga per utente, rifatta al massimo ogni 6 ore; la pulizia giornaliera cancella le righe
+/// più vecchie di 2 giorni. Niente dati YouTube (titoli, canali, miniature) e niente dati Spotify.
+model RecommendationCache {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  payload     Json
+  generatedAt DateTime @default(now())
+
+  @@index([generatedAt])
+}
+
+/// Brani segnati «Non mi interessa» nella riga dei consigli (chiave = qualifiedId del brano,
+/// es. audius:<id> o song:<32 hex>). Al massimo 300 per utente: oltre, i più vecchi si dimenticano.
+model RecommendationHidden {
+  id        String   @id @default(cuid())
+  userId    String
+  itemKey   String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, itemKey])
+  @@index([userId, createdAt])
+}
+
+/// Brani Audius più ascoltati su Solco, SOLO in forma aggregata: per brano, quante persone diverse
+/// (almeno 3) lo hanno ascoltato negli ultimi 30 giorni, mai chi. Ricalcolata dalla pulizia
+/// giornaliera (al massimo 40 righe) e letta da «Piace alla community»: nessuna richiesta legge
+/// tutta la cronologia. Nessun dato di una persona.
+model RecommendationCommunity {
+  qualifiedId String   @id
+  listeners   Int
+  computedAt  DateTime @default(now())
+}

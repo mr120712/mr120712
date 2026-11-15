@@ -116,4 +116,28 @@ describe('cancellazione dell’account Solco', () => {
       'user:user-17',
     ]);
   });
+
+  it('cancella anche i consigli personali in cache e i «Non mi interessa»', async () => {
+    const deleted: string[] = [];
+    // Ogni modello registra cosa cancella; `user` è l'account stesso.
+    const transaction = new Proxy(
+      {},
+      {
+        get: (_target, model: string) =>
+          model === 'user'
+            ? { delete: async () => ({}) }
+            : {
+                deleteMany: async ({ where }: { where: { userId?: string } }) => {
+                  deleted.push(`${model}:${where.userId ?? ''}`);
+                  return { count: 1 };
+                },
+              },
+      },
+    ) as AccountDeletionTransaction;
+
+    await deleteAccountData(transaction, 'user-18', 'other@example.test');
+
+    expect(deleted).toContain('recommendationCache:user-18');
+    expect(deleted).toContain('recommendationHidden:user-18');
+  });
 });

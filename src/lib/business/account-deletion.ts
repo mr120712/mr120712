@@ -51,6 +51,9 @@ export type AccountDeletionTransaction = {
   tikTokConnection?: UserOwnedRecords;
   /** Dates of YouTube data in the listening history (no relation to User). Optional as above. */
   youTubeHistoryFetch?: UserOwnedRecords;
+  /** «Potrebbe piacerti»: candidati in cache e brani «Non mi interessa». Optional as above. */
+  recommendationCache?: UserOwnedRecords;
+  recommendationHidden?: UserOwnedRecords;
   referral: {
     deleteMany(args: {
       where: { OR: Array<{ inviterId: string } | { inviteeId: string }> };
@@ -91,6 +94,9 @@ export async function deleteAccountData(
   await transaction.userRewardProfile.deleteMany({ where: { userId } });
   await transaction.musicPlay.deleteMany({ where: { userId } });
   await transaction.aiMusicSearchCache.deleteMany({ where: { userId } });
+  // Consigli personali («Potrebbe piacerti»): nessuna relazione con User, cancellati qui.
+  await transaction.recommendationCache?.deleteMany({ where: { userId } });
+  await transaction.recommendationHidden?.deleteMany({ where: { userId } });
   // Spotify tokens: the Spotify Developer Policy requires deleting them with the account.
   await transaction.spotifyConnection?.deleteMany({ where: { userId } });
   // TikTok tokens: deleted with the account (no relation to User).

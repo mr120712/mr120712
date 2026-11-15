@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SettingsPanel } from '@/components/custom/settings/settings-panel';
 import { getAutoplay } from '@/lib/music/autoplay';
 import { getDataSaver } from '@/lib/music/data-saver';
+import { getPersonalRecommendations } from '@/lib/music/recommendations-pref';
 
 const roots: Array<ReturnType<typeof createRoot>> = [];
 
@@ -33,11 +34,32 @@ afterEach(async () => {
 });
 
 describe('SettingsPanel', () => {
-  it('mostra due interruttori, spenti di default', async () => {
+  it('mostra tre interruttori: Autoplay e Risparmio dati spenti, Consigli personalizzati acceso', async () => {
     const container = await mount();
     const list = switches(container);
-    expect(list).toHaveLength(2);
-    for (const item of list) expect(item.getAttribute('aria-checked')).toBe('false');
+    expect(list).toHaveLength(3);
+    expect(list[0]?.getAttribute('aria-checked')).toBe('false');
+    expect(list[1]?.getAttribute('aria-checked')).toBe('false');
+    expect(list[2]?.getAttribute('aria-checked')).toBe('true');
+    expect(container.textContent).toContain('Consigli personalizzati');
+  });
+
+  it('spegne i Consigli personalizzati: lo store per dispositivo è aggiornato', async () => {
+    const container = await mount();
+    await act(async () => {
+      switches(container)[2]?.click();
+    });
+    expect(getPersonalRecommendations()).toBe(false);
+    expect(window.localStorage.getItem('solco:recommendations')).toBe('0');
+    expect(switches(container)[2]?.getAttribute('aria-checked')).toBe('false');
+    expect(getAutoplay()).toBe(false);
+    expect(getDataSaver()).toBe(false);
+  });
+
+  it('riflette i Consigli personalizzati già spenti', async () => {
+    window.localStorage.setItem('solco:recommendations', '0');
+    const container = await mount();
+    expect(switches(container)[2]?.getAttribute('aria-checked')).toBe('false');
   });
 
   it('accende Autoplay: lo store per dispositivo è aggiornato', async () => {

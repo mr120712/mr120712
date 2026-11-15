@@ -2,6 +2,7 @@
 import 'server-only';
 import type { HistoryEntry, LibraryMutation, LibraryResponse } from '@/lib/contracts/library';
 import { prisma } from '@/lib/db';
+import { clearRecommendationCache } from '@/lib/music/recommendations-cache.server';
 import {
   currentYouTubeHistoryIds,
   isYouTubeHistoryId,
@@ -187,6 +188,8 @@ export async function applyLibraryMutation(userId: string, action: LibraryMutati
     case 'clear_history':
       await prisma.userPlaybackHistory.deleteMany({ where: { userId } });
       await prisma.youTubeHistoryFetch.deleteMany({ where: { userId } });
+      // I consigli preparati da quella cronologia («Potrebbe piacerti») vanno via con lei.
+      await clearRecommendationCache(userId);
       return;
     case 'save_station': {
       const { stationId, ...station } = action.station;

@@ -1,0 +1,206 @@
+/* @polsia:user-owned — riga «Potrebbe piacerti» della Home: schede orizzontali con motivo, azioni
+   e spazio riservato all'altezza delle schede vere (niente salto di layout quando arrivano i brani).
+   La riga scorre da sola in orizzontale: la pagina non si allarga mai. */
+
+.header {
+  flex-wrap: wrap;
+}
+
+.heading:focus {
+  outline: none;
+}
+
+.heading:focus-visible {
+  border-radius: 4px;
+  outline: 2px solid var(--ring);
+  outline-offset: 4px;
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+
+.subtitle a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.action:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: color-mix(in srgb, var(--foreground) 8%, transparent);
+}
+
+/* aria-disabled: inattivo ma ancora raggiungibile col focus (il focus non torna all'inizio). */
+.action:disabled,
+.action[aria-disabled="true"] {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.action:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.action svg {
+  width: 16px;
+  height: 16px;
+}
+
+.primary {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.primary:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--primary);
+  filter: brightness(1.08);
+}
+
+/* Altezza minima per scheletro ed errore uguale a quella di una scheda Audius vera (copertina,
+   titolo, artista, motivo su 2 righe, nota di licenza su 3 righe, azioni) più il margine della
+   riga: all'arrivo dei brani la pagina non salta.
+   min-width: 0 perché è un elemento della griglia di .section: senza, la riga non scorre da sola
+   e allarga tutta la pagina in orizzontale. */
+.body {
+  min-width: 0;
+  min-height: 356px;
+}
+
+.rail {
+  display: grid;
+  grid-auto-columns: 168px;
+  grid-auto-flow: column;
+  gap: 14px;
+  margin: 0;
+  padding: 0 0 6px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  list-style: none;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+}
+
+.card {
+  align-content: start;
+}
+
+.reason {
+  overflow: hidden;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.note {
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.cardActions {
+  display: flex;
+  gap: 2px;
+  margin-left: -8px;
+}
+
+.empty {
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 12px;
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+}
+
+.empty p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 14px;
+}
+
+.footnote {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.skeletonArt,
+.skeletonLine {
+  border-radius: 12px;
+  background: linear-gradient(140deg, var(--secondary), var(--muted));
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.skeletonArt {
+  width: 100%;
+  aspect-ratio: 1;
+}
+
+.skeletonLine {
+  height: 12px;
+  border-radius: 6px;
+}
+
+.skeletonLine:nth-child(2) {
+  width: 85%;
+}
+
+.skeletonLine:nth-child(3) {
+  width: 60%;
+}
+
+.skeletonLine:nth-child(4) {
+  width: 75%;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeletonArt,
+  .skeletonLine {
+    animation: none;
+  }
+}
+
+@media (max-width: 620px) {
+  .rail {
+    grid-auto-columns: 148px;
+  }
+
+  .body {
+    min-height: 336px;
+  }
+}

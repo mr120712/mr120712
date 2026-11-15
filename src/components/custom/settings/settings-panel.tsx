@@ -3,11 +3,15 @@
 // aggiorna da sola tramite gli store (useSyncExternalStore).
 'use client';
 
-import { Infinity as InfinityIcon, Wifi } from 'lucide-react';
+import { Infinity as InfinityIcon, Sparkles, Wifi } from 'lucide-react';
 import { type ReactNode, useId } from 'react';
 import { Switch } from '@/components/ui/switch';
 import { setAutoplay, useAutoplay } from '@/lib/music/autoplay';
 import { setDataSaver, useDataSaver } from '@/lib/music/data-saver';
+import {
+  setPersonalRecommendations,
+  usePersonalRecommendations,
+} from '@/lib/music/recommendations-pref';
 
 function ToggleRow({
   icon,
@@ -51,6 +55,7 @@ function ToggleRow({
 export function SettingsPanel() {
   const autoplay = useAutoplay();
   const dataSaver = useDataSaver();
+  const personalRecommendations = usePersonalRecommendations();
 
   return (
     <div className="divide-y divide-border rounded-xl border border-border bg-card px-5 text-card-foreground">
@@ -67,6 +72,13 @@ export function SettingsPanel() {
         description="Non precarica il brano successivo: consumi meno rete, con una pausa minima al cambio brano."
         checked={dataSaver}
         onChange={setDataSaver}
+      />
+      <ToggleRow
+        icon={<Sparkles aria-hidden="true" className="size-5" />}
+        title="Consigli personalizzati"
+        description="«Potrebbe piacerti» nella Home usa i tuoi ascolti, i Preferiti e il diario, solo per te. Spenti, vedi solo i brani popolari su Solco. Vale per questo dispositivo."
+        checked={personalRecommendations}
+        onChange={setPersonalRecommendations}
       />
     </div>
   );

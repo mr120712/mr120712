@@ -21,6 +21,11 @@ const mocks = vi.hoisted(() => ({
   quotaUsageDelete: vi.fn(),
   rateLimitDelete: vi.fn(),
   communityPlayDelete: vi.fn(),
+  recommendationCacheDelete: vi.fn(),
+  communityAggregate: vi.fn(),
+  communityDelete: vi.fn(),
+  communityCreate: vi.fn(),
+  transaction: vi.fn(),
 }));
 
 vi.mock('server-only', () => ({}));
@@ -39,6 +44,14 @@ vi.mock('@/lib/db', () => ({
     aiMusicSearchCache: { deleteMany: mocks.aiCacheDelete },
     monitorRun: { deleteMany: mocks.monitorRunDelete },
     publicUploadPlay: { deleteMany: mocks.communityPlayDelete },
+    recommendationCache: { deleteMany: mocks.recommendationCacheDelete },
+    // Classifica aggregata «Piace alla community», ricalcolata una volta al giorno.
+    $queryRaw: mocks.communityAggregate,
+    $transaction: mocks.transaction,
+    recommendationCommunity: {
+      deleteMany: mocks.communityDelete,
+      createMany: mocks.communityCreate,
+    },
   },
 }));
 vi.mock('@/lib/music/collections.server', () => ({
@@ -266,6 +279,13 @@ describe('GET /api/cron/cleanup', () => {
     mocks.quotaUsageDelete.mockResolvedValue({ count: 7 });
     mocks.rateLimitDelete.mockResolvedValue({ count: 9 });
     mocks.communityPlayDelete.mockResolvedValue({ count: 10 });
+    mocks.recommendationCacheDelete.mockResolvedValue({ count: 11 });
+    mocks.communityAggregate.mockResolvedValue([{ qualifiedId: 'audius:c1', listeners: 4 }]);
+    mocks.communityDelete.mockResolvedValue({ count: 1 });
+    mocks.communityCreate.mockResolvedValue({ count: 1 });
+    mocks.transaction.mockImplementation(async (operations: Promise<unknown>[]) =>
+      Promise.all(operations),
+    );
   });
 
   it('refuses requests without the cron secret', async () => {
@@ -291,6 +311,20 @@ describe('GET /api/cron/cleanup', () => {
       aiPlans: 4,
       monitorRuns: 5,
       communityPlays: 10,
+      recommendations: 11,
+    });
+    // Consigli personali in cache: solo le righe più vecchie di 2 giorni.
+    const recommendationCutoff = (
+      mocks.recommendationCacheDelete.mock.calls[0] as [{ where: { generatedAt: { lt: Date } } }]
+    )[0].where.generatedAt.lt.getTime();
+    expect(recommendationCutoff).toBeLessThanOrEqual(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    expect(recommendationCutoff).toBeGreaterThanOrEqual(before - 2 * 24 * 60 * 60 * 1000 - 1000);
+    // La classifica della community (solo conteggi aggregati) viene ricalcolata qui, non nelle
+    // richieste della Home.
+    expect(mocks.communityAggregate).toHaveBeenCalledTimes(1);
+    expect(mocks.communityDelete).toHaveBeenCalledWith({});
+    expect(mocks.communityCreate).toHaveBeenCalledWith({
+      data: [{ qualifiedId: 'audius:c1', listeners: 4, computedAt: expect.any(Date) }],
     });
     const cutoff = (
       mocks.monitorRunDelete.mock.calls[0] as [{ where: { startedAt: { lt: Date } } }]
