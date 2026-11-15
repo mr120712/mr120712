@@ -31,7 +31,6 @@ import { PodcastHomeRow } from '@/components/custom/music/podcast-home-row';
 import { PublicUploadsHomeSection } from '@/components/custom/music/public-uploads-home-section';
 import { RadioHomeRow } from '@/components/custom/music/radio-home-row';
 import { RecentlyPlayedRow } from '@/components/custom/music/recently-played-row';
-import { RecommendationsRow } from '@/components/custom/music/recommendations-row';
 import { TikTokClips } from '@/components/custom/music/tiktok-clips';
 import { YouTubeCharts } from '@/components/custom/music/youtube-charts';
 import { AppTopBar } from '@/components/custom/site-nav';
@@ -82,7 +81,6 @@ export default function HomePage() {
       <HomeTracksSection />
 
       <RecentlyPlayedRow />
-      <RecommendationsRow />
 
       {/* "La tua musica" offline, versione compatta: ascolto rapido; gestione completa in Libreria. */}
       <LocalMusicHomeCard />
