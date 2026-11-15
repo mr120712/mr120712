@@ -28,6 +28,29 @@
   overflow-wrap: anywhere;
 }
 
+/* Con «Mostra tutti (N)»: titolo a sinistra, link a destra allineato alla riga del titolo. */
+.headWithMore {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 0.75rem;
+  align-items: end;
+}
+
+.headWithMore > .eyebrow,
+.headWithMore > .title {
+  grid-column: 1;
+}
+
+.showAll {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: end;
+  /* Area di tocco ampia anche su telefono, senza spostare il titolo. */
+  min-height: 2.25rem;
+  padding-inline: 0.25rem;
+  white-space: nowrap;
+}
+
 /* Fila orizzontale di copertine quadrate (come le altre file della Home). */
 .rail {
   display: grid;

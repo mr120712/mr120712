@@ -78,6 +78,13 @@
 // versione, di solito entro ~30-90 secondi) per l'API del brano, la pagina e i nuovi disegni; le copie già sulla CDN durano di più: la
 // copertina per id fino a ~1 giorno (+ ~1 ora nei browser), la scheda JPEG fino a ~1 giorno più la
 // finestra stale (fino a una settimana). Nessuna delle due contiene l'audio.
+//
+// E raggruppa i brani dichiarati per SEZIONE (cartella dello store, la radice è "In evidenza") per
+// il «Mostra tutti (N)» della Home (pagina /cartella/<id>, regole in featured-sections.server):
+// ogni sezione con almeno un brano dichiarato ha un id opaco, il titolo della Home e i suoi brani
+// DICHIARATI dal più recente (al massimo 500). Un brano non dichiarato non è mai elencato né
+// contato in N; una cartella senza brani dichiarati non ha id (nessun link, 404). Stessa
+// costruzione e stessa cache: nessun elenco dello store in più.
 import 'server-only';
 import { FEATURED_ARTIST_TRACK_LIMIT, type FeaturedArtist } from '@/lib/contracts/featured-artists';
 import type { HomeTrack } from '@/lib/contracts/home-tracks';
@@ -101,10 +108,16 @@ import {
   RIGHTS_MANIFEST_PATHNAME,
   readRightsManifest,
 } from '@/lib/music/featured-rights.server';
+import { isFeaturedSectionId } from '@/lib/music/featured-sections';
+import {
+  type FeaturedSectionGroup,
+  groupFeaturedSections,
+} from '@/lib/music/featured-sections.server';
 import { isFeaturedShareId } from '@/lib/music/featured-share';
 import { featuredShareId, featuredShareSecret } from '@/lib/music/featured-share.server';
 import {
   type HomeStoreFile,
+  homeFoldersFromListing,
   homeTrackCatalogFromListing,
   isPublicBlobUrl,
   lyricsSidecarMatcher,
@@ -145,6 +158,28 @@ export type FeaturedIndex = {
   artists: ReadonlyMap<string, FeaturedArtistGroup<HomeTrack>>;
   /** Link diretti: shareId → brano, SOLO dichiarati (vuota con la condivisione spenta). */
   shares: ReadonlyMap<string, HomeTrack>;
+  /** «Mostra tutti»: id → sezione con i SOLI brani dichiarati della cartella (mai vuota). */
+  sections: ReadonlyMap<string, FeaturedSectionGroup>;
+};
+
+/** Esito della pagina «Mostra tutti» /cartella/<id>. */
+export type FeaturedSectionLookup =
+  | {
+      outcome: 'found';
+      /** root: la radice dello store (in Home «Ascolta ora»). */
+      section: { id: string; title: string; root: boolean };
+      tracks: HomeTrack[];
+    }
+  /** not_found: id malformato, sconosciuto o di una cartella senza brani dichiarati; unavailable:
+   *  Blob non configurato o non leggibile. */
+  | { outcome: 'not_found' | 'unavailable' };
+
+/** Per la Home: il «Mostra tutti (N)» di una sezione (solo con brani dichiarati). */
+export type FeaturedHomeSectionLink = {
+  /** Id della pagina /cartella/<id>. */
+  id: string;
+  /** Quanti brani dichiarati elenca la pagina (sempre > 0). */
+  count: number;
 };
 
 /** Esito del link diretto /evidenza/<shareId>. */
@@ -154,12 +189,20 @@ export type FeaturedShareLookup =
    *  non configurato o non leggibile. */
   | { outcome: 'not_found' | 'unavailable' };
 
-/** Per la Home: gli artisti con brani dichiarati e il link diretto dei brani dichiarati. */
+/**
+ * Per la Home: gli artisti con brani dichiarati, il link diretto dei brani dichiarati e il «Mostra
+ * tutti» delle cartelle con brani dichiarati.
+ */
 export type FeaturedHomeLinks = {
   /** Gli slug degli artisti con ALMENO un brano dichiarato. */
   artists: ReadonlySet<string>;
   /** pathname → shareId, solo per i brani dichiarati. */
   shareIds: ReadonlyMap<string, string>;
+  /**
+   * Chiave della cartella (homeFolderKey: senza maiuscole, '' per la radice) → «Mostra tutti», solo
+   * per le cartelle con almeno un brano dichiarato.
+   */
+  sections: ReadonlyMap<string, FeaturedHomeSectionLink>;
   /** La versione del catalogo per cui è stato costruito l'indice (la Home la confronta con la sua). */
   version: string;
   /**
@@ -209,12 +252,14 @@ export function clearFeaturedSearchCacheForTests() {
 const NO_LYRICS: ReadonlyMap<string, FeaturedLyricsSource> = new Map();
 const NO_ARTISTS: ReadonlyMap<string, FeaturedArtistGroup<HomeTrack>> = new Map();
 const NO_SHARES: ReadonlyMap<string, HomeTrack> = new Map();
+const NO_SECTIONS: ReadonlyMap<string, FeaturedSectionGroup> = new Map();
 const UNAVAILABLE: FeaturedIndex = {
   available: false,
   tracks: [],
   lyrics: NO_LYRICS,
   artists: NO_ARTISTS,
   shares: NO_SHARES,
+  sections: NO_SECTIONS,
 };
 
 /**
@@ -273,6 +318,7 @@ async function buildIndex(token: string, state: FeaturedCatalogState): Promise<B
         lyrics: NO_LYRICS,
         artists: NO_ARTISTS,
         shares: NO_SHARES,
+        sections: NO_SECTIONS,
       },
       ttl: transient ? FAILURE_TTL_MS : HIT_TTL_MS,
       manifestPublic,
@@ -298,6 +344,9 @@ async function buildIndex(token: string, state: FeaturedCatalogState): Promise<B
   );
   // Artisti: SOLO dai brani dichiarati (mai dall'elenco completo dello store).
   const artists = groupFeaturedArtists(tracks);
+  // Sezioni «Mostra tutti»: SOLO i brani dichiarati, per cartella, con i titoli della Home (dallo
+  // stesso elenco condiviso: ordine e doppioni come in Home).
+  const sections = groupFeaturedSections(tracks, homeFoldersFromListing(state.listing));
   // Testi: solo le voci valide con "testo": true di file che esistono davvero nello store.
   const sidecarsFor = lyricsSidecarMatcher(catalog.sidecars);
   const lyrics = new Map<string, FeaturedLyricsSource>();
@@ -315,7 +364,7 @@ async function buildIndex(token: string, state: FeaturedCatalogState): Promise<B
   // (al più MENO brani ricercabili, mai di più) per la finestra normale. Uno store sempre oltre il
   // tetto non rifà così 20 elenchi ogni minuto.
   return {
-    index: { available: true, tracks, lyrics, artists, shares },
+    index: { available: true, tracks, lyrics, artists, shares, sections },
     ttl: HIT_TTL_MS,
     manifestPublic,
   };
@@ -448,8 +497,9 @@ export async function loadFeaturedArtistSlugs(): Promise<ReadonlySet<string> | n
 }
 
 /**
- * Per la Home (che elenca anche brani NON dichiarati): gli artisti con almeno un brano dichiarato e
- * il link diretto dei SOLI brani dichiarati, dallo stesso indice in cache, con la versione del
+ * Per la Home (che elenca anche brani NON dichiarati): gli artisti con almeno un brano dichiarato,
+ * il link diretto dei SOLI brani dichiarati e il «Mostra tutti (N)» delle sole cartelle con brani
+ * dichiarati (N = brani dichiarati), dallo stesso indice in cache, con la versione del
  * catalogo per cui è stato costruito. Con `state` usa quello stato del catalogo (lo stesso elenco
  * della risposta della Home), altrimenti quello attuale. null se l'indice non è disponibile (Blob
  * non configurato o non leggibile): nessun link. Mai throw.
@@ -465,14 +515,47 @@ export async function loadFeaturedHomeLinks(
     if (!index.available) return null;
     const shareIds = new Map<string, string>();
     for (const [shareId, track] of index.shares) shareIds.set(track.id, shareId);
+    const sections = new Map<string, FeaturedHomeSectionLink>();
+    for (const section of index.sections.values()) {
+      if (section.tracks.length > 0) {
+        sections.set(section.key, { id: section.id, count: section.tracks.length });
+      }
+    }
     return {
       artists: new Set(index.artists.keys()),
       shareIds,
+      sections,
       version: entry.version,
       manifestPublic: entry.manifestPublic,
     };
   } catch {
     return null;
+  }
+}
+
+/**
+ * La pagina «Mostra tutti» /cartella/<id>: titolo della sezione (come in Home) e i SOLI brani
+ * dichiarati della cartella, dal più recente (al massimo 500). Un id malformato non tocca
+ * l'indice; un id sconosciuto o di una cartella senza brani dichiarati → 'not_found'. Stesso
+ * indice della ricerca. Mai throw: Blob non configurato o non leggibile → 'unavailable'.
+ */
+export async function getFeaturedSection(sectionId: string): Promise<FeaturedSectionLookup> {
+  if (!isFeaturedSectionId(sectionId)) return { outcome: 'not_found' };
+  const token = env.BLOB_READ_WRITE_TOKEN;
+  if (!token) return { outcome: 'unavailable' };
+  try {
+    const index = await loadIndex(token);
+    const section = index.sections.get(sectionId);
+    if (section && section.tracks.length > 0) {
+      return {
+        outcome: 'found',
+        section: { id: section.id, title: section.title, root: section.key === '' },
+        tracks: section.tracks,
+      };
+    }
+    return { outcome: index.available ? 'not_found' : 'unavailable' };
+  } catch {
+    return { outcome: 'unavailable' };
   }
 }
 

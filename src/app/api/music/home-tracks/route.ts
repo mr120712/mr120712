@@ -2,9 +2,11 @@
 // dall'amministratore direttamente nello store Vercel Blob. Sola lettura, nessun login.
 // Ogni brano porta `artistSlug` (link alla pagina /artista/<slug>) SOLO se il suo artista
 // principale ha almeno un brano con i diritti dichiarati in diritti.json, e `shareId` (link
-// diretto «Condividi» /evidenza/<shareId>) SOLO se il brano stesso è dichiarato: lo dice l'indice in
-// cache della ricerca (featured-search.server), mai un elenco in più a ogni richiesta.
-// Per il resto la Home resta com'è (stessi brani, sezioni e ordine).
+// diretto «Condividi» /evidenza/<shareId>) SOLO se il brano stesso è dichiarato; ogni sezione porta
+// `sectionId` e `declaredCount` («Mostra tutti (N)», pagina /cartella/<sectionId>) SOLO se la sua
+// cartella ha almeno un brano dichiarato (N = brani dichiarati: mai quelli non dichiarati), altrimenti
+// null. Lo dice l'indice in cache della ricerca (featured-search.server), mai un elenco in più a ogni
+// richiesta. Per il resto la Home resta com'è (stessi brani, sezioni, tetti e ordine).
 //
 // Elenco e versione vengono dallo STESSO elenco condiviso dello store (featured-catalog.server,
 // ~30 secondi per istanza): nessuna list() a ogni richiesta, qualunque sia il numero di ascoltatori.
@@ -34,7 +36,7 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { enforceRateLimit, getRateLimitIdentity } from '@/lib/business/rate-limit.server';
-import type { HomeTrack } from '@/lib/contracts/home-tracks';
+import type { HomeTrack, HomeTrackSection } from '@/lib/contracts/home-tracks';
 import { linkDeclaredArtists } from '@/lib/music/featured-artists';
 import {
   type FeaturedCatalogState,
@@ -78,6 +80,18 @@ function withLinks(tracks: readonly HomeTrack[], links: FeaturedHomeLinks | null
     ...track,
     shareId: links?.shareIds.get(track.id) ?? null,
   }));
+}
+
+/**
+ * «Mostra tutti (N)» di una sezione: id della pagina e numero di brani DICHIARATI della cartella,
+ * solo se ce n'è almeno uno; null altrimenti (anche senza indice). La chiave è la cartella senza
+ * maiuscole, come la raggruppa la Home (l'`id` della sezione è la sua grafia più recente).
+ */
+function sectionLink(section: HomeTrackSection, links: FeaturedHomeLinks | null) {
+  const link = links?.sections.get(section.id.toLowerCase());
+  return link && link.count > 0
+    ? { sectionId: link.id, declaredCount: link.count }
+    : { sectionId: null, declaredCount: null };
 }
 
 /** Come può restare in CDN la risposta: per sempre (per versione), un minuto o pochi secondi. */
@@ -142,6 +156,7 @@ export async function GET(request: Request) {
         items: withLinks(items, links),
         sections: sections.map((section) => ({
           ...section,
+          ...sectionLink(section, links),
           items: withLinks(section.items, links),
         })),
         ...(pinning === 'definitive' ? { version: state.version } : {}),

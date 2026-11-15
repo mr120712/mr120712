@@ -1,5 +1,7 @@
 /* @polsia:user-owned — pagina d'artista dei brani in evidenza (/artista/<slug>): copertina a mosaico,
-   nome, azioni e l'elenco dei brani. Stesso linguaggio visivo della playlist condivisa. */
+   nome, azioni e l'elenco dei brani. Stesso linguaggio visivo della playlist condivisa. Riusato
+   dalla pagina «Mostra tutti» di una sezione (/cartella/<id>), che cambia solo la forma della
+   copertina con --hero-cover-radius (qui tonda per l'artista). */
 .page {
   display: grid;
   width: min(100% - 32px, 980px);
@@ -33,9 +35,9 @@
 }
 
 .heroCover {
-  --mosaic-radius: 999px;
+  --mosaic-radius: var(--hero-cover-radius, 999px);
   width: 100%;
-  border-radius: 999px;
+  border-radius: var(--hero-cover-radius, 999px);
   box-shadow: 0 24px 60px color-mix(in srgb, var(--foreground) 16%, transparent);
 }
 
@@ -334,7 +336,7 @@
 .skeletonCover {
   aspect-ratio: 1;
   width: 100%;
-  border-radius: 999px;
+  border-radius: var(--hero-cover-radius, 999px);
 }
 
 .skeletonLine {

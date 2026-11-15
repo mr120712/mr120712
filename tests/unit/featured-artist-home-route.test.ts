@@ -119,16 +119,23 @@ describe('GET /api/music/home-tracks: link all’artista', () => {
       }
     }
 
-    // Tolti artistSlug e shareId (link diretto), identica all'elenco della Home di sempre (brani,
-    // sezioni, ordine).
+    // Tolti artistSlug e shareId (link diretto) dei brani e sectionId/declaredCount («Mostra
+    // tutti») delle sezioni, identica all'elenco della Home di sempre (brani, sezioni, ordine).
     const plain = await listHomeTrackSections();
     const strip = <T extends { artistSlug?: string | null; shareId?: string | null }>({
       artistSlug: _,
       shareId: _share,
       ...rest
     }: T) => rest;
+    const stripSection = <T extends { sectionId?: string | null; declaredCount?: number | null }>({
+      sectionId: _id,
+      declaredCount: _count,
+      ...rest
+    }: T) => rest;
     expect(body.items.map(strip)).toEqual(plain.items);
-    expect(body.sections.map((s) => ({ ...s, items: s.items.map(strip) }))).toEqual(plain.sections);
+    expect(body.sections.map((s) => ({ ...stripSection(s), items: s.items.map(strip) }))).toEqual(
+      plain.sections,
+    );
   });
 
   it('senza diritti.json nessun link (nessun artista ha brani dichiarati)', async () => {

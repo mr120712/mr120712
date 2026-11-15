@@ -4,15 +4,22 @@
 // diritti dichiarati in diritti.json (li filtra il server: GET /api/music/featured/artists/<slug>).
 // La riproduzione è la stessa della Home (playHomeTrack: stesso elemento del player, stesso
 // percorso di streaming, stesse regole). Stati: caricamento, nessun brano, errore con «Riprova».
-// Ogni riga con `shareId` ha accanto il suo «Condividi» (link diretto /evidenza/<id>).
+// Ogni riga con `shareId` ha accanto il suo «Condividi» (link diretto /evidenza/<id>). Elenco,
+// coda, link alla Home e scheletro sono condivisi con la pagina «Mostra tutti» di una sezione
+// (featured-track-list.tsx).
 'use client';
 
-import { ArrowLeft, Mic2, Pause, Play, RotateCcw, Shuffle } from 'lucide-react';
+import { Mic2, Play, RotateCcw, Shuffle } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
-import { FallbackArt } from '@/components/custom/music/fallback-art';
-import { FeaturedShareButton } from '@/components/custom/music/featured-share-button';
-import { homeTrackToTrack, playHomeTrack } from '@/components/custom/music/live-tracks';
+import {
+  FeaturedBackLink,
+  FeaturedListSkeleton,
+  FeaturedTrackList,
+  featuredLoadFailure,
+  playFeaturedQueue,
+  songCount,
+} from '@/components/custom/music/featured-track-list';
 import { useMusicPlayer } from '@/components/custom/music/music-player';
 import { PlaylistMosaic } from '@/components/custom/music/playlist-mosaic';
 import { Button } from '@/components/ui/button';
@@ -23,7 +30,6 @@ import {
   FeaturedArtistResponseSchema,
   featuredArtistApiPath,
 } from '@/lib/contracts/featured-artists';
-import type { HomeTrack } from '@/lib/contracts/home-tracks';
 import { isArtistSlug, shuffledCopy } from '@/lib/music/featured-artists';
 import styles from './featured-artist-view.module.css';
 
@@ -35,76 +41,11 @@ type LoadState =
   /** message: il testo del server per un limite raggiunto (429), se c'è. */
   | { status: 'error'; message: string | null };
 
-/** Quanto serve del player (useMusicPlayer() lo soddisfa): lo stesso di playHomeTrack. */
-type ArtistPlayer = Parameters<typeof playHomeTrack>[0];
-
-/** «Condividi» di una riga: tondo, discreto, grande quanto l'icona di riproduzione. */
-const ROW_SHARE_BUTTON = 'size-9 rounded-full text-muted-foreground hover:text-foreground';
-
-function errorCode(error: unknown) {
-  const cause =
-    error instanceof Error && typeof error.cause === 'object' && error.cause !== null
-      ? (error.cause as { error?: unknown })
-      : null;
-  return typeof cause?.error === 'string' ? cause.error : null;
-}
-
-function errorStatus(error: unknown) {
-  const match = error instanceof Error ? /\((\d{3})\)$/.exec(error.message) : null;
-  return match?.[1] ? Number(match[1]) : null;
-}
-
-function songCount(count: number) {
-  return count === 1 ? '1 brano' : `${count} brani`;
-}
-
 /**
- * «Riproduci tutto» / «Casuale»: la coda dell'artista dal suo primo brano, con playHomeTrack come
- * in Home. Se il primo brano è già quello in corso, playHomeTrack lo metterebbe in pausa: qui
- * invece la coda riparte (stesso elemento e stesso percorso di playHomeTrack).
+ * «Riproduci tutto» / «Casuale» della pagina d'artista: la coda dal primo brano (vedi
+ * playFeaturedQueue, condivisa con la pagina di una sezione).
  */
-export function playArtistQueue(player: ArtistPlayer, queue: readonly HomeTrack[]): void {
-  const [first] = queue;
-  if (!first) return;
-  const track = homeTrackToTrack(first);
-  if (player.currentTrack?.qualifiedId === track.qualifiedId) {
-    void player.playTrack(track, track.streamUrl ?? '', queue.map(homeTrackToTrack));
-    return;
-  }
-  playHomeTrack(player, first, queue);
-}
-
-function BackLink() {
-  return (
-    <Button asChild variant="ghost" size="sm" className={styles.back}>
-      <Link href="/">
-        <ArrowLeft aria-hidden="true" /> Torna alla Home
-      </Link>
-    </Button>
-  );
-}
-
-function LoadingSkeleton() {
-  return (
-    <main className={styles.page} aria-busy="true">
-      <BackLink />
-      <output className="sr-only">Caricamento dell’artista…</output>
-      <div className={styles.hero} aria-hidden="true">
-        <div className={`${styles.skeleton} ${styles.skeletonCover}`} />
-        <div className={styles.heroCopy}>
-          <div className={`${styles.skeleton} ${styles.skeletonLine}`} />
-          <div className={`${styles.skeleton} ${styles.skeletonTitle}`} />
-          <div className={`${styles.skeleton} ${styles.skeletonLine}`} />
-        </div>
-      </div>
-      <div className={styles.tracks} aria-hidden="true">
-        {['a', 'b', 'c', 'd'].map((key) => (
-          <div key={key} className={`${styles.skeleton} ${styles.skeletonRow}`} />
-        ))}
-      </div>
-    </main>
-  );
-}
+export const playArtistQueue = playFeaturedQueue;
 
 export function FeaturedArtistView({ slug }: { slug: string }) {
   const player = useMusicPlayer();
@@ -135,7 +76,7 @@ export function FeaturedArtistView({ slug }: { slug: string }) {
       })
       .catch((error: unknown) => {
         if (!active) return;
-        const gone = errorCode(error) === 'not_found' || errorStatus(error) === 404;
+        const gone = featuredLoadFailure(error) === 'gone';
         setState(
           gone ? { status: 'empty' } : { status: 'error', message: serverLimitMessage(error) },
         );
@@ -145,12 +86,12 @@ export function FeaturedArtistView({ slug }: { slug: string }) {
     };
   }, [slug, attempt]);
 
-  if (state.status === 'loading') return <LoadingSkeleton />;
+  if (state.status === 'loading') return <FeaturedListSkeleton label="Caricamento dell’artista…" />;
 
   if (state.status === 'empty') {
     return (
       <main className={styles.page}>
-        <BackLink />
+        <FeaturedBackLink />
         <section className={styles.state}>
           <Mic2 aria-hidden="true" />
           <h1 ref={headingRef} tabIndex={-1}>
@@ -171,7 +112,7 @@ export function FeaturedArtistView({ slug }: { slug: string }) {
   if (state.status === 'error') {
     return (
       <main className={styles.page}>
-        <BackLink />
+        <FeaturedBackLink />
         <section className={styles.state} role="alert">
           <Mic2 aria-hidden="true" />
           <h1 ref={headingRef} tabIndex={-1}>
@@ -193,14 +134,10 @@ export function FeaturedArtistView({ slug }: { slug: string }) {
   }
 
   const { artist, tracks } = state.data;
-  const nowPlaying =
-    player.status === 'playing'
-      ? tracks.find((track) => player.currentTrack?.qualifiedId === `upload:${track.id}`)
-      : undefined;
 
   return (
     <main className={styles.page}>
-      <BackLink />
+      <FeaturedBackLink />
       <header className={styles.hero}>
         {/* Le copertine dei suoi brani (dal più recente); senza copertine, l'iniziale del nome. */}
         <div className={styles.heroCover}>
@@ -228,78 +165,12 @@ export function FeaturedArtistView({ slug }: { slug: string }) {
         </div>
       </header>
 
-      <section className={styles.listSection} aria-labelledby="artist-tracks-heading">
-        <div className={styles.listHeading}>
-          <h2 id="artist-tracks-heading">Brani</h2>
-          <p>{songCount(tracks.length)}</p>
-        </div>
-        {/* Safari/VoiceOver tolgono la semantica di lista a un elenco con list-style: none. */}
-        {/* biome-ignore lint/a11y/noRedundantRoles: il ruolo esplicito tiene annunciato l'elenco. */}
-        {/* biome-ignore lint/a11y/useSemanticElements: è già un <ol>; il ruolo è la correzione per Safari. */}
-        <ol className={styles.tracks} role="list">
-          {tracks.map((track, index) => {
-            const current = player.currentTrack?.qualifiedId === `upload:${track.id}`;
-            const playing = current && player.status === 'playing';
-            const byline = track.artist ?? artist.name;
-            const label = playing
-              ? `Metti in pausa ${track.title} di ${byline}`
-              : current
-                ? `Riprendi ${track.title} di ${byline}`
-                : `Riproduci ${track.title} di ${byline}`;
-            return (
-              <li
-                key={track.id}
-                className={styles.row}
-                data-current={current ? 'true' : undefined}
-                data-shareable={track.shareId ? 'true' : undefined}
-              >
-                <button
-                  type="button"
-                  className={styles.rowButton}
-                  aria-label={label}
-                  aria-current={current ? 'true' : undefined}
-                  onClick={() => playHomeTrack(player, track, tracks)}
-                >
-                  <span className={styles.index} aria-hidden="true">
-                    {current ? (
-                      <span className={styles.bars} data-playing={playing ? 'true' : undefined}>
-                        <span />
-                        <span />
-                        <span />
-                      </span>
-                    ) : (
-                      String(index + 1).padStart(2, '0')
-                    )}
-                  </span>
-                  <span className={styles.cover}>
-                    <FallbackArt src={track.artworkUrl} label={track.title} size={52} />
-                  </span>
-                  <span className={styles.copy}>
-                    <strong title={track.title}>{track.title}</strong>
-                    <span className={styles.trackArtist} title={byline}>
-                      {byline}
-                    </span>
-                  </span>
-                  <span className={styles.playIcon} aria-hidden="true">
-                    {playing ? <Pause /> : <Play />}
-                  </span>
-                </button>
-                {/* Link diretto «Condividi» (brani dichiarati): accanto alla riga, mai dentro il
-                    pulsante che la suona. */}
-                <FeaturedShareButton
-                  track={track}
-                  className={styles.rowShare}
-                  buttonClassName={ROW_SHARE_BUTTON}
-                />
-              </li>
-            );
-          })}
-        </ol>
-        {/* Lo stato del brano in corso, annunciato quando cambia. */}
-        <output className="sr-only" aria-live="polite">
-          {nowPlaying ? `In riproduzione: ${nowPlaying.title}` : ''}
-        </output>
-      </section>
+      <FeaturedTrackList
+        player={player}
+        tracks={tracks}
+        fallbackArtist={artist.name}
+        headingId="artist-tracks-heading"
+      />
     </main>
   );
 }

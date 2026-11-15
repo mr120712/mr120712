@@ -3,6 +3,7 @@
 // elencati e riprodotti in Home. Non passano dal flusso di upload degli utenti (/pubblica).
 import { z } from 'zod';
 import { ARTIST_SLUG_MAX_LENGTH, ARTIST_SLUG_PATTERN } from '@/lib/music/featured-artists';
+import { FEATURED_SECTION_ID_PATTERN } from '@/lib/music/featured-sections';
 import { FEATURED_SHARE_ID_PATTERN } from '@/lib/music/featured-share';
 
 /** Prefisso del proxy same-origin che serve i brani in evidenza PRIVATI (lettura lato server). */
@@ -64,6 +65,12 @@ export const FeaturedArtistSlugSchema = z
  */
 export const FeaturedShareIdSchema = z.string().regex(FEATURED_SHARE_ID_PATTERN);
 
+/**
+ * Id opaco della pagina «Mostra tutti» di una sezione (/cartella/<id>, vedi featured-sections.ts):
+ * 22 caratteri base64url calcolati dal server, mai il percorso della cartella nello store.
+ */
+export const FeaturedSectionIdSchema = z.string().regex(FEATURED_SECTION_ID_PATTERN);
+
 /** Un brano in evidenza letto dallo store Blob. durationSeconds 0 = sconosciuta (la legge il player). */
 export const HomeTrackSchema = z.object({
   // Il pathname dell'oggetto su Blob: stabile e unico nello store. I pathname di Vercel Blob
@@ -104,6 +111,18 @@ export const HomeTrackSectionSchema = z.object({
   id: z.string().max(1024),
   title: z.string().min(1).max(200),
   items: z.array(HomeTrackSchema),
+  /**
+   * «Mostra tutti»: la pagina /cartella/<sectionId> con i brani della cartella DICHIARATI in
+   * diritti.json (mai quelli non dichiarati), SOLO se ce n'è almeno uno. null o assente = nessun
+   * link (anche dai server meno recenti, che non lo mandano).
+   */
+  sectionId: FeaturedSectionIdSchema.nullable().optional(),
+  /**
+   * Quanti brani dichiarati elenca quella pagina (il numero di «Mostra tutti (N)»). null, assente
+   * o 0 = nessun link. Nessun tetto stretto qui: un numero più alto non deve mai far scartare
+   * l'intera Home a un client meno recente.
+   */
+  declaredCount: z.number().int().nonnegative().max(1_000_000).nullable().optional(),
 });
 export type HomeTrackSection = z.infer<typeof HomeTrackSectionSchema>;
 

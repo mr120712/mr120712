@@ -1,0 +1,7 @@
+/* @polsia:user-owned — pagina «Mostra tutti» di una sezione dei brani in evidenza (/cartella/<id>):
+   riusa gli stili della pagina d'artista (featured-artist-view.module.css) e cambia solo la forma
+   della copertina, quadrata con gli angoli arrotondati come una playlist invece che tonda (anche
+   nello scheletro di caricamento). */
+.page {
+  --hero-cover-radius: calc(var(--radius) * 1.5);
+}

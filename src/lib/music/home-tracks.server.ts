@@ -151,6 +151,14 @@ function directoryOf(pathname: string): string {
   return slash > 0 ? pathname.slice(0, slash) : '';
 }
 
+/**
+ * La chiave della sezione (cartella) di un brano come la raggruppa la Home: la cartella senza
+ * maiuscole ("Rock/…" e "rock/…" sono la stessa sezione), '' per la radice ("In evidenza").
+ */
+export function homeFolderKey(pathname: string): string {
+  return directoryOf(pathname).toLowerCase();
+}
+
 /** Percorso senza estensione: chiave per abbinare brano e immagine con lo stesso nome. */
 function stemKey(pathname: string): string {
   const slash = pathname.lastIndexOf('/');
@@ -234,6 +242,23 @@ export function sectionTitleFromDirectory(directory: string, full = false): stri
     .filter(Boolean)
     .join(' › ');
   return truncateUnits(title, 200).trim() || HOME_TRACKS_DEFAULT_SECTION;
+}
+
+/**
+ * I titoli di cartelle già nell'ordine della Home: il nome dell'ultima cartella, oppure il percorso
+ * completo quando due cartelle avrebbero lo stesso nome (es. "Pop/Novità" e "Rock/Novità") o una si
+ * chiamerebbe come la sezione principale. Un titolo per cartella, nello stesso ordine.
+ */
+export function homeSectionTitles(directories: readonly string[]): string[] {
+  const shortTitles = directories.map((directory) => sectionTitleFromDirectory(directory));
+  return directories.map((directory, index) => {
+    const short = shortTitles[index] ?? HOME_TRACKS_DEFAULT_SECTION;
+    const clashes =
+      directory !== '' &&
+      (short === HOME_TRACKS_DEFAULT_SECTION ||
+        shortTitles.filter((title) => title === short).length > 1);
+    return clashes ? sectionTitleFromDirectory(directory, true) : short;
+  });
 }
 
 type ListedBlob = Awaited<ReturnType<typeof list>>['blobs'][number];
@@ -402,6 +427,60 @@ export async function listHomeTrackSections(): Promise<HomeTracksListing> {
   return homeTrackSectionsFromListing(await collectHomeStore(token));
 }
 
+/** I brani di una cartella come li raggruppa la Home (grafia della cartella dal più recente). */
+type FolderGroup = { key: string; directory: string; newest: number; blobs: ListedBlob[] };
+
+/**
+ * TUTTE le cartelle con brani, nell'ordine della Home: la radice ("In evidenza") sempre prima, poi
+ * le cartelle aggiornate più di recente; in ognuna i brani dal più recente.
+ */
+function orderedFolders(audio: readonly ListedBlob[]): FolderGroup[] {
+  const groups = new Map<string, FolderGroup>();
+  for (const blob of [...audio].sort(newestFirst)) {
+    const directory = directoryOf(blob.pathname);
+    const key = directory.toLowerCase();
+    const group = groups.get(key);
+    if (group) group.blobs.push(blob);
+    else groups.set(key, { key, directory, newest: blob.uploadedAt.getTime(), blobs: [blob] });
+  }
+  return [...groups.values()].sort((a, b) => {
+    if (a.key === '') return -1;
+    if (b.key === '') return 1;
+    return b.newest - a.newest;
+  });
+}
+
+/** Una cartella dello store con il titolo che le dà la Home. */
+export type HomeFolder = {
+  /** La chiave della sezione (homeFolderKey): cartella senza maiuscole, '' per la radice. */
+  key: string;
+  /** La cartella con la grafia del suo brano più recente (l'`id` della sezione in Home). */
+  directory: string;
+  title: string;
+};
+
+/**
+ * Tutte le cartelle con brani dell'elenco, nell'ordine della Home, con lo stesso titolo della Home:
+ * per le prime MAX_SECTIONS (quelle mostrate) i doppioni si contano fra loro come fa la Home; per le
+ * altre (non in Home) fra tutte le cartelle. Nessuna chiamata allo store.
+ */
+export function homeFoldersFromListing(listing: HomeStoreListing): HomeFolder[] {
+  const ordered = orderedFolders(listing.audio);
+  const shownTitles = homeSectionTitles(
+    ordered.slice(0, MAX_SECTIONS).map((group) => group.directory),
+  );
+  const allTitles =
+    ordered.length > MAX_SECTIONS
+      ? homeSectionTitles(ordered.map((group) => group.directory))
+      : shownTitles;
+  return ordered.map((group, index) => ({
+    key: group.key,
+    directory: group.directory,
+    title:
+      (index < MAX_SECTIONS ? shownTitles[index] : allTitles[index]) ?? HOME_TRACKS_DEFAULT_SECTION,
+  }));
+}
+
 /**
  * Le sezioni della Home da un elenco già fatto (vedi listHomeTrackSections): nessuna chiamata allo
  * store. La route della Home lo usa con l'elenco condiviso di featured-catalog.server.
@@ -411,42 +490,20 @@ export function homeTrackSectionsFromListing(listing: HomeStoreListing): HomeTra
   if (audio.length === 0) return { items: [], sections: [] };
   const artworkFor = artworkResolver(images);
 
-  const groups = new Map<string, { directory: string; newest: number; blobs: ListedBlob[] }>();
-  for (const blob of [...audio].sort(newestFirst)) {
-    const directory = directoryOf(blob.pathname);
-    const key = directory.toLowerCase();
-    const group = groups.get(key);
-    if (group) group.blobs.push(blob);
-    else groups.set(key, { directory, newest: blob.uploadedAt.getTime(), blobs: [blob] });
-  }
-
-  const ordered = [...groups.entries()]
-    .sort(([keyA, a], [keyB, b]) => {
-      // La radice ("In evidenza") sempre prima; poi le cartelle aggiornate più di recente.
-      if (keyA === '') return -1;
-      if (keyB === '') return 1;
-      return b.newest - a.newest;
-    })
-    .slice(0, MAX_SECTIONS);
-
+  const ordered = orderedFolders(audio).slice(0, MAX_SECTIONS);
   // Due cartelle con lo stesso nome (es. "Pop/Novità" e "Rock/Novità"), o una chiamata come la
   // sezione principale: si mostra il percorso completo, così i titoli non si ripetono.
-  const shortTitles = ordered.map(([, group]) => sectionTitleFromDirectory(group.directory));
+  const titles = homeSectionTitles(ordered.map((group) => group.directory));
   const sections: HomeTrackSection[] = [];
-  for (const [index, [, group]] of ordered.entries()) {
+  for (const [index, group] of ordered.entries()) {
     const items = group.blobs
       .slice(0, MAX_TRACKS_PER_SECTION)
       .map((blob) => toHomeTrack(blob, artworkFor(blob)))
       .filter((item): item is HomeTrack => item !== null);
     if (items.length === 0) continue;
-    const short = shortTitles[index] ?? HOME_TRACKS_DEFAULT_SECTION;
-    const clashes =
-      group.directory !== '' &&
-      (short === HOME_TRACKS_DEFAULT_SECTION ||
-        shortTitles.filter((title) => title === short).length > 1);
     const parsed = HomeTrackSectionSchema.safeParse({
       id: group.directory,
-      title: clashes ? sectionTitleFromDirectory(group.directory, true) : short,
+      title: titles[index] ?? HOME_TRACKS_DEFAULT_SECTION,
       items,
     });
     if (parsed.success) sections.push(parsed.data);

@@ -5,7 +5,10 @@
 // (/artista/<slug>) solo quando il server manda `artistSlug`, cioè se l'artista ha almeno un brano
 // con i diritti dichiarati: nessun link a una pagina vuota. Un brano DICHIARATO (il server manda
 // `shareId`) ha anche il pulsante «Condividi» (link diretto /evidenza/<id>) sopra la copertina,
-// fuori dal pulsante che lo suona; gli altri nessun pulsante.
+// fuori dal pulsante che lo suona; gli altri nessun pulsante. L'intestazione di una sezione ha il
+// link «Mostra tutti (N)» (pagina /cartella/<sectionId>) SOLO quando il server manda `sectionId` e
+// `declaredCount` > 0: la pagina elenca i soli brani DICHIARATI della cartella (N), mentre la
+// sezione in Home resta com'è (al massimo 24 brani, anche non dichiarati).
 //
 // Aggiornamento automatico (nessun webhook avvisa dei file caricati dal pannello Blob): la sezione
 // chiede al server solo la VERSIONE del catalogo (/api/music/home-tracks/version, in cache sulla
@@ -30,6 +33,7 @@ import { FallbackArt } from '@/components/custom/music/fallback-art';
 import { FeaturedShareButton } from '@/components/custom/music/featured-share-button';
 import { playHomeTrack } from '@/components/custom/music/live-tracks';
 import { useMusicPlayer } from '@/components/custom/music/music-player';
+import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
 import {
   HOME_TRACKS_DEFAULT_SECTION,
@@ -40,6 +44,11 @@ import {
   HomeTracksVersionSchema,
 } from '@/lib/contracts/home-tracks';
 import { featuredArtistPath } from '@/lib/music/featured-artists';
+import {
+  FEATURED_ROOT_SECTION_HEADING,
+  featuredSectionPath,
+  isFeaturedSectionId,
+} from '@/lib/music/featured-sections';
 import styles from './home-tracks-section.module.css';
 
 const LISTING_ENDPOINT = '/api/music/home-tracks';
@@ -55,6 +64,17 @@ export const HOME_TRACKS_REQUEST_TIMEOUT_MS = 10_000;
 /** «Condividi» sopra la copertina: tondo, scuro e leggibile su qualsiasi immagine. */
 const OVERLAY_SHARE_BUTTON =
   'size-8 rounded-full bg-black/55 text-white shadow-md backdrop-blur-sm hover:bg-black/75 hover:text-white focus-visible:ring-2 focus-visible:ring-white';
+
+/**
+ * Il «Mostra tutti (N)» di una sezione: solo con un id valido e almeno un brano dichiarato; null
+ * altrimenti (nessun link: anche dai server meno recenti, che non mandano i campi).
+ */
+export function sectionShowAll(section: HomeTrackSection): { href: string; count: number } | null {
+  const { sectionId, declaredCount } = section;
+  if (!sectionId || !isFeaturedSectionId(sectionId)) return null;
+  if (typeof declaredCount !== 'number' || declaredCount <= 0) return null;
+  return { href: featuredSectionPath(sectionId), count: declaredCount };
+}
 
 /** Sezioni dalla risposta; un server meno recente manda solo `items`: una sezione unica. */
 function sectionsFrom(response: {
@@ -230,6 +250,8 @@ export function HomeTracksSection() {
         const headingId = index === 0 ? 'in-evidenza-heading' : `in-evidenza-heading-${index}`;
         // La radice dello store (id ''), non un titolo: una cartella chiamata "In evidenza" resta sé.
         const isDefault = section.id === '';
+        const heading = isDefault ? FEATURED_ROOT_SECTION_HEADING : section.title;
+        const showAll = sectionShowAll(section);
         return (
           <section
             key={section.id || '__root'}
@@ -237,11 +259,23 @@ export function HomeTracksSection() {
             className={styles.section}
             aria-labelledby={headingId}
           >
-            <div className={styles.head}>
+            <div className={showAll ? `${styles.head} ${styles.headWithMore}` : styles.head}>
               <p className={styles.eyebrow}>{isDefault ? 'IN EVIDENZA' : 'IN EVIDENZA · SOLCO'}</p>
               <h2 id={headingId} className={styles.title}>
-                {isDefault ? 'Ascolta ora' : section.title}
+                {heading}
               </h2>
+              {/* Solo i brani DICHIARATI della cartella (N): l'etichetta accessibile inizia con il
+                  testo visibile e aggiunge la sezione, così più link uguali restano distinguibili. */}
+              {showAll ? (
+                <Button asChild variant="link" size="sm" className={styles.showAll}>
+                  <Link
+                    href={showAll.href}
+                    aria-label={`Mostra tutti (${showAll.count}): ${heading}`}
+                  >
+                    Mostra tutti ({showAll.count})
+                  </Link>
+                </Button>
+              ) : null}
             </div>
             <ul className={styles.rail}>
               {section.items.map((item) => {
