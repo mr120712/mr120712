@@ -449,8 +449,8 @@ export async function readUpTo(
   return out;
 }
 
-/** Il testo del manifest già controllato (dimensione, UTF-8), oppure perché non si può usare. */
-type ManifestTextRead =
+/** Il testo del file già controllato (dimensione, UTF-8), oppure perché non si può usare. */
+export type StoreTextRead =
   | { status: 'text'; text: string }
   | { status: 'missing' | 'oversize' | 'unavailable' }
   | { status: 'invalid'; cause: 'utf8' };
@@ -459,7 +459,8 @@ async function fetchManifestText(
   token: string,
   file: HomeStoreFile,
   deadlineMs: number,
-): Promise<ManifestTextRead> {
+  maxBytes: number,
+): Promise<StoreTextRead> {
   // Pubblico o privato come il file elencato. `useCache: false` vale SOLO per i file privati (l'SDK
   // aggiunge `cache=0` e legge dall'origine, così un manifest aggiornato vale alla ricostruzione
   // successiva dell'indice); un manifest pubblico passa comunque dal CDN di Vercel Blob e una
@@ -473,12 +474,12 @@ async function fetchManifestText(
   if (!result) return { status: 'missing' };
   if (result.statusCode !== 200 || !result.stream) return { status: 'unavailable' };
   const declaredLength = Number(result.headers.get('content-length') ?? '0');
-  if (declaredLength > RIGHTS_MANIFEST_MAX_BYTES) {
+  if (declaredLength > maxBytes) {
     await result.stream.cancel().catch(() => undefined);
     return { status: 'oversize' };
   }
-  const bytes = await readUpTo(result.stream, RIGHTS_MANIFEST_MAX_BYTES + 1);
-  if (bytes.length > RIGHTS_MANIFEST_MAX_BYTES) return { status: 'oversize' };
+  const bytes = await readUpTo(result.stream, maxBytes + 1);
+  if (bytes.length > maxBytes) return { status: 'oversize' };
   try {
     return { status: 'text', text: new TextDecoder('utf-8', { fatal: true }).decode(bytes) };
   } catch {
@@ -487,30 +488,42 @@ async function fetchManifestText(
 }
 
 /**
- * Scarica il testo di diritti.json entro la scadenza: file null → 'missing', oltre 256 KB già
- * dall'elenco → 'oversize' (non si scarica nemmeno), errore di rete o scadenza → 'unavailable'.
- * Mai throw. Usata dalla lettura vera (readRightsManifest) e dalla diagnosi dell'amministratore.
+ * Scarica il testo di un file dello store (diritti.json, titoli.json) entro la scadenza: file null
+ * → 'missing', oltre `maxBytes` già dall'elenco → 'oversize' (non si scarica nemmeno), errore di
+ * rete o scadenza → 'unavailable'. Pubblico o privato come il file elencato (vedi fetchManifestText).
+ * Mai throw. Usata dalla lettura vera (readRightsManifest, readHomeTrackNames) e dalla diagnosi
+ * dell'amministratore.
  */
-async function readManifestText(
+export async function readStoreTextFile(
   token: string,
   file: HomeStoreFile | null,
   deadlineMs: number,
-): Promise<ManifestTextRead> {
+  maxBytes = RIGHTS_MANIFEST_MAX_BYTES,
+): Promise<StoreTextRead> {
   if (!file) return { status: 'missing' };
-  if (file.size > RIGHTS_MANIFEST_MAX_BYTES) return { status: 'oversize' };
+  if (file.size > maxBytes) return { status: 'oversize' };
 
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<ManifestTextRead>((resolve) => {
+  const deadline = new Promise<StoreTextRead>((resolve) => {
     timer = setTimeout(() => resolve({ status: 'unavailable' }), deadlineMs);
   });
-  const work = fetchManifestText(token, file, deadlineMs).catch(
-    (): ManifestTextRead => ({ status: 'unavailable' }),
+  const work = fetchManifestText(token, file, deadlineMs, maxBytes).catch(
+    (): StoreTextRead => ({ status: 'unavailable' }),
   );
   try {
     return await Promise.race([work, deadline]);
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Il testo di diritti.json (vedi readStoreTextFile). */
+function readManifestText(
+  token: string,
+  file: HomeStoreFile | null,
+  deadlineMs: number,
+): Promise<StoreTextRead> {
+  return readStoreTextFile(token, file, deadlineMs, RIGHTS_MANIFEST_MAX_BYTES);
 }
 
 /**

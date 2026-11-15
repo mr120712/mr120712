@@ -41,6 +41,12 @@ import { env } from '@/lib/env';
 import { readFeaturedCatalogGeneration } from '@/lib/music/featured-catalog-generation.server';
 import { RIGHTS_MANIFEST_PATHNAME } from '@/lib/music/featured-rights.server';
 import {
+  EMPTY_HOME_TRACK_NAMES,
+  type HomeTrackNames,
+  TITLES_MANIFEST_PATHNAME,
+} from '@/lib/music/home-track-names';
+import { readHomeTrackNames } from '@/lib/music/home-track-names.server';
+import {
   collectHomeStore,
   EMPTY_HOME_STORE_LISTING,
   type HomeStoreListing,
@@ -54,8 +60,11 @@ export const CATALOG_STALE_GRACE_MS = 60_000;
 export const CAPPED_CATALOG_TTL_MS = 5 * 60_000;
 /** Cambia se cambia la forma delle risposte per versione (le vecchie copie in CDN non valgono più). */
 const CATALOG_FORMAT = 'solco-featured-1';
-/** Gli oggetti chiesti per nome nello stesso elenco: il manifest dei diritti. */
-const WANTED_FILES: ReadonlySet<string> = new Set([RIGHTS_MANIFEST_PATHNAME]);
+/** Gli oggetti chiesti per nome nello stesso elenco: i manifest dei diritti e dei titoli. */
+const WANTED_FILES: ReadonlySet<string> = new Set([
+  RIGHTS_MANIFEST_PATHNAME,
+  TITLES_MANIFEST_PATHNAME,
+]);
 
 /** Formato della versione: 16 cifre esadecimali minuscole. */
 export const CATALOG_VERSION_PATTERN = /^[0-9a-f]{16}$/;
@@ -90,11 +99,18 @@ export type FeaturedCatalogState = {
   seq: number;
   /** L'elenco condiviso (mai public-uploads/). */
   listing: HomeStoreListing;
+  /**
+   * Titoli e artisti personalizzati (titoli.json, letto insieme all'elenco; vuoto se il file non
+   * c'è o non è valido). null = non leggibile in questo momento (errore di rete o scadenza): la
+   * Home non pubblica il contenuto come definitivo e si riprova con l'elenco successivo.
+   */
+  names: HomeTrackNames | null;
 };
 
 type Content = {
   seq: number;
   listing: HomeStoreListing;
+  names: HomeTrackNames | null;
   fingerprint: string;
   generation: number;
   /** Quando questo contenuto è comparso (ms). */
@@ -190,8 +206,42 @@ export function keepAliveAfterResponse(task: Promise<unknown>) {
   }
 }
 
+/**
+ * I titoli personalizzati per un elenco riuscito: titoli.json letto dallo store (vuoto se manca,
+ * non è valido o è troppo grande: stati stabili), null se la lettura non è riuscita ora.
+ */
+async function namesFor(
+  token: string,
+  file: HomeStoreListing['named'][number],
+): Promise<HomeTrackNames | null> {
+  try {
+    const read = await readHomeTrackNames(token, {
+      pathname: file.pathname,
+      url: file.url,
+      size: file.size,
+      uploadedAt: file.uploadedAt,
+    });
+    if (read.status === 'ok') return read.names;
+    if (read.status === 'unavailable') return null;
+    if (read.status !== 'missing') {
+      // biome-ignore lint/suspicious/noConsole: avviso del server (solo lo stato del file, mai dati).
+      console.warn(
+        `[solco] ${TITLES_MANIFEST_PATHNAME} ${read.status === 'oversize' ? 'oltre 256 KB' : 'non valido'}: titoli e artisti dal nome del file`,
+      );
+    }
+    return EMPTY_HOME_TRACK_NAMES;
+  } catch {
+    return null;
+  }
+}
+
 /** Applica l'esito di un elenco alla cache e restituisce lo stato da usare. */
-function settle(seq: number, generation: number, listing: HomeStoreListing): Snapshot {
+function settle(
+  seq: number,
+  generation: number,
+  listing: HomeStoreListing,
+  names: HomeTrackNames | null,
+): Snapshot {
   const now = Date.now();
   const current = snapshot;
   // Un elenco partito prima di uno già concluso arriva tardi: non tocca la cache.
@@ -204,11 +254,13 @@ function settle(seq: number, generation: number, listing: HomeStoreListing): Sna
     const same =
       current?.content.good === true &&
       current.content.fingerprint === fingerprint &&
-      current.content.generation === generation;
+      current.content.generation === generation &&
+      // titoli.json letto ora dopo una lettura fallita: contenuto nuovo (l'indice lo rifà).
+      (current.content.names !== null || names === null);
     // Stessa versione: si tiene il contenuto (e il suo `seq`), così l'indice non si ricostruisce.
     const content: Content = same
       ? current.content
-      : { seq, listing, fingerprint, generation, since: now, good: true };
+      : { seq, listing, names, fingerprint, generation, since: now, good: true };
     snapshot = { content, checkedAt: now, listedAt: now, attemptedGeneration, stale: false };
     return snapshot;
   }
@@ -223,6 +275,7 @@ function settle(seq: number, generation: number, listing: HomeStoreListing): Sna
     content: {
       seq,
       listing,
+      names,
       fingerprint: homeStoreFingerprint(listing),
       generation,
       since: now,
@@ -244,31 +297,45 @@ function refresh(token: string, generation: number): Promise<Snapshot> {
   const promise: Promise<Snapshot> = collectHomeStore(token, WANTED_FILES)
     .catch((): HomeStoreListing => ({ ...EMPTY_HOME_STORE_LISTING, complete: false, failed: true }))
     .then((listing) => {
-      if (started !== epoch) {
-        // Cache svuotata nel frattempo: l'esito vale solo per chi lo aspettava.
-        const fingerprint = homeStoreFingerprint(listing);
-        return {
-          content: {
-            seq,
-            listing,
-            fingerprint,
-            generation,
-            since: Date.now(),
-            good: !listing.failed,
-          },
-          checkedAt: Date.now(),
-          listedAt: listing.failed ? 0 : Date.now(),
-          attemptedGeneration: generation,
-          stale: listing.failed,
-        };
-      }
-      return settle(seq, generation, listing);
+      // titoli.json si legge solo con un elenco riuscito (con uno fallito non si sa se c'è) e solo
+      // se c'è: senza, l'esito si applica subito, con gli stessi passaggi di prima.
+      if (listing.failed) return finish(listing, null);
+      const file = listing.named.find((blob) => blob.pathname === TITLES_MANIFEST_PATHNAME);
+      if (!file) return finish(listing, EMPTY_HOME_TRACK_NAMES);
+      return namesFor(token, file).then(
+        (names) => finish(listing, names),
+        () => finish(listing, null),
+      );
     })
     .finally(() => {
       if (refreshing?.promise === promise) refreshing = null;
     });
   refreshing = { promise, generation };
   return promise;
+
+  /** L'esito dell'elenco (con i titoli personalizzati letti, o null) applicato alla cache. */
+  function finish(listing: HomeStoreListing, names: HomeTrackNames | null): Snapshot {
+    if (started !== epoch) {
+      // Cache svuotata nel frattempo: l'esito vale solo per chi lo aspettava.
+      const fingerprint = homeStoreFingerprint(listing);
+      return {
+        content: {
+          seq,
+          listing,
+          names,
+          fingerprint,
+          generation,
+          since: Date.now(),
+          good: !listing.failed,
+        },
+        checkedAt: Date.now(),
+        listedAt: listing.failed ? 0 : Date.now(),
+        attemptedGeneration: generation,
+        stale: listing.failed,
+      };
+    }
+    return settle(seq, generation, listing, names);
+  }
 }
 
 async function loadSnapshot(
@@ -305,6 +372,7 @@ function stateOf(current: Snapshot, generationKnown: boolean): FeaturedCatalogSt
     generation: content.generation,
     seq: content.seq,
     listing: content.listing,
+    names: content.names,
   };
 }
 
@@ -335,6 +403,7 @@ export async function loadFeaturedCatalogState(
       generation,
       seq: 0,
       listing: EMPTY_HOME_STORE_LISTING,
+      names: EMPTY_HOME_TRACK_NAMES,
     };
   }
   return stateOf(await loadSnapshot(token, generation, options.allowStale !== false), known);

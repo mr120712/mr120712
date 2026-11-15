@@ -26,6 +26,7 @@ import {
   HomeTrackSectionSchema,
 } from '@/lib/contracts/home-tracks';
 import { env } from '@/lib/env';
+import { applyHomeTrackNames, type HomeTrackNames } from '@/lib/music/home-track-names';
 
 /** Prefisso usato dagli upload degli utenti: va ESCLUSO dai brani in evidenza della Home. */
 const USER_UPLOAD_PREFIX = 'public-uploads/';
@@ -483,9 +484,13 @@ export function homeFoldersFromListing(listing: HomeStoreListing): HomeFolder[] 
 
 /**
  * Le sezioni della Home da un elenco già fatto (vedi listHomeTrackSections): nessuna chiamata allo
- * store. La route della Home lo usa con l'elenco condiviso di featured-catalog.server.
+ * store. La route della Home lo usa con l'elenco condiviso di featured-catalog.server. `names`: i
+ * titoli e artisti personalizzati di titoli.json (home-track-names), applicati a ogni brano.
  */
-export function homeTrackSectionsFromListing(listing: HomeStoreListing): HomeTracksListing {
+export function homeTrackSectionsFromListing(
+  listing: HomeStoreListing,
+  names?: HomeTrackNames | null,
+): HomeTracksListing {
   const { audio, images } = listing;
   if (audio.length === 0) return { items: [], sections: [] };
   const artworkFor = artworkResolver(images);
@@ -496,10 +501,13 @@ export function homeTrackSectionsFromListing(listing: HomeStoreListing): HomeTra
   const titles = homeSectionTitles(ordered.map((group) => group.directory));
   const sections: HomeTrackSection[] = [];
   for (const [index, group] of ordered.entries()) {
-    const items = group.blobs
-      .slice(0, MAX_TRACKS_PER_SECTION)
-      .map((blob) => toHomeTrack(blob, artworkFor(blob)))
-      .filter((item): item is HomeTrack => item !== null);
+    const items = applyHomeTrackNames(
+      group.blobs
+        .slice(0, MAX_TRACKS_PER_SECTION)
+        .map((blob) => toHomeTrack(blob, artworkFor(blob)))
+        .filter((item): item is HomeTrack => item !== null),
+      names,
+    );
     if (items.length === 0) continue;
     const parsed = HomeTrackSectionSchema.safeParse({
       id: group.directory,
@@ -557,20 +565,25 @@ export async function listHomeTrackCatalog(
 
 /**
  * Il catalogo completo da un elenco già fatto (vedi listHomeTrackCatalog): nessuna chiamata allo
- * store. `files` filtra gli oggetti chiesti per nome fra quelli che l'elenco ha raccolto.
+ * store. `files` filtra gli oggetti chiesti per nome fra quelli che l'elenco ha raccolto; `names`
+ * sono i titoli e artisti personalizzati di titoli.json (home-track-names).
  */
 export function homeTrackCatalogFromListing(
   listing: HomeStoreListing,
   files: readonly string[] = [],
+  names?: HomeTrackNames | null,
 ): HomeTrackCatalog {
   const { audio, images, sidecars, complete } = listing;
   const wanted = new Set(files);
   const named = listing.named.filter((blob) => wanted.has(blob.pathname));
   const artworkFor = artworkResolver(images);
-  const tracks = [...audio]
-    .sort(newestFirst)
-    .map((blob) => toHomeTrack(blob, artworkFor(blob)))
-    .filter((item): item is HomeTrack => item !== null);
+  const tracks = applyHomeTrackNames(
+    [...audio]
+      .sort(newestFirst)
+      .map((blob) => toHomeTrack(blob, artworkFor(blob)))
+      .filter((item): item is HomeTrack => item !== null),
+    names,
+  );
   const found = new Map<string, HomeStoreFile>();
   for (const blob of named) found.set(blob.pathname, storeFile(blob));
   const audioSizes = new Map(audio.map((blob) => [blob.pathname, blob.size] as const));

@@ -84,11 +84,20 @@ const BASE = [
 let storeBlobs = BASE;
 let manifestText = manifest([DECLARED]);
 
+/** Il testo di titoli.json servito da get() (null = get() fallisce per quel file). */
+let titlesText: string | null = JSON.stringify({ versione: 1, brani: [] });
+
 function serveStore(blobs = BASE, text = manifest([DECLARED])) {
   storeBlobs = blobs;
   manifestText = text;
   mocks.list.mockImplementation(async () => ({ blobs: storeBlobs, hasMore: false }));
-  mocks.get.mockImplementation(async () => storedText(manifestText));
+  mocks.get.mockImplementation(async (pathname: string) => {
+    if (pathname === 'titoli.json') {
+      if (titlesText === null) throw new Error('store non raggiungibile');
+      return storedText(titlesText);
+    }
+    return storedText(manifestText);
+  });
 }
 
 const T0 = new Date('2026-11-15T10:00:00.000Z').getTime();
@@ -102,6 +111,7 @@ beforeEach(() => {
   mocks.upsert.mockReset();
   mocks.token = 'tok_test';
   mocks.databaseUrl = undefined;
+  titlesText = JSON.stringify({ versione: 1, brani: [] });
   clearFeaturedSearchCacheForTests();
   vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 });
@@ -113,7 +123,7 @@ afterEach(() => {
 
 async function listingOf(blobs: ReturnType<typeof blob>[]) {
   mocks.list.mockResolvedValueOnce({ blobs, hasMore: false });
-  return collectHomeStore('tok_test', new Set(['diritti.json']));
+  return collectHomeStore('tok_test', new Set(['diritti.json', 'titoli.json']));
 }
 
 describe('impronta del catalogo', () => {
@@ -440,5 +450,94 @@ describe('l’indice della ricerca segue la versione', () => {
       await searchFeaturedTracks('caruso');
     }
     expect(mocks.get).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('titoli.json: titoli e artisti personalizzati', () => {
+  const WITH_TITLES = [...BASE, blob('titoli.json', '2026-10-05T00:00:00.000Z', 300)];
+  const titles = (brani: unknown[]) => JSON.stringify({ versione: 1, brani });
+
+  it('la Home e la ricerca mostrano i nomi di titoli.json; i diritti non cambiano', async () => {
+    titlesText = titles([
+      { file: DECLARED, titolo: 'Caruso (dal vivo)', artista: 'Lucio Dalla' },
+      { file: 'Download/Artista - Hit.mp3', titolo: 'La hit', artista: '' },
+    ]);
+    serveStore(WITH_TITLES);
+    const state = await loadFeaturedCatalogState();
+    expect(state.names?.size).toBe(2);
+    const home = await homeGET(
+      new Request(`https://solco.test/api/music/home-tracks?v=${state.version}`),
+    );
+    const body = HomeTracksResponseSchema.parse(await home.json());
+    expect(body.version).toBe(state.version);
+    const byId = new Map(body.items.map((item) => [item.id, item]));
+    expect(byId.get(DECLARED)?.title).toBe('Caruso (dal vivo)');
+    expect(byId.get(DECLARED)?.artist).toBe('Lucio Dalla');
+    expect(byId.get('Download/Artista - Hit.mp3')?.title).toBe('La hit');
+    expect(byId.get('Download/Artista - Hit.mp3')?.artist).toBeNull();
+    // Il brano dichiarato si cerca anche col titolo nuovo; quello non dichiarato resta fuori.
+    expect((await searchFeaturedTracks('dal vivo')).tracks.map((t) => t.title)).toEqual([
+      'Caruso (dal vivo)',
+    ]);
+    expect((await searchFeaturedTracks('la hit')).tracks).toHaveLength(0);
+    // Un solo elenco, due letture (diritti.json e titoli.json).
+    expect(mocks.list).toHaveBeenCalledTimes(1);
+    expect(mocks.get).toHaveBeenCalledTimes(2);
+  });
+
+  it('senza titoli.json (o con un file non valido) i nomi vengono dal file, con la versione', async () => {
+    serveStore();
+    const plain = await loadFeaturedCatalogState();
+    expect(plain.names?.size).toBe(0);
+    const home = await homeGET(
+      new Request(`https://solco.test/api/music/home-tracks?v=${plain.version}`),
+    );
+    const body = HomeTracksResponseSchema.parse(await home.json());
+    expect(body.version).toBe(plain.version);
+    expect(body.items.find((item) => item.id === DECLARED)?.title).toBe('Caruso');
+
+    titlesText = '{ non è json';
+    serveStore(WITH_TITLES);
+    vi.setSystemTime(T0 + 60_000);
+    const broken = await loadFeaturedCatalogState({ allowStale: false });
+    expect(broken.names?.size).toBe(0);
+    expect(broken.version).not.toBe(plain.version);
+  });
+
+  it('titoli.json cambia → cambia la versione del catalogo', async () => {
+    const before = homeStoreFingerprint(await listingOf(BASE));
+    const after = homeStoreFingerprint(await listingOf(WITH_TITLES));
+    const replaced = homeStoreFingerprint(
+      await listingOf([...BASE, blob('titoli.json', '2026-10-06T00:00:00.000Z', 300)]),
+    );
+    expect(after).not.toBe(before);
+    expect(replaced).not.toBe(after);
+  });
+
+  it('titoli.json non leggibile ora: Home provvisoria (niente versione, cache breve), poi rientra', async () => {
+    titlesText = null;
+    serveStore(WITH_TITLES);
+    const state = await loadFeaturedCatalogState();
+    expect(state.names).toBeNull();
+    const home = await homeGET(
+      new Request(`https://solco.test/api/music/home-tracks?v=${state.version}`),
+    );
+    const body = HomeTracksResponseSchema.parse(await home.json());
+    expect(body.version).toBeUndefined();
+    expect(home.headers.get('Cache-Control')).toBe('public, max-age=0, s-maxage=5');
+    expect(body.items.find((item) => item.id === DECLARED)?.title).toBe('Caruso');
+
+    // Elenco successivo con il file leggibile: stessa versione, nomi applicati, risposta definitiva.
+    titlesText = titles([{ file: DECLARED, titolo: 'Caruso (dal vivo)' }]);
+    vi.setSystemTime(T0 + 60_000);
+    const next = await loadFeaturedCatalogState({ allowStale: false });
+    expect(next.version).toBe(state.version);
+    expect(next.names?.size).toBe(1);
+    const fixed = await homeGET(
+      new Request(`https://solco.test/api/music/home-tracks?v=${next.version}`),
+    );
+    const fixedBody = HomeTracksResponseSchema.parse(await fixed.json());
+    expect(fixedBody.version).toBe(next.version);
+    expect(fixedBody.items.find((item) => item.id === DECLARED)?.title).toBe('Caruso (dal vivo)');
   });
 });

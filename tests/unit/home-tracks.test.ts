@@ -17,6 +17,9 @@ vi.mock('@/lib/env', () => ({
 }));
 
 import {
+  collectHomeStore,
+  homeTrackCatalogFromListing,
+  homeTrackSectionsFromListing,
   isHomeAudioBlob,
   isHomeImageBlob,
   isHomeTracksConfigured,
@@ -331,5 +334,34 @@ describe('listHomeTrackCatalog (ricerca globale)', () => {
 
     mocks.token = undefined;
     expect(await listHomeTrackCatalog()).toBeNull();
+  });
+});
+
+describe('titoli e artisti personalizzati (titoli.json)', () => {
+  it('sezioni e catalogo con i nomi del manifest; senza voce, il nome dal file', async () => {
+    mocks.list.mockResolvedValueOnce(
+      page([
+        blob('spotifydown.com - Aura..mp3', `${PUBLIC}/aura.mp3`, '2026-03-01T00:00:00.000Z'),
+        blob('Rock/Band - Hit.mp3', `${PUBLIC}/Rock/hit.mp3`, '2026-02-01T00:00:00.000Z'),
+      ]),
+    );
+    const listing = await collectHomeStore('tok_test');
+    const names = new Map([
+      ['spotifydown.com - Aura..mp3', { title: 'Aura', artist: 'Nome artista' }],
+      ['Rock/Band - Hit.mp3', { artist: null }],
+    ]);
+    const { items, sections } = homeTrackSectionsFromListing(listing, names);
+    expect(items.map((item) => [item.title, item.artist])).toEqual([
+      ['Aura', 'Nome artista'],
+      ['Hit', null],
+    ]);
+    expect(sections.map((section) => section.items[0]?.title)).toEqual(['Aura', 'Hit']);
+    const catalog = homeTrackCatalogFromListing(listing, [], names);
+    expect(catalog.tracks.map((track) => track.artist)).toEqual(['Nome artista', null]);
+    // Senza nomi: come sempre.
+    expect(homeTrackSectionsFromListing(listing).items.map((item) => item.artist)).toEqual([
+      'Spotifydown.com',
+      'Band',
+    ]);
   });
 });

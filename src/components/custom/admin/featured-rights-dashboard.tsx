@@ -590,6 +590,15 @@ const MANIFEST_EXAMPLE = `{
   ]
 }`;
 
+const TITLES_EXAMPLE = `{
+  "versione": 1,
+  "brani": [
+    { "file": "spotifydown.com - Aura..mp3", "titolo": "Aura", "artista": "Nome artista" },
+    { "file": "Strumentale - Pioggia.mp3", "titolo": "Pioggia" },
+    { "file": "Demo 01.mp3", "artista": "" }
+  ]
+}`;
+
 function GuidePanel({ defaultOpen }: { defaultOpen: boolean }) {
   return (
     <Panel
@@ -670,6 +679,43 @@ function GuidePanel({ defaultOpen }: { defaultOpen: boolean }) {
             <p>
               <strong>Non dichiarare</strong> brani scaricati da siti che copiano Spotify o comunque
               senza licenza: una voce in diritti.json afferma che ne hai i diritti.
+            </p>
+          </div>
+        </div>
+      </details>
+      <details className={styles.guide}>
+        <summary>Titoli e artisti nella Home (titoli.json)</summary>
+        <div className={styles.guideBody}>
+          <p>
+            Di norma titolo e artista vengono dal nome del file («Artista - Titolo.mp3»). Per
+            mostrarne altri, carica nella <strong>radice</strong> dello store un file chiamato
+            esattamente <code>titoli.json</code> (UTF-8, al massimo 256 KB, come{' '}
+            <strong>privato</strong>):
+          </p>
+          <pre className={styles.example}>
+            <code>{TITLES_EXAMPLE}</code>
+          </pre>
+          <ul>
+            <li>
+              <code>"file"</code>: il percorso <strong>esatto</strong> del file (usa “Copia
+              percorso” qui sotto); una voce per un file che non c’è viene ignorata.
+            </li>
+            <li>
+              <code>"titolo"</code> e <code>"artista"</code>: facoltativi (almeno uno), al massimo
+              200 caratteri; <code>"artista": ""</code> non mostra nessun artista. Gli altri campi
+              di una voce vengono ignorati; con due voci per lo stesso file vale la prima.
+            </li>
+            <li>
+              Vale in Home, nelle sezioni e, per i soli brani dichiarati in diritti.json, nella
+              ricerca e nelle pagine artista. Si aggiorna con la versione del catalogo (di solito
+              entro un minuto).
+            </li>
+          </ul>
+          <div className={styles.warning}>
+            <TriangleAlert aria-hidden="true" />
+            <p>
+              <strong>Non cambia i diritti</strong>: un brano non dichiarato in diritti.json resta
+              fuori dalla ricerca anche con un titolo personalizzato.
             </p>
           </div>
         </div>

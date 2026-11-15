@@ -430,9 +430,13 @@ describe('pagina diritti e testi: filtri, ricerca e copia', () => {
     for (const text of buttons) {
       expect(text).not.toMatch(/dichiara tutt|genera|aggiungi a diritti|copia voce|copia json/i);
     }
-    // L'unico JSON mostrato è l'esempio fisso della guida, non voci costruite dai brani dello store.
-    expect(container.querySelectorAll('pre')).toHaveLength(1);
-    expect(container.querySelector('pre')?.textContent).not.toContain('Ignoto - Copiato');
+    // I soli JSON mostrati sono i due esempi fissi della guida (diritti.json e titoli.json), non
+    // voci costruite dai brani dello store.
+    const examples = [...container.querySelectorAll('pre')];
+    expect(examples).toHaveLength(2);
+    for (const example of examples) {
+      expect(example.textContent).not.toContain('Ignoto - Copiato');
+    }
   });
 
   it('"Mostra altri" quando i brani sono più di 50', async () => {

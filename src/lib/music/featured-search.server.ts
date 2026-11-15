@@ -335,7 +335,11 @@ type BuiltIndex = { index: FeaturedIndex; ttl: number; manifestPublic?: boolean 
 async function buildIndex(token: string, state: FeaturedCatalogState): Promise<BuiltIndex> {
   // L'elenco CONDIVISO dello store (brani, copertine e manifest): nessuna list() in più qui.
   if (!state.configured) return { index: UNAVAILABLE, ttl: FAILURE_TTL_MS };
-  const catalog = homeTrackCatalogFromListing(state.listing, [RIGHTS_MANIFEST_PATHNAME]);
+  const catalog = homeTrackCatalogFromListing(
+    state.listing,
+    [RIGHTS_MANIFEST_PATHNAME],
+    state.names,
+  );
 
   const manifestFile = catalog.files.get(RIGHTS_MANIFEST_PATHNAME) ?? null;
   // Elenco interrotto prima di trovare il manifest: non si sa se c'è → non leggibile, non "assente".
@@ -716,7 +720,11 @@ export async function resolveFeaturedOfflineDownload(
 
     // Ricontrollo sul manifest ATTUALE: stesso elenco dell'indice (brani e diritti.json), ma il
     // contenuto di diritti.json riletto adesso dallo store.
-    const catalog = homeTrackCatalogFromListing(state.listing, [RIGHTS_MANIFEST_PATHNAME]);
+    const catalog = homeTrackCatalogFromListing(
+      state.listing,
+      [RIGHTS_MANIFEST_PATHNAME],
+      state.names,
+    );
     const manifestFile = catalog.files.get(RIGHTS_MANIFEST_PATHNAME) ?? null;
     if (!manifestFile && !catalog.complete) return { outcome: 'unavailable' };
     const rights = await readRightsManifest(token, manifestFile);

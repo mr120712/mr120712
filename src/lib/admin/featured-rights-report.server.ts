@@ -45,6 +45,8 @@ import {
   RIGHTS_MANIFEST_PATHNAME,
 } from '@/lib/music/featured-rights.server';
 import type { FeaturedLyricsSource } from '@/lib/music/featured-search.server';
+import { applyHomeTrackNames, TITLES_MANIFEST_PATHNAME } from '@/lib/music/home-track-names';
+import { readHomeTrackNames } from '@/lib/music/home-track-names.server';
 import {
   type HomeStoreFile,
   type HomeTrackCatalog,
@@ -98,9 +100,19 @@ async function loadListing(): Promise<ListingSnapshot | null> {
     const started = generation;
     const current: Promise<ListingSnapshot | null> = listHomeTrackCatalog([
       RIGHTS_MANIFEST_PATHNAME,
+      TITLES_MANIFEST_PATHNAME,
     ])
-      .then((catalog) => {
-        if (!catalog) return null;
+      .then(async (listed) => {
+        if (!listed) return null;
+        // Titoli e artisti personalizzati (titoli.json), come li mostra la Home.
+        const token = env.BLOB_READ_WRITE_TOKEN;
+        const names = token
+          ? await readHomeTrackNames(token, listed.files.get(TITLES_MANIFEST_PATHNAME) ?? null)
+          : null;
+        const catalog =
+          names?.status === 'ok'
+            ? { ...listed, tracks: applyHomeTrackNames(listed.tracks, names.names) }
+            : listed;
         const snapshot = { catalog, listedAt: new Date() };
         if (started === generation) {
           const ttl = catalog.complete ? LISTING_TTL_MS : PARTIAL_LISTING_TTL_MS;

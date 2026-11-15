@@ -144,7 +144,8 @@ export async function GET(request: Request) {
     // Parte subito, in parallelo: loadFeaturedHomeLinks non fa mai throw. Stesso stato del
     // catalogo della risposta, così link ed elenco vengono dallo stesso elenco dello store.
     const declaredLinks = loadFeaturedHomeLinks(state);
-    const { items, sections } = homeTrackSectionsFromListing(state.listing);
+    // Con i titoli e artisti personalizzati di titoli.json (null = non leggibili ora: provvisorio).
+    const { items, sections } = homeTrackSectionsFromListing(state.listing, state.names);
     const links = items.length > 0 ? await withinGrace(declaredLinks, ARTIST_INDEX_GRACE_MS) : null;
     // Pronto: elenco non degradato, contatore «Aggiorna ora» noto e (se ci sono brani) link
     // costruiti per QUESTA versione.
@@ -152,6 +153,7 @@ export async function GET(request: Request) {
       !state.stale &&
       !state.degraded &&
       state.generationKnown &&
+      state.names !== null &&
       (items.length === 0 || links?.version === state.version);
     // Definitivo (cache lunga, `version` nel corpo) solo se i link non possono cambiare a versione
     // invariata: con diritti.json pubblico possono (copia precedente dal CDN di Vercel Blob).
