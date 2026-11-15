@@ -56,6 +56,8 @@ export type LandingMessages = {
   note: { before: string; strong: string; after: string };
   /** Avviso che l'app (dopo l'accesso) è in italiano; vuoto per l'italiano. */
   appLanguageNote: string;
+  /** Link «Come funziona?» alla guida per chi inizia (/guida, solo in italiano: le altre lingue lo dicono). */
+  guideLink: string;
   /**
    * Contatore pubblico degli iscritti sotto i pulsanti. `label` segue il numero grande ("12.345
    * iscritti a Solco"); `recent` sono i nuovi negli ultimi 7 giorni, `{n}` è il numero formattato.
@@ -104,6 +106,7 @@ const it: LandingMessages = {
     after: '. Puoi disdire quando vuoi.',
   },
   appLanguageNote: '',
+  guideLink: 'Come funziona? Leggi la guida',
   signups: {
     label: { one: 'iscritto a Solco', other: 'iscritti a Solco' },
     recent: { one: '+{n} nuovo negli ultimi 7 giorni', other: '+{n} nuovi negli ultimi 7 giorni' },
@@ -160,6 +163,7 @@ const en: LandingMessages = {
     after: '. Cancel anytime.',
   },
   appLanguageNote: 'The app itself is in Italian for now.',
+  guideLink: 'How it works (guide in Italian)',
   signups: {
     label: { one: 'person on Solco', other: 'people on Solco' },
     recent: { one: '+{n} new in the last 7 days', other: '+{n} new in the last 7 days' },
@@ -224,6 +228,7 @@ const es: LandingMessages = {
     after: '. Puedes cancelar cuando quieras.',
   },
   appLanguageNote: 'Por ahora, la app está en italiano.',
+  guideLink: 'Cómo funciona (guía en italiano)',
   signups: {
     label: { one: 'persona en Solco', other: 'personas en Solco' },
     recent: { one: '+{n} en los últimos 7 días', other: '+{n} en los últimos 7 días' },
@@ -288,6 +293,7 @@ const fr: LandingMessages = {
     after: '. Résiliable à tout moment.',
   },
   appLanguageNote: 'Pour l’instant, l’application est en italien.',
+  guideLink: 'Comment ça marche (guide en italien)',
   signups: {
     label: { one: 'inscrit sur Solco', other: 'inscrits sur Solco' },
     recent: {
@@ -347,6 +353,7 @@ const de: LandingMessages = {
     after: '. Jederzeit kündbar.',
   },
   appLanguageNote: 'Die App selbst ist vorerst auf Italienisch.',
+  guideLink: 'So funktioniert’s (Anleitung auf Italienisch)',
   signups: {
     label: { one: 'Mitglied bei Solco', other: 'Mitglieder bei Solco' },
     recent: { one: '+{n} neues in den letzten 7 Tagen', other: '+{n} neue in den letzten 7 Tagen' },
@@ -415,6 +422,7 @@ const pt: LandingMessages = {
     after: '. Cancele quando quiser.',
   },
   appLanguageNote: 'Por enquanto, o app está em italiano.',
+  guideLink: 'Como funciona (guia em italiano)',
   signups: {
     label: { one: 'pessoa no Solco', other: 'pessoas no Solco' },
     recent: { one: '+{n} nos últimos 7 dias', other: '+{n} nos últimos 7 dias' },

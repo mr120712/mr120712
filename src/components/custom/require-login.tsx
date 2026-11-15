@@ -3,7 +3,7 @@
 // rotta non è pubblica, NON si monta nulla (né nav, né player, né pagina) e si viene reindirizzati
 // a /login. Pubbliche senza login: accesso/registrazione, pagine legali, i link CONDIVISI delle
 // playlist, dei quiz musicali e dei brani in evidenza (/evidenza/<id>: così chi riceve un link lo
-// può aprire) e la vetrina del Bot Solco
+// può aprire), la guida per chi inizia (/guida) e la vetrina del Bot Solco
 // (che invita all'accesso; la ricerca e il limite restano imposti dall'API). L'enforcement vero
 // dei dati resta lato API.
 'use client';
@@ -49,6 +49,8 @@ const PUBLIC_EXACT = new Set([
   '/reimposta-password',
   // Quiz musicale condiviso: chi riceve la sfida gira la carta senza un account.
   '/quiz',
+  // Guida per chi inizia: va letta anche prima di creare l'account.
+  '/guida',
 ]);
 const PUBLIC_PREFIXES = [
   '/login/',

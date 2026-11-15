@@ -1,0 +1,120 @@
+/* @polsia:user-owned — invito alla guida nella Home (stessa larghezza del riquadro «Installa l’app»). */
+.card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  width: min(calc(100% - 48px), 1200px);
+  margin: 0 auto;
+  padding: 16px 56px 16px 18px;
+  border: 1px solid color-mix(in srgb, var(--primary) 40%, var(--border));
+  border-radius: calc(var(--radius) + 6px);
+  background: color-mix(in srgb, var(--primary) 9%, var(--card));
+}
+
+.icon {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.copy h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.copy p {
+  margin: 2px 0 0;
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.close:hover {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.close:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
+.close svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Riga che resta al posto del riquadro appena chiuso: riceve il focus, quindi l'anello si vede. */
+.closedNote {
+  width: min(calc(100% - 48px), 1200px);
+  margin: 0 auto;
+  padding: 8px 4px;
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
+
+.closedNote:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@media (max-width: 620px) {
+  .card {
+    grid-template-columns: 40px minmax(0, 1fr);
+    width: calc(100% - 32px);
+  }
+
+  .closedNote {
+    width: calc(100% - 32px);
+  }
+
+  .icon {
+    width: 40px;
+    height: 40px;
+  }
+
+  .actions {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .close {
+    transition:
+      background 0.15s ease,
+      color 0.15s ease;
+  }
+}

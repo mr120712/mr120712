@@ -39,6 +39,8 @@ export const llmsConfig: LlmsConfig = {
     '/piani': 'Piani Free e Premium, con prova gratuita di 10 giorni.',
     '/premi': 'Invita amici e ottieni Premium gratis.',
     '/app': 'Installa Solco su Android e iPhone.',
+    '/guida':
+      'Guida per chi inizia: account, ricerca, ascolto, Libreria, app sul telefono e piani, passo per passo.',
   },
   sections: [
     {

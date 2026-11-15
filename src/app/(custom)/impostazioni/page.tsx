@@ -1,7 +1,8 @@
 // @polsia:user-owned — /impostazioni: preferenze normali per tutti gli utenti (anche ospiti). Sono
 // interruttori salvati per dispositivo (localStorage): niente login, niente dati sul server.
-import { Settings } from 'lucide-react';
+import { BookOpen, Settings } from 'lucide-react';
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { SettingsPanel } from '@/components/custom/settings/settings-panel';
 
 export const metadata: Metadata = {
@@ -24,6 +25,17 @@ export default function ImpostazioniPage() {
         </h1>
         <p className="text-muted-foreground">
           Valgono su questo dispositivo e si applicano subito. Nessun account necessario.
+        </p>
+        {/* Per chi è alle prime armi: la guida passo per passo (pubblica, come questa pagina). */}
+        <p className="text-sm text-muted-foreground">
+          Prima volta su Solco?{' '}
+          <Link
+            href="/guida"
+            className="inline-flex min-h-11 items-center gap-1.5 font-medium text-primary underline underline-offset-4 hover:no-underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring"
+          >
+            <BookOpen aria-hidden="true" className="size-4" />
+            Guida per iniziare
+          </Link>
         </p>
       </header>
 

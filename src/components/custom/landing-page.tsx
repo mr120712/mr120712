@@ -282,6 +282,16 @@ export function LandingPage() {
               {t.legal.after}
               {t.appLanguageNote ? ` ${t.appLanguageNote}` : null}
             </p>
+            {/* Guida per chi inizia (/guida, pubblica e in italiano: l'etichetta lo dice). */}
+            <p className={styles.legal}>
+              <Link
+                href="/guida"
+                hrefLang="it"
+                style={{ display: 'inline-flex', alignItems: 'center', minHeight: 32 }}
+              >
+                {t.guideLink}
+              </Link>
+            </p>
           </div>
         </div>
       </section>

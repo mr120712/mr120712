@@ -1,0 +1,516 @@
+/* @polsia:user-owned — stili della guida per chi inizia (/guida). Colonna leggibile (~70 caratteri),
+   testo un po' più grande, aree da toccare di almeno 44 px, colori dai token del tema (chiaro e
+   scuro), animazioni solo senza «movimento ridotto». */
+
+.page {
+  padding: clamp(24px, 5vw, 56px) 16px clamp(48px, 8vw, 88px);
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.content {
+  display: grid;
+  gap: clamp(36px, 6vw, 56px);
+  max-width: 70ch;
+  margin: 0 auto;
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  overflow-wrap: break-word;
+}
+
+/* Link nel testo. I pulsanti-collegamento (.actionButton) restano fuori: i loro colori arrivano
+   dalle varianti del Button (livello «utilities» di Tailwind), che una regola fuori livello come
+   questa scavalcherebbe sempre (testo poco leggibile sul rosa). :where() tiene la specificità di
+   «.content a», così .backToToc e gli altri link con classe continuano a vincere. */
+.content a:where(:not(.actionButton)) {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--primary) 70%, transparent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.2em;
+}
+
+.content a:where(:not(.actionButton)):hover {
+  color: var(--primary);
+}
+
+.content a:focus-visible,
+.faqQuestion:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* ---------- Intestazione ---------- */
+
+.header {
+  display: grid;
+  gap: 14px;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.eyebrow svg {
+  width: 18px;
+  height: 18px;
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-display), sans-serif;
+  font-size: clamp(2.1rem, 8vw, 3.4rem);
+  font-weight: 650;
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+}
+
+.lead {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 1.125rem;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* Pulsanti-collegamento: possono andare a capo su schermi stretti, area da toccare ≥ 44 px. */
+.content .actionButton {
+  height: auto;
+  min-height: 44px;
+  max-width: 100%;
+  padding-block: 8px;
+  white-space: normal;
+  text-align: center;
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+
+.content .actionButton:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* ---------- In breve e indice ---------- */
+
+.brief {
+  display: grid;
+  gap: 12px;
+  padding: 20px clamp(16px, 4vw, 24px);
+  border: 1px solid color-mix(in srgb, var(--primary) 40%, var(--border));
+  border-radius: calc(var(--radius) + 6px);
+  background: color-mix(in srgb, var(--primary) 9%, var(--card));
+}
+
+.brief p {
+  margin: 0;
+}
+
+.briefTitle,
+.tocTitle {
+  margin: 0;
+  font-family: var(--font-display), sans-serif;
+  font-size: 1.3rem;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.toc {
+  display: grid;
+  gap: 12px;
+  padding: 20px clamp(16px, 4vw, 24px);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 6px);
+  background: var(--card);
+  scroll-margin-top: 80px;
+}
+
+.tocList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
+  gap: 2px 20px;
+  margin: 0;
+  padding-left: 1.6rem;
+  /* Il reset di Tailwind toglie i numeri agli elenchi: qui servono. */
+  list-style: decimal;
+}
+
+.tocList li {
+  padding-left: 4px;
+}
+
+.tocList li::marker {
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.content .tocList a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  text-decoration: none;
+  font-weight: 550;
+}
+
+.content .tocList a:hover {
+  text-decoration: underline;
+}
+
+/* ---------- Sezioni ---------- */
+
+.section {
+  display: grid;
+  gap: 16px;
+  scroll-margin-top: 80px;
+}
+
+.sectionTitle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  border-top: 1px solid var(--border);
+  padding-block-start: clamp(20px, 4vw, 32px);
+  font-family: var(--font-display), sans-serif;
+  font-size: clamp(1.45rem, 5vw, 1.85rem);
+  font-weight: 650;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+.sectionIcon {
+  display: grid;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--primary) 16%, var(--card));
+  color: var(--primary);
+}
+
+.sectionIcon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.sectionBody {
+  display: grid;
+  gap: 14px;
+}
+
+.sectionBody h3 {
+  margin: 10px 0 0;
+  font-size: 1.15rem;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.sectionBody p {
+  margin: 0;
+}
+
+.muted {
+  color: var(--muted-foreground);
+}
+
+.sectionFooter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  margin-top: 4px;
+}
+
+.content .backToToc {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  margin-left: auto;
+  color: var(--muted-foreground);
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+
+.content .backToToc:hover {
+  color: var(--foreground);
+  text-decoration: underline;
+}
+
+.backToToc svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ---------- Testo ---------- */
+
+/* Nome di un pulsante come appare nell'app. */
+.ui {
+  font-weight: 700;
+  color: var(--foreground);
+}
+
+.inlineIcon {
+  display: inline-block;
+  width: 1.05em;
+  height: 1.05em;
+  vertical-align: -0.17em;
+  color: var(--primary);
+}
+
+.points {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 1.3rem;
+  /* Il reset di Tailwind toglie i pallini agli elenchi: qui servono. */
+  list-style: disc;
+}
+
+.points li::marker {
+  color: var(--primary);
+}
+
+/* Passi numerati con il numero in un cerchio. */
+.steps {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: passo;
+}
+
+.steps > li {
+  position: relative;
+  min-height: 2rem;
+  padding-left: 2.75rem;
+  counter-increment: passo;
+}
+
+.steps > li::before {
+  content: counter(passo);
+  position: absolute;
+  top: 0.05rem;
+  left: 0;
+  display: grid;
+  width: 1.95rem;
+  height: 1.95rem;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Riquadri «Buono a sapersi» / «Attenzione». */
+.note {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.note p {
+  margin: 0;
+}
+
+.note p + p {
+  margin-top: 8px;
+}
+
+.noteWarning {
+  border-left-color: var(--status-warning, #f59e0b);
+}
+
+.noteIcon {
+  width: 22px;
+  height: 22px;
+  margin-top: 2px;
+  color: var(--primary);
+}
+
+.noteWarning .noteIcon {
+  color: var(--status-warning, #f59e0b);
+}
+
+.content .noteTitle {
+  margin-bottom: 2px;
+  font-weight: 700;
+}
+
+.email {
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Altre cose che puoi fare ---------- */
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 4px);
+  background: var(--card);
+  font-size: 0.98rem;
+}
+
+.card p {
+  margin: 4px 0 0;
+  color: var(--muted-foreground);
+}
+
+.cardIcon {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--primary) 14%, var(--card));
+  color: var(--primary);
+}
+
+.cardIcon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.sectionBody .cardTitle {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.content .cardTitle a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+}
+
+/* ---------- Problemi comuni ---------- */
+
+.faqList {
+  display: grid;
+  gap: 10px;
+}
+
+.faq {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+}
+
+.faq[open] {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+}
+
+.faqQuestion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  padding: 12px 16px;
+  cursor: pointer;
+  font-weight: 650;
+  list-style: none;
+}
+
+.faqQuestion::-webkit-details-marker {
+  display: none;
+}
+
+.faqChevron {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  color: var(--muted-foreground);
+}
+
+.faq[open] .faqChevron {
+  transform: rotate(180deg);
+}
+
+.faqAnswer {
+  padding: 0 16px 16px;
+}
+
+.faqAnswer p {
+  margin: 0;
+}
+
+/* ---------- Parole utili ---------- */
+
+.glossary {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+
+.glossaryItem {
+  display: grid;
+  gap: 2px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.glossaryItem dt {
+  font-weight: 700;
+}
+
+.glossaryItem dd {
+  margin: 0;
+  color: var(--muted-foreground);
+}
+
+@media (min-width: 640px) {
+  .glossaryItem {
+    grid-template-columns: 11rem minmax(0, 1fr);
+    gap: 16px;
+  }
+}
+
+.updated {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.9rem;
+}
+
+/* Animazioni piccole e solo per chi non ha chiesto movimento ridotto. */
+@media (prefers-reduced-motion: no-preference) {
+  .faqChevron {
+    transition: transform 0.2s ease;
+  }
+
+  .content a:where(:not(.actionButton)) {
+    transition: color 0.15s ease;
+  }
+}

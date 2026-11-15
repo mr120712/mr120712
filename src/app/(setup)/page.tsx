@@ -17,6 +17,7 @@ import {
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Suspense } from 'react';
+import { GuideHomeCard } from '@/components/custom/guide/guide-home-card';
 import { InstallAppBanner } from '@/components/custom/install-app-banner';
 import { AiSearchShortcut } from '@/components/custom/music/ai-search-shortcut';
 import { AudiusSection } from '@/components/custom/music/audius-section';
@@ -30,6 +31,7 @@ import { PodcastHomeRow } from '@/components/custom/music/podcast-home-row';
 import { PublicUploadsHomeSection } from '@/components/custom/music/public-uploads-home-section';
 import { RadioHomeRow } from '@/components/custom/music/radio-home-row';
 import { RecentlyPlayedRow } from '@/components/custom/music/recently-played-row';
+import { RecommendationsRow } from '@/components/custom/music/recommendations-row';
 import { TikTokClips } from '@/components/custom/music/tiktok-clips';
 import { YouTubeCharts } from '@/components/custom/music/youtube-charts';
 import { AppTopBar } from '@/components/custom/site-nav';
@@ -80,6 +82,7 @@ export default function HomePage() {
       <HomeTracksSection />
 
       <RecentlyPlayedRow />
+      <RecommendationsRow />
 
       {/* "La tua musica" offline, versione compatta: ascolto rapido; gestione completa in Libreria. */}
       <LocalMusicHomeCard />
@@ -148,6 +151,9 @@ export default function HomePage() {
           </nav>
         </section>
 
+        {/* «Nuovo su Solco?»: invito alla guida /guida, chiudibile (resta chiuso su questo dispositivo). */}
+        <GuideHomeCard />
+
         <Suspense fallback={defaultFeed}>
           <HomeMoodSwitch className={styles.feed}>{defaultFeed}</HomeMoodSwitch>
         </Suspense>
@@ -155,6 +161,7 @@ export default function HomePage() {
         <footer className={styles.footer}>
           <p>Solco · Ogni ascolto lascia un solco.</p>
           <nav aria-label="Navigazione a piè di pagina">
+            <Link href="/guida">Guida</Link>
             <Link href="/app">Installa l’app</Link>
             <Link href="/community">Community</Link>
             <Link href="/privacy">Privacy</Link>

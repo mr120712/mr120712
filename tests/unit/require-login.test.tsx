@@ -66,6 +66,8 @@ describe('isPublicRoute', () => {
       '/bot',
       '/quiz',
       '/quiz/',
+      // Guida per chi inizia: si legge prima di creare l'account.
+      '/guida',
       // Link diretto di un brano in evidenza dichiarato: pagina e scheda senza account.
       '/evidenza/AbCdEfGhIjKlMnOpQrStUv',
     ]) {

@@ -58,6 +58,10 @@ export const navItems: NavItem[] = [
   { label: 'Messaggi', href: '/messages', group: 'secondary', requiresAuth: true, order: 0 },
   { label: 'Installa l’app', href: '/app', group: 'primary', order: 6 },
   { label: 'Flashcard', href: '/flashcards', group: 'primary', order: 7 },
+  // Guida per chi inizia: in fondo al menu (su desktop dentro «Altro», nel menu del telefono) e nel
+  // piè di pagina. Ordine alto: non occupa un posto nella barra in alto.
+  { label: 'Guida', href: '/guida', group: 'primary', order: 8 },
+  { label: 'Guida', href: '/guida', group: 'footer', order: -2 },
   { label: 'Apple Music', href: '/apple-music', group: 'footer', order: -1 },
   { label: 'Stato', href: '/stato', group: 'footer', order: 2 },
   { label: 'Privacy', href: '/privacy', group: 'footer', order: 0 },
