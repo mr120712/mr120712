@@ -24,6 +24,13 @@ vi.mock('@/components/custom/landing-page', () => ({
 }));
 
 import { isPublicRoute, RequireLogin } from '@/components/custom/require-login';
+import { navItems } from '@/lib/nav';
+import { seoRoutes } from '@/lib/seo-routes';
+import {
+  SIGNED_IN_HINT_ATTRIBUTE,
+  SIGNED_IN_HINT_KEY,
+  SIGNED_IN_HINT_SCRIPT,
+} from '@/lib/signed-in-hint';
 
 const roots: Array<ReturnType<typeof createRoot>> = [];
 let container: HTMLDivElement;
@@ -47,6 +54,9 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.pathname = '/';
   mocks.session = { data: null, isPending: false };
+  window.localStorage.clear();
+  document.documentElement.removeAttribute(SIGNED_IN_HINT_ATTRIBUTE);
+  for (const meta of document.querySelectorAll('meta[name="robots"]')) meta.remove();
 });
 
 afterEach(() => {
@@ -200,5 +210,99 @@ describe('RequireLogin', () => {
     expect(container.textContent).toContain('LANDING_PUBBLICA');
     expect(container.textContent).not.toContain('CONTENUTO_PROTETTO');
     expect(mocks.replace).not.toHaveBeenCalled();
+  });
+});
+
+describe('Home "/" per Google e per chi non ha la sessione', () => {
+  it('sessione in verifica: la landing c’è già (HTML del server), accanto al riquadro di attesa', () => {
+    mocks.session = { data: null, isPending: true };
+    render();
+    const landing = container.querySelector('[data-solco-root-landing]');
+    expect(landing?.textContent).toBe('LANDING_PUBBLICA');
+    expect(landing?.hasAttribute('data-pending')).toBe(true);
+    expect(container.querySelector('[data-solco-root-gate]')?.textContent).toContain(
+      'Verifica dell’accesso…',
+    );
+    expect(container.textContent).not.toContain('CONTENUTO_PROTETTO');
+    expect(mocks.replace).not.toHaveBeenCalled();
+  });
+
+  it('sessione nota senza utente: la stessa landing, senza riquadro né data-pending', () => {
+    mocks.session = { data: null, isPending: false };
+    render();
+    const landing = container.querySelector('[data-solco-root-landing]');
+    expect(landing?.textContent).toBe('LANDING_PUBBLICA');
+    expect(landing?.hasAttribute('data-pending')).toBe(false);
+    expect(container.querySelector('[data-solco-root-gate]')).toBeNull();
+  });
+
+  it('con la sessione: l’app, e l’indizio per il prossimo avvio', () => {
+    mocks.session = { data: { user: { id: 'u1' } }, isPending: false };
+    render();
+    expect(container.textContent).toContain('CONTENUTO_PROTETTO');
+    expect(container.textContent).not.toContain('LANDING_PUBBLICA');
+    expect(window.localStorage.getItem(SIGNED_IN_HINT_KEY)).toBe('1');
+    expect(document.documentElement.hasAttribute(SIGNED_IN_HINT_ATTRIBUTE)).toBe(true);
+  });
+
+  it('senza sessione l’indizio sparisce; in verifica non si tocca', () => {
+    window.localStorage.setItem(SIGNED_IN_HINT_KEY, '1');
+    document.documentElement.setAttribute(SIGNED_IN_HINT_ATTRIBUTE, '');
+    mocks.session = { data: null, isPending: true };
+    render();
+    expect(window.localStorage.getItem(SIGNED_IN_HINT_KEY)).toBe('1');
+    for (const root of roots.splice(0)) act(() => root.unmount());
+    mocks.session = { data: null, isPending: false };
+    render();
+    expect(window.localStorage.getItem(SIGNED_IN_HINT_KEY)).toBeNull();
+    expect(document.documentElement.hasAttribute(SIGNED_IN_HINT_ATTRIBUTE)).toBe(false);
+  });
+
+  it('rotta protetta senza sessione: noindex per i motori di ricerca', () => {
+    mocks.pathname = '/radio';
+    mocks.session = { data: null, isPending: true };
+    render();
+    expect(document.querySelector('meta[name="robots"]')?.getAttribute('content')).toBe('noindex');
+    expect(container.textContent).not.toContain('CONTENUTO_PROTETTO');
+  });
+
+  it('rotta pubblica: nessun noindex aggiunto dal muro', () => {
+    mocks.pathname = '/guida';
+    mocks.session = { data: null, isPending: true };
+    render();
+    expect(document.querySelector('meta[name="robots"]')).toBeNull();
+    expect(container.textContent).toContain('CONTENUTO_PROTETTO');
+  });
+});
+
+describe('indizio di sessione prima del primo disegno (head-content)', () => {
+  it('segna <html> solo con l’indizio, senza mai lanciare errori', () => {
+    new Function(SIGNED_IN_HINT_SCRIPT)();
+    expect(document.documentElement.hasAttribute(SIGNED_IN_HINT_ATTRIBUTE)).toBe(false);
+    window.localStorage.setItem(SIGNED_IN_HINT_KEY, '1');
+    new Function(SIGNED_IN_HINT_SCRIPT)();
+    expect(document.documentElement.hasAttribute(SIGNED_IN_HINT_ATTRIBUTE)).toBe(true);
+    const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('storage bloccato');
+    });
+    try {
+      expect(() => new Function(SIGNED_IN_HINT_SCRIPT)()).not.toThrow();
+    } finally {
+      getItem.mockRestore();
+    }
+  });
+});
+
+describe('sitemap: solo le pagine che Google può leggere senza account', () => {
+  it('ogni voce del menu senza requiresAuth è una rotta pubblica (o la Home)', () => {
+    const exposed = navItems.filter((item) => !item.requiresAuth).map((item) => item.href);
+    expect(exposed.length).toBeGreaterThan(0);
+    for (const href of exposed) {
+      expect(href === '/' || isPublicRoute(href), href).toBe(true);
+    }
+  });
+
+  it('le pagine dei generi (dietro il login) non sono nella sitemap', async () => {
+    expect(await seoRoutes()).toEqual([]);
   });
 });

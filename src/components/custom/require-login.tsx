@@ -6,6 +6,14 @@
 // può aprire), la guida per chi inizia (/guida) e la vetrina del Bot Solco
 // (che invita all'accesso; la ricerca e il limite restano imposti dall'API). L'enforcement vero
 // dei dati resta lato API.
+//
+// Su "/" chi NON ha la sessione vede la landing pubblica, che è già nell'HTML del server (anche
+// mentre la sessione è in verifica): visitatori e motori di ricerca la leggono senza JavaScript.
+// Per non far lampeggiare la landing a chi ha già fatto l'accesso su questo dispositivo, un indizio
+// in localStorage (signed-in-hint.ts, scritto qui quando la sessione è nota) viene letto prima del
+// primo disegno da head-content.tsx, che segna <html data-solco-signed-in>: finché la sessione è in
+// verifica, la landing resta nascosta e si vede il riquadro «Verifica dell'accesso…». Le rotte
+// protette senza sessione dichiarano noindex: per Google sono solo un invito al login.
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
@@ -14,7 +22,20 @@ import { LandingPage } from '@/components/custom/landing-page';
 import { useSession } from '@/lib/auth-client';
 import { isSafeAuthDestination } from '@/lib/business/auth-form';
 import { strictEncode } from '@/lib/business/social-share';
+import { SIGNED_IN_HINT_ATTRIBUTE, SIGNED_IN_HINT_KEY } from '@/lib/signed-in-hint';
 import styles from './require-login.module.css';
+
+/** Aggiorna l'indizio quando la sessione è nota (con try: lo storage può mancare o rifiutare). */
+function rememberSignedIn(signedIn: boolean) {
+  try {
+    if (signedIn) window.localStorage.setItem(SIGNED_IN_HINT_KEY, '1');
+    else window.localStorage.removeItem(SIGNED_IN_HINT_KEY);
+  } catch {
+    // Storage non disponibile: senza indizio si vede la landing finché la sessione è in verifica.
+  }
+  if (signedIn) document.documentElement.setAttribute(SIGNED_IN_HINT_ATTRIBUTE, '');
+  else document.documentElement.removeAttribute(SIGNED_IN_HINT_ATTRIBUTE);
+}
 
 /** Lunghezza massima della ricerca conservata (come la pagina /search). */
 const QUERY_MAX = 80;
@@ -81,6 +102,10 @@ export function RequireLogin({ children }: { children: ReactNode }) {
   const atRoot = pathname === '/';
 
   useEffect(() => {
+    if (!isPending) rememberSignedIn(authed);
+  }, [isPending, authed]);
+
+  useEffect(() => {
     // Sessione nota (non in verifica), rotta protetta diversa da "/", nessun utente → al login,
     // conservando la destinazione così dopo l'accesso si torna dove si voleva andare. Su "/" NON si
     // reindirizza: si mostra la landing pubblica.
@@ -93,19 +118,46 @@ export function RequireLogin({ children }: { children: ReactNode }) {
 
   if (open) return <>{children}</>;
 
-  // Non loggato sulla home "/": landing pubblica con il video e il pulsante di accesso.
-  if (!isPending && atRoot) return <LandingPage />;
+  // Non loggato sulla home "/": la landing pubblica, già nell'HTML del server. Stessa posizione e
+  // stesso elemento in verifica e dopo, così la landing non si rimonta quando la sessione è nota.
+  // In verifica, accanto c'è il riquadro di attesa, mostrato (al posto della landing) solo sui
+  // dispositivi con l'indizio di una sessione: vedi custom-style.css.
+  if (atRoot) {
+    return (
+      <>
+        <div data-solco-root-landing="" data-pending={isPending || undefined}>
+          <LandingPage />
+        </div>
+        {isPending ? (
+          <div data-solco-root-gate="">
+            <GateCard pending />
+          </div>
+        ) : null}
+      </>
+    );
+  }
 
   // Altre rotte protette e non loggato: niente contenuto. Finché la sessione è in verifica si mostra
   // un caricamento (evita di sbattere fuori un utente loggato prima di saperlo); poi il rimando al login.
+  // Per i motori di ricerca (mai loggati) la pagina è solo questo invito: noindex.
+  return (
+    <>
+      <meta name="robots" content="noindex" />
+      <GateCard pending={isPending} />
+    </>
+  );
+}
+
+/** Il riquadro del muro di login: «Verifica dell'accesso…» in verifica, poi l'invito ad accedere. */
+function GateCard({ pending }: { pending: boolean }) {
   return (
     <output className={styles.gate} aria-live="polite">
       <div className={styles.card}>
         <p className={styles.brand}>Solco</p>
         <p className={styles.message}>
-          {isPending ? 'Verifica dell’accesso…' : 'Accedi per continuare su Solco.'}
+          {pending ? 'Verifica dell’accesso…' : 'Accedi per continuare su Solco.'}
         </p>
-        {isPending ? null : (
+        {pending ? null : (
           <a className={styles.action} href="/login">
             Accedi
           </a>

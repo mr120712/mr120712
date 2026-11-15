@@ -2,6 +2,7 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
+import { renderToString } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -161,5 +162,22 @@ describe('LandingPage', () => {
     expect(container.textContent).not.toContain('in Italian');
     choose('en');
     expect(container.textContent).toContain('The app itself is in Italian for now.');
+  });
+});
+
+describe('LandingPage nell’HTML del server (Google, nessun JavaScript)', () => {
+  it('il primo disegno è sempre in italiano, anche con un browser in inglese', () => {
+    languages.mockReturnValue(['en-US']);
+    window.history.replaceState(null, '', '/?lang=en');
+    const html = renderToString(<LandingPage />);
+    expect(html).toContain('Tutta la musica.');
+    expect(html).toContain('<h1');
+    expect(html).toContain('href="/signup"');
+  });
+
+  it('dopo l’idratazione arriva la lingua del visitatore', () => {
+    languages.mockReturnValue(['en-US']);
+    render();
+    expect(select().value).toBe('en');
   });
 });

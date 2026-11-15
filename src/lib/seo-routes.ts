@@ -8,16 +8,13 @@
 //     return items.map((i) => ({ path: `/items/${i.slug}`, priority: 0.6 }));
 //   }
 import type { MetadataRoute } from 'next';
-import { genreCatalog } from '@/lib/music/genre-catalog';
 
 /** App-absolute `path` (e.g. /items/aatrox) + optional Next sitemap fields. */
 export type SeoRoute = { path: string } & Omit<MetadataRoute.Sitemap[number], 'url'>;
 
 export async function seoRoutes(): Promise<SeoRoute[]> {
-  // Every genre and playlist page is a landing page for searches like "musica lo-fi gratis".
-  return genreCatalog.map((genre) => ({
-    path: `/generi/${genre.slug}`,
-    changeFrequency: 'weekly',
-    priority: 0.6,
-  }));
+  // Le pagine dei generi (/generi/<slug>) stanno dietro il muro di login (require-login.tsx): per
+  // Google sono solo un invito ad accedere (noindex), quindi non vanno nella sitemap. Se un giorno
+  // diventano pubbliche, basta restituirle di nuovo (genreCatalog → /generi/<slug>).
+  return [];
 }

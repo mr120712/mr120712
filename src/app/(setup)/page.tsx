@@ -41,11 +41,18 @@ import { publicUploadsEnabled } from '@/lib/features';
 import { genreCatalog } from '@/lib/music/genre-catalog';
 import styles from './home.module.css';
 
+// Titolo e descrizione della Home nei risultati di Google: cosa offre Solco, con le parole che le
+// persone cercano (musica gratis, radio dal vivo, podcast, app). Solo fatti veri del prodotto.
+const HOME_TITLE = 'Solco – Musica gratis, radio dal vivo e podcast in un unico player';
+const HOME_DESCRIPTION =
+  'Ascolta musica gratis su Solco: classifiche, generi, playlist, radio dal vivo da tutto il mondo e podcast in un unico player, sul web e come app su Android e iPhone.';
+
 export const metadata: Metadata = {
-  title: { absolute: 'Scopri musica su Solco' },
-  description:
-    'Classifiche musicali, brani e video da YouTube, radio dal vivo da tutto il mondo e podcast in un unico player.',
+  title: { absolute: HOME_TITLE },
+  description: HOME_DESCRIPTION,
   alternates: { canonical: '/' },
+  openGraph: { title: HOME_TITLE, description: HOME_DESCRIPTION, url: '/' },
+  twitter: { title: HOME_TITLE, description: HOME_DESCRIPTION },
 };
 
 const allShortcuts = [

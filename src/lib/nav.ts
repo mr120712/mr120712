@@ -41,13 +41,16 @@ const PUBLIC_LIBRARY_ITEM: NavItem = {
   order: 3,
 };
 
+// `requiresAuth`: le pagine dietro il muro di login (require-login.tsx, rotte non pubbliche). Chi non
+// ha la sessione non le vede nel menu (porterebbero solo al login) e la sitemap/llms.txt, che
+// leggono questo elenco, propongono a Google solo le pagine che può davvero leggere.
 export const navItems: NavItem[] = [
-  { label: 'Cerca', href: '/search', group: 'primary', order: 0 },
+  { label: 'Cerca', href: '/search', group: 'primary', order: 0, requiresAuth: true },
   { label: 'Bot', href: '/bot', group: 'primary', order: 0 },
-  { label: 'Generi', href: '/generi', group: 'primary', order: 1 },
-  { label: 'Radio', href: '/radio', group: 'primary', order: 1 },
-  { label: 'Podcast', href: '/podcasts', group: 'primary', order: 2 },
-  { label: 'Libreria', href: '/library', group: 'primary', order: 3 },
+  { label: 'Generi', href: '/generi', group: 'primary', order: 1, requiresAuth: true },
+  { label: 'Radio', href: '/radio', group: 'primary', order: 1, requiresAuth: true },
+  { label: 'Podcast', href: '/podcasts', group: 'primary', order: 2, requiresAuth: true },
+  { label: 'Libreria', href: '/library', group: 'primary', order: 3, requiresAuth: true },
   { label: 'Statistiche', href: '/statistiche', group: 'primary', requiresAuth: true, order: 3 },
   // «Crea playlist»: la creazione guidata (descrizione, brano di partenza o atmosfera). Solo con
   // l'accesso: la pagina salva nella Libreria.
@@ -58,20 +61,20 @@ export const navItems: NavItem[] = [
     requiresAuth: true,
     order: 3,
   },
-  { label: 'Record Pool', href: '/pool', group: 'primary', order: 2 },
-  { label: 'Classici', href: '/classici', group: 'primary', order: 2 },
+  { label: 'Record Pool', href: '/pool', group: 'primary', order: 2, requiresAuth: true },
+  { label: 'Classici', href: '/classici', group: 'primary', order: 2, requiresAuth: true },
   ...(publicUploadsEnabled() ? [PUBLIC_LIBRARY_ITEM] : []),
-  { label: 'Community', href: '/community', group: 'primary', order: 4 },
-  { label: 'Piani', href: '/piani', group: 'primary', order: 5 },
-  { label: 'Invita amici', href: '/premi', group: 'primary', order: 5 },
+  { label: 'Community', href: '/community', group: 'primary', order: 4, requiresAuth: true },
+  { label: 'Piani', href: '/piani', group: 'primary', order: 5, requiresAuth: true },
+  { label: 'Invita amici', href: '/premi', group: 'primary', order: 5, requiresAuth: true },
   { label: 'Messaggi', href: '/messages', group: 'secondary', requiresAuth: true, order: 0 },
-  { label: 'Installa l’app', href: '/app', group: 'primary', order: 6 },
-  { label: 'Flashcard', href: '/flashcards', group: 'primary', order: 7 },
+  { label: 'Installa l’app', href: '/app', group: 'primary', order: 6, requiresAuth: true },
+  { label: 'Flashcard', href: '/flashcards', group: 'primary', order: 7, requiresAuth: true },
   // Guida per chi inizia: in fondo al menu (su desktop dentro «Altro», nel menu del telefono) e nel
   // piè di pagina. Ordine alto: non occupa un posto nella barra in alto.
   { label: 'Guida', href: '/guida', group: 'primary', order: 8 },
   { label: 'Guida', href: '/guida', group: 'footer', order: -2 },
-  { label: 'Apple Music', href: '/apple-music', group: 'footer', order: -1 },
+  { label: 'Apple Music', href: '/apple-music', group: 'footer', order: -1, requiresAuth: true },
   { label: 'Stato', href: '/stato', group: 'footer', order: 2 },
   { label: 'Privacy', href: '/privacy', group: 'footer', order: 0 },
   { label: 'Termini', href: '/terms', group: 'footer', order: 1 },

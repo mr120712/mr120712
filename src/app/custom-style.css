@@ -532,3 +532,25 @@ html[data-telegram-mini-app] body {
   /* Lascia respiro per la tacca/area di sistema in cima alla webview di Telegram. */
   padding-top: env(safe-area-inset-top);
 }
+
+/*
+ * Home "/" senza sessione (require-login.tsx): la landing pubblica è già nell'HTML del server.
+ * Mentre la sessione è in verifica, sui dispositivi con l'indizio di una sessione
+ * (<html data-solco-signed-in>, messo da head-content.tsx prima del primo disegno) la landing resta
+ * nascosta e si vede il riquadro di attesa: chi ha già fatto l'accesso non la vede lampeggiare.
+ */
+[data-solco-root-landing] {
+  display: contents;
+}
+
+[data-solco-root-gate] {
+  display: none;
+}
+
+html[data-solco-signed-in] [data-solco-root-landing][data-pending] {
+  display: none;
+}
+
+html[data-solco-signed-in] [data-solco-root-gate] {
+  display: block;
+}

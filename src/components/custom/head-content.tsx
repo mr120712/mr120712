@@ -3,6 +3,7 @@
 // next/script with the passed `nonce` (CSP-safe). Edit freely.
 
 import { socialLinks } from '@/lib/brand';
+import { SIGNED_IN_HINT_SCRIPT } from '@/lib/signed-in-hint';
 import { siteDescription, siteName, siteUrl } from '@/lib/site';
 
 // Structured data: Google shows the site name and a search box for Solco in results.
@@ -41,6 +42,13 @@ export function HeadContent({ nonce }: { nonce?: string }) {
     <>
       {google ? <meta name="google-site-verification" content={google} /> : null}
       {bing ? <meta name="msvalidate.01" content={bing} /> : null}
+      {/* Prima del primo disegno: segna <html> se questo dispositivo ha una sessione (indizio di
+          require-login.tsx), così la landing di "/" non lampeggia a chi ha già fatto l'accesso. */}
+      <script
+        nonce={nonce}
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: script statico, nessun dato esterno.
+        dangerouslySetInnerHTML={{ __html: SIGNED_IN_HINT_SCRIPT }}
+      />
       <script
         type="application/ld+json"
         nonce={nonce}

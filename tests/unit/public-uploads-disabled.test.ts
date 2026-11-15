@@ -191,13 +191,14 @@ describe('menu, sitemap e llms.txt con la libreria spenta', () => {
   it('nessun /pubblica nella sitemap', async () => {
     const urls = (await sitemap()).map((entry) => entry.url);
     expect(urls.some((url) => url.endsWith('/pubblica'))).toBe(false);
-    expect(urls.some((url) => url.endsWith('/library'))).toBe(true);
+    // Controllo positivo: le pagine pubbliche ci sono (la Libreria è dietro il login: fuori sitemap).
+    expect(urls.some((url) => url.endsWith('/guida'))).toBe(true);
   });
 
   it('nessun /pubblica in llms.txt', async () => {
     const text = await renderLlmsTxt(llmsConfig);
     expect(text).not.toContain('/pubblica');
-    expect(text).toContain('/library');
+    expect(text).toContain('/guida');
   });
 
   it('con la libreria accesa la voce torna, nella stessa posizione del menu', async () => {

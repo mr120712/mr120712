@@ -167,7 +167,7 @@ function readStoredLocale(): string | null {
  */
 let chosenThisVisit: LandingLocale | null = null;
 
-/** Lingua iniziale: scelta di questa visita, ?lang=, la scelta salvata, il browser (client). */
+/** Lingua del visitatore: scelta di questa visita, ?lang=, la scelta salvata, il browser (client). */
 function initialLocale(): LandingLocale {
   if (typeof window === 'undefined') return DEFAULT_LANDING_LOCALE;
   if (chosenThisVisit) return chosenThisVisit;
@@ -179,9 +179,17 @@ function initialLocale(): LandingLocale {
 }
 
 export function LandingPage() {
-  const [locale, setLocale] = useState<LandingLocale>(initialLocale);
+  // Primo disegno sempre nella lingua predefinita: è l'HTML del server (quello che leggono Google e
+  // chi apre la pagina senza JavaScript) e deve coincidere con l'idratazione. La lingua del
+  // visitatore (scelta di questa visita, ?lang=, quella salvata, il browser) arriva subito dopo.
+  const [locale, setLocale] = useState<LandingLocale>(DEFAULT_LANDING_LOCALE);
   const t = LANDING_MESSAGES[locale];
   const { plans } = getSolcoProPricing();
+
+  useEffect(() => {
+    const preferred = initialLocale();
+    if (preferred !== DEFAULT_LANDING_LOCALE) setLocale(preferred);
+  }, []);
 
   // <html lang> segue la lingua mostrata (lettori di schermo, traduttori, sillabazione); tornando
   // all'app (dopo l'accesso) si ripristina quella dell'app.
