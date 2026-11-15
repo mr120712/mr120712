@@ -402,13 +402,15 @@ function artworkResolver(images: ListedBlob[]) {
 function toHomeTrack(blob: ListedBlob, artworkUrl: string | null): HomeTrack | null {
   const { title, artist } = trackNameFromPathname(blob.pathname);
   // Valida contro il contratto: un oggetto malformato (es. URL inatteso) viene scartato, non
-  // rompe l'intera sezione. File pubblico → stream diretto dal CDN; file privato → proxy
-  // same-origin che lo legge lato server (il browser non può leggere un blob privato).
+  // rompe l'intera sezione. Lo stream passa SEMPRE dal proxy same-origin (route
+  // home-tracks/stream), anche per un file pubblico: lì valgono per tutti i brani la sessione
+  // obbligatoria, il limite per account e il blocco dell'hotlinking; il proxy legge il file
+  // privato con il token e quello pubblico dal suo URL del CDN.
   const parsed = HomeTrackSchema.safeParse({
     id: blob.pathname,
     title,
     artist,
-    streamUrl: isPublicBlobUrl(blob.url) ? blob.url : homeTrackStreamPath(blob.pathname),
+    streamUrl: homeTrackStreamPath(blob.pathname),
     durationSeconds: 0,
     artworkUrl,
   });

@@ -612,7 +612,9 @@ function GuidePanel({ defaultOpen }: { defaultOpen: boolean }) {
           <ol>
             <li>
               Carica il file audio nello store Vercel Blob come sempre (es.{' '}
-              <code>Cantautori/Autrice - Canzone.mp3</code>).
+              <code>Cantautori/Autrice - Canzone.mp3</code>), come <strong>privato</strong>: lo
+              stream passa dal server di Solco (solo con un account, con un limite per account e
+              senza hotlinking); un file pubblico resta comunque leggibile da chiunque dal CDN.
             </li>
             <li>
               Carica (o aggiorna) nella <strong>radice</strong> dello stesso store un file chiamato

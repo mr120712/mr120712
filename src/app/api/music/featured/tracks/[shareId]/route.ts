@@ -6,9 +6,9 @@
 // - Senza sessione: solo i metadati pubblici (titolo, artista, link all'artista, copertina servita
 //   per id). QUESTA risposta non contiene mai lo stream né il pathname del file nello store.
 // - Con una sessione: anche il brano della Home (`homeTrack`, con streamUrl) da riprodurre.
-// Non è un limite d'accesso all'audio: il proxy dello stream (/api/music/home-tracks/stream) non
-// chiede la sessione e la Home e la ricerca pubbliche mandano già lo streamUrl a chiunque. Qui si
-// evita solo di legare l'id condiviso allo stream per chi non ha fatto l'accesso.
+// L'audio vero lo protegge il proxy dello stream (/api/music/home-tracks/stream: sessione
+// obbligatoria, limite per account, niente hotlinking); qui in più non si lega l'id condiviso allo
+// stream per chi non ha fatto l'accesso.
 // Un id malformato, sconosciuto o di un brano non (più) dichiarato riceve la STESSA risposta 404.
 // Limite per identità (utente o IP) con il bucket delle letture di catalogo (music.catalog). Mai in
 // cache (private, no-store): una revoca vale alla ricostruzione successiva dell'indice.

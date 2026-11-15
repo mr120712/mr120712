@@ -20,6 +20,13 @@ export const ACTION_RATE_LIMITS = {
     { requests: 60, windowMs: 60_000 },
     { requests: 1500, windowMs: 86_400_000 },
   ],
+  // Avvii dello stream dei brani in evidenza (route home-tracks/stream), per ACCOUNT: contano solo
+  // le richieste che iniziano un ascolto (niente Range o Range dall'inizio), non i blocchi di seek
+  // e riproduzione a blocchi. Ampio per chi ascolta, stretto per chi scarica l'intero store.
+  'music.featured.stream': [
+    { requests: 60, windowMs: 600_000 },
+    { requests: 600, windowMs: 86_400_000 },
+  ],
   // Copertine dei brani in evidenza (lettura dello store + riduzione a 512 px), per IP. Separato da
   // music.catalog: una Home piena di copertine non deve far rispondere 429 a radio e podcast. La
   // CDN tiene in cache le risposte, quindi qui arrivano solo le copertine non ancora viste.
@@ -533,6 +540,7 @@ export async function releaseRateLimit(
 const actionLabels: Record<RateLimitAction, string> = {
   'music.search': 'le ricerche musicali',
   'music.catalog': 'le richieste al catalogo',
+  'music.featured.stream': 'gli ascolti dei brani in evidenza',
   'music.cover': 'le copertine',
   'music.lyrics': 'i testi dei brani',
   'share.og': 'le anteprime dei link condivisi',

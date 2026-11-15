@@ -71,8 +71,8 @@ describe('listHomeTracks', () => {
     expect(items.map((i) => i.id)).toEqual(['bella.wav', 'ciao-mondo.mp3']);
     expect(items[0]?.title).toBe('Bella');
     expect(items[1]?.title).toBe('Ciao mondo');
-    // File su host pubblico → stream diretto dal CDN.
-    expect(items[0]?.streamUrl).toBe(`${PUBLIC}/bella.wav`);
+    // Anche un file pubblico passa dal proxy same-origin (sessione, limite, niente hotlinking).
+    expect(items[0]?.streamUrl).toBe('/api/music/home-tracks/stream?p=bella.wav');
     expect(items[0]?.durationSeconds).toBe(0);
     expect(items[0]?.artist).toBeNull();
   });
