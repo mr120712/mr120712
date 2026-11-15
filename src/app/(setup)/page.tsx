@@ -20,6 +20,7 @@ import { Suspense } from 'react';
 import { GuideHomeCard } from '@/components/custom/guide/guide-home-card';
 import { InstallAppBanner } from '@/components/custom/install-app-banner';
 import { AiSearchShortcut } from '@/components/custom/music/ai-search-shortcut';
+import { AudioComFeaturedSections } from '@/components/custom/music/audiocom-featured-sections';
 import { AudiusSection } from '@/components/custom/music/audius-section';
 import { HomeTracksSection } from '@/components/custom/music/home-tracks-section';
 import { JamendoSection } from '@/components/custom/music/jamendo-section';
@@ -80,6 +81,10 @@ export default function HomePage() {
       {/* "In evidenza": file audio messi dall'amministratore nello store Vercel Blob. Si nasconde
           da sola se non ce ne sono. */}
       <HomeTracksSection />
+
+      {/* «In evidenza da audio.com»: le collection scelte in /admin/audiocom (brani con licenza CC
+          nel player di Solco, gli altri nel player ufficiale di audio.com). Si nasconde da sola. */}
+      <AudioComFeaturedSections />
 
       <RecentlyPlayedRow />
       <RecommendationsRow />

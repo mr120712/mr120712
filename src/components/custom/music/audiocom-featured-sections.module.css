@@ -1,0 +1,18 @@
+/* @polsia:user-owned — sezioni «In evidenza da audio.com» della Home: le card riusano gli stili della
+   sezione «In evidenza» (home-tracks-section.module.css); qui solo la card che non suona in Solco
+   (licenza non ammessa o cover: niente pulsante di riproduzione) e la riga di attribuzione. */
+.static {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  align-content: start;
+  gap: 6px;
+}
+
+/* Licenza, «su audio.com» e, quando serve, «Ascolta su audio.com»: sotto la card, su più righe. */
+.credits {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  font-size: 0.75rem;
+}

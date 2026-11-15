@@ -31,3 +31,18 @@ model AudioComConnection {
 
   @@map("audiocom_connection")
 }
+
+// «In evidenza da audio.com»: le collection (album, playlist…) dell'account audio.com collegato che
+// l'amministratore sceglie in /admin/audiocom e che la Home mostra come sezioni, nell'ordine di
+// `position` (0 = prima). Solo l'id: titolo, copertina e brani arrivano da audio.com (in cache sul
+// server). Tabella nuova e indipendente (prisma db push sicuro).
+model AudioComFeaturedCollection {
+  collectionId String   @id
+  position     Int
+  /// Amministratore che l'ha scelta (id di better-auth).
+  addedBy      String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("audiocom_featured_collection")
+}

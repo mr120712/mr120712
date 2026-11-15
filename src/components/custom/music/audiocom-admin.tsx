@@ -10,6 +10,8 @@
 // riproducono in Solco solo con licenza CC0 / CC BY / CC BY-SA / CC BY-ND; gli altri si ascoltano
 // solo nel player ufficiale di audio.com.
 // Prima di collegare va verificato che i termini dell'API di audio.com consentano questo uso.
+// Con l'account collegato, il pannello «In evidenza nella Home» sceglie le collection dell'account
+// da mostrare in Home come sezioni (audiocom-featured-admin.tsx).
 'use client';
 
 import { AlertTriangle, CheckCircle2, Link2, Unlink } from 'lucide-react';
@@ -19,6 +21,7 @@ import { ZodError } from 'zod';
 import { AppSurface } from '@/components/custom/app-ui/app-shell';
 import { PageHeader } from '@/components/custom/app-ui/page-header';
 import { Panel } from '@/components/custom/app-ui/panel';
+import { AudioComFeaturedAdmin } from '@/components/custom/music/audiocom-featured-admin';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
 import {
@@ -134,7 +137,7 @@ export function AudioComAdmin() {
     <AppSurface className="bg-transparent">
       <PageHeader
         title="audio.com"
-        description="Brani di audio.com nella ricerca di Solco, con licenza e attribuzione."
+        description="Brani di audio.com nella ricerca e nella Home di Solco, con licenza e attribuzione."
       />
 
       <Panel
@@ -149,6 +152,9 @@ export function AudioComAdmin() {
           onRetry={() => void loadStatus()}
         />
       </Panel>
+
+      {/* Con l'account collegato: le collection da mostrare in Home. */}
+      {status?.connected ? <AudioComFeaturedAdmin /> : null}
 
       <Panel title="Come funziona" description="Da leggere prima di collegare.">
         <ul className="grid list-disc gap-2 pl-5 text-sm leading-6 text-muted-foreground">
@@ -173,7 +179,14 @@ export function AudioComAdmin() {
             riservati, nessuna licenza, licenze non commerciali) si ascoltano solo nel player
             ufficiale di audio.com.
           </li>
-          <li>«Scollega» cancella i token: i brani di audio.com spariscono dalla ricerca.</li>
+          <li>
+            «In evidenza nella Home»: scegli fino a 6 collection (album o playlist) del tuo account;
+            la Home le mostra come sezioni con le stesse regole di licenza della ricerca e si
+            aggiorna da sola ogni 10 minuti.
+          </li>
+          <li>
+            «Scollega» cancella i token: i brani di audio.com spariscono dalla ricerca e dalla Home.
+          </li>
         </ul>
       </Panel>
     </AppSurface>

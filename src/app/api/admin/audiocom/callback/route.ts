@@ -6,6 +6,7 @@
 import 'server-only';
 import { clearAudioComSearchCache } from '@/lib/music/audiocom.server';
 import { audioComAdminSession, audioComPrivateHeaders } from '@/lib/music/audiocom-admin.server';
+import { clearAudioComSectionsCache } from '@/lib/music/audiocom-collections.server';
 import {
   AUDIOCOM_ADMIN_PAGE,
   type AudioComConfig,
@@ -85,6 +86,8 @@ export async function GET(request: Request) {
     });
     // Le ricerche "non collegato" in memoria non valgono più.
     clearAudioComSearchCache();
+    // Anche le sezioni «In evidenza da audio.com» della Home seguono il nuovo collegamento.
+    clearAudioComSectionsCache();
   } catch (exchangeError) {
     if (exchangeError instanceof AudioComError && exchangeError.reason === 'rate_limited') {
       return fail(config, 'rate_limited');

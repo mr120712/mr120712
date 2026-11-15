@@ -7,6 +7,7 @@ import { NextResponse } from 'next/server';
 import { AudioComConnectionStatusSchema } from '@/lib/contracts/audiocom';
 import { clearAudioComSearchCache } from '@/lib/music/audiocom.server';
 import { audioComPrivateHeaders, requireAudioComAdmin } from '@/lib/music/audiocom-admin.server';
+import { clearAudioComSectionsCache } from '@/lib/music/audiocom-collections.server';
 import {
   audioComConnectionStatus,
   disconnectAudioCom,
@@ -50,6 +51,8 @@ export async function DELETE(request: Request) {
   try {
     await disconnectAudioCom();
     clearAudioComSearchCache();
+    // Anche le sezioni «In evidenza da audio.com» della Home seguono il nuovo collegamento.
+    clearAudioComSectionsCache();
     return NextResponse.json({ disconnected: true }, { headers: audioComPrivateHeaders });
   } catch (error) {
     logFailure('scollegamento non riuscito', error);

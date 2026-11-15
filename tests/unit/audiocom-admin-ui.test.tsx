@@ -70,18 +70,21 @@ describe('AudioComAdmin', () => {
   });
 
   it('collegato: nome dell’account, ultimo problema; «Scollega» manda DELETE e ricarica', async () => {
-    mocks.apiFetch.mockImplementation(async (_url: string, init?: RequestInit) =>
-      init?.method === 'DELETE'
-        ? { disconnected: true }
-        : {
-            ...base,
-            connected: true,
-            clientRegistered: true,
-            accountName: 'Solco Official',
-            connectedAt: '2026-11-14T09:00:00.000Z',
-            lastError: 'rate_limited',
-            lastErrorAt: '2026-11-15T08:00:00.000Z',
-          },
+    mocks.apiFetch.mockImplementation(async (url: string, init?: RequestInit) =>
+      // Con l'account collegato compare anche il pannello «In evidenza nella Home».
+      url === '/api/admin/audiocom/collections'
+        ? { status: 'ok', collections: [], featuredIds: [] }
+        : init?.method === 'DELETE'
+          ? { disconnected: true }
+          : {
+              ...base,
+              connected: true,
+              clientRegistered: true,
+              accountName: 'Solco Official',
+              connectedAt: '2026-11-14T09:00:00.000Z',
+              lastError: 'rate_limited',
+              lastErrorAt: '2026-11-15T08:00:00.000Z',
+            },
     );
     const container = await mount();
     expect(container.textContent).toContain('Collegato come Solco Official');
