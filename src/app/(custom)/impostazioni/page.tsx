@@ -13,7 +13,8 @@ export const metadata: Metadata = {
     'Preferenze di Solco salvate su questo dispositivo: autoplay continuo e risparmio dati.',
   // Pagina pubblica ed elencata nella sitemap (src/lib/nav.ts): niente noindex, altrimenti Search
   // Console la segnala come «URL inviato contrassegnato come noindex». Google non è mai loggato,
-  // quindi non vede mai la sezione «Account».
+  // quindi non vede mai la sezione «Account». Canonical esplicito come le altre pagine pubbliche.
+  alternates: { canonical: '/impostazioni' },
 };
 
 export default function ImpostazioniPage() {

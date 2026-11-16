@@ -5,7 +5,8 @@ import { FEATURED_FREE_MONTHLY_PLAYS, FREE_MONTHLY_PLAYS } from '@/lib/business/
 import styles from '../legal.module.css';
 
 export const metadata: Metadata = {
-  title: 'Termini di Solco',
+  // Titolo assoluto: il marchio è già nel nome («Termini di Solco · Solco» lo ripeterebbe su Google).
+  title: { absolute: 'Termini di Solco' },
   description: 'Condizioni d’uso della ricerca e riproduzione musicale Audius e YouTube in Solco.',
   alternates: { canonical: '/terms' },
 };

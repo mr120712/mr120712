@@ -5,9 +5,12 @@ import type { Metadata } from 'next';
 import { BotConsole } from '@/components/custom/music/bot-console';
 
 export const metadata: Metadata = {
-  title: 'Bot Solco',
+  // Titolo assoluto: il marchio è già nel nome («Bot Solco · Solco» lo ripeterebbe su Google).
+  title: { absolute: 'Bot Solco' },
   description:
     'Chiedi al Bot Solco e trova brani Creative Commons, radio e podcast da ascoltare subito, anche in slowed / sped up. 30 ricerche gratis al mese.',
+  // Pagina pubblica in sitemap: canonical esplicito come le altre (www, https).
+  alternates: { canonical: '/bot' },
 };
 
 export default function BotPage() {
