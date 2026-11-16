@@ -12,8 +12,9 @@
 // - openai: whisper-1 (OPENAI_API_KEY), API in stile OpenAI.
 // - fireworks: whisper-v3 (FIREWORKS_API_KEY), API in stile OpenAI.
 // - mistral: voxtral-mini-latest (MISTRAL_API_KEY), API in stile OpenAI, solo tempi dei segmenti.
-// - cloudflare: whisper-large-v3-turbo su Workers AI (CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID),
-//   con una quota gratuita (cloudflare-ai.server.ts).
+// - cloudflare: whisper-large-v3-turbo su Workers AI (CLOUDFLARE_API_TOKEN; CLOUDFLARE_ACCOUNT_ID solo
+//   se il token vede più account: altrimenti l'account si scopre col token), con una quota gratuita
+//   (cloudflare-ai.server.ts).
 // Ordine: LYRICS_AI_ENGINES ("deepgram,groq,openai": SOLO quelli elencati, in quell'ordine),
 // altrimenti DEFAULT_ENGINE_ORDER; LYRICS_AI_PROVIDER=openai (variabile storica) mette OpenAI per
 // primo. Senza nessuna chiave la trascrizione è spenta e la pagina admin lo dice.
@@ -62,7 +63,7 @@ export type TranscriptionProvider = TranscriptionTarget & {
   /** Nome mostrato all'amministratore («Solco AI (Groq)», «Deepgram»). */
   label: string;
   apiKey: string;
-  /** Solo Cloudflare: l'account su cui gira Workers AI (CLOUDFLARE_ACCOUNT_ID). */
+  /** Solo Cloudflare: l'account su cui gira Workers AI (CLOUDFLARE_ACCOUNT_ID); assente = si scopre col token. */
   accountId?: string;
 };
 
@@ -81,7 +82,7 @@ export const DEEPGRAM_MODEL = 'nova-3';
 export const ELEVENLABS_TRANSCRIPTION_ENDPOINT = 'https://api.elevenlabs.io/v1/speech-to-text';
 export const ELEVENLABS_MODEL = 'scribe_v1';
 export const CLOUDFLARE_MODEL = '@cf/openai/whisper-large-v3-turbo';
-/** Variabile con l'account Cloudflare (insieme a CLOUDFLARE_API_TOKEN). */
+/** Variabile con l'account Cloudflare (facoltativa: serve solo se il token vede più account). */
 export const CLOUDFLARE_ACCOUNT_ENV = 'CLOUDFLARE_ACCOUNT_ID';
 /** Variabile storica: "openai" mette OpenAI per primo. */
 export const TRANSCRIPTION_PROVIDER_ENV = 'LYRICS_AI_PROVIDER';
@@ -254,7 +255,7 @@ export function transcriptionEngineOrder(env: EnvLike = process.env): Transcript
 /** Account Cloudflare: identificatori alfanumerici (di solito 32 caratteri esadecimali). */
 const CLOUDFLARE_ACCOUNT_ID = /^[A-Za-z0-9]{8,64}$/;
 
-/** Il motore `id` se la sua chiave (e per Cloudflare l'account) è su Vercel, altrimenti null. */
+/** Il motore `id` se la sua chiave è su Vercel, altrimenti null. */
 export function transcriptionProviderFor(
   id: TranscriptionProviderId,
   env: EnvLike = process.env,
@@ -271,14 +272,16 @@ export function transcriptionProviderFor(
     };
   }
   if (id === 'cloudflare') {
+    // L'account è facoltativo: senza, il motore lo chiede a Cloudflare col token (il primo account a
+    // cui il token ha accesso) e lo ricorda per il processo (cloudflare-ai.server.ts).
     const accountId = env[CLOUDFLARE_ACCOUNT_ENV]?.trim();
-    if (!accountId || !CLOUDFLARE_ACCOUNT_ID.test(accountId)) return null;
+    const known = accountId && CLOUDFLARE_ACCOUNT_ID.test(accountId) ? accountId : undefined;
     return {
       ...target,
-      endpoint: cloudflareEndpoint(accountId),
+      endpoint: known ? cloudflareEndpoint(known) : '',
       label: target.vendor,
       apiKey,
-      accountId,
+      ...(known ? { accountId: known } : {}),
     };
   }
   return { ...target, label: target.vendor, apiKey };

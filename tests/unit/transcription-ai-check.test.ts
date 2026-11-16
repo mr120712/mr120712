@@ -524,8 +524,13 @@ describe('motori multipli', () => {
     expect(transcriptionKeyEnvNames({})[0]).toBe('GROQ_API_KEY');
   });
 
-  it('Cloudflare solo con token e account; etichette dei motori dal modello', () => {
-    expect(configuredTranscriptionProviders({ CLOUDFLARE_API_TOKEN: 'tok' })).toEqual([]);
+  it('Cloudflare col solo token (account scoperto dopo) o con token e account; etichette dal modello', () => {
+    const [tokenOnly] = configuredTranscriptionProviders({ CLOUDFLARE_API_TOKEN: 'tok' });
+    expect(tokenOnly).toMatchObject({ id: 'cloudflare', endpoint: '', apiKey: 'tok' });
+    expect(tokenOnly?.accountId).toBeUndefined();
+    expect(configuredTranscriptionProviders({ CLOUDFLARE_ACCOUNT_ID: 'abc123def4567890' })).toEqual(
+      [],
+    );
     const [cloudflare] = configuredTranscriptionProviders({
       CLOUDFLARE_API_TOKEN: 'tok',
       CLOUDFLARE_ACCOUNT_ID: 'abc123def4567890',

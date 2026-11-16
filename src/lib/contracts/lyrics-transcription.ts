@@ -318,7 +318,7 @@ export const TRANSCRIPTION_WORD_TAG_HINT =
  * Basta UNA di queste variabili su Vercel; con più chiavi Solco AI passa da un motore all'altro.
  */
 export const TRANSCRIPTION_NOT_CONFIGURED_MESSAGE =
-  'Aggiungi su Vercel la chiave di un motore per Solco AI (trascrizione dei testi): GROQ_API_KEY, DEEPGRAM_API_KEY, ELEVENLABS_API_KEY, OPENAI_API_KEY, FIREWORKS_API_KEY, MISTRAL_API_KEY oppure CLOUDFLARE_API_TOKEN con CLOUDFLARE_ACCOUNT_ID';
+  'Aggiungi su Vercel la chiave di un motore per Solco AI (trascrizione dei testi): GROQ_API_KEY, DEEPGRAM_API_KEY, ELEVENLABS_API_KEY, OPENAI_API_KEY, FIREWORKS_API_KEY, MISTRAL_API_KEY oppure CLOUDFLARE_API_TOKEN (CLOUDFLARE_ACCOUNT_ID solo se il token vede più account)';
 
 /**
  * POST /api/admin/featured-rights/transcribe/check («Verifica Solco AI»): il motore di trascrizione

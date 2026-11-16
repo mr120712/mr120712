@@ -8,9 +8,16 @@
 // rimette nella forma verbose_json e si legge con il parser comune. Errori: Cloudflare risponde 400
 // con errors[].code 10000 anche a un token non valido (→ chiave non valida); per il resto la mappa
 // comune (403 chiave, 429 quota o limite, 5xx servizio). Mai il token né il testo della risposta.
+// Account: CLOUDFLARE_ACCOUNT_ID se c'è; altrimenti il primo account che GET /accounts elenca per il
+// token, ricordato per il processo (impronta del token come chiave, mai il token).
 import 'server-only';
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import type { TranscriptionProvider } from '@/lib/music/transcription-provider.server';
+import { readUpTo } from '@/lib/music/featured-rights.server';
+import {
+  cloudflareEndpoint,
+  type TranscriptionProvider,
+} from '@/lib/music/transcription-provider.server';
 import {
   bodyMentions,
   combinedSignal,
@@ -80,6 +87,82 @@ export function parseCloudflareResponse(raw: unknown): WhisperTranscript | null 
   });
 }
 
+/** Dove Cloudflare elenca gli account a cui il token ha accesso. */
+export const CLOUDFLARE_ACCOUNTS_URL = 'https://api.cloudflare.com/client/v4/accounts?per_page=5';
+/** Tempo massimo per chiedere l'elenco degli account. */
+const ACCOUNT_LOOKUP_TIMEOUT_MS = 10_000;
+/** Risposta dell'elenco degli account letta al massimo. */
+const ACCOUNTS_MAX_BYTES = 64 * 1024;
+
+const AccountsSchema = z
+  .object({
+    success: z.boolean().optional(),
+    result: z.array(z.object({ id: z.string().min(8).max(64) }).passthrough()).optional(),
+  })
+  .passthrough();
+
+/** Account già scoperti, per processo: chiave = impronta del token (mai il token). */
+const knownAccounts = new Map<string, string>();
+
+function tokenFingerprint(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+/** Solo per i test: dimentica gli account scoperti. */
+export function forgetCloudflareAccountsForTests(): void {
+  knownAccounts.clear();
+}
+
+export type CloudflareAccount = { ok: true; accountId: string } | WhisperFailure;
+
+/**
+ * L'account su cui eseguire Workers AI: CLOUDFLARE_ACCOUNT_ID se c'è, altrimenti il primo account
+ * che Cloudflare elenca per questo token, ricordato per il processo. Un token rifiutato o senza
+ * accesso a nessun account vale come chiave non valida. Mai throw, mai il token.
+ */
+export async function cloudflareAccount(
+  provider: TranscriptionProvider,
+  {
+    timeoutMs = WHISPER_TIMEOUT_MS,
+    signal,
+    fetcher = fetch,
+  }: Pick<EngineRequest, 'timeoutMs' | 'signal' | 'fetcher'>,
+): Promise<CloudflareAccount> {
+  if (provider.accountId) return { ok: true, accountId: provider.accountId };
+  const fingerprint = tokenFingerprint(provider.apiKey);
+  const known = knownAccounts.get(fingerprint);
+  if (known) return { ok: true, accountId: known };
+  let response: Response;
+  try {
+    response = await fetcher(CLOUDFLARE_ACCOUNTS_URL, {
+      method: 'GET',
+      headers: { authorization: `Bearer ${provider.apiKey}` },
+      signal: combinedSignal(Math.min(timeoutMs, ACCOUNT_LOOKUP_TIMEOUT_MS), signal),
+      cache: 'no-store',
+    });
+  } catch (error) {
+    return failedBeforeSending(error)
+      ? { ...failure('no_response', provider), notSent: true }
+      : failure('no_response', provider);
+  }
+  if (!response.ok) {
+    const result = await cloudflareError(response, provider);
+    await response.body?.cancel().catch(() => undefined);
+    return result;
+  }
+  try {
+    if (!response.body) return failure('invalid_response', provider);
+    const bytes = await readUpTo(response.body, ACCOUNTS_MAX_BYTES);
+    const parsed = AccountsSchema.safeParse(JSON.parse(new TextDecoder().decode(bytes)));
+    const accountId = parsed.success ? parsed.data.result?.[0]?.id : undefined;
+    if (!accountId) return failure('invalid_key', provider, response.status);
+    knownAccounts.set(fingerprint, accountId);
+    return { ok: true, accountId };
+  } catch {
+    return failure('invalid_response', provider);
+  }
+}
+
 /** Un 400 di Cloudflare può essere un token non valido (code 10000) o un audio rifiutato. */
 const AUTH_PATTERN = /authentication|"code"\s*:\s*10000|invalid[^"]{0,40}token|unauthorized/i;
 
@@ -117,10 +200,12 @@ export async function postToCloudflare(
     ...(language ? { language } : {}),
     ...(hint ? { initial_prompt: hint } : {}),
   });
+  const account = await cloudflareAccount(provider, { timeoutMs, signal, fetcher });
+  if (!account.ok) return account;
   const abort = combinedSignal(timeoutMs, signal);
   let response: Response;
   try {
-    response = await fetcher(provider.endpoint, {
+    response = await fetcher(cloudflareEndpoint(account.accountId), {
       method: 'POST',
       headers: {
         authorization: `Bearer ${provider.apiKey}`,

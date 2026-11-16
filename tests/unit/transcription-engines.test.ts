@@ -18,6 +18,8 @@ vi.mock('@/lib/env', () => ({
 }));
 
 import {
+  CLOUDFLARE_ACCOUNTS_URL,
+  forgetCloudflareAccountsForTests,
   parseCloudflareResponse,
   postToCloudflare,
   transcribeWithCloudflare,
@@ -485,6 +487,65 @@ describe('Cloudflare Workers AI', () => {
         fetcher: limit.fetcher,
       }),
     ).toMatchObject({ ok: false, error: 'rate_limited', status: 429 });
+  });
+});
+
+describe('Cloudflare: account scoperto col token', () => {
+  it('senza CLOUDFLARE_ACCOUNT_ID chiede il primo account del token, lo usa e lo ricorda', async () => {
+    forgetCloudflareAccountsForTests();
+    const tokenOnly = transcriptionProviderFor('cloudflare', {
+      CLOUDFLARE_API_TOKEN: CLOUDFLARE_TOKEN,
+    });
+    if (!tokenOnly) throw new Error('motore atteso');
+    expect(tokenOnly.accountId).toBeUndefined();
+    const { fetcher, calls } = fetcherOf((url) =>
+      url.startsWith(CLOUDFLARE_ACCOUNTS_URL)
+        ? json({ success: true, result: [{ id: 'acc0123456789abcdef', name: 'Mio account' }] })
+        : json(CLOUDFLARE_BODY),
+    );
+    const first = await transcribeWithCloudflare(tokenOnly, {
+      audio: AUDIO,
+      extension: 'mp3',
+      fetcher,
+    });
+    expect(first.ok).toBe(true);
+    expect(calls.map(([url, init]) => [init.method, url])).toEqual([
+      ['GET', CLOUDFLARE_ACCOUNTS_URL],
+      [
+        'POST',
+        'https://api.cloudflare.com/client/v4/accounts/acc0123456789abcdef/ai/run/@cf/openai/whisper-large-v3-turbo',
+      ],
+    ]);
+    expect(new Headers((calls[0] as Call)[1].headers).get('authorization')).toBe(
+      `Bearer ${CLOUDFLARE_TOKEN}`,
+    );
+    // La seconda volta l'account è noto: niente GET.
+    const second = await transcribeWithCloudflare(tokenOnly, {
+      audio: AUDIO,
+      extension: 'mp3',
+      fetcher,
+    });
+    expect(second.ok).toBe(true);
+    expect(calls).toHaveLength(3);
+    expect((calls[2] as Call)[1].method).toBe('POST');
+
+    forgetCloudflareAccountsForTests();
+    // Token rifiutato dall'elenco degli account, o nessun account: chiave non valida, niente POST.
+    const refused = fetcherOf(() => json({ success: false, errors: [{ code: 10000 }] }, 401));
+    expect(
+      await postToCloudflare(tokenOnly, {
+        audio: AUDIO,
+        extension: 'mp3',
+        fetcher: refused.fetcher,
+      }),
+    ).toMatchObject({ ok: false, error: 'invalid_key', status: 401 });
+    expect(refused.calls).toHaveLength(1);
+    const none = fetcherOf(() => json({ success: true, result: [] }));
+    expect(
+      await postToCloudflare(tokenOnly, { audio: AUDIO, extension: 'mp3', fetcher: none.fetcher }),
+    ).toMatchObject({ ok: false, error: 'invalid_key' });
+    expect(none.calls).toHaveLength(1);
+    forgetCloudflareAccountsForTests();
   });
 });
 
