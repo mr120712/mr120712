@@ -11,6 +11,7 @@ import {
   FileCheck2,
   History,
   LayoutDashboard,
+  Smartphone,
   UserCog,
   Users,
 } from 'lucide-react';
@@ -30,6 +31,7 @@ const navItems = [
   { href: '/admin/diritti-testi', label: 'Diritti e testi', icon: FileCheck2 },
   { href: '/admin/tiktok', label: 'Video TikTok', icon: Clapperboard },
   { href: '/admin/audiocom', label: 'audio.com', icon: AudioWaveform },
+  { href: '/admin/app-ios', label: 'App iOS', icon: Smartphone },
   { href: '/admin/monitoraggio', label: 'Monitoraggio', icon: Activity },
 ];
 

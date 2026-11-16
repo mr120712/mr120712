@@ -59,6 +59,13 @@ export const env = createEnv({
     // Dove pubblicare gli annunci di aggiornamento build (es. "@solcomusic" o l'id numerico del
     // canale). Il bot dev'essere amministratore del canale. Senza, gli annunci sono disattivati.
     TELEGRAM_CHANNEL_CHAT_ID: z.string().min(1).optional(),
+    // ID del team Apple Developer (10 caratteri): accende /.well-known/apple-app-site-association,
+    // il file con cui l'app iOS si collega al sito (link universali e credenziali condivise).
+    // Opzionale: senza, la route risponde 404 e l'app resta scollegata dal dominio.
+    APPLE_TEAM_ID: z
+      .string()
+      .regex(/^[A-Z0-9]{10}$/)
+      .optional(),
     // @polsia:slot env_vars_server end
   },
 
@@ -118,6 +125,7 @@ export const env = createEnv({
     TELEGRAM_WEBHOOK_SECRET: process.env.TELEGRAM_WEBHOOK_SECRET,
     TELEGRAM_CHANNEL_CHAT_ID: process.env.TELEGRAM_CHANNEL_CHAT_ID,
     NEXT_PUBLIC_TELEGRAM_BOT_USERNAME: process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME,
+    APPLE_TEAM_ID: process.env.APPLE_TEAM_ID,
     // @polsia:slot env_runtime end
   },
   emptyStringAsUndefined: true,

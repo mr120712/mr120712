@@ -35,4 +35,14 @@ describe('pagina /app', () => {
     const download = android?.querySelector('a[href="/solco.apk"]');
     expect(download?.getAttribute('download')).toBe('solco.apk');
   });
+
+  it("iPhone: prima l'app nativa (stato chiesto al server), poi il profilo senza installare nulla", () => {
+    const root = render(<InstallAppPage />);
+    const iphone = root.querySelector('#iphone');
+    // Lato server il componente non ha ancora chiesto lo stato: mostra l'attesa, mai un link finto.
+    expect(iphone?.textContent).toContain('Controllo se l’app per iPhone è disponibile');
+    expect(iphone?.querySelector('a[href^="itms-services:"]')).toBeNull();
+    expect(iphone?.textContent).toContain('Oppure senza installare nulla');
+    expect(iphone?.querySelector('a[href="/ios/solco.mobileconfig"]')).not.toBeNull();
+  });
 });

@@ -8,6 +8,7 @@ import {
   Clapperboard,
   FileCheck2,
   Send,
+  Smartphone,
   UserCog,
   Users,
 } from 'lucide-react';
@@ -62,6 +63,21 @@ export default function AdminPage() {
           <Button asChild variant="outline" className="mt-1 justify-between">
             <Link href="/admin/account">
               Apri gestione account
+              <ArrowRight aria-hidden="true" className="size-4" />
+            </Link>
+          </Button>
+        </article>
+        <article className="grid content-start gap-3 rounded-xl border border-border bg-card p-6">
+          <Smartphone aria-hidden="true" className="size-5 text-primary" />
+          <h2 className="font-semibold text-card-foreground">App iOS</h2>
+          <p className="text-sm leading-6 text-muted-foreground">
+            L’IPA firmato Ad Hoc che il sito installa da /app sugli iPhone registrati: caricalo,
+            attivalo o rimuovilo. Il server controlla identificativo, versione e firma prima di
+            pubblicarlo.
+          </p>
+          <Button asChild variant="outline" className="mt-1 justify-between">
+            <Link href="/admin/app-ios">
+              Apri app iOS
               <ArrowRight aria-hidden="true" className="size-4" />
             </Link>
           </Button>

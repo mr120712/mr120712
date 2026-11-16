@@ -331,6 +331,17 @@ export const ACTION_RATE_LIMITS = {
   // Token per mettere quel file nello staging di Vercel Blob, per admin: un po' più largo
   // dell'invio, per i caricamenti interrotti e ripresi.
   'audiocom.upload.stage.admin': [{ requests: 20, windowMs: 3_600_000 }],
+  // Link di installazione dell'app iOS (GET /api/ios/install) per ACCOUNT: uno per apertura della
+  // pagina /app; largo per chi installa davvero, stretto per uno script che volesse coniare token.
+  'ios.install.link': [
+    { requests: 30, windowMs: 600_000 },
+    { requests: 200, windowMs: 86_400_000 },
+  ],
+  // Manifest e file IPA (GET /api/ios/manifest, /api/ios/ipa) per ACCOUNT del token: un'installazione
+  // scarica il file una volta; un token rubato non svuota lo store.
+  'ios.ipa.download': [{ requests: 20, windowMs: 3_600_000 }],
+  // Pagina admin «App iOS»: token di caricamento, attivazioni e rimozioni dell'IPA.
+  'admin.ios.app': [{ requests: 30, windowMs: 3_600_000 }],
   // Segnali di visita (POST /api/visits) per IP: uno per pagina aperta, quindi largo per chi naviga
   // davvero e stretto per uno script che volesse gonfiare le statistiche dei visitatori.
   'site.visit': [
@@ -627,6 +638,9 @@ const actionLabels: Record<RateLimitAction, string> = {
   'audiocom.connect.admin': 'i collegamenti ad audio.com',
   'audiocom.upload.admin': 'i caricamenti su audio.com',
   'audiocom.upload.stage.admin': 'la preparazione dei caricamenti su audio.com',
+  'ios.install.link': "i link di installazione dell'app iOS",
+  'ios.ipa.download': "i download dell'app iOS",
+  'admin.ios.app': "la gestione dell'app iOS",
   'site.visit': 'i segnali di visita',
 };
 

@@ -4,6 +4,7 @@
 // la pagina in Safari (solo Safari consegna un profilo a Impostazioni).
 import { Apple, Download, Smartphone } from 'lucide-react';
 import type { Metadata } from 'next';
+import { IosAppInstall } from '@/components/custom/install/ios-app-install';
 import { IosProfileDownload } from '@/components/custom/install/ios-profile-download';
 import { Button } from '@/components/ui/button';
 import {
@@ -82,6 +83,8 @@ export default function InstallAppPage() {
           <Apple />
         </div>
         <h2 id="iphone-heading">iPhone e iPad</h2>
+        <IosAppInstall />
+        <h3 className={styles.subheading}>Oppure senza installare nulla</h3>
         <IosProfileDownload pageUrl={`${siteUrl}/app`} />
         <p className={styles.meta}>iOS 15 o successivo · funziona solo con Safari</p>
         <ol className={styles.steps}>

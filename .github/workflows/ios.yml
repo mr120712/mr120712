@@ -5,7 +5,11 @@
 #                 Non si installa finché non viene firmato con un certificato dell'Apple Developer
 #                 Program del proprietario (su un Mac: bash ios/build.sh sign …).
 #   ipa-signed    archivia, firma ed esporta Solco.ipa per App Store Connect e TestFlight con la
-#                 firma automatica di Xcode. Servono quattro segreti del repository, creati dal
+#                 firma automatica di Xcode.
+#   ipa-adhoc     come ipa-signed ma con esportazione Ad Hoc: l'IPA si installa dal sito (pagina
+#                 /app, dopo il caricamento in /admin/app-ios) sugli iPhone registrati nell'account
+#                 Apple Developer (Certificates, Identifiers & Profiles → Devices, fino a 100 l'anno).
+#                 Le due modalità firmate richiedono quattro segreti del repository, creati dal
 #                 proprietario (Settings → Secrets and variables → Actions):
 #                   APPLE_TEAM_ID                  ID del team (10 caratteri)
 #                   APP_STORE_CONNECT_KEY_ID       ID della chiave API di App Store Connect
@@ -20,7 +24,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'check = compila; ipa-unsigned = IPA senza firma; ipa-signed = IPA firmato con la chiave API (segreti richiesti)'
+        description: 'check = compila; ipa-unsigned = IPA senza firma; ipa-signed = IPA per App Store Connect; ipa-adhoc = IPA per l’installazione dal sito (segreti richiesti)'
         type: choice
         required: true
         default: ipa-unsigned
@@ -28,6 +32,7 @@ on:
           - check
           - ipa-unsigned
           - ipa-signed
+          - ipa-adhoc
 
 permissions:
   contents: read
@@ -48,12 +53,13 @@ jobs:
         run: xcodebuild -version
 
       - name: Compila o archivia senza firma
-        if: inputs.mode != 'ipa-signed'
+        if: inputs.mode == 'check' || inputs.mode == 'ipa-unsigned'
         run: bash ios/build.sh "${{ inputs.mode }}"
 
       - name: Archivia, firma ed esporta con la chiave API
-        if: inputs.mode == 'ipa-signed'
+        if: inputs.mode == 'ipa-signed' || inputs.mode == 'ipa-adhoc'
         env:
+          SOLCO_IOS_EXPORT_METHOD: ${{ inputs.mode == 'ipa-adhoc' && 'ad-hoc' || 'app-store-connect' }}
           SOLCO_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}

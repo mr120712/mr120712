@@ -8,8 +8,10 @@
 #                  Un IPA senza firma NON si installa su nessun iPhone: va firmato con un certificato
 #                  rilasciato dall'Apple Developer Program del proprietario (modalità `sign`, oppure
 #                  `ipa` che firma direttamente).
-#   ipa            archivia ed esporta build/Solco.ipa per App Store Connect e TestFlight con firma
-#                  automatica. Richiede SOLCO_APPLE_TEAM_ID; fuori da un Mac già autenticato in Xcode
+#   ipa            archivia ed esporta build/Solco.ipa con firma automatica. Il metodo è
+#                  SOLCO_IOS_EXPORT_METHOD: app-store-connect (predefinito: App Store e TestFlight),
+#                  ad-hoc (installazione dal sito sui dispositivi registrati nell'account Apple) o
+#                  development. Richiede SOLCO_APPLE_TEAM_ID; fuori da un Mac già autenticato in Xcode
 #                  servono anche APP_STORE_CONNECT_KEY_ID, APP_STORE_CONNECT_ISSUER_ID e
 #                  APP_STORE_CONNECT_KEY_PATH (chiave API .p8): Xcode crea certificati e profili da solo.
 #   sign <ipa> <identità> <profilo.mobileprovision>
@@ -88,7 +90,13 @@ case "$mode" in
       done
       auth+=(-authenticationKeyID "$APP_STORE_CONNECT_KEY_ID" -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID" -authenticationKeyPath "$APP_STORE_CONNECT_KEY_PATH")
     fi
-    sed "s/__TEAM_ID__/$team/" "$script_dir/ExportOptions.template.plist" >"$out/ExportOptions.plist"
+    method="${SOLCO_IOS_EXPORT_METHOD:-app-store-connect}"
+    case "$method" in
+      app-store-connect|ad-hoc|development) ;;
+      *) echo "SOLCO_IOS_EXPORT_METHOD deve essere app-store-connect, ad-hoc o development." >&2; exit 2 ;;
+    esac
+    echo "Metodo di esportazione: $method"
+    sed -e "s/__TEAM_ID__/$team/" -e "s/__METHOD__/$method/" "$script_dir/ExportOptions.template.plist" >"$out/ExportOptions.plist"
     rm -rf "$archive" "$out/export" "$out/Solco.ipa"
     run_xcodebuild "$out/archive.log" \
       -project "$project" -scheme "$scheme" -configuration Release \
@@ -99,7 +107,7 @@ case "$mode" in
       -exportPath "$out/export" "${auth[@]}"
     cp "$out/export/Solco.ipa" "$out/Solco.ipa"
     codesign -dv --verbose=2 "$archive/Products/Applications/Solco.app" 2>&1 | grep -E "Authority|TeamIdentifier" || true
-    echo "IPA firmato per App Store Connect: $out/Solco.ipa"
+    echo "IPA firmato ($method): $out/Solco.ipa"
     ;;
 
   sign)

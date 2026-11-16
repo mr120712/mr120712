@@ -18,6 +18,7 @@ const infoPlist = readFileSync('ios/Solco/Info.plist', 'utf8');
 const workflow = readFileSync('.github/workflows/ios.yml', 'utf8');
 const buildScript = readFileSync('ios/build.sh', 'utf8');
 const exportOptions = readFileSync('ios/ExportOptions.template.plist', 'utf8');
+const entitlements = readFileSync('ios/Solco/Solco.entitlements', 'utf8');
 
 const MODES = ['check', 'ipa-unsigned', 'ipa', 'sign'];
 
@@ -47,6 +48,13 @@ describe('progetto iOS', () => {
     expect(pbxproj).not.toMatch(/DEVELOPMENT_TEAM = [A-Z0-9]{10};/);
   });
 
+  it("collega l'app al dominio ufficiale (Associated Domains) in Debug e Release", () => {
+    expect(pbxproj.match(/CODE_SIGN_ENTITLEMENTS = Solco\/Solco\.entitlements;/g)).toHaveLength(2);
+    expect(entitlements).toContain('<key>com.apple.developer.associated-domains</key>');
+    expect(entitlements).toContain(`<string>applinks:${ANDROID_APP_HOST}</string>`);
+    expect(entitlements).toContain(`<string>webcredentials:${ANDROID_APP_HOST}</string>`);
+  });
+
   it('lo script di build conosce tutte le modalità e non porta segreti', () => {
     for (const mode of MODES) {
       expect(buildScript).toContain(`\n  ${mode})`);
@@ -62,6 +70,12 @@ describe('progetto iOS', () => {
     expect(workflow).toContain('runs-on: macos-');
     expect(workflow).toMatch(/bash ios\/build\.sh "\$\{\{ inputs\.mode \}\}"/);
     expect(workflow).toContain('bash ios/build.sh ipa');
+    // Esportazione Ad Hoc per l'installazione dal sito, accanto a quella per App Store Connect.
+    expect(workflow).toContain('- ipa-adhoc');
+    expect(workflow).toMatch(
+      /SOLCO_IOS_EXPORT_METHOD: \$\{\{ inputs\.mode == 'ipa-adhoc' && 'ad-hoc' \|\| 'app-store-connect' \}\}/,
+    );
+    expect(buildScript).toContain('SOLCO_IOS_EXPORT_METHOD');
     for (const secret of [
       'APPLE_TEAM_ID',
       'APP_STORE_CONNECT_KEY_ID',
@@ -74,7 +88,7 @@ describe('progetto iOS', () => {
   });
 
   it("l'esportazione è per App Store Connect con firma automatica e team dalla variabile", () => {
-    expect(exportOptions).toContain('<string>app-store-connect</string>');
+    expect(exportOptions).toContain('<string>__METHOD__</string>');
     expect(exportOptions).toContain('<string>automatic</string>');
     expect(exportOptions).toContain('__TEAM_ID__');
   });

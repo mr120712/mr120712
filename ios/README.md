@@ -22,6 +22,17 @@ Il repository è pubblico, quindi i runner macOS di GitHub Actions sono gratuiti
 
 Lo stesso script gira su un Mac: `bash ios/build.sh check|ipa-unsigned|ipa`, e `bash ios/build.sh sign <ipa> "<identità>" <profilo.mobileprovision>` firma un IPA non firmato con un'identità del portachiavi.
 
+## Installazione dal sito (Ad Hoc)
+
+Un IPA firmato **Ad Hoc** si installa da Safari con un link `itms-services://`, senza App Store, ma solo sugli iPhone e iPad il cui identificativo (UDID) è registrato nell'account Apple Developer (fino a 100 dispositivi l'anno). Solco lo distribuisce dalla pagina `/app` dietro un cancello: serve un account, e il link contiene un token firmato (HMAC, 15 minuti) perché l'installatore di iOS scarica manifest e file senza i cookie del browser.
+
+1. Registra i dispositivi: developer.apple.com → Certificates, Identifiers & Profiles → Devices (l'UDID si legge dal Finder o da Impostazioni › Generali › Info).
+2. Avvia il workflow «iOS (IPA)» in modalità `ipa-adhoc` (con i quattro segreti) e scarica l'artefatto `Solco.ipa`; su un Mac: `SOLCO_IOS_EXPORT_METHOD=ad-hoc bash ios/build.sh ipa`.
+3. In `/admin/app-ios` carica l'IPA: il server lo ispeziona (identificativo `online.solcomusic.solco`, versione uguale a quella del sito, firma presente, profilo Ad Hoc, Enterprise o di sviluppo), lo conserva nello store privato (Vercel Blob, prefisso `ios-app/`) e lo attiva; un IPA senza firma o firmato per l'App Store viene rifiutato.
+4. Gli utenti con account vedono in `/app` il pulsante «Installa l'app»: `GET /api/ios/install` rilascia il link, `GET /api/ios/manifest?t=…` il manifest e `GET /api/ios/ipa?t=…` il file, con limiti per account.
+
+Il collegamento formale tra app e sito è `/.well-known/apple-app-site-association` (Associated Domains): si accende impostando `APPLE_TEAM_ID` su Vercel (l'ID del team, 10 caratteri) e dichiara `webcredentials` (Safari e app condividono le password salvate) e `applinks` senza regole finché l'app non gestirà i percorsi del sito. I domini sono nel file `Solco/Solco.entitlements`, che Xcode applica con la firma automatica.
+
 ## Certificati
 
 Un certificato «valido» per iOS esiste solo dentro l'Apple Developer Program (99 € l'anno, intestato al proprietario): è Apple a rilasciarlo, insieme al profilo di provisioning che lega l'app all'identificativo e al team. Non si può generare, copiare o «iniettare» in un IPA da fuori: un IPA firmato con un certificato altrui, scaduto o revocato non si apre, e Apple revoca i certificati condivisi. Le vie corrette sono tre: Xcode sul proprio Mac (firma automatica), il workflow `ipa-signed` con la chiave API (Xcode crea certificati e profili gestiti da Apple) oppure Xcode Cloud da App Store Connect. L'app arriva sugli iPhone tramite TestFlight o l'App Store, dopo la revisione.
