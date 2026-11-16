@@ -18,6 +18,7 @@ import { listJamendoTracks } from '@/lib/music/jamendo.server';
 import { readYouTubeApiKey } from '@/lib/music/music-api.server';
 import { searchPodcasts } from '@/lib/music/podcasts.server';
 import { listStations } from '@/lib/music/radio-browser.server';
+import type { WhisperProbeResult } from '@/lib/music/whisper.server';
 import { readYouTubeQuotaUsage, type YouTubeQuotaUsage } from '@/lib/music/youtube-budget.server';
 import { formatItalianTime } from '@/lib/music/youtube-query';
 
@@ -60,6 +61,16 @@ export type CheckDeps = {
   radioStations: (fetcher: Fetcher) => Promise<CatalogOutcome & { stations: readonly unknown[] }>;
   podcastSearch: (fetcher: Fetcher) => Promise<CatalogOutcome & { podcasts: readonly unknown[] }>;
   jamendoTracks: (fetcher: Fetcher) => Promise<CatalogOutcome & { tracks: readonly unknown[] }>;
+  /**
+   * Prova della chiave OpenAI: un secondo di silenzio a Whisper (whisper.server, probeWhisper),
+   * la stessa richiesta della trascrizione dei testi. Costo irrisorio ma reale, per questo la
+   * chiamata è iniettabile e il modulo si carica solo quando il controllo gira davvero.
+   */
+  openAiProbe: (input: {
+    apiKey: string;
+    timeoutMs: number;
+    fetcher: Fetcher;
+  }) => Promise<WhisperProbeResult>;
 };
 
 export type YouTubeSearchHealth = {
@@ -99,6 +110,8 @@ export function defaultCheckDeps(): CheckDeps {
     radioStations: (fetcher) => listStations({ country: 'IT', limit: 5 }, fetcher),
     podcastSearch: (fetcher) => searchPodcasts('musica', fetcher),
     jamendoTracks: (fetcher) => listJamendoTracks({}, fetcher),
+    openAiProbe: (input) =>
+      import('@/lib/music/whisper.server').then((whisper) => whisper.probeWhisper(input)),
   };
 }
 
@@ -445,6 +458,39 @@ const checkAnthropic: Check = async (deps) => {
   return fail(`Anthropic ha risposto con un errore (HTTP ${response.status})`);
 };
 
+/**
+ * OPENAI_API_KEY serve solo alla trascrizione dei testi (pagina admin «Diritti e testi»). La prova
+ * è la stessa richiesta della trascrizione su un secondo di silenzio generato dal server: nessun
+ * brano, costo irrisorio. Chiave assente o OpenAI che limita le richieste: avviso; chiave rifiutata,
+ * crediti finiti o OpenAI irraggiungibile: errore (l'amministratore deve intervenire).
+ */
+const checkOpenAi: Check = async (deps) => {
+  const key = deps.env.OPENAI_API_KEY?.trim();
+  if (!key) {
+    return warn('Non configurata (OPENAI_API_KEY): la trascrizione dei testi con l’IA è spenta');
+  }
+  const probe = await deps.openAiProbe({
+    apiKey: key,
+    timeoutMs: Math.max(1_000, deps.timeoutMs - 500),
+    fetcher: deps.fetch,
+  });
+  if (probe.ok) return ok(`Chiave valida: Whisper ha risposto in ${probe.elapsedMs} ms`);
+  switch (probe.error) {
+    case 'invalid_key':
+      return fail('Chiave non valida o revocata');
+    case 'no_credit':
+      return fail('Crediti OpenAI esauriti o fatturazione non attiva');
+    case 'rate_limited':
+      return warn('OpenAI limita temporaneamente le richieste');
+    case 'no_response':
+      return fail('OpenAI non risponde entro il tempo previsto');
+    case 'unavailable':
+      return fail('OpenAI ha un problema temporaneo (errore del servizio)');
+    default:
+      return fail('OpenAI non ha accettato la prova audio');
+  }
+};
+
 const checkStripe: Check = async (deps) => {
   const key = deps.env.STRIPE_SECRET_KEY?.trim();
   if (!key) return warn('Non configurata (STRIPE_SECRET_KEY)');
@@ -490,6 +536,7 @@ export const MONITOR_CHECK_FUNCTIONS: Record<MonitorCheckId, Check> = {
   jamendo: checkJamendo,
   email: checkEmail,
   anthropic: checkAnthropic,
+  openai: checkOpenAi,
   stripe: checkStripe,
   cron_cleanup: checkCronCleanup,
 };

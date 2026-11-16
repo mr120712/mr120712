@@ -247,6 +247,8 @@ export type WhisperRequest = {
   timeoutMs?: number;
   /** Interruzione dal chiamante (es. la richiesta dell'admin annullata). */
   signal?: AbortSignal;
+  /** fetch da usare (il monitoraggio inietta il suo); predefinito: quello globale. */
+  fetcher?: typeof fetch;
 };
 
 type WhisperPost =
@@ -265,6 +267,7 @@ async function postToWhisper({
   apiKey,
   timeoutMs = WHISPER_TIMEOUT_MS,
   signal,
+  fetcher = fetch,
 }: WhisperRequest): Promise<WhisperPost> {
   if (audio.length === 0) return failure('rejected');
   if (audio.length > TRANSCRIPTION_MAX_AUDIO_BYTES) return failure('too_large');
@@ -289,7 +292,7 @@ async function postToWhisper({
   const abort = combinedSignal(timeoutMs, signal);
   let response: Response;
   try {
-    response = await fetch(WHISPER_ENDPOINT, {
+    response = await fetcher(WHISPER_ENDPOINT, {
       method: 'POST',
       headers: { authorization: `Bearer ${apiKey}` },
       body: form,
@@ -374,6 +377,8 @@ export type WhisperProbe = {
   apiKey: string;
   timeoutMs?: number;
   signal?: AbortSignal;
+  /** fetch da usare (il monitoraggio inietta il suo); predefinito: quello globale. */
+  fetcher?: typeof fetch;
 };
 
 /** I messaggi di Whisper parlano di «Trascrizione non riuscita»: nella prova si è provata solo la chiave. */
@@ -396,6 +401,7 @@ export async function probeWhisper({
   apiKey,
   timeoutMs = PROBE_TIMEOUT_MS,
   signal,
+  fetcher,
 }: WhisperProbe): Promise<WhisperProbeResult> {
   const startedAt = Date.now();
   const posted = await postToWhisper({
@@ -404,6 +410,7 @@ export async function probeWhisper({
     apiKey,
     timeoutMs,
     signal,
+    fetcher,
   });
   const elapsedMs = Math.max(0, Date.now() - startedAt);
   if (!posted.ok) return { ...posted, elapsedMs };

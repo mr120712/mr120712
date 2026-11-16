@@ -75,6 +75,11 @@ export const MONITOR_CHECKS: Record<MonitorCheckId, MonitorCheckInfo> = {
     critical: false,
     help: 'La chiave Anthropic è valida.',
   },
+  openai: {
+    label: 'Trascrizione IA (OpenAI)',
+    critical: false,
+    help: 'La chiave OpenAI (OPENAI_API_KEY) accetta una trascrizione Whisper di prova: un secondo di silenzio generato dal server, nessun brano, costo irrisorio.',
+  },
   stripe: {
     label: 'Pagamenti Stripe',
     critical: false,

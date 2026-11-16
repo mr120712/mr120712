@@ -217,7 +217,7 @@ describe('pagina monitoraggio: stati della lettura', () => {
     expect(status.textContent).toContain('5 minuti fa');
     expect(status.textContent).toContain('11:25');
     expect(status.textContent).toContain('avviato dal controllo giornaliero di Vercel');
-    expect(status.textContent).toContain('14 funzionano');
+    expect(status.textContent).toContain(`${MONITOR_CHECK_IDS.length} funzionano`);
 
     const items = [...container.querySelectorAll<HTMLElement>('li[data-check]')];
     expect(items.map((item) => item.dataset.check)).toEqual([...MONITOR_CHECK_IDS]);
@@ -258,7 +258,9 @@ describe('pagina monitoraggio: stati della lettura', () => {
     expect(status.textContent).toContain('Qualcosa non funziona');
     expect(status.textContent).toContain('Non funzionano: Radio');
     expect(status.textContent).toContain('Avvisi (nessuna email): Email');
-    expect(status.textContent).toContain('12 funzionano · 1 avviso · 1 non funziona');
+    expect(status.textContent).toContain(
+      `${MONITOR_CHECK_IDS.length - 2} funzionano · 1 avviso · 1 non funziona`,
+    );
 
     const radio = checkItem(container, 'radio');
     expect(radio.dataset.status).toBe('fail');
