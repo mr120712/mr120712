@@ -8,6 +8,9 @@
 // «Diritti e testi»; niente segnaposto se prima non c'era un avviso. Quando la query cambia,
 // l'elenco vecchio non si sposta: il riquadro resta (stesso elemento e altezza, «controllo…»)
 // finché arrivano la risposta nuova o i risultati nuovi, e un avviso nuovo compare con questi.
+// Poche richieste: la prima parte subito, le successive aspettano la pausa minima dall'ultima (con
+// la query più recente); in attesa, i risultati nuovi portano via il riquadro, che ricompare solo se
+// l'avviso ha qualcosa da dire. Tempo finto: la pausa si fa passare con settle().
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -63,6 +66,7 @@ vi.mock('@/components/custom/music/ai-music-search', () => ({ AiMusicSearch: () 
 vi.mock('@/components/custom/music/listen-in-solco', () => ({ ListenInSolco: () => null }));
 
 import {
+  ADMIN_SEARCH_HINT_MIN_SPACING_MS,
   AdminSearchHint,
   adminSearchHintNotice,
 } from '@/components/custom/music/admin-search-hint';
@@ -152,6 +156,14 @@ async function flush() {
   });
 }
 
+/** Fa passare la pausa minima fra due richieste dell'avviso: quella in attesa parte. */
+async function settle() {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ADMIN_SEARCH_HINT_MIN_SPACING_MS);
+  });
+  await flush();
+}
+
 async function render(element: React.ReactElement) {
   const container = document.createElement('div');
   document.body.append(container);
@@ -172,6 +184,8 @@ function notice(container: HTMLElement) {
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  // Solo i timer e l'orologio: le promesse (richieste, act) restano vere.
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
   mocks.apiFetch.mockReset();
   mocks.replace.mockReset();
   mocks.toast.mockReset();
@@ -182,6 +196,7 @@ beforeEach(() => {
 afterEach(async () => {
   for (const root of roots.splice(0)) await act(async () => root.unmount());
   document.body.replaceChildren();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -262,6 +277,51 @@ describe('avviso admin: richiesta privata in parallelo', () => {
     expect((call?.[1] as { signal?: AbortSignal }).signal).toBeInstanceOf(AbortSignal);
   });
 
+  it('digitando: la prima richiesta subito, poi al massimo una ogni pausa minima, con l’ultima query', async () => {
+    const { root } = await render(<AdminSearchHint query="c" />);
+    expect(hintCalls().map((call) => String(call[0]))).toEqual([`${HINT_PREFIX}?q=c`]);
+
+    // Tre lettere in meno di un secondo: nessuna richiesta in più, quella in volo è annullata.
+    for (const query of ['ca', 'car', 'caru']) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300);
+      });
+      await act(async () => root.render(<AdminSearchHint query={query} />));
+      await flush();
+    }
+    expect(hintCalls()).toHaveLength(1);
+    expect((hintCalls()[0]?.[1] as { signal?: AbortSignal }).signal?.aborted).toBe(true);
+
+    // Passata la pausa minima dalla prima richiesta: una sola richiesta, con la query più recente.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ADMIN_SEARCH_HINT_MIN_SPACING_MS - 900);
+    });
+    await flush();
+    expect(hintCalls().map((call) => String(call[0]))).toEqual([
+      `${HINT_PREFIX}?q=c`,
+      `${HINT_PREFIX}?q=caru`,
+    ]);
+
+    // Un'altra lettera subito dopo: aspetta di nuovo tutta la pausa dall'ultima richiesta.
+    await act(async () => root.render(<AdminSearchHint query="caruso" />));
+    await flush();
+    expect(hintCalls()).toHaveLength(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ADMIN_SEARCH_HINT_MIN_SPACING_MS - 1);
+    });
+    await flush();
+    expect(hintCalls()).toHaveLength(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    await flush();
+    expect(hintCalls().map((call) => String(call[0]))).toEqual([
+      `${HINT_PREFIX}?q=c`,
+      `${HINT_PREFIX}?q=caru`,
+      `${HINT_PREFIX}?q=caruso`,
+    ]);
+  });
+
   it('una query nuova annulla la richiesta in volo e la risposta vecchia non compare', async () => {
     const first = deferred<unknown>();
     const second = deferred<unknown>();
@@ -273,6 +333,9 @@ describe('avviso admin: richiesta privata in parallelo', () => {
     await act(async () => root.render(<UnifiedSearchResults initialQuery="mozart" />));
     await flush();
     expect(signal?.aborted).toBe(true);
+    // La richiesta nuova aspetta la pausa minima dall'ultima, poi parte con la query nuova.
+    expect(hintCalls()).toHaveLength(1);
+    await settle();
     expect(hintCalls().map((call) => String(call[0]))).toEqual([
       `${HINT_PREFIX}?q=caruso`,
       `${HINT_PREFIX}?q=mozart`,
@@ -290,24 +353,42 @@ describe('avviso admin: richiesta privata in parallelo', () => {
   });
 
   it('mai il conteggio della query precedente mentre arriva la risposta della nuova', async () => {
+    const laterAll = deferred<unknown>();
     const later = deferred<unknown>();
-    serve(handlerWith((query) => (query === 'caruso' ? undeclared(3) : later.promise)));
+    serve((url) => {
+      const query = queryOf(url);
+      if (url.startsWith('/api/music/search-all')) {
+        return query === 'caruso' ? searchAll('caruso') : laterAll.promise;
+      }
+      if (url.startsWith(HINT_PREFIX)) return query === 'caruso' ? undeclared(3) : later.promise;
+      return { query, collections: [], tracks: [] };
+    });
     const { container, root } = await render(<UnifiedSearchResults initialQuery="caruso" />);
     const box = notice(container);
     expect(box?.textContent).toContain('3 brani in evidenza corrispondono a «caruso»');
 
     await act(async () => root.render(<UnifiedSearchResults initialQuery="mozart" />));
     await flush();
-    // Lo stesso riquadro resta (nessun salto), ma senza il conteggio vecchio.
+    // Lo stesso riquadro resta (nessun salto), ma senza il conteggio vecchio: prima in attesa della
+    // pausa minima, poi con la richiesta in volo.
     expect(notice(container)).toBe(box);
     expect(box?.textContent).toBe('Solo per admin · controllo i brani in evidenza…');
     expect(box?.getAttribute('aria-busy')).toBe('true');
     expect(container.textContent).not.toContain('«caruso»');
+    await settle();
+    expect(hintCalls()).toHaveLength(2);
+    expect(notice(container)).toBe(box);
+    expect(box?.textContent).toBe('Solo per admin · controllo i brani in evidenza…');
 
-    // La query nuova non ha brani nascosti (e i suoi risultati sono già arrivati): nessun avviso.
+    // La query nuova non ha brani nascosti: il riquadro resta finché l'elenco vecchio è a schermo
+    // e va via con i risultati nuovi.
     await act(async () => later.resolve(undeclared(0)));
     await flush();
+    expect(notice(container)).toBe(box);
+    await act(async () => laterAll.resolve(searchAll('mozart')));
+    await flush();
     expect(notice(container)).toBeNull();
+    expect(container.textContent).toContain('risultato per “mozart”');
   });
 
   describe('nessun salto dei risultati mentre la query cambia', () => {
@@ -344,8 +425,9 @@ describe('avviso admin: richiesta privata in parallelo', () => {
       expect(before?.textContent).not.toContain('2 brani');
       expect(before?.textContent).not.toContain('«caruso»');
 
-      // L'avviso della query nuova non ha nulla da dire, ma search-all non ha ancora risposto:
+      // La richiesta dell'avviso aspetta la pausa minima e search-all non ha ancora risposto:
       // il riquadro resta, l'elenco vecchio non si sposta.
+      expect(hintCalls()).toHaveLength(1);
       await act(async () => hint.resolve(undeclared(0)));
       await flush();
       expect(notice(container)).toBe(before);
@@ -356,11 +438,17 @@ describe('avviso admin: richiesta privata in parallelo', () => {
       await flush();
       expect(notice(container)).toBeNull();
       expect(container.textContent).toContain('risultato per “caruson”');
+
+      // Passata la pausa la richiesta parte e non ha nulla da dire: nessun riquadro.
+      await settle();
+      expect(hintCalls()).toHaveLength(2);
+      expect(notice(container)).toBeNull();
     });
 
     it('il conteggio nuovo prende il posto del vecchio nello stesso riquadro', async () => {
       vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(48);
       const { container, hint, before } = await changeQuery(undeclared(2));
+      await settle();
       await act(async () => hint.resolve(undeclared(1)));
       await flush();
       expect(notice(container)).toBe(before);
@@ -375,6 +463,7 @@ describe('avviso admin: richiesta privata in parallelo', () => {
       expect(before).toBeNull();
       expect(notice(container)).toBeNull();
 
+      await settle();
       await act(async () => hint.resolve(undeclared(3)));
       await flush();
       expect(notice(container)).toBeNull();
@@ -389,6 +478,7 @@ describe('avviso admin: richiesta privata in parallelo', () => {
 
     it('un errore dell’avviso nuovo toglie il riquadro insieme all’elenco vecchio', async () => {
       const { container, all, hint, before } = await changeQuery(undeclared(2));
+      await settle();
       await act(async () => hint.reject(new Error('boom')));
       await flush();
       expect(notice(container)).toBe(before);
@@ -397,6 +487,31 @@ describe('avviso admin: richiesta privata in parallelo', () => {
       await act(async () => all.resolve(searchAll('caruson')));
       await flush();
       expect(notice(container)).toBeNull();
+    });
+
+    it('in attesa della pausa, i risultati nuovi portano via il riquadro; l’avviso ricompare se poi ha qualcosa da dire', async () => {
+      const { container, all, hint, before } = await changeQuery(undeclared(2));
+      expect(notice(container)).toBe(before);
+
+      // I risultati nuovi arrivano mentre la richiesta aspetta ancora: niente «controllo…» sopra
+      // l'elenco nuovo.
+      await act(async () => all.resolve(searchAll('caruson')));
+      await flush();
+      expect(notice(container)).toBeNull();
+      expect(container.textContent).toContain('risultato per “caruson”');
+      expect(hintCalls()).toHaveLength(1);
+
+      // Passata la pausa la richiesta parte; con qualcosa da dire, l'avviso compare allora.
+      await settle();
+      expect(hintCalls().map((call) => String(call[0]))).toEqual([
+        `${HINT_PREFIX}?q=caruso`,
+        `${HINT_PREFIX}?q=caruson`,
+      ]);
+      await act(async () => hint.resolve(undeclared(3)));
+      await flush();
+      expect(notice(container)?.textContent).toContain(
+        '3 brani in evidenza corrispondono a «caruson»',
+      );
     });
   });
 
@@ -415,7 +530,10 @@ describe('avviso admin: richiesta privata in parallelo', () => {
 
     await act(async () => root.render(<UnifiedSearchResults initialQuery="mozart" />));
     await flush();
-    // Stesso elemento, nessun salto dei risultati.
+    // Stesso elemento, nessun salto dei risultati: anche in attesa della pausa minima.
+    expect(notice(container)).toBe(box);
+    expect(box?.textContent).toContain("diritti.json non c'è");
+    await settle();
     expect(notice(container)).toBe(box);
 
     // La risposta nuova dice che il manifest ora è valido e nulla è nascosto: l'avviso sparisce.
@@ -461,6 +579,7 @@ describe('avviso admin: richiesta privata in parallelo', () => {
     expect(notice(container)).not.toBeNull();
     await act(async () => root.render(<UnifiedSearchResults initialQuery="mozart" />));
     await flush();
+    await settle();
     expect(notice(container)).toBeNull();
   });
 

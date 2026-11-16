@@ -18,6 +18,14 @@
 // - un avviso NUOVO (prima non c'era) non compare sopra i risultati vecchi mentre arrivano quelli
 //   nuovi: compare con loro. Se l'avviso arriva dopo i risultati, compare allora (non c'è modo di
 //   saperlo prima).
+//
+// POCHE RICHIESTE. La ricerca manda la query dopo 350 ms di pausa, e chi digita piano su un telefono
+// fa una pausa a ogni lettera: una richiesta a /api/admin per lettera supera il limite del firewall
+// (richieste al minuto per IP su /api/admin) e l'IP dell'amministratore resta bloccato per minuti.
+// Perciò la prima richiesta parte subito e le successive aspettano almeno
+// ADMIN_SEARCH_HINT_MIN_SPACING_MS dall'ultima, con la query più recente. Una richiesta in attesa
+// non è in volo: se intanto l'elenco nuovo è a schermo, il riquadro è andato via con quello vecchio
+// e ricompare solo se poi l'avviso ha qualcosa da dire.
 'use client';
 
 import { TriangleAlert } from 'lucide-react';
@@ -43,6 +51,16 @@ export type AdminSearchHintNotice = {
 
 /** Il testo del riquadro mentre arriva la risposta della query nuova (mai il conteggio vecchio). */
 export const ADMIN_SEARCH_HINT_CHECKING_TEXT = 'controllo i brani in evidenza…';
+
+/**
+ * Distanza minima fra due richieste dell'avviso: al massimo 20 al minuto, qualunque sia il ritmo di
+ * scrittura (il firewall blocca per minuti l'IP che supera il limite di richieste su /api/admin).
+ * La prima richiesta parte subito; una query cambiata prima della pausa aspetta il resto del tempo.
+ */
+export const ADMIN_SEARCH_HINT_MIN_SPACING_MS = 3_000;
+
+/** La richiesta per la query a schermo: in attesa della pausa minima, in volo, oppure conclusa. */
+type Phase = 'waiting' | 'in_flight' | 'settled';
 
 /**
  * Il testo dell'avviso per la risposta e la query, oppure null quando non c'è nulla da dire
@@ -105,12 +123,16 @@ function sameDisplay(left: Display | null, right: Display | null): boolean {
   );
 }
 
-/** Il prossimo stato del riquadro, da quello a schermo, dall'ultima risposta e dalla ricerca. */
+/**
+ * Il prossimo stato del riquadro, da quello a schermo, dall'ultima risposta e dalla ricerca.
+ * `waiting`: la richiesta per la query a schermo aspetta la pausa minima e non è ancora partita.
+ */
 function nextDisplay(
   shown: Display | null,
   answer: Answer | null,
   query: string,
   resultsUpdating: boolean,
+  waiting: boolean,
 ): Display | null {
   if (!query) return null;
   if (answer && answer.query === query) {
@@ -128,9 +150,12 @@ function nextDisplay(
     // Nulla da dire per la query nuova: il riquadro va via insieme all'elenco vecchio.
     return shown && resultsUpdating ? CHECKING : null;
   }
-  // Risposta della query nuova in arrivo.
+  // Risposta della query nuova in arrivo, o richiesta in attesa della pausa minima.
   if (!shown) return null;
   if (shown.kind === 'notice' && shown.queryIndependent) return shown;
+  // Richiesta non ancora partita e l'elenco nuovo è già a schermo: il riquadro va via con l'elenco
+  // vecchio (se poi l'avviso ha qualcosa da dire, ricompare allora).
+  if (waiting && !resultsUpdating) return null;
   return CHECKING;
 }
 
@@ -157,6 +182,9 @@ function AdminSearchHintBox({
   resultsUpdating: boolean;
 }) {
   const [answer, setAnswer] = useState<Answer | null>(null);
+  const [phase, setPhase] = useState<Phase>('settled');
+  // Quando è partita l'ultima richiesta (anche se poi annullata): la prossima aspetta la pausa minima.
+  const lastRequestAt = useRef<number | null>(null);
   // Ciò che è a schermo (serve a sapere se un riquadro c'era già quando la query cambia).
   const [shown, setShown] = useState<Display | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -166,24 +194,48 @@ function AdminSearchHintBox({
   useEffect(() => {
     if (!query) {
       setAnswer(null);
+      setPhase('settled');
       return;
     }
     const controller = new AbortController();
-    apiFetch(`${ADMIN_SEARCH_HINT_PATH}?${new URLSearchParams({ q: query }).toString()}`, {
-      schema: AdminSearchHintSchema,
-      signal: controller.signal,
-    })
-      .then((hint) => {
-        if (!controller.signal.aborted) setAnswer({ query, hint });
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const send = () => {
+      timer = null;
+      lastRequestAt.current = Date.now();
+      setPhase('in_flight');
+      apiFetch(`${ADMIN_SEARCH_HINT_PATH}?${new URLSearchParams({ q: query }).toString()}`, {
+        schema: AdminSearchHintSchema,
+        signal: controller.signal,
       })
-      .catch(() => {
-        // Errore, 401/403/429 o risposta fuori contratto: l'avviso sparisce, senza messaggi.
-        if (!controller.signal.aborted) setAnswer({ query, hint: null });
-      });
-    return () => controller.abort();
+        .then((hint) => {
+          if (!controller.signal.aborted) setAnswer({ query, hint });
+        })
+        .catch(() => {
+          // Errore, 401/403/429 o risposta fuori contratto: l'avviso sparisce, senza messaggi.
+          if (!controller.signal.aborted) setAnswer({ query, hint: null });
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setPhase('settled');
+        });
+    };
+    const sinceLast =
+      lastRequestAt.current === null
+        ? Number.POSITIVE_INFINITY
+        : Date.now() - lastRequestAt.current;
+    if (sinceLast >= ADMIN_SEARCH_HINT_MIN_SPACING_MS) {
+      send();
+    } else {
+      // Query cambiata prima della pausa minima: parte quando il tempo è passato, con questa query.
+      setPhase('waiting');
+      timer = setTimeout(send, ADMIN_SEARCH_HINT_MIN_SPACING_MS - sinceLast);
+    }
+    return () => {
+      controller.abort();
+      if (timer) clearTimeout(timer);
+    };
   }, [query]);
 
-  const display = nextDisplay(shown, answer, query, resultsUpdating);
+  const display = nextDisplay(shown, answer, query, resultsUpdating, phase === 'waiting');
   // Aggiornamento durante il render (stato derivato dal render precedente): React rifà subito il
   // render, prima di disegnare, e il secondo calcolo dà lo stesso risultato.
   if (!sameDisplay(display, shown)) setShown(display);
