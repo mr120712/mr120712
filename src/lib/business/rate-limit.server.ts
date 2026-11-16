@@ -296,6 +296,11 @@ export const ACTION_RATE_LIMITS = {
     { requests: 30, windowMs: 86_400_000 },
   ],
   'lyrics.transcribe.global': [{ requests: 50, windowMs: 86_400_000 }],
+  // «Verifica chiave OpenAI» (un secondo di silenzio a Whisper: costo irrisorio ma reale), per admin.
+  'lyrics.transcribe.check': [
+    { requests: 6, windowMs: 3_600_000 },
+    { requests: 20, windowMs: 86_400_000 },
+  ],
   // Salvataggio del .lrc nello store (scrittura su Vercel Blob), per admin.
   'lyrics.transcribe.save': [
     { requests: 20, windowMs: 600_000 },
@@ -615,6 +620,7 @@ const actionLabels: Record<RateLimitAction, string> = {
   'recordings.write': 'le registrazioni dei brani',
   'lyrics.transcribe': 'le trascrizioni dei testi con l’IA',
   'lyrics.transcribe.global': 'le trascrizioni dei testi con l’IA di oggi',
+  'lyrics.transcribe.check': 'le verifiche della chiave OpenAI',
   'lyrics.transcribe.save': 'i salvataggi dei testi',
   'audiocom.search.global': 'le ricerche su audio.com di questo minuto',
   'audiocom.search': 'le tue ricerche su audio.com',

@@ -11,6 +11,11 @@
 // Risposta attesa: { text, language, duration, segments: [{ start, end, text, avg_logprob,
 // no_speech_prob, compression_ratio, … }] }, letta con zod in modo tollerante (campi in più ok,
 // segmenti malformati saltati).
+//
+// Verifica della chiave (probeWhisper, pulsante «Verifica chiave OpenAI» della pagina admin): la
+// stessa richiesta con un secondo di silenzio WAV generato qui (nessun brano, costo di circa un
+// centesimo di centesimo). Dice se la chiave è valida, se i crediti sono finiti (429
+// insufficient_quota → no_credit) o se OpenAI non risponde, con gli stessi codici della trascrizione.
 import 'server-only';
 import { z } from 'zod';
 import {
@@ -84,6 +89,7 @@ export type WhisperTranscript = {
 
 export type WhisperErrorCode =
   | 'invalid_key'
+  | 'no_credit'
   | 'rate_limited'
   | 'too_large'
   | 'rejected'
@@ -108,6 +114,8 @@ export type WhisperResult = { ok: true; transcript: WhisperTranscript } | Whispe
 export const WHISPER_ERROR_MESSAGES: Record<WhisperErrorCode, string> = {
   invalid_key:
     'Trascrizione non riuscita: chiave OpenAI non valida (controlla OPENAI_API_KEY su Vercel).',
+  no_credit:
+    'Trascrizione non riuscita: crediti OpenAI esauriti o fatturazione non attiva (controlla Billing su platform.openai.com).',
   rate_limited: 'Trascrizione non riuscita: limite OpenAI raggiunto, riprova più tardi.',
   too_large: 'Trascrizione non riuscita: file troppo grande per OpenAI (al massimo 25 MB).',
   rejected:
@@ -189,26 +197,34 @@ export function parseWhisperResponse(raw: unknown): WhisperTranscript | null {
   };
 }
 
-/** True se il corpo di un 400 parla della dimensione del file (letto solo qui, mai restituito). */
-async function mentionsSize(response: Response): Promise<boolean> {
+/** True se il corpo di un errore (letto solo qui, mai restituito) contiene uno dei motivi. */
+async function bodyMentions(response: Response, pattern: RegExp): Promise<boolean> {
   try {
     if (!response.body) return false;
     const bytes = await readUpTo(response.body, 16 * 1024);
-    return /too large|maximum content size|size limit|file size|26214400|25 ?mb/i.test(
-      new TextDecoder().decode(bytes),
-    );
+    return pattern.test(new TextDecoder().decode(bytes));
   } catch {
     return false;
   }
 }
 
-async function errorFromStatus(response: Response): Promise<WhisperResult> {
+/** Il corpo di un 400 parla della dimensione del file. */
+const SIZE_PATTERN = /too large|maximum content size|size limit|file size|26214400|25 ?mb/i;
+/**
+ * Il corpo di un 429 parla di crediti finiti o fatturazione (OpenAI: code "insufficient_quota"),
+ * non di un vero limite di richieste.
+ */
+const QUOTA_PATTERN = /insufficient_quota|exceeded your current quota|billing/i;
+
+async function errorFromStatus(response: Response): Promise<WhisperFailure> {
   const { status } = response;
   if (status === 401 || status === 403) return failure('invalid_key');
-  if (status === 429) return failure('rate_limited');
+  if (status === 429) {
+    return failure((await bodyMentions(response, QUOTA_PATTERN)) ? 'no_credit' : 'rate_limited');
+  }
   if (status === 413) return failure('too_large');
   if (status === 400 || status === 415 || status === 422) {
-    return failure((await mentionsSize(response)) ? 'too_large' : 'rejected');
+    return failure((await bodyMentions(response, SIZE_PATTERN)) ? 'too_large' : 'rejected');
   }
   return failure(status >= 500 ? 'unavailable' : 'rejected');
 }
@@ -233,18 +249,23 @@ export type WhisperRequest = {
   signal?: AbortSignal;
 };
 
+type WhisperPost =
+  | { ok: true; response: Response; abort: AbortSignal | undefined }
+  | WhisperFailure;
+
 /**
- * Trascrive l'audio con Whisper. Non fa mai throw: ogni problema (rete, scadenza, errore HTTP,
- * risposta non valida) diventa un codice con un messaggio italiano generico.
+ * La richiesta multipart a Whisper, fino alla risposta HTTP (o a un codice di errore). Chi chiama
+ * legge il corpo di una risposta 2xx; ogni altro stato è già un codice con il messaggio italiano,
+ * e il corpo è stato chiuso.
  */
-export async function transcribeWithWhisper({
+async function postToWhisper({
   audio,
   extension,
   language,
   apiKey,
   timeoutMs = WHISPER_TIMEOUT_MS,
   signal,
-}: WhisperRequest): Promise<WhisperResult> {
+}: WhisperRequest): Promise<WhisperPost> {
   if (audio.length === 0) return failure('rejected');
   if (audio.length > TRANSCRIPTION_MAX_AUDIO_BYTES) return failure('too_large');
 
@@ -287,6 +308,17 @@ export async function transcribeWithWhisper({
     await response.body?.cancel().catch(() => undefined);
     return result;
   }
+  return { ok: true, response, abort };
+}
+
+/**
+ * Trascrive l'audio con Whisper. Non fa mai throw: ogni problema (rete, scadenza, errore HTTP,
+ * risposta non valida) diventa un codice con un messaggio italiano generico.
+ */
+export async function transcribeWithWhisper(request: WhisperRequest): Promise<WhisperResult> {
+  const posted = await postToWhisper(request);
+  if (!posted.ok) return posted;
+  const { response, abort } = posted;
 
   try {
     if (!response.body) return failure('invalid_response');
@@ -298,4 +330,83 @@ export async function transcribeWithWhisper({
     // Corpo interrotto (scadenza) o JSON non valido.
     return failure(abort?.aborted ? 'no_response' : 'invalid_response');
   }
+}
+
+// ─── Verifica della chiave ───────────────────────────────────────────────────────────────────────
+
+/** Durata del silenzio inviato come prova: Whisper accetta file da 0,1 s in su. */
+export const PROBE_SECONDS = 1;
+const PROBE_SAMPLE_RATE = 16_000;
+/** Tempo massimo della prova (la route ha 30 secondi in tutto). */
+export const PROBE_TIMEOUT_MS = 20_000;
+
+/**
+ * Un file WAV di solo silenzio (PCM 16 bit, mono, 16 kHz): 44 byte di intestazione e campioni a
+ * zero. Generato qui, così la verifica non tocca nessun brano dello store.
+ */
+export function silentWav(seconds = PROBE_SECONDS, sampleRate = PROBE_SAMPLE_RATE): Uint8Array {
+  const samples = Math.max(1, Math.round(seconds * sampleRate));
+  const dataBytes = samples * 2;
+  const bytes = new Uint8Array(44 + dataBytes);
+  const view = new DataView(bytes.buffer);
+  const ascii = (offset: number, text: string) => {
+    for (let index = 0; index < text.length; index += 1) {
+      bytes[offset + index] = text.charCodeAt(index);
+    }
+  };
+  ascii(0, 'RIFF');
+  view.setUint32(4, 36 + dataBytes, true);
+  ascii(8, 'WAVE');
+  ascii(12, 'fmt ');
+  view.setUint32(16, 16, true); // dimensione del blocco fmt
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true); // byte al secondo
+  view.setUint16(32, 2, true); // byte per campione
+  view.setUint16(34, 16, true); // bit per campione
+  ascii(36, 'data');
+  view.setUint32(40, dataBytes, true);
+  return bytes;
+}
+
+export type WhisperProbe = {
+  apiKey: string;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+};
+
+/** I messaggi di Whisper parlano di «Trascrizione non riuscita»: nella prova si è provata solo la chiave. */
+export function probeMessage(message: string): string {
+  const text = message.replace(/^Trascrizione non riuscita:\s*/i, '').trim();
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : message;
+}
+
+export type WhisperProbeResult =
+  | { ok: true; model: typeof WHISPER_MODEL; elapsedMs: number }
+  | (WhisperFailure & { elapsedMs: number });
+
+/**
+ * Prova la chiave con la stessa richiesta della trascrizione, su un secondo di silenzio: una
+ * risposta 2xx vale come chiave funzionante (il testo riconosciuto non interessa e non si legge);
+ * gli errori sono gli stessi codici della trascrizione (invalid_key, no_credit, rate_limited,
+ * unavailable, no_response…). Mai throw, mai la chiave né il testo di OpenAI.
+ */
+export async function probeWhisper({
+  apiKey,
+  timeoutMs = PROBE_TIMEOUT_MS,
+  signal,
+}: WhisperProbe): Promise<WhisperProbeResult> {
+  const startedAt = Date.now();
+  const posted = await postToWhisper({
+    audio: silentWav(),
+    extension: 'wav',
+    apiKey,
+    timeoutMs,
+    signal,
+  });
+  const elapsedMs = Math.max(0, Date.now() - startedAt);
+  if (!posted.ok) return { ...posted, elapsedMs };
+  await posted.response.body?.cancel().catch(() => undefined);
+  return { ok: true, model: WHISPER_MODEL, elapsedMs };
 }

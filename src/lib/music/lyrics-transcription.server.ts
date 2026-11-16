@@ -441,6 +441,8 @@ function json(status: number, body: Record<string, unknown>, headers: HeadersIni
 const WHISPER_STATUS: Partial<Record<WhisperErrorCode, number>> = {
   too_large: 413,
   rate_limited: 429,
+  // Crediti OpenAI finiti o fatturazione non attiva: "pagamento richiesto", non un limite.
+  no_credit: 402,
 };
 
 /** La risposta HTTP (privata, mai in cache) di un rifiuto: messaggi italiani, nessun dettaglio. */

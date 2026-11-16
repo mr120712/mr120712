@@ -387,6 +387,21 @@ describe('client Whisper', () => {
       [async () => upstream(401), 'invalid_key', 'chiave OpenAI non valida'],
       [async () => upstream(403), 'invalid_key', 'chiave OpenAI non valida'],
       [async () => upstream(429), 'rate_limited', 'limite OpenAI raggiunto, riprova più tardi'],
+      [
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: {
+                message: `You exceeded your current quota, please check your plan and billing details. ${UPSTREAM_DETAIL}`,
+                type: 'insufficient_quota',
+                code: 'insufficient_quota',
+              },
+            }),
+            { status: 429 },
+          ),
+        'no_credit',
+        'crediti OpenAI esauriti o fatturazione non attiva',
+      ],
       [async () => upstream(413), 'too_large', 'file troppo grande'],
       [
         async () => upstream(400, 'Maximum content size limit (26214400) exceeded'),

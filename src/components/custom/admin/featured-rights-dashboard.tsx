@@ -16,7 +16,8 @@
 // Il server conserva ogni trascrizione CIFRATA e la riusa: una bozza dalla cache mostra «Dalla
 // cache · nessun credito usato» con la data della trascrizione e «Rigenera con l'IA» (dopo la
 // conferma sui crediti OpenAI chiede regenerate: true); una nuova mostra «Nuova trascrizione ·
-// salvata in modo cifrato».
+// salvata in modo cifrato». «Verifica chiave OpenAI» (in testa alla pagina) prova la chiave del
+// server con un secondo di silenzio e riferisce con un avviso, senza toccare i brani.
 'use client';
 
 import {
@@ -46,6 +47,7 @@ import { useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { ZodError } from 'zod';
 import { FeaturedCatalogRefreshButton } from '@/components/custom/admin/featured-catalog-refresh-button';
+import { OpenAiKeyCheckButton } from '@/components/custom/admin/openai-key-check-button';
 import { AppSurface } from '@/components/custom/app-ui/app-shell';
 import { EmptyState } from '@/components/custom/app-ui/empty-state';
 import { ListToolbar } from '@/components/custom/app-ui/list-toolbar';
@@ -286,6 +288,9 @@ export function FeaturedRightsDashboard() {
                   una lettura nuova, anche se ce n'è una in corso: quella partì prima dello
                   svuotamento e la sua risposta viene scartata. */}
               <FeaturedCatalogRefreshButton onRefreshed={reloadAfterRefresh} />
+              {/* Prova OPENAI_API_KEY del server con un secondo di silenzio (nessun brano): dice se
+                  la trascrizione con l'IA può funzionare, o perché no (chiave, crediti, OpenAI). */}
+              <OpenAiKeyCheckButton />
             </>
           }
         />

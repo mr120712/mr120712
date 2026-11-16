@@ -250,3 +250,25 @@ export const LRC_EXISTS_MESSAGE = 'Esiste già un .lrc: conferma per sostituirlo
 /** Senza chiave OpenAI la trascrizione è spenta (stesso testo nella pagina e nel 503). */
 export const TRANSCRIPTION_NOT_CONFIGURED_MESSAGE =
   'Aggiungi OPENAI_API_KEY su Vercel per usare la trascrizione';
+
+/**
+ * POST /api/admin/featured-rights/transcribe/check («Verifica chiave OpenAI»): la chiave del server
+ * provata con la stessa richiesta della trascrizione su un secondo di silenzio generato sul server.
+ * Un errore ha la forma delle altre route ({ error, message }): transcription_not_configured (503)
+ * se la chiave manca su Vercel; openai_invalid_key (502), openai_no_credit (402: crediti finiti o
+ * fatturazione non attiva), openai_rate_limited (429), openai_unavailable e openai_no_response
+ * (502) se OpenAI rifiuta o non risponde. Il messaggio è sempre italiano, mai la chiave.
+ */
+export const TranscriptionCheckResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    model: z.literal('whisper-1'),
+    /** Millisecondi impiegati da OpenAI per rispondere. */
+    elapsedMs: z.number().int().nonnegative(),
+    checkedAt: z.string().datetime(),
+  })
+  .strict();
+export type TranscriptionCheckResponse = z.infer<typeof TranscriptionCheckResponseSchema>;
+/** Avviso di «Verifica chiave OpenAI» quando la prova riesce. */
+export const TRANSCRIPTION_CHECK_SUCCESS =
+  'Chiave OpenAI valida: la trascrizione con l’IA funziona';
