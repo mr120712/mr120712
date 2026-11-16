@@ -180,6 +180,7 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
   { path: '/bot', label: 'Bot', critical: false },
   { path: '/guida', label: 'Guida', critical: false },
   { path: '/impostazioni', label: 'Impostazioni', critical: false },
+  { path: '/contatti', label: 'Contatti', critical: false },
 ];
 
 /** Tutte le pagine su computer; la home anche su telefono, subito dopo. */

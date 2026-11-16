@@ -75,11 +75,13 @@ export const navItems: NavItem[] = [
   { label: 'Guida', href: '/guida', group: 'primary', order: 8 },
   { label: 'Guida', href: '/guida', group: 'footer', order: -2 },
   { label: 'Apple Music', href: '/apple-music', group: 'footer', order: -1, requiresAuth: true },
-  { label: 'Stato', href: '/stato', group: 'footer', order: 2 },
   { label: 'Privacy', href: '/privacy', group: 'footer', order: 0 },
   { label: 'Termini', href: '/terms', group: 'footer', order: 1 },
-  { label: 'Scarica da URL', href: '/scarica', group: 'footer', requiresAuth: true, order: 3 },
-  { label: 'Impostazioni', href: '/impostazioni', group: 'footer', order: 4 },
+  // Chi gestisce Solco e come scrivergli: pagina pubblica, in sitemap e in llms.txt.
+  { label: 'Contatti', href: '/contatti', group: 'footer', order: 2 },
+  { label: 'Stato', href: '/stato', group: 'footer', order: 3 },
+  { label: 'Scarica da URL', href: '/scarica', group: 'footer', requiresAuth: true, order: 4 },
+  { label: 'Impostazioni', href: '/impostazioni', group: 'footer', order: 5 },
 ];
 
 /** Schede della barra in basso (mobile), nello stile delle app di streaming. */

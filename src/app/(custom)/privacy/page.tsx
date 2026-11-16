@@ -2,7 +2,9 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
+import { legalContact } from '@/lib/brand';
 import { publicUploadsEnabled } from '@/lib/features';
+import { contactMailto, ownerStatement } from '@/lib/legal-contact';
 import styles from '../legal.module.css';
 
 export const metadata: Metadata = {
@@ -17,24 +19,23 @@ export default function PrivacyPage() {
       <article className={styles.content}>
         <p className={styles.eyebrow}>Solco · Privacy</p>
         <h1 className={styles.title}>Informativa privacy</h1>
-        <p className={styles.updated}>Bozza per revisione del proprietario · 8 novembre 2026</p>
+        <p className={styles.updated}>Aggiornata il 16 novembre 2026</p>
 
         <p className={styles.notice}>
-          Questa pagina descrive i trattamenti rilevabili dal codice attuale. Prima della
-          distribuzione pubblica, il proprietario deve confermare l’identità legale del titolare, le
-          basi giuridiche, i tempi di conservazione, i responsabili esterni e ogni trattamento
-          effettivamente attivo in produzione. I dati indicati come da confermare non sono
-          dichiarazioni legali definitive.
+          Questa informativa descrive i trattamenti che Solco fa davvero, funzione per funzione,
+          così come risultano dal codice in produzione. Viene aggiornata quando cambiano funzioni o
+          servizi esterni; per domande o richieste sui tuoi dati trovi i contatti qui sotto e nella
+          pagina <Link href="/contatti">Contatti</Link>.
         </p>
 
         <div className={styles.body}>
           <section>
             <h2>Titolare e contatti</h2>
             <p>
-              Il servizio è Solco. La denominazione legale e l’indirizzo del titolare devono essere
-              confermati dal proprietario prima della pubblicazione. Per richieste sulla privacy o
-              per chiedere la cancellazione di un account, scrivi a{' '}
-              <Link href="mailto:solcomusic@polsia.app">solcomusic@polsia.app</Link>.
+              {ownerStatement(legalContact)} Per richieste sulla privacy, per esercitare i tuoi
+              diritti o per chiedere la cancellazione di un account scrivi a{' '}
+              <Link href={contactMailto(legalContact, 'privacy')}>{legalContact.email}</Link>:
+              rispondiamo {legalContact.responseTime}.
             </p>
           </section>
 
@@ -173,8 +174,10 @@ export default function PrivacyPage() {
               ricerche servono a mostrare risultati di catalogo; le domande alla chat servono a
               restituire assistenza; cronologia, Preferiti, playlist e diario servono anche a
               preparare i tuoi brani consigliati, se non li hai spenti in Impostazioni. La base
-              giuridica applicabile a ciascuna finalità, inclusa l’eventuale analytics, deve essere
-              confermata dal titolare in base ai servizi attivi e ai mercati scelti.
+              giuridica è l’esecuzione del servizio che hai richiesto (art. 6, par. 1, lett. b del
+              GDPR) per account, Libreria, diario e consigli; il legittimo interesse del titolare
+              (lett. f) per la sicurezza, i limiti d’uso e le statistiche aggregate senza dati
+              personali; il consenso (lett. a) per le funzioni che te lo chiedono espressamente.
             </p>
           </section>
 
@@ -227,16 +230,11 @@ export default function PrivacyPage() {
               >
                 informativa privacy Audius
               </a>
-              . Titolare, base giuridica applicabile, conservazione e flussi effettivi del player
-              devono essere confermati prima della pubblicazione. L’analytics Polsia viene usata
-              solo se configurata nell’ambiente. Solco Pro è previsto a 24,00 EUR una tantum tramite
-              checkout Stripe ospitato da Polsia, con un mese di accesso e senza rinnovo. L’acquisto
-              resta disattivato finché il titolare non completa configurazione e verifica Stripe dal
-              widget Business e Polsia non supporta la creazione e verifica server-side dei
-              pagamenti in EUR. I payout restano gestiti da Polsia/Stripe; non è richiesta una
-              verifica bancaria separata per l’accesso. Il proprietario deve verificare i contratti,
-              l’elenco aggiornato dei responsabili e i flussi realmente attivi prima di compilare
-              Data safety.
+              . I pagamenti dei piani Premium avvengono sulle pagine sicure di Stripe o di PayPal:
+              Solco riceve solo la conferma del pagamento e l’identificativo dell’abbonamento, mai i
+              dati della carta. I piani e i prezzi in vigore sono nella pagina{' '}
+              <Link href="/piani">Piani</Link>. La misurazione delle visite è interna e senza dati
+              personali, come descritto sopra: nessun sistema di analytics di terze parti.
             </p>
             <p>
               Video TikTok: alcune pagine mostrano video TikTok pubblici scelti da Solco. Il player
@@ -318,16 +316,17 @@ export default function PrivacyPage() {
             <p>
               I dati dell’account e le registrazioni restano nel database dell’app fino alla
               cancellazione dell’account. La richiesta autenticata elimina account, sessioni,
-              diario, raccolte, dati dei prodotti e relativi controlli dal database applicativo. I
-              tempi di eliminazione da backup, log e sistemi esterni, e ogni conservazione
-              necessaria per obblighi legali o contabili, devono essere confermati dal proprietario
-              e descritti qui prima della release. La cancellazione dell’account non equivale alla
-              chiusura di un eventuale rapporto commerciale esterno.
+              diario, raccolte, dati dei prodotti e relativi controlli dal database applicativo. Le
+              copie di sicurezza del fornitore del database e i log tecnici dell’hosting vengono
+              sovrascritti automaticamente entro pochi giorni; i dati di fatturazione restano presso
+              Stripe o PayPal per il tempo richiesto dagli obblighi fiscali. La cancellazione
+              dell’account non chiude da sola un abbonamento attivo: disdicilo da «Gestisci
+              abbonamento» o dal tuo account PayPal.
             </p>
             <p>
               Puoi avviare la cancellazione da{' '}
-              <Link href="/delete-account">solcomusic.app/delete-account</Link> oppure, dopo aver
-              effettuato l’accesso, dalla pagina del profilo.
+              <Link href="/delete-account">www.solcomusic.online/delete-account</Link> oppure, dopo
+              aver effettuato l’accesso, dalla pagina del profilo.
             </p>
           </section>
 
@@ -335,9 +334,11 @@ export default function PrivacyPage() {
             <h2>Sicurezza e aggiornamenti</h2>
             <p>
               Solco limita le operazioni sul diario alla sessione autenticata e comunica con il
-              database tramite il server dell’app. Il proprietario deve completare la verifica dei
-              responsabili, delle misure effettive e dei tempi di conservazione. Questa informativa
-              va aggiornata quando cambiano funzioni o servizi esterni.
+              database solo tramite il proprio server; tutto il sito viaggia su HTTPS, le chiavi dei
+              servizi esterni restano sul server e le richieste che modificano dati accettano solo
+              la stessa origine. Chi scopre una vulnerabilità può segnalarla come indicato in{' '}
+              <Link href="/contatti">Contatti</Link>. Questa informativa viene aggiornata quando
+              cambiano funzioni o servizi esterni.
             </p>
           </section>
         </div>

@@ -3,13 +3,14 @@
 
 import { BookOpen, CircleHelp, LifeBuoy, Play } from 'lucide-react';
 import Link from 'next/link';
+import { legalContact } from '@/lib/brand';
 import { FREE_TRIAL_DAYS } from '@/lib/business/free-trial';
 import { FEATURED_FREE_MONTHLY_PLAYS, FREE_MONTHLY_PLAYS } from '@/lib/business/play-quota';
 import styles from './guide.module.css';
 import { Faq, GuideAction, GuideSection, InlineIcon, Points, Ui } from './guide-parts';
 
-/** Contatto che l'app mostra per account, privacy ed eliminazione dei dati (pagina Privacy). */
-const CONTACT_EMAIL = 'solcomusic@polsia.app';
+/** Contatto che l'app mostra per account, privacy ed eliminazione dei dati (brand.ts, come /contatti). */
+const CONTACT_EMAIL = legalContact.email;
 
 export function GuideProblems() {
   return (

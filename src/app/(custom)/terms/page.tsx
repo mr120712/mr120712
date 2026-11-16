@@ -1,7 +1,9 @@
 // @polsia:user-owned
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { legalContact } from '@/lib/brand';
 import { FEATURED_FREE_MONTHLY_PLAYS, FREE_MONTHLY_PLAYS } from '@/lib/business/play-quota';
+import { contactMailto, ownerStatement } from '@/lib/legal-contact';
 import styles from '../legal.module.css';
 
 export const metadata: Metadata = {
@@ -17,11 +19,13 @@ export default function TermsPage() {
       <article className={styles.content}>
         <p className={styles.eyebrow}>Solco · Termini</p>
         <h1 className={styles.title}>Termini di Solco</h1>
-        <p className={styles.updated}>Bozza per revisione del proprietario · 9 novembre 2026</p>
+        <p className={styles.updated}>Aggiornati il 16 novembre 2026</p>
 
         <p className={styles.notice}>
-          Identità legale del titolare, condizioni generali del servizio, basi giuridiche e
-          conservazione devono essere confermate dal proprietario prima della pubblicazione.
+          {ownerStatement(legalContact)} Usando Solco accetti queste condizioni, che descrivono il
+          servizio così com’è oggi. Per domande scrivi a{' '}
+          <Link href={contactMailto(legalContact, 'support')}>{legalContact.email}</Link> o leggi la
+          pagina <Link href="/contatti">Contatti</Link>.
         </p>
 
         <div className={styles.body}>

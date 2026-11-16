@@ -1,6 +1,8 @@
 // @polsia:user-owned — brand identity. Edit freely. `site.ts` re-exports
 // siteName/siteDescription; `manifest.ts` + `opengraph-image.tsx` read `brandVisual`.
 
+import type { LegalContact } from '@/lib/legal-contact';
+
 export const siteName = 'Solco';
 export const siteDescription =
   'Musica, radio dal vivo e podcast gratis in un unico player: classifiche, generi underground e playlist da ascoltare ovunque.';
@@ -27,3 +29,18 @@ export const brandVisual = {
 export const socialLinks = {
   telegram: 'https://t.me/solcomusic',
 } as const;
+
+/**
+ * Chi gestisce Solco e come si contatta: compare in /contatti, nell'informativa privacy, nei
+ * termini, nei dati strutturati (Organization) e in security.txt. Compila ownerName, address e
+ * taxId per pubblicare l'identità del titolare (fiducia per chi legge e per servizi come
+ * ScamAdviser); finché restano '' il sito dice che i dati completi si ottengono via email.
+ */
+export const legalContact: LegalContact = {
+  ownerName: '',
+  address: '',
+  taxId: '',
+  country: 'Italia',
+  email: 'solcomusic@polsia.app',
+  responseTime: 'di norma entro 2 giorni lavorativi',
+};

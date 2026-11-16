@@ -2,11 +2,16 @@
 // Add <meta>/<link> here (verification, preconnect) — React hoists them. For scripts use
 // next/script with the passed `nonce` (CSP-safe). Edit freely.
 
-import { socialLinks } from '@/lib/brand';
+import { legalContact, socialLinks } from '@/lib/brand';
+import { hasPublishedOwner } from '@/lib/legal-contact';
 import { SIGNED_IN_HINT_SCRIPT } from '@/lib/signed-in-hint';
 import { siteDescription, siteName, siteUrl } from '@/lib/site';
 
-// Structured data: Google shows the site name and a search box for Solco in results.
+const ORGANIZATION_ID = `${siteUrl}/#organization`;
+
+// Structured data: Google shows the site name and a search box for Solco in results; the
+// Organization block tells crawlers and trust services who runs the site and how to reach it
+// (contact page, email, official channel; the legal name once brand.ts publishes it).
 const structuredData = JSON.stringify([
   {
     '@context': 'https://schema.org',
@@ -17,11 +22,32 @@ const structuredData = JSON.stringify([
     inLanguage: 'it-IT',
     // schema.org sameAs: Solco's official profiles elsewhere (the public Telegram channel).
     sameAs: [socialLinks.telegram],
+    publisher: { '@id': ORGANIZATION_ID },
     potentialAction: {
       '@type': 'SearchAction',
       target: `${siteUrl}/search?q={search_term_string}`,
       'query-input': 'required name=search_term_string',
     },
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    '@id': ORGANIZATION_ID,
+    name: siteName,
+    ...(hasPublishedOwner(legalContact) ? { legalName: legalContact.ownerName } : {}),
+    url: siteUrl,
+    logo: `${siteUrl}/solco-icon-512.png`,
+    email: legalContact.email,
+    sameAs: [socialLinks.telegram],
+    contactPoint: [
+      {
+        '@type': 'ContactPoint',
+        contactType: 'customer support',
+        email: legalContact.email,
+        url: `${siteUrl}/contatti`,
+        availableLanguage: ['it'],
+      },
+    ],
   },
   {
     '@context': 'https://schema.org',

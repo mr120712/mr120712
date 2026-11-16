@@ -65,6 +65,8 @@ const PUBLIC_EXACT = new Set([
   '/stato',
   '/bot',
   '/impostazioni',
+  // Chi gestisce Solco e come scrivergli: leggibile senza account (anche da Google e ScamAdviser).
+  '/contatti',
   // Recupero password: chi l'ha dimenticata per definizione non è dentro.
   '/password-dimenticata',
   '/reimposta-password',

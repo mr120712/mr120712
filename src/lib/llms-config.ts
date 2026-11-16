@@ -41,6 +41,8 @@ export const llmsConfig: LlmsConfig = {
     '/app': 'Installa Solco su Android e iPhone.',
     '/guida':
       'Guida per chi inizia: account, ricerca, ascolto, Libreria, app sul telefono e piani, passo per passo.',
+    '/contatti':
+      'Chi gestisce Solco e come contattarlo: assistenza, privacy, pagamenti, segnalazione di contenuti e sicurezza.',
   },
   sections: [
     {
