@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Opzioni di esportazione per `xcodebuild -exportArchive` (modalità `ipa` di ios/build.sh): IPA per
+     App Store Connect e TestFlight con firma automatica. __TEAM_ID__ viene sostituito dallo script con
+     SOLCO_APPLE_TEAM_ID (l'ID del team Apple Developer, mai committato). -->
+<plist version="1.0">
+<dict>
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<key>teamID</key>
+	<string>__TEAM_ID__</string>
+	<key>destination</key>
+	<string>export</string>
+	<key>uploadSymbols</key>
+	<true/>
+	<key>manageAppVersionAndBuildNumber</key>
+	<false/>
+</dict>
+</plist>

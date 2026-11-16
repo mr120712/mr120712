@@ -56,6 +56,7 @@ lerna-debug.log*
 /android/.gradle/
 /android/.android-user/
 /android/local.properties
+/ios/build/
 /solco.aab
 
 # Python bytecode cache (dagli script locali in scripts/)

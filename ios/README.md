@@ -6,11 +6,25 @@ Il progetto `Solco.xcodeproj` contiene un’app SwiftUI nativa per iOS 17+, con 
 
 1. Apri `ios/Solco.xcodeproj` in Xcode.
 2. Seleziona lo schema `Solco` e un simulatore iPhone o iPad con iOS 17 o successivo.
-3. In **Build Settings**, imposta `SOLCO_API_BASE_URL` sull’origine HTTPS dell’app SOLCO distribuita. Per un dispositivo locale, usa un host raggiungibile dal dispositivo; HTTP è ammesso solo per `localhost` e `127.0.0.1`.
-4. Sostituisci `PRODUCT_BUNDLE_IDENTIFIER` (`app.polsia.solco.fan`) e configura la firma Apple prima di installare su un dispositivo.
+3. `SOLCO_API_BASE_URL` punta già al sito ufficiale (`https://www.solcomusic.online`); per un server locale cambialo in **Build Settings** (HTTP è ammesso solo per `localhost` e `127.0.0.1`).
+4. Per installare su un dispositivo scegli il tuo team in **Signing & Capabilities**: l'identificativo è `online.solcomusic.solco`, lo stesso dell'app Android, con firma automatica.
 5. Premi Run.
 
-Il valore di `SOLCO_API_BASE_URL` non è incluso nel repository. Senza questa impostazione l’app mostra uno stato di connessione non configurata e non avvia audio. Il bundle identifier è provvisorio e va sostituito con quello assegnato al prodotto.
+Versione e build (`1.3.0`, `4`) seguono quelle dell'APK Android; il test `tests/unit/ios-project.test.ts` controlla che identificativo, dominio e versione restino allineati a `src/lib/android-app.ts`.
+
+## Ottenere l'IPA senza un Mac
+
+Il repository è pubblico, quindi i runner macOS di GitHub Actions sono gratuiti. Da Actions → «iOS (IPA)» → Run workflow:
+
+- `check`: compila per il simulatore e dice solo se il progetto compila.
+- `ipa-unsigned`: archivia per iPhone senza firma e pubblica `Solco-unsigned.ipa` tra gli artefatti (14 giorni). **Non si installa** su nessun dispositivo: iOS esegue solo app firmate con un certificato rilasciato da Apple.
+- `ipa-signed`: archivia, firma ed esporta `Solco.ipa` per App Store Connect e TestFlight. Servono i quattro segreti descritti in cima a `.github/workflows/ios.yml` (ID del team e chiave API di App Store Connect): li crea il proprietario nel suo account Apple e li salva nei segreti del repository, mai nel codice.
+
+Lo stesso script gira su un Mac: `bash ios/build.sh check|ipa-unsigned|ipa`, e `bash ios/build.sh sign <ipa> "<identità>" <profilo.mobileprovision>` firma un IPA non firmato con un'identità del portachiavi.
+
+## Certificati
+
+Un certificato «valido» per iOS esiste solo dentro l'Apple Developer Program (99 € l'anno, intestato al proprietario): è Apple a rilasciarlo, insieme al profilo di provisioning che lega l'app all'identificativo e al team. Non si può generare, copiare o «iniettare» in un IPA da fuori: un IPA firmato con un certificato altrui, scaduto o revocato non si apre, e Apple revoca i certificati condivisi. Le vie corrette sono tre: Xcode sul proprio Mac (firma automatica), il workflow `ipa-signed` con la chiave API (Xcode crea certificati e profili gestiti da Apple) oppure Xcode Cloud da App Store Connect. L'app arriva sugli iPhone tramite TestFlight o l'App Store, dopo la revisione.
 
 Il primo avvio presenta tre schermate informative. Il completamento viene conservato in `UserDefaults` tramite `AppStorage`; per riprovare l’onboarding, cancella i dati dell’app o rimuovi `solco.onboarding.completed` dal simulatore.
 

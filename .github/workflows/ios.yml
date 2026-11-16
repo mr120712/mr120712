@@ -1,0 +1,88 @@
+# @polsia:user-owned — compila l'app iOS di Solco su un runner macOS di GitHub (qui non c'è Xcode).
+# Si avvia a mano da Actions → «iOS (IPA)» → Run workflow, scegliendo la modalità:
+#   check         compila per il simulatore: dice solo se il progetto compila.
+#   ipa-unsigned  archivia per iPhone senza firma e pubblica Solco-unsigned.ipa tra gli artefatti.
+#                 Non si installa finché non viene firmato con un certificato dell'Apple Developer
+#                 Program del proprietario (su un Mac: bash ios/build.sh sign …).
+#   ipa-signed    archivia, firma ed esporta Solco.ipa per App Store Connect e TestFlight con la
+#                 firma automatica di Xcode. Servono quattro segreti del repository, creati dal
+#                 proprietario (Settings → Secrets and variables → Actions):
+#                   APPLE_TEAM_ID                  ID del team (10 caratteri)
+#                   APP_STORE_CONNECT_KEY_ID       ID della chiave API di App Store Connect
+#                   APP_STORE_CONNECT_ISSUER_ID    Issuer ID della chiave
+#                   APP_STORE_CONNECT_PRIVATE_KEY  contenuto del file .p8 in base64
+#                 La chiave API si crea in App Store Connect → Users and Access → Integrations →
+#                 App Store Connect API (ruolo App Manager). Il workflow non la stampa mai.
+# Il repository è pubblico: i minuti macOS non costano. Nessun avvio automatico.
+name: iOS (IPA)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'check = compila; ipa-unsigned = IPA senza firma; ipa-signed = IPA firmato con la chiave API (segreti richiesti)'
+        type: choice
+        required: true
+        default: ipa-unsigned
+        options:
+          - check
+          - ipa-unsigned
+          - ipa-signed
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  xcode:
+    name: Xcode (${{ inputs.mode }})
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Versione di Xcode
+        run: xcodebuild -version
+
+      - name: Compila o archivia senza firma
+        if: inputs.mode != 'ipa-signed'
+        run: bash ios/build.sh "${{ inputs.mode }}"
+
+      - name: Archivia, firma ed esporta con la chiave API
+        if: inputs.mode == 'ipa-signed'
+        env:
+          SOLCO_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          for v in SOLCO_APPLE_TEAM_ID APP_STORE_CONNECT_KEY_ID APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_PRIVATE_KEY; do
+            if [ -z "${!v}" ]; then echo "Segreto mancante per $v: vedi l'intestazione di .github/workflows/ios.yml" >&2; exit 1; fi
+          done
+          mkdir -p "$HOME/private_keys"
+          printf '%s' "$APP_STORE_CONNECT_PRIVATE_KEY" | base64 --decode > "$HOME/private_keys/AuthKey_$APP_STORE_CONNECT_KEY_ID.p8"
+          export APP_STORE_CONNECT_KEY_PATH="$HOME/private_keys/AuthKey_$APP_STORE_CONNECT_KEY_ID.p8"
+          bash ios/build.sh ipa
+
+      - name: Pubblica l'IPA e i log come artefatto
+        if: always() && inputs.mode != 'check'
+        uses: actions/upload-artifact@v4
+        with:
+          name: solco-ios-${{ inputs.mode }}
+          path: |
+            ios/build/*.ipa
+            ios/build/*.log
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Pubblica il log di compilazione
+        if: always() && inputs.mode == 'check'
+        uses: actions/upload-artifact@v4
+        with:
+          name: solco-ios-check-log
+          path: ios/build/*.log
+          if-no-files-found: ignore
+          retention-days: 7
