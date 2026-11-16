@@ -83,7 +83,26 @@ export const userNextConfig: NextConfig = {
   // Match su host e x-forwarded-host per robustezza dietro il proxy. Gli altri domini non sono toccati.
   async redirects() {
     const statusHost = 'status.solcomusic.online';
+    // Dominio nudo → www. Le pagine le reindirizza il proxy (src/lib/security/apex-redirect.ts), con
+    // l'HSTS completo che serve a hstspreload.org: un redirect di qui, come quello a livello di
+    // dominio di Vercel, risponde senza quelle intestazioni. /api è fuori dal matcher del proxy,
+    // quindi solo per /api valgono queste due regole (percorso e query intatti, entrambe le forme
+    // dell'host come per lo stato). Il redirect di dominio su Vercel va tolto a mano dopo il deploy.
+    const apexHost = 'solcomusic.online';
+    const canonical = 'https://www.solcomusic.online';
     return [
+      {
+        source: '/api/:path*',
+        has: [{ type: 'host', value: apexHost }],
+        destination: `${canonical}/api/:path*`,
+        permanent: true,
+      },
+      {
+        source: '/api/:path*',
+        has: [{ type: 'header', key: 'x-forwarded-host', value: apexHost }],
+        destination: `${canonical}/api/:path*`,
+        permanent: true,
+      },
       {
         source: '/',
         has: [{ type: 'host', value: statusHost }],

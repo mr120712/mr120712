@@ -176,7 +176,8 @@ describe('/pubblica con la libreria spenta', () => {
     mocks.featureOn = true;
     const rules = (await userNextConfig.redirects?.()) ?? [];
     expect(rules.some((rule) => rule.source === '/pubblica')).toBe(false);
-    expect(rules).toHaveLength(2);
+    // Restano solo i redirect del dominio nudo (2) e del sottodominio di stato (2).
+    expect(rules).toHaveLength(4);
   });
 });
 

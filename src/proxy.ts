@@ -18,6 +18,7 @@
 
 import { type NextRequest, NextResponse } from 'next/server';
 import { buildCsp, DASHBOARD_FRAME_ANCESTORS } from '@/lib/csp';
+import { apexRedirect } from '@/lib/security/apex-redirect';
 import { uamGate } from '@/lib/security/uam-gate';
 // Per-app extra CSP sources (frame/connect/media/font/img). User-owned, default empty.
 import { cspExtraSources } from '../next.user-config';
@@ -31,6 +32,13 @@ export async function proxy(request: NextRequest) {
   // signature pre-checks) here via their manifest `contributions` block.
   // The installer maintains ordering per the module's `ordering` field.
   // Do NOT hand-edit this slot — the install-hash check will reject it.
+
+  // Dominio nudo (solcomusic.online) → www: 308 con HSTS completo (includeSubDomains, preload),
+  // che né il reindirizzamento a livello di dominio di Vercel né i redirects() di Next mandano; è il
+  // requisito di hstspreload.org (src/lib/security/apex-redirect.ts). Prima del gate: il dominio
+  // nudo non serve mai pagine né schermate di verifica.
+  const apex = apexRedirect(request);
+  if (apex) return apex;
 
   // Solco "Under Attack Mode" (src/lib/security/uam-gate.ts): schermata di caricamento con prova di
   // lavoro prima delle pagine. Spenta finché su Vercel non ci sono UAM_MODE (first-visit | attack)
