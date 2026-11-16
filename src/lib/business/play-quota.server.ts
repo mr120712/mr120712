@@ -1,12 +1,16 @@
-// @polsia:user-owned — conta e limita gli ascolti degli account free (40 al mese).
+// @polsia:user-owned — conta e limita gli ascolti degli account free: 40 al mese per Audius, podcast
+// e audio.com, e un conteggio a parte di 30 avvii al mese per i brani in evidenza della Home.
 import 'server-only';
 import type { Prisma } from '@prisma/client';
 import {
-  countsTowardFreeQuota,
   decidePlay,
+  FEATURED_PLAY_ROW_PREFIX,
   FREE_MONTHLY_PLAYS,
   FREE_QUOTA_EXEMPT_PREFIXES,
+  freeMonthlyLimit,
   type PlayDecision,
+  type PlayQuotaClass,
+  playQuotaClass,
   REPLAY_WINDOW_MS,
   romeMonth,
 } from '@/lib/business/play-quota';
@@ -16,6 +20,9 @@ import { jamendoEnabled } from '@/lib/music/jamendo-license';
 
 /** Client globale o transazione: le letture del limite sono le stesse nei due casi. */
 type MusicPlayClient = Pick<Prisma.TransactionClient, 'musicPlay'>;
+
+/** Un conteggio Free che può bloccare: catalogo (40) o brani in evidenza (30). */
+type CountedQuotaClass = Exclude<PlayQuotaClass, 'exempt'>;
 
 /** Tentativi della transazione che registra un ascolto Free (come `consumeRateLimit`). */
 export const PLAY_RECORD_ATTEMPTS = 4;
@@ -32,8 +39,10 @@ export class PlayQuotaUnavailableError extends Error {
   }
 }
 
+/** Ascolti del mese del catalogo (Audius, podcast, audio.com): le righe non esenti. */
 function countMonthlyPlays(db: MusicPlayClient, userId: string, now: Date) {
-  // YouTube and radio rows recorded before their exemption never count either.
+  // YouTube and radio rows recorded before their exemption never count either; `upload:` rows are
+  // the featured tracks, which have their own count (countMonthlyFeaturedPlays).
   return db.musicPlay.count({
     where: {
       userId,
@@ -41,6 +50,28 @@ function countMonthlyPlays(db: MusicPlayClient, userId: string, now: Date) {
       NOT: FREE_QUOTA_EXEMPT_PREFIXES.map((prefix) => ({ qualifiedId: { startsWith: prefix } })),
     },
   });
+}
+
+/** Avvii del mese dei brani in evidenza: le righe `upload:<pathname>` (solo loro usano il prefisso). */
+function countMonthlyFeaturedPlays(db: MusicPlayClient, userId: string, now: Date) {
+  return db.musicPlay.count({
+    where: {
+      userId,
+      month: romeMonth(now),
+      qualifiedId: { startsWith: FEATURED_PLAY_ROW_PREFIX },
+    },
+  });
+}
+
+function countMonthlyPlaysFor(
+  db: MusicPlayClient,
+  userId: string,
+  now: Date,
+  quotaClass: CountedQuotaClass,
+) {
+  return quotaClass === 'featured'
+    ? countMonthlyFeaturedPlays(db, userId, now)
+    : countMonthlyPlays(db, userId, now);
 }
 
 function findRecentSameTrack(db: MusicPlayClient, userId: string, qualifiedId: string, now: Date) {
@@ -58,45 +89,60 @@ export async function monthlyPlays(userId: string, now = new Date()) {
   return countMonthlyPlays(prisma, userId, now);
 }
 
-/**
- * Jamendo spento (manca la licenza commerciale, vedi src/lib/music/jamendo-license.ts): nessun
- * audio può partire, quindi un brano Jamendo salvato (libreria, coda, cronologia) non deve
- * consumare uno dei 40 ascolti Free.
- */
-function countsNow(qualifiedId: string) {
-  if (qualifiedId.startsWith('jamendo:') && !jamendoEnabled()) return false;
-  return countsTowardFreeQuota(qualifiedId);
+export async function monthlyFeaturedPlays(userId: string, now = new Date()) {
+  return countMonthlyFeaturedPlays(prisma, userId, now);
 }
 
-function freePlayDecision(usedThisMonth: number, recent: unknown) {
+/**
+ * Il conteggio in cui entra il brano OGGI. Jamendo spento (manca la licenza commerciale, vedi
+ * src/lib/music/jamendo-license.ts): nessun audio può partire, quindi un brano Jamendo salvato
+ * (libreria, coda, cronologia) non deve consumare uno dei 40 ascolti Free.
+ */
+function quotaClassNow(qualifiedId: string): PlayQuotaClass {
+  if (qualifiedId.startsWith('jamendo:') && !jamendoEnabled()) return 'exempt';
+  return playQuotaClass(qualifiedId);
+}
+
+function freePlayDecision(usedThisMonth: number, recent: unknown, limit: number) {
   return decidePlay({
     signedIn: true,
     premium: false,
     usedThisMonth,
     recentSameTrack: Boolean(recent),
+    limit,
   });
 }
 
+type DecideFree = (
+  userId: string,
+  quotaClass: CountedQuotaClass,
+  limit: number,
+) => Promise<PlayDecision>;
+
 /**
  * Le regole comuni a `decidePlayFor` e `consumePlay`: ospiti, Premium e fonti escluse non
- * scrivono mai; solo un brano che può consumare uno dei 40 ascolti Free arriva a `decideFree`.
+ * scrivono mai; solo un brano che può consumare un ascolto Free (del catalogo o dei brani in
+ * evidenza) arriva a `decideFree`, con il suo conteggio e il suo tetto.
  */
 async function resolvePlay(
   user: { id: string } | null,
   qualifiedId: string,
   now: Date,
-  decideFree: (userId: string) => Promise<PlayDecision>,
+  decideFree: DecideFree,
 ): Promise<PlayDecision> {
+  const quotaClass = quotaClassNow(qualifiedId);
+  const limit = freeMonthlyLimit(quotaClass);
   if (!user) {
     return decidePlay({
       signedIn: false,
       premium: false,
       usedThisMonth: 0,
       recentSameTrack: false,
+      limit,
     });
   }
   const premium = await hasPremiumAccess(user.id);
-  if (!countsNow(qualifiedId)) {
+  if (quotaClass === 'exempt') {
     // YouTube, live radio and switched-off Jamendo: never counted nor blocked.
     return {
       allowed: true,
@@ -106,9 +152,15 @@ async function resolvePlay(
     };
   }
   if (premium) {
-    return decidePlay({ signedIn: true, premium: true, usedThisMonth: 0, recentSameTrack: false });
+    return decidePlay({
+      signedIn: true,
+      premium: true,
+      usedThisMonth: 0,
+      recentSameTrack: false,
+      limit,
+    });
   }
-  return decideFree(user.id);
+  return decideFree(user.id, quotaClass, limit);
 }
 
 /**
@@ -121,12 +173,12 @@ export async function decidePlayFor(
   qualifiedId: string,
   now = new Date(),
 ): Promise<PlayDecision> {
-  return resolvePlay(user, qualifiedId, now, async (userId) => {
+  return resolvePlay(user, qualifiedId, now, async (userId, quotaClass, limit) => {
     const [usedThisMonth, recent] = await Promise.all([
-      countMonthlyPlays(prisma, userId, now),
+      countMonthlyPlaysFor(prisma, userId, now, quotaClass),
       findRecentSameTrack(prisma, userId, qualifiedId, now),
     ]);
-    return freePlayDecision(usedThisMonth, recent);
+    return freePlayDecision(usedThisMonth, recent, limit);
   });
 }
 
@@ -147,15 +199,21 @@ function isSerializationFailure(error: unknown) {
  * brani a 39/40) non possono più passare entrambe sulla stessa lettura. La perdente riceve un
  * errore di serializzazione e riprova vedendo la riga della vincitrice.
  */
-async function recordFreePlay(userId: string, qualifiedId: string, now: Date) {
+async function recordFreePlay(
+  userId: string,
+  qualifiedId: string,
+  now: Date,
+  quotaClass: CountedQuotaClass,
+  limit: number,
+) {
   let lastError: unknown;
   for (let attempt = 0; attempt < PLAY_RECORD_ATTEMPTS; attempt += 1) {
     try {
       return await prisma.$transaction(
         async (transaction) => {
-          const usedThisMonth = await countMonthlyPlays(transaction, userId, now);
+          const usedThisMonth = await countMonthlyPlaysFor(transaction, userId, now, quotaClass);
           const recent = await findRecentSameTrack(transaction, userId, qualifiedId, now);
-          const decision = freePlayDecision(usedThisMonth, recent);
+          const decision = freePlayDecision(usedThisMonth, recent, limit);
           if (decision.allowed && decision.counted) {
             await transaction.musicPlay.create({
               data: { userId, qualifiedId, month: romeMonth(now), createdAt: now },
@@ -185,7 +243,9 @@ export async function consumePlay(
   qualifiedId: string,
   now = new Date(),
 ): Promise<PlayDecision> {
-  return resolvePlay(user, qualifiedId, now, (userId) => recordFreePlay(userId, qualifiedId, now));
+  return resolvePlay(user, qualifiedId, now, (userId, quotaClass, limit) =>
+    recordFreePlay(userId, qualifiedId, now, quotaClass, limit),
+  );
 }
 
 /** Risposta di blocco comune alle route di stream e all'API degli ascolti. */
@@ -195,7 +255,8 @@ export function playDeniedResponse(decision: Extract<PlayDecision, { allowed: fa
       allowed: false,
       reason: decision.reason,
       used: decision.used,
-      limit: FREE_MONTHLY_PLAYS,
+      // Il tetto del conteggio in cui entra il brano: 40 per il catalogo, 30 per i brani in evidenza.
+      limit: decision.limit,
     },
     {
       status: decision.reason === 'login_required' ? 401 : 402,

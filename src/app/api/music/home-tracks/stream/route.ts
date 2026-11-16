@@ -5,7 +5,12 @@
 // - niente hotlinking né download diretto (403): solo richieste del player di Solco (stesso sito,
 //   destinazione audio), vedi featured-stream-access.ts;
 // - limite per ACCOUNT sugli avvii (music.featured.stream: 60 ogni 10 minuti, 600 al giorno), non
-//   sui blocchi: seek e riproduzione a blocchi non contano.
+//   sui blocchi: seek e riproduzione a blocchi non contano;
+// - limite FREE dei brani in evidenza (FEATURED_FREE_MONTHLY_PLAYS, 30 avvii al mese; Premium
+//   senza limite): la stessa decisione del permesso del player (play-quota.server), presa su OGNI
+//   richiesta prima di leggere un byte e registrata solo quando lo store ha risposto con l'audio.
+//   Riprendere o cercare nello stesso brano entro 30 minuti è ammesso e non conta (finestra di
+//   riascolto); un client che saltasse il primo byte per non farsi contare resta fermo al limite.
 // Un blob privato non è leggibile dal browser dal suo URL diretto: il server lo legge con il token
 // e lo ritrasmette (inoltrando l'header Range, così funzionano seek e riproduzione a blocchi); un
 // blob pubblico si legge dal suo URL del CDN, trovato nell'elenco condiviso dello store (nessuna
@@ -13,15 +18,23 @@
 import 'server-only';
 import { get } from '@vercel/blob';
 import { NextResponse } from 'next/server';
+import type { PlayDecision } from '@/lib/business/play-quota';
+import { playDeniedResponse } from '@/lib/business/play-quota.server';
 import { enforceRateLimit } from '@/lib/business/rate-limit.server';
 import { env } from '@/lib/env';
 import { loadFeaturedCatalogState } from '@/lib/music/featured-catalog.server';
 import { isFeaturedPlayerRequest, isFeaturedStreamStart } from '@/lib/music/featured-stream-access';
+import { featuredQualifiedId } from '@/lib/music/featured-track-id';
 import {
   encodeBlobPathname,
   isHomeAudioBlob,
   isPublicBlobUrl,
 } from '@/lib/music/home-tracks.server';
+import {
+  checkStreamPlayFor,
+  recordStreamPlay,
+  type StreamPlayCheck,
+} from '@/lib/music/stream-play.server';
 import { getSessionUser } from '@/lib/require-auth';
 
 export const dynamic = 'force-dynamic';
@@ -61,6 +74,33 @@ function relay(
   return new Response(stream, { status: contentRange ? 206 : 200, headers });
 }
 
+/**
+ * Registra l'ascolto ora che lo store ha risposto con l'audio (come le route Audius e podcast):
+ * il rifiuto da mandare al posto dell'audio (stream dello store chiuso), o null se l'audio può
+ * partire. Un riascolto entro 30 minuti non si conta di nuovo; se il registro degli ascolti non
+ * risponde si fallisce chiusi (503, nessun byte).
+ */
+async function recordOrRefuse(
+  play: StreamPlayCheck,
+  audio: ReadableStream<Uint8Array>,
+): Promise<Response | null> {
+  let recorded: PlayDecision;
+  try {
+    recorded = await recordStreamPlay(play);
+  } catch {
+    await audio.cancel().catch(() => undefined);
+    return NextResponse.json(
+      { error: 'stream_unavailable' },
+      { status: 503, headers: PRIVATE_NO_STORE },
+    );
+  }
+  if (!recorded.allowed) {
+    await audio.cancel().catch(() => undefined);
+    return playDeniedResponse(recorded);
+  }
+  return null;
+}
+
 export async function GET(request: Request) {
   const token = env.BLOB_READ_WRITE_TOKEN;
   if (!token) return new NextResponse(null, { status: 404 });
@@ -93,6 +133,12 @@ export async function GET(request: Request) {
     }
   }
 
+  // Limite Free dei brani in evidenza (30 avvii al mese; Premium senza limite), con lo stesso id
+  // che usa il player (`upload:<pathname>`): verificato senza scrivere, prima di ogni byte. Un
+  // account oltre il limite riceve il 402 del permesso; l'ascolto si registra sotto, con l'audio.
+  const play = await checkStreamPlayFor(user, featuredQualifiedId(pathname));
+  if (!play.decision.allowed) return playDeniedResponse(play.decision);
+
   // File pubblico: dal CDN, con lo stesso Range.
   const publicUrl = await publicBlobUrlOf(pathname);
   if (publicUrl) {
@@ -107,11 +153,14 @@ export async function GET(request: Request) {
     } catch {
       return new NextResponse(null, { status: 404 });
     }
-    if (!response.ok || !response.body) {
-      await response.body?.cancel().catch(() => undefined);
+    const body = response.body;
+    if (!response.ok || !body) {
+      await body?.cancel().catch(() => undefined);
       return new NextResponse(null, { status: 404 });
     }
-    return relay(response.body, response.headers, response.headers.get('content-type'));
+    const refused = await recordOrRefuse(play, body);
+    if (refused) return refused;
+    return relay(body, response.headers, response.headers.get('content-type'));
   }
 
   // File privato: letto con il token dello store.
@@ -130,5 +179,7 @@ export async function GET(request: Request) {
   if (!result || result.statusCode === 304 || !result.stream) {
     return new NextResponse(null, { status: 404 });
   }
+  const refused = await recordOrRefuse(play, result.stream);
+  if (refused) return refused;
   return relay(result.stream, result.headers, result.blob.contentType);
 }

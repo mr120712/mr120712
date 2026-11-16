@@ -47,13 +47,19 @@ vi.mock('@/lib/db', () => ({
         async ({
           where,
         }: {
-          where: { userId: string; month: string; NOT?: StartsWith | StartsWith[] };
+          where: {
+            userId: string;
+            month: string;
+            NOT?: StartsWith | StartsWith[];
+            qualifiedId?: { startsWith: string };
+          };
         }) => {
           const excluded = where.NOT ? [where.NOT].flat() : [];
           return mocks.plays.filter(
             (row) =>
               row.userId === where.userId &&
               row.month === where.month &&
+              (!where.qualifiedId || row.qualifiedId.startsWith(where.qualifiedId.startsWith)) &&
               !excluded.some((rule) => row.qualifiedId.startsWith(rule.qualifiedId.startsWith)),
           ).length;
         },
@@ -86,7 +92,12 @@ import { GET as audiusPlayback } from '@/app/api/music/audius/tracks/[trackId]/p
 import { GET as audiusStream } from '@/app/api/music/audius/tracks/[trackId]/stream/route';
 import { POST as playsRoute } from '@/app/api/music/plays/route';
 import { GET as podcastStream } from '@/app/api/music/podcasts/[podcastId]/episodes/[episodeKey]/stream/route';
-import { FREE_MONTHLY_PLAYS, REPLAY_WINDOW_MS, romeMonth } from '@/lib/business/play-quota';
+import {
+  FEATURED_FREE_MONTHLY_PLAYS,
+  FREE_MONTHLY_PLAYS,
+  REPLAY_WINDOW_MS,
+  romeMonth,
+} from '@/lib/business/play-quota';
 import { consumePlay, PLAY_RECORD_ATTEMPTS } from '@/lib/business/play-quota.server';
 import { checkStreamPlay } from '@/lib/music/stream-play.server';
 
@@ -382,6 +393,91 @@ describe('permesso di audio.com: registra l’ascolto (nessuna route di stream l
   });
 });
 
+describe('permesso dei brani in evidenza (upload:<pathname>): solo verifica, conteggio a parte', () => {
+  const featured = 'upload:Pop/Autrice - Canzone.mp3';
+  const featuredRows = () => mocks.plays.filter((row) => row.qualifiedId.startsWith('upload:'));
+  const fillFeaturedQuota = () => {
+    for (let i = 0; i < FEATURED_FREE_MONTHLY_PLAYS; i += 1) {
+      mocks.plays.push({
+        userId: 'free-user',
+        qualifiedId: `upload:Pop/brano-${i}.mp3`,
+        month: romeMonth(new Date()),
+        createdAt: new Date(Date.now() - 2 * REPLAY_WINDOW_MS),
+      });
+    }
+  };
+
+  it('200 con il tetto di 30 e nessuna riga: registra la route di stream dei brani in evidenza', async () => {
+    const response = await permit(featured);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      allowed: true,
+      used: 1,
+      limit: FEATURED_FREE_MONTHLY_PLAYS,
+    });
+    expect(mocks.transaction).not.toHaveBeenCalled();
+    expect(featuredRows()).toHaveLength(0);
+  });
+
+  it('i 40 ascolti del catalogo esauriti non fermano un brano in evidenza', async () => {
+    fillMonthlyQuota();
+    expect((await permit('audius:new-track')).status).toBe(402);
+    const response = await permit(featured);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      allowed: true,
+      used: 1,
+      limit: FEATURED_FREE_MONTHLY_PLAYS,
+    });
+  });
+
+  it('oltre i 30 avvii del mese: 402 con il tetto di 30; Audius resta libero; riprendere entro 30 minuti sì', async () => {
+    fillFeaturedQuota();
+    const blocked = await permit(featured);
+    expect(blocked.status).toBe(402);
+    expect(await blocked.json()).toEqual({
+      allowed: false,
+      reason: 'monthly_limit',
+      used: FEATURED_FREE_MONTHLY_PLAYS,
+      limit: FEATURED_FREE_MONTHLY_PLAYS,
+    });
+    expect(await (await permit('audius:still-free')).json()).toEqual({
+      allowed: true,
+      used: 1,
+      limit: FREE_MONTHLY_PLAYS,
+    });
+    // Il 30° avvio è stato questo brano pochi minuti fa: riprenderlo è ammesso e non conta.
+    mocks.plays.pop();
+    mocks.plays.push({
+      userId: 'free-user',
+      qualifiedId: 'upload:Pop/brano-0.mp3',
+      month: romeMonth(new Date()),
+      createdAt: new Date(Date.now() - 5 * 60_000),
+    });
+    expect(await (await permit('upload:Pop/brano-0.mp3')).json()).toEqual({
+      allowed: true,
+      used: FEATURED_FREE_MONTHLY_PLAYS,
+      limit: FEATURED_FREE_MONTHLY_PLAYS,
+    });
+  });
+
+  it('ospite 401 con il tetto di 30; Premium 200 senza limite; upload pubblico 400', async () => {
+    mocks.user.mockResolvedValueOnce(null);
+    const guest = await permit(featured);
+    expect(guest.status).toBe(401);
+    expect(await guest.json()).toEqual({
+      allowed: false,
+      reason: 'login_required',
+      used: 0,
+      limit: FEATURED_FREE_MONTHLY_PLAYS,
+    });
+    mocks.premium.mockResolvedValue(true);
+    expect(await (await permit(featured)).json()).toEqual({ allowed: true, used: 0, limit: null });
+    expect((await permit(`upload:${'c'.repeat(25)}`)).status).toBe(400);
+    expect(mocks.plays).toHaveLength(0);
+  });
+});
+
 describe('registro degli ascolti in conflitto: si fallisce chiusi', () => {
   const writeConflict = () =>
     Object.assign(new Error('Transaction failed due to a write conflict or a deadlock'), {
@@ -431,6 +527,7 @@ describe('checkStreamPlay e consumePlay prendono la stessa decisione', () => {
     'youtube:dQw4w9WgXcQ',
     'jamendo:1532771',
     'audiocom:111',
+    'upload:Pop/Autrice - Canzone.mp3',
   ];
   const states = [
     { name: 'Free sotto il limite', setup: () => undefined },

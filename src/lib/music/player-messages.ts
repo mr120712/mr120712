@@ -2,6 +2,7 @@
 // contatore degli ascolti gratuiti. Pure e testabili.
 import { serverLimitMessage } from '@/lib/business/api-error-message';
 import { audioComIdFromQualifiedId } from '@/lib/music/audiocom-license';
+import { isFeaturedPlayId } from '@/lib/music/featured-track-id';
 
 type MessageTrack = { playbackMode?: string | null; sourceUrl?: string | null } | null;
 
@@ -95,11 +96,14 @@ export function failureLink(
  * The "Ascolti gratuiti …/40" counter belongs to items that use the Free quota: Audius (album
  * tracks included) and podcasts. Radio and YouTube never count, so they never show it.
  * Anche i brani di audio.com (id `audiocom:<id>`): suonano con lo stream 'upload' dei file
- * pubblici, che invece non contano, quindi qui decide l'id e non la modalità.
+ * pubblici, che invece non contano, quindi qui decide l'id e non la modalità. E i brani in
+ * evidenza della Home (`upload:<pathname>`), che hanno il loro conteggio di 30 avvii al mese.
  */
 export function showsFreePlayCounter(mode: string | null | undefined, qualifiedId?: string | null) {
-  if (typeof qualifiedId === 'string' && audioComIdFromQualifiedId(qualifiedId) !== null) {
-    return true;
+  if (typeof qualifiedId === 'string') {
+    if (audioComIdFromQualifiedId(qualifiedId) !== null || isFeaturedPlayId(qualifiedId)) {
+      return true;
+    }
   }
   return mode === 'audius' || mode === 'solco' || mode === 'podcast';
 }

@@ -22,12 +22,14 @@ vi.mock('@/lib/db', () => ({
             userId: string;
             month: string;
             NOT?: Array<{ qualifiedId: { startsWith: string } }>;
+            qualifiedId?: { startsWith: string };
           };
         }) =>
           mocks.plays.filter(
             (p) =>
               p.userId === where.userId &&
               p.month === where.month &&
+              (!where.qualifiedId || p.qualifiedId.startsWith(where.qualifiedId.startsWith)) &&
               !(where.NOT ?? []).some((rule) =>
                 p.qualifiedId.startsWith(rule.qualifiedId.startsWith),
               ),
@@ -65,9 +67,12 @@ import { POST as playsRoute } from '@/app/api/music/plays/route';
 import {
   countsTowardFreeQuota,
   decidePlay,
+  FEATURED_FREE_MONTHLY_PLAYS,
   FREE_MONTHLY_PLAYS,
+  freeMonthlyLimit,
   isValidPlayId,
   permitRecordsPlay,
+  playQuotaClass,
   romeMonth,
 } from '@/lib/business/play-quota';
 import { consumePlay, monthlyPlays } from '@/lib/business/play-quota.server';
@@ -290,5 +295,175 @@ describe('brani di audio.com (audiocom:<id>) nel limite Free', () => {
       allowed: false,
       reason: 'login_required',
     });
+  });
+});
+
+describe('brani in evidenza (upload:<pathname>): conteggio Free a parte, 30 avvii al mese', () => {
+  const featured = 'upload:Pop/Autrice - Canzone.mp3';
+  const permit = (qualifiedId: string) =>
+    playsRoute(
+      new Request('https://solco.test/api/music/plays', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ qualifiedId }),
+      }),
+    );
+  const featuredRows = () => mocks.plays.filter((p) => p.qualifiedId.startsWith('upload:'));
+
+  it('si riconoscono dal pathname: gli upload pubblici (cuid) e l’id storico di audio.com restano esenti', () => {
+    expect(playQuotaClass(featured)).toBe('featured');
+    expect(playQuotaClass('upload:a.mp3')).toBe('featured');
+    expect(playQuotaClass(`upload:${'c'.repeat(25)}`)).toBe('exempt');
+    expect(playQuotaClass('upload:audiocom~123')).toBe('exempt');
+    expect(playQuotaClass('upload:public-uploads/x.mp3')).toBe('exempt');
+    expect(playQuotaClass('youtube:dQw4w9WgXcQ')).toBe('exempt');
+    expect(playQuotaClass('radio:station-1')).toBe('exempt');
+    expect(playQuotaClass('audius:track')).toBe('catalog');
+    expect(playQuotaClass('podcast:1~ep')).toBe('catalog');
+    expect(playQuotaClass('audiocom:123')).toBe('catalog');
+    expect(freeMonthlyLimit('featured')).toBe(FEATURED_FREE_MONTHLY_PLAYS);
+    expect(freeMonthlyLimit('catalog')).toBe(FREE_MONTHLY_PLAYS);
+    expect(FEATURED_FREE_MONTHLY_PLAYS).toBe(30);
+
+    expect(countsTowardFreeQuota(featured)).toBe(true);
+    // La route di stream dei brani in evidenza registra l'ascolto: il permesso verifica soltanto.
+    expect(permitRecordsPlay(featured)).toBe(false);
+    expect(isValidPlayId(featured)).toBe(true);
+    expect(isValidPlayId('upload:Rock/mia canzone.M4A')).toBe(true);
+    for (const invalid of [
+      `upload:${'c'.repeat(25)}`,
+      'upload:audiocom~123',
+      'upload:public-uploads/x.mp3',
+      'upload:../x.mp3',
+      'upload:/x.mp3',
+      'upload:diritti.json',
+      'upload:',
+    ]) {
+      expect(isValidPlayId(invalid), invalid).toBe(false);
+    }
+  });
+
+  it('decidePlay con il tetto di 30: il 31° avvio è bloccato', () => {
+    const base = { signedIn: true, premium: false, recentSameTrack: false, limit: 30 };
+    expect(decidePlay({ ...base, usedThisMonth: 29 })).toEqual({
+      allowed: true,
+      counted: true,
+      used: 30,
+      limit: 30,
+    });
+    expect(decidePlay({ ...base, usedThisMonth: 30 })).toEqual({
+      allowed: false,
+      reason: 'monthly_limit',
+      used: 30,
+      limit: 30,
+    });
+    expect(decidePlay({ ...base, usedThisMonth: 30, recentSameTrack: true })).toMatchObject({
+      allowed: true,
+      counted: false,
+      limit: 30,
+    });
+    expect(decidePlay({ ...base, signedIn: false, usedThisMonth: 0 })).toEqual({
+      allowed: false,
+      reason: 'login_required',
+      used: 0,
+      limit: 30,
+    });
+  });
+
+  it('il 31° brano in evidenza del mese è bloccato; i 40 ascolti del catalogo non c’entrano', async () => {
+    const user = { id: 'featured-user' };
+    const now = new Date('2026-11-20T10:00:00Z');
+    // Il catalogo è già esaurito: non tocca i brani in evidenza.
+    for (let i = 0; i < FREE_MONTHLY_PLAYS; i += 1) {
+      expect((await consumePlay(user, `audius:track${7000 + i}`, now)).allowed).toBe(true);
+    }
+    expect(await consumePlay(user, 'audius:track-extra', now)).toMatchObject({
+      allowed: false,
+      reason: 'monthly_limit',
+      limit: FREE_MONTHLY_PLAYS,
+    });
+    for (let i = 0; i < FEATURED_FREE_MONTHLY_PLAYS; i += 1) {
+      expect(await consumePlay(user, `upload:Pop/brano-${i}.mp3`, now)).toMatchObject({
+        allowed: true,
+        counted: true,
+        used: i + 1,
+        limit: FEATURED_FREE_MONTHLY_PLAYS,
+      });
+    }
+    expect(await consumePlay(user, featured, now)).toEqual({
+      allowed: false,
+      reason: 'monthly_limit',
+      used: FEATURED_FREE_MONTHLY_PLAYS,
+      limit: FEATURED_FREE_MONTHLY_PLAYS,
+    });
+    // Riprendere uno dei 30 entro la finestra di riascolto: ammesso, non contato.
+    expect(await consumePlay(user, 'upload:Pop/brano-3.mp3', now)).toMatchObject({
+      allowed: true,
+      counted: false,
+      used: FEATURED_FREE_MONTHLY_PLAYS,
+    });
+    expect(featuredRows()).toHaveLength(FEATURED_FREE_MONTHLY_PLAYS);
+    // Il conteggio del catalogo non è cambiato per i 30 avvii in evidenza.
+    expect(await consumePlay(user, 'audius:track-extra', now)).toMatchObject({
+      allowed: false,
+      used: FREE_MONTHLY_PLAYS,
+    });
+    // Nuovo mese: si riparte.
+    expect(await consumePlay(user, featured, new Date('2026-12-01T10:00:00Z'))).toMatchObject({
+      allowed: true,
+      used: 1,
+      limit: FEATURED_FREE_MONTHLY_PLAYS,
+    });
+  });
+
+  it('ospite: accesso richiesto con il tetto dei brani in evidenza; Premium senza limite e senza righe', async () => {
+    expect(await consumePlay(null, featured)).toEqual({
+      allowed: false,
+      reason: 'login_required',
+      used: 0,
+      limit: FEATURED_FREE_MONTHLY_PLAYS,
+    });
+    mocks.premium.mockResolvedValue(true);
+    expect(await consumePlay({ id: 'paid' }, featured)).toEqual({
+      allowed: true,
+      counted: false,
+      used: 0,
+      limit: null,
+    });
+    expect(mocks.plays).toHaveLength(0);
+  });
+
+  it('il permesso del player verifica soltanto (200 senza righe) e rifiuta con 402 oltre i 30', async () => {
+    mocks.user.mockResolvedValue({ id: 'featured-user' });
+    const ok = await permit(featured);
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ allowed: true, used: 1, limit: FEATURED_FREE_MONTHLY_PLAYS });
+    expect(featuredRows()).toHaveLength(0);
+
+    const month = romeMonth(new Date());
+    for (let i = 0; i < FEATURED_FREE_MONTHLY_PLAYS; i += 1) {
+      mocks.plays.push({
+        userId: 'featured-user',
+        qualifiedId: `upload:Pop/brano-${i}.mp3`,
+        month,
+        createdAt: new Date(Date.now() - 3_600_000),
+      });
+    }
+    const blocked = await permit(featured);
+    expect(blocked.status).toBe(402);
+    expect(await blocked.json()).toEqual({
+      allowed: false,
+      reason: 'monthly_limit',
+      used: FEATURED_FREE_MONTHLY_PLAYS,
+      limit: FEATURED_FREE_MONTHLY_PLAYS,
+    });
+    // Un brano Audius segue il suo conteggio: libero.
+    expect(await (await permit('audius:still-free')).json()).toEqual({
+      allowed: true,
+      used: 1,
+      limit: FREE_MONTHLY_PLAYS,
+    });
+    // Un upload pubblico non è un id del permesso.
+    expect((await permit(`upload:${'c'.repeat(25)}`)).status).toBe(400);
   });
 });

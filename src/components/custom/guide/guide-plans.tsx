@@ -17,7 +17,11 @@ import {
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { FREE_TRIAL_DAYS } from '@/lib/business/free-trial';
-import { FREE_MONTHLY_PLAYS, REPLAY_WINDOW_MS } from '@/lib/business/play-quota';
+import {
+  FEATURED_FREE_MONTHLY_PLAYS,
+  FREE_MONTHLY_PLAYS,
+  REPLAY_WINDOW_MS,
+} from '@/lib/business/play-quota';
 import { getSolcoProPricing } from '@/lib/business/solco-pro-pricing';
 import styles from './guide.module.css';
 import { GuideAction, GuideSection, Note, Points, Steps, Ui } from './guide-parts';
@@ -60,6 +64,10 @@ export function GuidePlans() {
       <h3>Cosa include il piano gratuito</h3>
       <Points>
         <li>{FREE_MONTHLY_PLAYS} ascolti al mese di brani di Audius ed episodi di podcast.</li>
+        <li>
+          {FEATURED_FREE_MONTHLY_PLAYS} avvii al mese dei brani in evidenza della Home, con un
+          conteggio a parte: non tolgono nulla ai {FREE_MONTHLY_PLAYS}.
+        </li>
         <li>Radio dal vivo e video YouTube senza limiti: non contano nei {FREE_MONTHLY_PLAYS}.</li>
         <li>
           Anche i tuoi file in <Ui>La tua musica</Ui> non contano.
@@ -69,7 +77,9 @@ export function GuidePlans() {
       </Points>
       <p>
         Quando li finisci, il lettore dice «Hai usato i {FREE_MONTHLY_PLAYS} ascolti gratuiti di
-        questo mese.» Puoi continuare con radio, video YouTube e i tuoi file.
+        questo mese.» Puoi continuare con radio, video YouTube e i tuoi file. Finiti i{' '}
+        {FEATURED_FREE_MONTHLY_PLAYS} avvii dei brani in evidenza, il lettore lo dice allo stesso
+        modo e il conteggio riparte il mese prossimo.
       </p>
 
       <h3>Cosa aggiunge Premium</h3>

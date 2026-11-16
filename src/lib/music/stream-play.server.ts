@@ -13,17 +13,26 @@ export type StreamPlayCheck = {
 
 /**
  * La decisione di `consumePlay` senza scrivere nulla (stessa funzione, `decidePlayFor`): ospiti e
- * account Free oltre i 40 ascolti vengono fermati qui, prima di qualsiasi richiesta alla fonte
- * o byte audio, con la stessa risposta di prima (`playDeniedResponse`). Usata anche dal permesso
- * del player (POST /api/music/plays), che quindi non consuma mai un ascolto, tranne per le fonti
- * senza route di stream di Solco (audio.com, vedi permitRecordsPlay): lì è il permesso a chiamare
- * `recordStreamPlay`.
+ * account Free oltre il limite (40 ascolti del catalogo, 30 avvii dei brani in evidenza) vengono
+ * fermati qui, prima di qualsiasi richiesta alla fonte o byte audio, con la stessa risposta di
+ * prima (`playDeniedResponse`). Usata anche dal permesso del player (POST /api/music/plays), che
+ * quindi non consuma mai un ascolto, tranne per le fonti senza route di stream di Solco (audio.com,
+ * vedi permitRecordsPlay): lì è il permesso a chiamare `recordStreamPlay`.
  */
 export async function checkStreamPlay(
   qualifiedId: string,
   now = new Date(),
 ): Promise<StreamPlayCheck> {
   const user = await getSessionUser().catch(() => null);
+  return checkStreamPlayFor(user, qualifiedId, now);
+}
+
+/** Come `checkStreamPlay`, per una route che ha già letto la sessione (nessuna seconda lettura). */
+export async function checkStreamPlayFor(
+  user: { id: string } | null,
+  qualifiedId: string,
+  now = new Date(),
+): Promise<StreamPlayCheck> {
   return { user, qualifiedId, decision: await decidePlayFor(user, qualifiedId, now) };
 }
 

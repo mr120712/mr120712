@@ -6,6 +6,8 @@
 // (audio.com, `audiocom:<id>`: vedi permitRecordsPlay). Nessuna route vedrà mai quell'audio,
 // quindi qui il permesso REGISTRA l'ascolto Free (stessa scrittura delle route di stream, con la
 // finestra di 30 minuti per i riascolti) e il player non fa partire l'audio senza questo sì.
+// I brani in evidenza della Home (`upload:<pathname>`, conteggio Free a parte di 30 avvii al mese)
+// sono solo verificati qui, come Audius: registra la loro route /api/music/home-tracks/stream.
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { isValidPlayId, type PlayDecision, permitRecordsPlay } from '@/lib/business/play-quota';
@@ -22,7 +24,8 @@ export async function POST(request: Request) {
   if (!sameOrigin(request)) {
     return NextResponse.json({ error: 'forbidden_origin' }, { status: 403 });
   }
-  const payload = await readJsonLimited(request, 512);
+  // Un id di brano in evidenza porta il pathname del file (fino a 1024 caratteri, in JSON).
+  const payload = await readJsonLimited(request, 2048);
   if (!payload.ok) return limitedJsonError(payload);
   const qualifiedId =
     payload.value && typeof payload.value === 'object'

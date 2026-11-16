@@ -13,11 +13,7 @@
 // audio.com (`audiocom:<id>`) non ha una route di stream di Solco: il suo permesso REGISTRA
 // l'ascolto (permitRecordsPlay), quindi parte solo quando parte il brano (nel cambio sincrono
 // insieme all'audio), mai nella preparazione, e la riserva non ne precarica mai l'audio.
-import {
-  countsTowardFreeQuota,
-  permitRecordsPlay,
-  REPLAY_WINDOW_MS,
-} from '@/lib/business/play-quota';
+import { permitRecordsPlay, playQuotaClass, REPLAY_WINDOW_MS } from '@/lib/business/play-quota';
 
 /** Quanti secondi prima della fine si prepara il brano successivo. */
 export const PREFETCH_LEAD_SECONDS = 20;
@@ -79,8 +75,12 @@ export function pickNextIndex(input: {
 export type AccessSnapshot = {
   signedIn: boolean;
   premium: boolean;
+  /** Ascolti del mese del catalogo (Audius, podcast, audio.com) e il loro tetto (null: illimitati). */
   playsUsed: number | null;
   playsLimit: number | null;
+  /** Avvii del mese dei brani in evidenza della Home e il loro tetto (null: illimitati o ignoto). */
+  featuredPlaysUsed: number | null;
+  featuredPlaysLimit: number | null;
 };
 
 /** Vero se lo stesso brano è partito entro la finestra di riascolto (il server non lo riconta). */
@@ -114,14 +114,13 @@ export function predictPlayBlock(
 ): PredictedBlock | null {
   if (!access) return null;
   if (!access.signedIn) return 'login_required';
-  if (access.premium || input.replay || !countsTowardFreeQuota(input.qualifiedId)) return null;
-  if (
-    access.playsLimit !== null &&
-    access.playsUsed !== null &&
-    access.playsUsed >= access.playsLimit
-  ) {
-    return 'monthly_limit';
-  }
+  if (access.premium || input.replay) return null;
+  // Ogni brano ha il suo conteggio: 40 del catalogo o 30 dei brani in evidenza (playQuotaClass).
+  const quotaClass = playQuotaClass(input.qualifiedId);
+  if (quotaClass === 'exempt') return null;
+  const used = quotaClass === 'featured' ? access.featuredPlaysUsed : access.playsUsed;
+  const limit = quotaClass === 'featured' ? access.featuredPlaysLimit : access.playsLimit;
+  if (limit !== null && used !== null && used >= limit) return 'monthly_limit';
   return null;
 }
 

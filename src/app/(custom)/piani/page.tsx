@@ -2,7 +2,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { PlanSubscribe } from '@/components/custom/plan-subscribe';
-import { FREE_MONTHLY_PLAYS } from '@/lib/business/play-quota';
+import { FEATURED_FREE_MONTHLY_PLAYS, FREE_MONTHLY_PLAYS } from '@/lib/business/play-quota';
 import { getSolcoProPricing } from '@/lib/business/solco-pro-pricing';
 import styles from './piani.module.css';
 
@@ -14,9 +14,11 @@ export const metadata: Metadata = {
 
 // I 40 ascolti Free valgono per brani Audius, brani di audio.com e podcast. Radio e video YouTube
 // sono senza limiti per tutti (non contano: vedi countsTowardFreeQuota), quindi non sono vantaggi
-// Premium.
+// Premium. I brani in evidenza della Home hanno il loro conteggio Free (30 avvii al mese): si dice
+// com'è, senza presentarli come un vantaggio Premium.
 const freeBenefits = [
   `${FREE_MONTHLY_PLAYS} ascolti al mese di brani Audius, audio.com e podcast con un account gratuito`,
+  `${FEATURED_FREE_MONTHLY_PLAYS} avvii al mese dei brani in evidenza della Home, con un conteggio a parte`,
   'Brani completi da Audius e podcast, anche in background',
   `Radio dal vivo da tutto il mondo senza limiti: non contano nei ${FREE_MONTHLY_PLAYS} ascolti`,
   `Video YouTube senza limiti nel player ufficiale: non contano nei ${FREE_MONTHLY_PLAYS} ascolti`,
@@ -56,7 +58,7 @@ const faq = [
   },
   {
     q: `Cosa conta nei ${FREE_MONTHLY_PLAYS} ascolti del piano Free?`,
-    a: 'Ogni brano di Audius o di audio.com e ogni episodio di podcast che avvii; riprendere lo stesso brano entro 30 minuti non conta di nuovo. Le radio dal vivo e i video YouTube non contano mai, e nemmeno i brani di Apple Music ascoltati con il tuo abbonamento Apple. Il conteggio riparte ogni mese; con Premium non c’è limite.',
+    a: `Ogni brano di Audius o di audio.com e ogni episodio di podcast che avvii; riprendere lo stesso brano entro 30 minuti non conta di nuovo. Le radio dal vivo e i video YouTube non contano mai, e nemmeno i brani di Apple Music ascoltati con il tuo abbonamento Apple. I brani in evidenza della Home hanno un conteggio a parte: con un account Free puoi avviarne ${FEATURED_FREE_MONTHLY_PLAYS} al mese. Il conteggio riparte ogni mese; con Premium non c’è limite.`,
   },
   {
     q: 'Ci sono pubblicità?',

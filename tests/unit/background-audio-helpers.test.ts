@@ -248,7 +248,14 @@ describe('preparazione del brano successivo', () => {
   });
 
   it('prevede il blocco Free come il server, senza contare i riascolti né YouTube e radio', () => {
-    const free = { signedIn: true, premium: false, playsUsed: 40, playsLimit: 40 };
+    const free = {
+      signedIn: true,
+      premium: false,
+      playsUsed: 40,
+      playsLimit: 40,
+      featuredPlaysUsed: 0,
+      featuredPlaysLimit: 30,
+    };
     expect(predictPlayBlock(free, { qualifiedId: 'audius:a', replay: false })).toBe(
       'monthly_limit',
     );
@@ -267,6 +274,59 @@ describe('preparazione del brano successivo', () => {
       predictPlayBlock({ ...free, signedIn: false }, { qualifiedId: 'radio:s1', replay: false }),
     ).toBe('login_required');
     expect(predictPlayBlock(null, { qualifiedId: 'audius:a', replay: false })).toBeNull();
+  });
+
+  it('brani in evidenza: il loro conteggio di 30, separato dai 40 del catalogo', () => {
+    const featured = 'upload:Pop/Autrice - Canzone.mp3';
+    const access = {
+      signedIn: true,
+      premium: false,
+      playsUsed: 40,
+      playsLimit: 40,
+      featuredPlaysUsed: 12,
+      featuredPlaysLimit: 30,
+    };
+    // 40 ascolti del catalogo finiti: un brano in evidenza parte lo stesso (12 di 30).
+    expect(predictPlayBlock(access, { qualifiedId: featured, replay: false })).toBeNull();
+    expect(
+      predictPlayBlock(
+        { ...access, featuredPlaysUsed: 30 },
+        { qualifiedId: featured, replay: false },
+      ),
+    ).toBe('monthly_limit');
+    // 30 avvii in evidenza finiti: Audius segue il suo conteggio (3 di 40).
+    expect(
+      predictPlayBlock(
+        { ...access, playsUsed: 3, featuredPlaysUsed: 30 },
+        { qualifiedId: 'audius:a', replay: false },
+      ),
+    ).toBeNull();
+    expect(
+      predictPlayBlock(
+        { ...access, featuredPlaysUsed: 30 },
+        { qualifiedId: featured, replay: true },
+      ),
+    ).toBeNull();
+    expect(
+      predictPlayBlock(
+        { ...access, premium: true, featuredPlaysUsed: 90 },
+        { qualifiedId: featured, replay: false },
+      ),
+    ).toBeNull();
+    // Conteggio dei brani in evidenza ignoto (vecchia risposta di /api/music/access): nessuna previsione.
+    expect(
+      predictPlayBlock(
+        { ...access, featuredPlaysUsed: null, featuredPlaysLimit: null },
+        { qualifiedId: featured, replay: false },
+      ),
+    ).toBeNull();
+    // Un upload pubblico (cuid) resta esente.
+    expect(
+      predictPlayBlock(
+        { ...access, featuredPlaysUsed: 30 },
+        { qualifiedId: `upload:${'c'.repeat(25)}`, replay: false },
+      ),
+    ).toBeNull();
   });
 
   it('ricorda il primo avvio della finestra di riascolto di 30 minuti', () => {
@@ -288,7 +348,14 @@ describe('preparazione del brano successivo', () => {
   });
 
   it('decide il passaggio sincrono solo quando è sicuro', () => {
-    const access = { signedIn: true, premium: false, playsUsed: 3, playsLimit: 40 };
+    const access = {
+      signedIn: true,
+      premium: false,
+      playsUsed: 3,
+      playsLimit: 40,
+      featuredPlaysUsed: 0,
+      featuredPlaysLimit: 30,
+    };
     const base = { qualifiedId: 'audius:a', access, replay: false };
     expect(decideAdvance({ ...base, mode: 'audius', rights: 'allowed' })).toEqual({
       kind: 'switch',
@@ -316,7 +383,14 @@ describe('preparazione del brano successivo', () => {
   });
 
   it('audio.com: sincrono solo con l’accesso noto (il permesso parte con l’audio), come le fonti contate', () => {
-    const access = { signedIn: true, premium: false, playsUsed: 3, playsLimit: 40 };
+    const access = {
+      signedIn: true,
+      premium: false,
+      playsUsed: 3,
+      playsLimit: 40,
+      featuredPlaysUsed: 0,
+      featuredPlaysLimit: 30,
+    };
     const base = { qualifiedId: 'audiocom:111', mode: 'upload', rights: null, replay: false };
     expect(decideAdvance({ ...base, access })).toEqual({ kind: 'switch' });
     // Without /api/music/access nothing predicts a guest or the limit: the normal path waits for
@@ -350,8 +424,45 @@ describe('preparazione del brano successivo', () => {
     ).toEqual({ kind: 'switch' });
   });
 
+  it('brani in evidenza: passaggio sincrono come Audius (la loro route di stream rifiuta oltre il limite)', () => {
+    const access = {
+      signedIn: true,
+      premium: false,
+      playsUsed: 40,
+      playsLimit: 40,
+      featuredPlaysUsed: 12,
+      featuredPlaysLimit: 30,
+    };
+    const base = {
+      qualifiedId: 'upload:Pop/Autrice - Canzone.mp3',
+      mode: 'upload',
+      rights: null,
+      replay: false,
+    };
+    // Catalogo finito, brani in evidenza no: si passa.
+    expect(decideAdvance({ ...base, access })).toEqual({ kind: 'switch' });
+    expect(decideAdvance({ ...base, access: { ...access, featuredPlaysUsed: 30 } })).toEqual({
+      kind: 'blocked',
+      reason: 'monthly_limit',
+    });
+    expect(decideAdvance({ ...base, access: { ...access, signedIn: false } })).toEqual({
+      kind: 'blocked',
+      reason: 'login_required',
+    });
+    // Senza l'istantanea decide la route di stream (401/402), come per Audius: niente permesso
+    // che registra, quindi nessuna attesa.
+    expect(decideAdvance({ ...base, access: null })).toEqual({ kind: 'switch' });
+  });
+
   it('prevede il limite Free anche per audio.com', () => {
-    const free = { signedIn: true, premium: false, playsUsed: 40, playsLimit: 40 };
+    const free = {
+      signedIn: true,
+      premium: false,
+      playsUsed: 40,
+      playsLimit: 40,
+      featuredPlaysUsed: 0,
+      featuredPlaysLimit: 30,
+    };
     expect(predictPlayBlock(free, { qualifiedId: 'audiocom:111', replay: false })).toBe(
       'monthly_limit',
     );

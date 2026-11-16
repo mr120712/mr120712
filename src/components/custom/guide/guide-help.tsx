@@ -4,7 +4,7 @@
 import { BookOpen, CircleHelp, LifeBuoy, Play } from 'lucide-react';
 import Link from 'next/link';
 import { FREE_TRIAL_DAYS } from '@/lib/business/free-trial';
-import { FREE_MONTHLY_PLAYS } from '@/lib/business/play-quota';
+import { FEATURED_FREE_MONTHLY_PLAYS, FREE_MONTHLY_PLAYS } from '@/lib/business/play-quota';
 import styles from './guide.module.css';
 import { Faq, GuideAction, GuideSection, InlineIcon, Points, Ui } from './guide-parts';
 
@@ -57,6 +57,16 @@ export function GuideProblems() {
             tuoi file in <Ui>La tua musica</Ui> restano senza limiti. Il conteggio riparte il mese
             prossimo. Se vuoi ascoltare senza limiti, puoi provare Premium gratis per{' '}
             {FREE_TRIAL_DAYS} giorni dalla pagina <Link href="/piani">Piani</Link>.
+          </p>
+        </Faq>
+        <Faq
+          question={`«Hai usato i ${FEATURED_FREE_MONTHLY_PLAYS} ascolti gratuiti dei brani in evidenza di questo mese.»`}
+        >
+          <p>
+            I brani in evidenza della Home hanno un conteggio a parte: con un account Free puoi
+            avviarne {FEATURED_FREE_MONTHLY_PLAYS} al mese, e riprendere lo stesso brano entro 30
+            minuti non conta di nuovo. Il conteggio riparte il mese prossimo. Brani di Audius,
+            podcast, radio dal vivo, video YouTube e i tuoi file continuano come prima.
           </p>
         </Faq>
         <Faq question="La musica si ferma quando blocco il telefono">

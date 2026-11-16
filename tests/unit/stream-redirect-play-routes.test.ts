@@ -23,12 +23,18 @@ vi.mock('@/lib/require-auth', () => ({ getSessionUser: mocks.user }));
 vi.mock('@/lib/business/premium-access.server', () => ({ hasPremiumAccess: mocks.premium }));
 vi.mock('@/lib/business/play-quota', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/business/play-quota')>();
+  // Una radio "che conta" entra nel conteggio del catalogo (40): il server decide dalla classe.
+  const radioPolicy = (qualifiedId: string) =>
+    qualifiedId.startsWith('radio:') ? mocks.radioCounts : null;
   return {
     ...actual,
     countsTowardFreeQuota: (qualifiedId: string) =>
-      qualifiedId.startsWith('radio:')
-        ? mocks.radioCounts
-        : actual.countsTowardFreeQuota(qualifiedId),
+      radioPolicy(qualifiedId) ?? actual.countsTowardFreeQuota(qualifiedId),
+    playQuotaClass: (qualifiedId: string) => {
+      const counts = radioPolicy(qualifiedId);
+      if (counts === null) return actual.playQuotaClass(qualifiedId);
+      return counts ? 'catalog' : 'exempt';
+    },
   };
 });
 vi.mock('@/lib/db', () => ({

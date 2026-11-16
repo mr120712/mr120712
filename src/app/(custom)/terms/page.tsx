@@ -1,7 +1,7 @@
 // @polsia:user-owned
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { FREE_MONTHLY_PLAYS } from '@/lib/business/play-quota';
+import { FEATURED_FREE_MONTHLY_PLAYS, FREE_MONTHLY_PLAYS } from '@/lib/business/play-quota';
 import styles from '../legal.module.css';
 
 export const metadata: Metadata = {
@@ -51,8 +51,10 @@ export default function TermsPage() {
               Con un account Free puoi avviare fino a {FREE_MONTHLY_PLAYS} ascolti al mese di brani
               Audius e podcast; riprendere lo stesso brano entro 30 minuti non conta come nuovo
               ascolto. Le radio dal vivo e i video YouTube richiedono l’accesso ma non contano nel
-              limite. Con Premium gli ascolti di brani Audius e podcast sono illimitati. Prezzi e
-              vantaggi di ogni piano sono nella pagina <Link href="/piani">Piani</Link>.
+              limite. I brani in evidenza della Home hanno un conteggio a parte: con un account Free
+              puoi avviarne fino a {FEATURED_FREE_MONTHLY_PLAYS} al mese. Con Premium gli ascolti di
+              brani Audius e podcast sono illimitati. Prezzi e vantaggi di ogni piano sono nella
+              pagina <Link href="/piani">Piani</Link>.
             </p>
           </section>
 

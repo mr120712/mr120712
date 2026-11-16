@@ -16,6 +16,7 @@
 import { featuredCopyFor } from '@/components/custom/music/featured-offline-copies';
 import type { MusicPlayerTrack } from '@/components/custom/music/music-player';
 import { publicUploadsEnabled } from '@/lib/features';
+import { isFeaturedPathname } from '@/lib/music/featured-track-id';
 import { LOCAL_SOURCE_LABEL, localTrackId } from './local-tracks';
 
 export type LyricsTarget =
@@ -25,21 +26,8 @@ export type LyricsTarget =
 
 /** Id di un upload pubblico (cuid), come nel contratto della libreria. */
 const UPLOAD_ID = /^[a-z0-9]{20,40}$/;
-/** Estensioni audio dei brani in evidenza (le stesse del server, home-tracks.server). */
-const FEATURED_AUDIO = /\.(mp3|m4a|m4b|aac|ogg|oga|opus|wav|flac|webm|weba)$/i;
-
-/** Pathname plausibile di un brano in evidenza (il server lo rivalida comunque). */
-function isFeaturedPathname(value: string): boolean {
-  return (
-    value.length > 0 &&
-    value.length <= 1024 &&
-    !value.startsWith('/') &&
-    !value.startsWith('public-uploads/') &&
-    !value.includes('\\') &&
-    value.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..') &&
-    FEATURED_AUDIO.test(value)
-  );
-}
+// Il pathname di un brano in evidenza si riconosce con le regole condivise di featured-track-id
+// (le stesse del server e del limite Free): il server lo rivalida comunque.
 
 /** Dove chiedere il testo del brano, o null se per questo brano non si mostra mai. */
 export function lyricsTargetFor(

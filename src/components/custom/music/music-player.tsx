@@ -37,7 +37,7 @@ import {
 import { ShareMenu } from '@/components/custom/share-menu';
 import { apiFetch } from '@/lib/api-client';
 import { useSession } from '@/lib/auth-client';
-import { permitRecordsPlay } from '@/lib/business/play-quota';
+import { FEATURED_FREE_MONTHLY_PLAYS, permitRecordsPlay } from '@/lib/business/play-quota';
 import {
   audiusTrackIdFromQualifiedId,
   songShareImagePath,
@@ -87,6 +87,7 @@ import {
 } from '@/lib/music/autoplay';
 import { parseVideoTitle, videoTitleSong } from '@/lib/music/background-match';
 import { setDataSaver, useDataSaver } from '@/lib/music/data-saver';
+import { isFeaturedPlayId } from '@/lib/music/featured-track-id';
 import {
   createListeningClock,
   observeListening,
@@ -182,6 +183,10 @@ export type MusicPlaybackMode =
   | 'local'
   // A song uploaded to the public library (qualifiedId upload:<id>): a PUBLIC file on Vercel Blob,
   // streamed directly from its CDN URL (track.streamUrl). See public-uploads.server.ts.
+  // Anche i brani in evidenza della Home (qualifiedId upload:<pathname dello store>, vedi
+  // featured-track-id.ts): stream dal proxy /api/music/home-tracks/stream, che richiede l'account e
+  // conta gli avvii nel limite Free dei brani in evidenza (30 al mese); il player chiede prima il
+  // permesso di /api/music/plays (solo verifica), come per Audius.
   // Anche i brani di audio.com (qualifiedId audiocom:<id>, solo licenze CC ammesse, mai cover):
   // stesso stream https diretto, ma con il permesso di /api/music/plays prima dell'audio (accesso
   // obbligatorio, conteggio nel limite Free: vedi permitRecordsPlay e audiocom-tracks.ts).
@@ -303,9 +308,12 @@ type MusicPlayerValue = {
   previewEnded: boolean;
   /** Motivo del blocco dell'ultimo avvio (account free / ospite), null se nessuno. */
   playBlock: PlayBlock | null;
-  /** Ascolti usati questo mese e limite (null = illimitati). */
+  /** Ascolti usati questo mese e limite (null = illimitati): Audius, podcast e audio.com. */
   playsUsed: number | null;
   playsLimit: number | null;
+  /** Avvii dei brani in evidenza della Home usati questo mese e il loro limite (null = illimitati). */
+  featuredPlaysUsed: number | null;
+  featuredPlaysLimit: number | null;
   /** Risolve true se il brano è partito davvero (false: bloccato, rifiutato, non riproducibile). */
   playTrack: (
     track: MusicPlayerTrack,
@@ -464,14 +472,20 @@ type AccessBody = {
   signedIn?: unknown;
   playsUsed?: unknown;
   playsLimit?: unknown;
+  featuredPlaysUsed?: unknown;
+  featuredPlaysLimit?: unknown;
 };
+
+const numberOrNull = (value: unknown) => (typeof value === 'number' ? value : null);
 
 function accessSnapshot(body: AccessBody): AccessSnapshot {
   return {
     premium: body.premium === true,
     signedIn: body.signedIn === true,
-    playsUsed: typeof body.playsUsed === 'number' ? body.playsUsed : null,
-    playsLimit: typeof body.playsLimit === 'number' ? body.playsLimit : null,
+    playsUsed: numberOrNull(body.playsUsed),
+    playsLimit: numberOrNull(body.playsLimit),
+    featuredPlaysUsed: numberOrNull(body.featuredPlaysUsed),
+    featuredPlaysLimit: numberOrNull(body.featuredPlaysLimit),
   };
 }
 
@@ -764,9 +778,13 @@ export async function requestPlayPermit(requestedId: string): Promise<PlayPermit
   // Un id storico di audio.com (`upload:audiocom~<id>`) vale come `audiocom:<id>`: chiede il
   // permesso come oggi, non passa per la via dei file pubblici (vedi withCurrentPlayId).
   const qualifiedId = currentAudioComQualifiedId(requestedId);
-  // A local file needs no permit and counts for nothing (its id never leaves the device).
-  if (qualifiedId.startsWith('local:') || qualifiedId.startsWith('upload:'))
+  // A local file needs no permit and counts for nothing (its id never leaves the device); same for
+  // a public upload (`upload:<cuid>`). Un brano in evidenza (`upload:<pathname>`) invece chiede il
+  // permesso come Audius: solo una verifica, l'ascolto lo registra la sua route di stream.
+  if (qualifiedId.startsWith('local:')) return { allowed: true };
+  if (qualifiedId.startsWith('upload:') && !isFeaturedPlayId(qualifiedId)) {
     return { allowed: true };
+  }
   // audio.com: nessuna route di stream di Solco vedrà quell'audio, quindi questo permesso è l'unico
   // controllo (accesso e limite Free) e REGISTRA l'ascolto. Senza un sì esplicito: niente audio.
   const failClosed = permitRecordsPlay(qualifiedId);
@@ -1065,6 +1083,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const [playBlock, setPlayBlock] = useState<PlayBlock | null>(null);
   const [playsUsed, setPlaysUsed] = useState<number | null>(null);
   const [playsLimit, setPlaysLimit] = useState<number | null>(null);
+  // Conteggio a parte dei brani in evidenza della Home (30 avvii al mese con Free).
+  const [featuredPlaysUsed, setFeaturedPlaysUsed] = useState<number | null>(null);
+  const [featuredPlaysLimit, setFeaturedPlaysLimit] = useState<number | null>(null);
   const [previewEnded, setPreviewEnded] = useState(false);
   const reconnectsRef = useRef(0);
   // Pending delayed radio reconnect (2nd and 3rd attempt): cleared on close and pause.
@@ -1189,17 +1210,33 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const applyPermit = useCallback((permit: PlayPermit) => {
-    if (permit.used !== undefined) setPlaysUsed(permit.used);
-    if (permit.limit !== undefined) setPlaysLimit(permit.limit);
+  /**
+   * Aggiorna il conteggio del brano a cui si riferisce il permesso: quello dei brani in evidenza
+   * (30 al mese) o quello del catalogo (40: Audius, podcast, audio.com; le fonti esenti ricevono
+   * comunque i numeri del catalogo). I due conteggi restano separati anche nell'istantanea usata
+   * per prevedere il brano successivo (predictPlayBlock).
+   */
+  const applyPermit = useCallback((permit: PlayPermit, qualifiedId: string) => {
+    const featured = isFeaturedPlayId(qualifiedId);
+    if (permit.used !== undefined) (featured ? setFeaturedPlaysUsed : setPlaysUsed)(permit.used);
+    if (permit.limit !== undefined) {
+      (featured ? setFeaturedPlaysLimit : setPlaysLimit)(permit.limit);
+    }
     setPlayBlock(permit.allowed ? null : (permit.reason ?? null));
     const known = accessRef.current;
     if (known && permit.used !== undefined) {
-      accessRef.current = {
-        ...known,
-        playsUsed: permit.used,
-        playsLimit: permit.limit === undefined ? known.playsLimit : permit.limit,
-      };
+      accessRef.current = featured
+        ? {
+            ...known,
+            featuredPlaysUsed: permit.used,
+            featuredPlaysLimit:
+              permit.limit === undefined ? known.featuredPlaysLimit : permit.limit,
+          }
+        : {
+            ...known,
+            playsUsed: permit.used,
+            playsLimit: permit.limit === undefined ? known.playsLimit : permit.limit,
+          };
     }
   }, []);
 
@@ -1211,8 +1248,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         .then((body) => {
           setPremium(body?.premium === true);
           setSignedIn(body?.signedIn === true);
-          setPlaysUsed(typeof body?.playsUsed === 'number' ? body.playsUsed : null);
-          setPlaysLimit(typeof body?.playsLimit === 'number' ? body.playsLimit : null);
+          setPlaysUsed(numberOrNull(body?.playsUsed));
+          setPlaysLimit(numberOrNull(body?.playsLimit));
+          setFeaturedPlaysUsed(numberOrNull(body?.featuredPlaysUsed));
+          setFeaturedPlaysLimit(numberOrNull(body?.featuredPlaysLimit));
           accessRef.current = body ? accessSnapshot(body) : null;
           return accessRef.current;
         })
@@ -1335,7 +1374,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         setDurationSeconds(track.durationSeconds ?? 0);
         const permit = await requestPlayPermit(track.qualifiedId);
         if (request !== playRequestRef.current) return false;
-        applyPermit(permit);
+        applyPermit(permit, track.qualifiedId);
         if (!permit.allowed) {
           // Avvio rifiutato: annulla anche la creazione del player ufficiale ancora in corso, che
           // con autoplay farebbe partire il video comunque (vedi l'effetto del motore YouTube).
@@ -1416,10 +1455,17 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         // dopo il sì del permesso (che registra l'ascolto), così un ospite o un account Free oltre
         // il limite non ne sentono nemmeno un istante. Come per Audius, il load() di releaseAudio
         // dentro il tocco ha già sbloccato l'elemento su iOS: play() dopo l'attesa funziona.
-        if (!isOpenStream(track) || permitRecordsPlay(track.qualifiedId)) {
+        // Anche i brani in evidenza aspettano il permesso (solo verifica: la loro route di stream
+        // rifiuterebbe comunque oltre i 30 avvii Free del mese), così il blocco si mostra subito,
+        // senza una richiesta di stream destinata al 402.
+        if (
+          !isOpenStream(track) ||
+          permitRecordsPlay(track.qualifiedId) ||
+          isFeaturedPlayId(track.qualifiedId)
+        ) {
           const early = await permitRequest;
           if (request !== playRequestRef.current) return false;
-          applyPermit(early);
+          applyPermit(early, track.qualifiedId);
           if (!early.allowed) {
             releaseAudio();
             if (early.unconfirmed) {
@@ -1447,7 +1493,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           playing.catch(() => undefined);
           return false;
         }
-        applyPermit(permit);
+        applyPermit(permit, track.qualifiedId);
         if (!permit.allowed) {
           playing.catch(() => undefined);
           releaseAudio();
@@ -2227,7 +2273,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       // Vale finché il deck attivo ha questo stream (anche in pausa): un altro brano o la chiusura
       // del player nel frattempo l'hanno sostituito o liberato, e la risposta non li riguarda.
       if (decks.current?.getAttribute('src') !== src) return;
-      applyPermit(permit);
+      applyPermit(permit, track.qualifiedId);
       if (permit.allowed) return;
       // Annulla l'avvio in corso (i suoi esiti non cambiano più lo stato) e libera l'audio.
       playRequestRef.current += 1;
@@ -4002,9 +4048,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   // Testo: solo brani in evidenza, upload degli utenti e file del dispositivo (mai Audius,
   // YouTube, radio, podcast): il server decide poi se il brano ha davvero un testo autorizzato.
   const lyricsTarget = lyricsTargetFor(currentTrack);
+  // Un brano in evidenza della Home usa il suo conteggio (30 avvii al mese con Free): contatore e
+  // messaggio di blocco mostrano quei numeri, non i 40 del catalogo.
+  const featuredCurrent = currentTrack !== null && isFeaturedPlayId(currentTrack.qualifiedId);
+  const counterUsed = featuredCurrent ? featuredPlaysUsed : playsUsed;
+  const counterLimit = featuredCurrent ? featuredPlaysLimit : playsLimit;
   const showCounter =
-    playsLimit !== null &&
-    playsUsed !== null &&
+    counterLimit !== null &&
+    counterUsed !== null &&
     showsFreePlayCounter(currentTrack?.playbackMode, currentTrack?.qualifiedId);
 
   // Both decks get the same attributes; only the active one drives the player (see onActiveDeck).
@@ -4076,6 +4127,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       playBlock,
       playsUsed,
       playsLimit,
+      featuredPlaysUsed,
+      featuredPlaysLimit,
       playTrack,
       togglePlayback,
       previousTrack,
@@ -4109,6 +4162,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       playBlock,
       playsUsed,
       playsLimit,
+      featuredPlaysUsed,
+      featuredPlaysLimit,
       playTrack,
       togglePlayback,
       previousTrack,
@@ -4259,6 +4314,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                     Per ascoltare serve un account gratuito. <Link href="/signup">Registrati</Link>{' '}
                     o <Link href="/login">accedi</Link>.
                   </>
+                ) : featuredCurrent ? (
+                  <>
+                    Hai usato i {featuredPlaysLimit ?? FEATURED_FREE_MONTHLY_PLAYS} ascolti gratuiti
+                    dei brani in evidenza di questo mese: il conteggio riparte il mese prossimo.
+                    Puoi continuare con brani Audius, podcast, radio e video YouTube.
+                  </>
                 ) : (
                   <>
                     Hai usato i {playsLimit ?? 40} ascolti gratuiti di questo mese.{' '}
@@ -4341,11 +4402,19 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                   {live ? <em className={styles.liveBadge}>LIVE</em> : null}
                   {[currentTrack.artistName, currentTrack.sourceLabel].filter(Boolean).join(' · ')}
                 </span>
-                {showCounter && playsLimit !== null && playsUsed !== null ? (
+                {showCounter && counterLimit !== null && counterUsed !== null ? (
                   <p className={styles.adNote}>
-                    Ascolti gratuiti questo mese: {Math.min(playsUsed, playsLimit)} di {playsLimit}.{' '}
-                    {/* Link client-side: con <a> la pagina si ricaricava e la musica si fermava. */}
-                    <Link href="/piani">Illimitati con Premium</Link>
+                    {featuredCurrent
+                      ? 'Ascolti gratuiti dei brani in evidenza questo mese'
+                      : 'Ascolti gratuiti questo mese'}
+                    : {Math.min(counterUsed, counterLimit)} di {counterLimit}.
+                    {featuredCurrent ? null : (
+                      <>
+                        {' '}
+                        {/* Link client-side: con <a> la pagina si ricaricava e la musica si fermava. */}
+                        <Link href="/piani">Illimitati con Premium</Link>
+                      </>
+                    )}
                   </p>
                 ) : null}
                 {backgroundVideo ? (
