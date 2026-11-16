@@ -54,6 +54,17 @@
   line-height: 1.5;
 }
 
+/* Impronta SHA-256 del certificato: 95 caratteri, va a capo dove serve senza allargare la pagina. */
+.fingerprint {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-all;
+  user-select: all;
+}
+
 @media (max-width: 620px) {
   .page {
     width: calc(100% - 32px);

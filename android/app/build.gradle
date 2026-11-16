@@ -54,7 +54,9 @@ def uploadKeyPath = System.getenv('SOLCO_ANDROID_SIGNING_KEY') ?: "$projectDir/.
 def uploadPasswordPath = System.getenv('SOLCO_ANDROID_SIGNING_PASSWORD_FILE') ?: "$projectDir/../.keys/keystore-password.txt"
 def configuredKeyPasswordPath = System.getenv('SOLCO_ANDROID_SIGNING_KEY_PASSWORD_FILE') ?: "$projectDir/../.keys/key-password.txt"
 def uploadKeyAlias = System.getenv('SOLCO_ANDROID_SIGNING_ALIAS') ?: 'solco'
-def configuredVersionCode = System.getenv('SOLCO_ANDROID_VERSION_CODE') ?: '1'
+// Codice della versione distribuita in /app (1.2.0 = 3): un build senza variabile produce un APK che
+// aggiorna le installazioni precedenti. Per un AAB il codice va passato esplicitamente (android/build.sh).
+def configuredVersionCode = System.getenv('SOLCO_ANDROID_VERSION_CODE') ?: '3'
 if (!(configuredVersionCode ==~ /[1-9][0-9]*/)) {
     throw new GradleException('SOLCO_ANDROID_VERSION_CODE deve essere un intero positivo.')
 }
@@ -90,7 +92,7 @@ android {
         minSdkVersion 24
         targetSdkVersion 36
         versionCode uploadVersionCode
-        versionName "1.1.0"
+        versionName "1.2.0"
 
         // The name for the application
         resValue "string", "appName", twaManifest.name

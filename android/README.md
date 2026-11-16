@@ -2,7 +2,16 @@
 
 L'app è una Trusted Web Activity: all'avvio apre `https://www.solcomusic.online/` nel browser Android, a schermo intero quando il dominio riconosce la firma dell'APK. Le pagine e le API restano quelle del sito Solco, quindi account, catalogo, diario, assistenza e piani continuano a usare i servizi già configurati. I collegamenti interni restano nel flusso Solco; quelli esterni passano al browser o all'app Android associata. Il tasto Indietro segue la cronologia del browser.
 
-Il file `../public/.well-known/assetlinks.json` collega il dominio al package Android e al certificato usato per firmare l'APK. Il file `../public/solco-android-icon.svg` fornisce l'icona Solco per il launcher e la schermata iniziale.
+Il file `../public/.well-known/assetlinks.json` collega il dominio al package Android e ai certificati che firmano l'APK (Digital Asset Links); gli stessi certificati sono dichiarati in `twa-manifest.json` (`fingerprints`) e in `../src/lib/android-app.ts`, che la pagina `/app` mostra agli utenti. Il test `../tests/unit/android-apk-certificates.test.ts` confronta questi tre punti con il certificato letto dentro `../public/solco.apk`: se uno diverge, il test fallisce. Il file `../public/solco-android-icon.svg` fornisce l'icona Solco per il launcher e la schermata iniziale.
+
+## Certificati
+
+| Impronta SHA-256 | Uso |
+| --- | --- |
+| `02:28:46:FD:CF:D1:34:80:21:74:52:B9:01:A9:27:A2:10:74:94:8D:05:A7:23:1A:30:EF:AF:73:E3:66:F2:52` | APK distribuiti da `/app` dall'11 novembre 2026 (1.1.0 e successivi). Chiave in `android/.keys/solco-release-key.jks` (alias `solco`), fuori da Git. |
+| `74:EA:96:7E:6D:43:57:F8:42:CB:03:AD:9C:65:6E:1C:38:68:6E:06:E4:0D:9D:61:AB:7E:34:DB:2E:37:C4:15` | APK precedenti all'11 novembre 2026. Resta pubblicata perché chi li ha ancora installati li apra a schermo intero; quegli APK non si aggiornano (chiave diversa). |
+
+Android aggiorna un'app solo se il nuovo APK è firmato con la stessa chiave: senza `android/.keys/` (chiave e `keystore-password.txt`) un nuovo APK non si installa sopra le versioni esistenti e gli utenti devono disinstallare. Conservare una copia di quella cartella fuori dal repository e non committarla mai. Se l'app verrà pubblicata su Google Play, il certificato di Play App Signing (e quello della chiave di upload) andranno aggiunti a `assetlinks.json` e a `twa-manifest.json`: le impronte si leggono in Play Console, sezione Integrità dell'app, e vanno confermate dal proprietario.
 
 ## Ascolto in background
 
@@ -26,13 +35,13 @@ Da ripetere su iPhone (Safari e app aggiunta alla schermata Home) e su Android (
 
 ## Compilazione locale
 
-Servono JDK 17, Android SDK Platform 36 e Android Build Tools 36.1.0. Impostare `JAVA_HOME` e `ANDROID_HOME`, poi eseguire:
+Servono un JDK 17 o 21, Android SDK Platform 36 e Android Build Tools 36.1.0. Impostare `ANDROID_HOME` (e `JAVA_HOME`, se il `java` sul PATH non è quello voluto), poi eseguire:
 
 ```sh
 bash android/build.sh apk
 ```
 
-Lo script compila e firma `solco.apk` nella radice del repository. Per generare un Android App Bundle da verificare localmente:
+Lo script compila, firma con la chiave in `android/.keys/` e scrive `public/solco.apk`, il file che il sito distribuisce da `/app`; poi verifica la firma con `apksigner`, confronta package, versione e codice con `app/build.gradle` e si ferma se il certificato dell'APK non è pubblicato in `public/.well-known/assetlinks.json`. Per una nuova versione aggiornare insieme `versionName` e il codice predefinito in `app/build.gradle`, `appVersionName`/`appVersionCode` in `twa-manifest.json` e `ANDROID_APP_VERSION`/`ANDROID_APP_VERSION_CODE` in `src/lib/android-app.ts` (il test li confronta). Per generare un Android App Bundle da verificare localmente:
 
 ```sh
 bash android/build.sh aab
@@ -40,8 +49,8 @@ bash android/build.sh aab
 
 Il bundle viene copiato in `solco.aab` e validato con `bundletool`. Senza chiave, resta non firmato e non è pronto per l'invio a Play. Per firmare l'AAB, il proprietario deve fornire la propria chiave privata di upload e conservarla solo nei file locali ignorati da Git in `android/.keys/`: `solco-release-key.jks` e `keystore-password.txt`. Se la password della chiave è diversa da quella del keystore, salvarla in `key-password.txt`; in assenza di questo file il build riusa la password del keystore. Non generare una chiave sostitutiva e non sostituire quella di upload dopo l'iscrizione a Play App Signing.
 
-Il package è `app.solcomusic.solco`, il target SDK iniziale è 36 e la versione locale predefinita è `1.0.0` / `versionCode 1`. Per generare un AAB, il proprietario deve verificare in Console l'ultimo codice usato e passare entrambi i valori, ad esempio `SOLCO_ANDROID_LAST_VERSION_CODE=7 SOLCO_ANDROID_VERSION_CODE=8 bash android/build.sh aab`. Il nuovo codice deve essere maggiore del precedente; se Console conferma che non esiste alcuna release precedente, usare `SOLCO_ANDROID_LAST_VERSION_CODE=0`. Lo script non consulta Console. Ricontrollare la policy Play sul target API al momento della release.
+Il package è `app.solcomusic.solco`, il target SDK è 36 e la versione distribuita è `1.2.0` / `versionCode 3` (il codice predefinito di `app/build.gradle`). Per generare un AAB, il proprietario deve verificare in Console l'ultimo codice usato e passare entrambi i valori, ad esempio `SOLCO_ANDROID_LAST_VERSION_CODE=7 SOLCO_ANDROID_VERSION_CODE=8 bash android/build.sh aab`. Il nuovo codice deve essere maggiore del precedente; se Console conferma che non esiste alcuna release precedente, usare `SOLCO_ANDROID_LAST_VERSION_CODE=0`. Lo script non consulta Console. Ricontrollare la policy Play sul target API al momento della release.
 
-La chiave di upload non è il certificato con cui Google Play App Signing firma gli APK distribuiti. Il fingerprint del certificato Play va confermato dal proprietario in Play Console e pubblicato separatamente in `public/.well-known/assetlinks.json`; non copiare lì automaticamente il fingerprint dell'APK o della chiave di upload. Il target (`36`), la versione (`1.0.0`, code `1`) e il package restano definiti in `app/build.gradle`.
+La chiave locale che firma l'APK distribuito da `/app` non è il certificato con cui Google Play App Signing firmerebbe gli APK scaricati da Play. Quel fingerprint va confermato dal proprietario in Play Console e aggiunto a `public/.well-known/assetlinks.json` e a `twa-manifest.json` accanto agli attuali, senza togliere quelli esistenti. Il target (`36`), la versione e il package restano definiti in `app/build.gradle`.
 
 Nessun comando di questo progetto carica artefatti o pubblica una release su Google Play.

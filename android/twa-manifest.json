@@ -20,8 +20,8 @@
     "path": "./.keys/solco-release-key.jks",
     "alias": "solco"
   },
-  "appVersionName": "1.1.0",
-  "appVersionCode": 2,
+  "appVersionName": "1.2.0",
+  "appVersionCode": 3,
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
   "fallbackType": "customtabs",
@@ -35,12 +35,21 @@
   "fullScopeUrl": "https://www.solcomusic.online/",
   "minSdkVersion": 24,
   "orientation": "default",
-  "fingerprints": [],
+  "fingerprints": [
+    {
+      "name": "APK distribuito da /app (dalla 1.1.0, 11 novembre 2026): chiave locale android/.keys/solco-release-key.jks",
+      "value": "02:28:46:FD:CF:D1:34:80:21:74:52:B9:01:A9:27:A2:10:74:94:8D:05:A7:23:1A:30:EF:AF:73:E3:66:F2:52"
+    },
+    {
+      "name": "APK precedenti all'11 novembre 2026 (chiave non più disponibile): resta per chi li ha ancora installati",
+      "value": "74:EA:96:7E:6D:43:57:F8:42:CB:03:AD:9C:65:6E:1C:38:68:6E:06:E4:0D:9D:61:AB:7E:34:DB:2E:37:C4:15"
+    }
+  ],
   "additionalTrustedOrigins": [],
   "retainedBundles": [],
   "protocolHandlers": [],
   "fileHandlers": [],
   "launchHandlerClientMode": "",
   "displayOverride": [],
-  "appVersion": "1.1.0"
+  "appVersion": "1.2.0"
 }

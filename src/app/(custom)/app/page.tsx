@@ -6,6 +6,11 @@ import { Apple, Download, Smartphone } from 'lucide-react';
 import type { Metadata } from 'next';
 import { IosProfileDownload } from '@/components/custom/install/ios-profile-download';
 import { Button } from '@/components/ui/button';
+import {
+  ANDROID_APP_CERT_SHA256,
+  ANDROID_APP_MIN_VERSION,
+  ANDROID_APP_VERSION,
+} from '@/lib/android-app';
 import { siteUrl } from '@/lib/site';
 import styles from './app.module.css';
 
@@ -48,15 +53,25 @@ export default function InstallAppPage() {
             Scarica l’APK
           </a>
         </Button>
-        <p className={styles.meta}>Versione 1.1.0 · Android 7.0 o successivo</p>
+        <p className={styles.meta}>
+          Versione {ANDROID_APP_VERSION} · {ANDROID_APP_MIN_VERSION}
+        </p>
         <ol className={styles.steps}>
           {androidSteps.map((step) => (
             <li key={step}>{step}</li>
           ))}
         </ol>
         <p className={styles.meta}>
-          Hai già installato una versione precedente di Solco? Disinstallala prima: la nuova app è
-          firmata con una chiave diversa e Android non può aggiornarla.
+          Hai già Solco 1.1.0? L’aggiornamento si installa sopra e conserva i tuoi dati. Una
+          versione più vecchia (installata prima dell’11 novembre 2026) va disinstallata prima: era
+          firmata con un’altra chiave e Android non può aggiornarla.
+        </p>
+        <p className={styles.meta}>
+          Certificato che firma l’APK (impronta SHA-256), lo stesso che il sito pubblica in
+          /.well-known/assetlinks.json: per questo Android apre Solco a schermo intero, senza la
+          barra del browser. Puoi confrontarlo con quello mostrato da Android nelle informazioni
+          dell’app.
+          <code className={styles.fingerprint}>{ANDROID_APP_CERT_SHA256}</code>
         </p>
       </section>
 
