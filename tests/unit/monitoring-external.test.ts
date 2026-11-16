@@ -550,8 +550,9 @@ describe('state file', () => {
 
 describe('normalizeBaseUrl', () => {
   it('keeps only the origin and defaults to the live site', () => {
-    expect(normalizeBaseUrl(undefined)).toBe('https://solcomusic.vercel.app');
-    expect(normalizeBaseUrl('  ')).toBe('https://solcomusic.vercel.app');
+    // Il dominio ufficiale (DEFAULT_BASE_URL): le fixture sopra restano sul vecchio host apposta.
+    expect(normalizeBaseUrl(undefined)).toBe('https://www.solcomusic.online');
+    expect(normalizeBaseUrl('  ')).toBe('https://www.solcomusic.online');
     expect(normalizeBaseUrl('https://example.com/')).toBe('https://example.com');
     expect(normalizeBaseUrl('http://localhost:3000/x?y=1')).toBe('http://localhost:3000');
     expect(() => normalizeBaseUrl('ftp://example.com')).toThrow();

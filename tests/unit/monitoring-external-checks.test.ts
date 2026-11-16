@@ -1206,8 +1206,10 @@ describe('main', () => {
       expect(state.checks).toEqual({});
     }
     const summary = await readFile(join(dir, 'summary.md'), 'utf8');
+    // Fermi: ogni pagina pubblica più l'altro controllo che legge una pagina del sito.
+    const stopped = PUBLIC_PAGES.length + 1;
     expect(summary).toContain(
-      `| ✅ | ${BLIND_LABEL} | Il firewall di Vercel ferma 21 controlli, ma non /health e /api/status: un guasto vero resta visibile | — |`,
+      `| ✅ | ${BLIND_LABEL} | Il firewall di Vercel ferma ${stopped} controlli, ma non /health e /api/status: un guasto vero resta visibile | — |`,
     );
   });
 

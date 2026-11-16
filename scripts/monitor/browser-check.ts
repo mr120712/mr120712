@@ -175,6 +175,11 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
   { path: '/terms', label: 'Termini', critical: false },
   { path: '/login', label: 'Accedi', critical: false },
   { path: '/signup', label: 'Registrati', critical: false },
+  // Pagine leggibili senza account (menu e piè di pagina), anche nella sitemap. In coda, come in
+  // check-site.ts: i test contano sulle prime posizioni dell'elenco.
+  { path: '/bot', label: 'Bot', critical: false },
+  { path: '/guida', label: 'Guida', critical: false },
+  { path: '/impostazioni', label: 'Impostazioni', critical: false },
 ];
 
 /** Tutte le pagine su computer; la home anche su telefono, subito dopo. */

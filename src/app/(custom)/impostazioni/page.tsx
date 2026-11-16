@@ -11,7 +11,9 @@ export const metadata: Metadata = {
   title: 'Impostazioni',
   description:
     'Preferenze di Solco salvate su questo dispositivo: autoplay continuo e risparmio dati.',
-  robots: { index: false, follow: false },
+  // Pagina pubblica ed elencata nella sitemap (src/lib/nav.ts): niente noindex, altrimenti Search
+  // Console la segnala come «URL inviato contrassegnato come noindex». Google non è mai loggato,
+  // quindi non vede mai la sezione «Account».
 };
 
 export default function ImpostazioniPage() {

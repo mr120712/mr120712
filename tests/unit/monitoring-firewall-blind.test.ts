@@ -118,10 +118,10 @@ describe('firewallBlindResult (la regola)', () => {
     const pagesOnly = HTTP_IDS.map((id) =>
       id.startsWith('page:') ? challenged(id, CRITICAL.has(id)) : row(id, 'ok', CRITICAL.has(id)),
     );
+    // Fermi solo i controlli delle pagine: tanti quante le pagine pubbliche dell'elenco.
     expect(firewallBlindResult(pagesOnly, null, T0)).toMatchObject({
       status: 'ok',
-      detail:
-        'Il firewall di Vercel ferma 20 controlli, ma non /health e /api/status: un guasto vero resta visibile',
+      detail: `Il firewall di Vercel ferma ${PUBLIC_PAGES.length} controlli, ma non /health e /api/status: un guasto vero resta visibile`,
     });
     // /health fermato, /api/status risponde (anche con un errore): app giù o database spento si
     // vedono comunque da /api/status.

@@ -172,6 +172,11 @@ export const PUBLIC_PAGES: readonly PublicPage[] = [
   { path: '/terms', label: 'Termini', critical: false },
   { path: '/login', label: 'Accedi', critical: false },
   { path: '/signup', label: 'Registrati', critical: false },
+  // Pagine leggibili senza account (menu e piè di pagina), anche nella sitemap. In coda: i test
+  // del monitor contano sulle prime posizioni dell'elenco.
+  { path: '/bot', label: 'Bot', critical: false },
+  { path: '/guida', label: 'Guida', critical: false },
+  { path: '/impostazioni', label: 'Impostazioni', critical: false },
 ];
 
 /**
