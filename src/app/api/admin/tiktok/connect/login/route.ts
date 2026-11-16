@@ -1,9 +1,15 @@
 // @polsia:user-owned — avvia "Collega TikTok" (Login Kit v2, Authorization Code con PKCE). Solo
 // amministratori verificati. Crea state e code_verifier, li salva cifrati in un cookie HttpOnly di
 // 10 minuti limitato a /api/admin/tiktok e rimanda a www.tiktok.com/v2/auth/authorize con i soli
-// scope necessari. Parte solo da una navigazione di Solco stesso (Sec-Fetch-Site).
+// scope necessari. Parte solo da una navigazione di Solco stesso (Sec-Fetch-Site; dalla web app iOS,
+// che WebKit può marcare cross-site, con Origin/Referer di Solco: own-site-request.ts).
 import 'server-only';
 import { auth } from '@/lib/auth';
+import {
+  isFromOwnSite,
+  NAVIGATION_OWN_SITES,
+  ownSiteOrigins,
+} from '@/lib/security/own-site-request';
 import { codeChallengeS256, createCodeVerifier, createOAuthState } from '@/lib/spotify/pkce';
 import {
   notConfiguredResponse,
@@ -17,8 +23,6 @@ import { oauthCookieHeader, sealOAuthCookie } from '@/lib/tiktok/connection.serv
 
 export const dynamic = 'force-dynamic';
 
-const ALLOWED_FETCH_SITES = new Set(['same-origin', 'none']);
-
 function redirect(location: string, cookie?: string): Response {
   const headers = new Headers({ ...tiktokPrivateHeaders, Location: location });
   headers.set('Referrer-Policy', 'no-referrer');
@@ -30,8 +34,16 @@ export async function GET(request: Request) {
   const config = tiktokConfig();
   if (!config) return notConfiguredResponse();
 
-  const site = request.headers.get('sec-fetch-site');
-  if (site !== null && !ALLOWED_FETCH_SITES.has(site)) {
+  // Solo da Solco stesso: dalla web app iOS la richiesta può arrivare marcata cross-site e passa
+  // solo con Origin/Referer di Solco.
+  const ownOrigins = ownSiteOrigins(
+    {
+      NEXT_PUBLIC_APP_URL: config.appOrigin,
+      BETTER_AUTH_TRUSTED_ORIGINS: process.env.BETTER_AUTH_TRUSTED_ORIGINS,
+    },
+    request,
+  );
+  if (!isFromOwnSite(request.headers, ownOrigins, NAVIGATION_OWN_SITES)) {
     return redirect(`${config.appOrigin}${TIKTOK_ADMIN_PAGE}`);
   }
 

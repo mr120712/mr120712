@@ -1,7 +1,12 @@
 // @polsia:user-owned — installa Solco su Android (APK) e su iPhone/iPad (profilo, senza App Store).
+// Il pulsante del profilo iOS (ios-profile-download.tsx) si adatta al contesto: dentro la web app
+// già installata spiega che il profilo c'è già, nei browser iOS diversi da Safari invita ad aprire
+// la pagina in Safari (solo Safari consegna un profilo a Impostazioni).
 import { Apple, Download, Smartphone } from 'lucide-react';
 import type { Metadata } from 'next';
+import { IosProfileDownload } from '@/components/custom/install/ios-profile-download';
 import { Button } from '@/components/ui/button';
+import { siteUrl } from '@/lib/site';
 import styles from './app.module.css';
 
 export const metadata: Metadata = {
@@ -60,12 +65,7 @@ export default function InstallAppPage() {
           <Apple />
         </div>
         <h2 id="iphone-heading">iPhone e iPad</h2>
-        <Button asChild size="lg">
-          <a href="/ios/solco.mobileconfig">
-            <Download aria-hidden="true" />
-            Scarica il profilo
-          </a>
-        </Button>
+        <IosProfileDownload pageUrl={`${siteUrl}/app`} />
         <p className={styles.meta}>iOS 15 o successivo · funziona solo con Safari</p>
         <ol className={styles.steps}>
           {iosSteps.map((step) => (

@@ -181,10 +181,23 @@ describe('GET /api/music/home-tracks/stream: accesso', () => {
   });
 
   it('403 per hotlinking da un altro sito e per l’URL aperto in una scheda', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const crossSite = await GET(
-      req('a.mp3', { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'audio' }),
+      req('a.mp3', {
+        'sec-fetch-site': 'cross-site',
+        'sec-fetch-dest': 'audio',
+        referer: 'https://altro.example/pagina-segreta',
+      }),
     );
     expect(crossSite.status).toBe(403);
+    expect(await crossSite.json()).toEqual({ error: 'forbidden_player' });
+    expect(crossSite.headers.get('cache-control')).toBe('private, no-store');
+    // Il log del rifiuto riporta solo categorie: mai l'host o l'URL di provenienza.
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(warn.mock.calls)).toContain(
+      'site=cross-site dest=audio origin=assente referer=altro',
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('altro.example');
     const navigation = await GET(
       req('a.mp3', {
         'sec-fetch-site': 'none',
@@ -194,6 +207,38 @@ describe('GET /api/music/home-tracks/stream: accesso', () => {
     );
     expect(navigation.status).toBe(403);
     expect(mocks.get).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('la web app iOS (profilo): Sec-Fetch-Site cross-site ma Referer di Solco → l’audio parte', async () => {
+    mocks.get.mockResolvedValue(okStream({ 'content-length': '3' }));
+    const response = await GET(
+      req('a.mp3', {
+        'sec-fetch-site': 'cross-site',
+        'sec-fetch-dest': 'audio',
+        referer: 'https://solco.example/',
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(mocks.get).toHaveBeenCalledTimes(1);
+  });
+
+  it('cross-site senza Referer, con Referer di un altro sito o con Origin "null": 403', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const extras: Record<string, string>[] = [
+      {},
+      { referer: 'https://altro.example/' },
+      { origin: 'null' },
+      { referer: 'https://solco.example.evil.example/' },
+    ];
+    for (const extra of extras) {
+      const response = await GET(
+        req('a.mp3', { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'audio', ...extra }),
+      );
+      expect(response.status, JSON.stringify(extra)).toBe(403);
+    }
+    expect(mocks.get).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it('un browser senza intestazioni Sec-Fetch passa (resta la sessione a decidere)', async () => {

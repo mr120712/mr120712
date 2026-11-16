@@ -1,10 +1,16 @@
 // @polsia:user-owned — avvia "Accedi con Spotify" (Authorization Code con PKCE, nessun client secret).
 // Crea state e code_verifier, li salva cifrati in un cookie HttpOnly di 10 minuti limitato a
 // /api/spotify e rimanda a accounts.spotify.com/authorize con i soli scope necessari.
-// Parte solo da una navigazione di Solco stesso (Sec-Fetch-Site) e con show_dialog=true: un altro
-// sito non può ricollegare in silenzio Spotify dopo che l'utente l'ha scollegato.
+// Parte solo da una navigazione di Solco stesso (Sec-Fetch-Site; dalla web app iOS, che WebKit può
+// marcare cross-site, con Origin/Referer di Solco: own-site-request.ts) e con show_dialog=true: un
+// altro sito non può ricollegare in silenzio Spotify dopo che l'utente l'ha scollegato.
 import 'server-only';
 import { requireAuth, type SessionUser } from '@/lib/require-auth';
+import {
+  isFromOwnSite,
+  NAVIGATION_OWN_SITES,
+  ownSiteOrigins,
+} from '@/lib/security/own-site-request';
 import {
   notConfiguredResponse,
   SPOTIFY_AUTHORIZE_URL,
@@ -17,9 +23,6 @@ import { oauthCookieHeader, sealOAuthCookie } from '@/lib/spotify/connection.ser
 import { codeChallengeS256, createCodeVerifier, createOAuthState } from '@/lib/spotify/pkce';
 
 export const dynamic = 'force-dynamic';
-
-/** Sec-Fetch-Site values of a navigation started by Solco itself or typed by the person. */
-const ALLOWED_FETCH_SITES = new Set(['same-origin', 'none']);
 
 function redirect(location: string, cookie?: string): Response {
   const headers = new Headers({ ...spotifyPrivateHeaders, Location: location });
@@ -34,8 +37,16 @@ export async function GET(request: Request) {
 
   // The session cookie is SameSite=Lax, so a link on another site would carry it: never start
   // the flow from there (browsers without Fetch Metadata send no header and are let through).
-  const site = request.headers.get('sec-fetch-site');
-  if (site !== null && !ALLOWED_FETCH_SITES.has(site)) {
+  // The iOS home-screen web app may be stamped cross-site by WebKit: it passes only with an
+  // Origin/Referer of Solco itself (own-site-request.ts).
+  const ownOrigins = ownSiteOrigins(
+    {
+      NEXT_PUBLIC_APP_URL: config.appOrigin,
+      BETTER_AUTH_TRUSTED_ORIGINS: process.env.BETTER_AUTH_TRUSTED_ORIGINS,
+    },
+    request,
+  );
+  if (!isFromOwnSite(request.headers, ownOrigins, NAVIGATION_OWN_SITES)) {
     return redirect(`${config.appOrigin}${SPOTIFY_IMPORT_PAGE}`);
   }
 

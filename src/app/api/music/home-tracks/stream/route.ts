@@ -3,7 +3,9 @@
 // per un file pubblico (vedi home-tracks.server), così l'accesso ha le stesse regole per tutti:
 // - serve una SESSIONE (401 senza): gli ospiti non ascoltano né scaricano nulla;
 // - niente hotlinking né download diretto (403): solo richieste del player di Solco (stesso sito,
-//   destinazione audio), vedi featured-stream-access.ts;
+//   destinazione audio), vedi featured-stream-access.ts; la web app iOS (profilo), che WebKit può
+//   marcare cross-site, passa con Origin/Referer di Solco (own-site-request.ts); ogni rifiuto lascia
+//   nel log del server le sole categorie delle intestazioni (mai IP, User-Agent, URL o cookie);
 // - limite per ACCOUNT sugli avvii (music.featured.stream: 60 ogni 10 minuti, 600 al giorno), non
 //   sui blocchi: seek e riproduzione a blocchi non contano;
 // - limite FREE dei brani in evidenza (FEATURED_FREE_MONTHLY_PLAYS, 30 avvii al mese; Premium
@@ -36,6 +38,7 @@ import {
   type StreamPlayCheck,
 } from '@/lib/music/stream-play.server';
 import { getSessionUser } from '@/lib/require-auth';
+import { describeSiteHeaders, ownSiteOrigins } from '@/lib/security/own-site-request';
 
 export const dynamic = 'force-dynamic';
 
@@ -112,9 +115,24 @@ export async function GET(request: Request) {
     return new NextResponse(null, { status: 404 });
   }
 
-  // Hotlinking da altri siti o URL aperto in una scheda: non è il player di Solco.
-  if (!isFeaturedPlayerRequest(request.headers)) {
-    return new NextResponse(null, { status: 403, headers: PRIVATE_NO_STORE });
+  // Hotlinking da altri siti o URL aperto in una scheda: non è il player di Solco. La web app iOS
+  // (profilo) può arrivare marcata cross-site da WebKit: passa se Origin/Referer sono di Solco.
+  const ownOrigins = ownSiteOrigins(
+    {
+      NEXT_PUBLIC_APP_URL: env.NEXT_PUBLIC_APP_URL,
+      BETTER_AUTH_TRUSTED_ORIGINS: process.env.BETTER_AUTH_TRUSTED_ORIGINS,
+    },
+    request,
+  );
+  if (!isFeaturedPlayerRequest(request.headers, ownOrigins)) {
+    // biome-ignore lint/suspicious/noConsole: diagnosi dei rifiuti con le sole categorie delle intestazioni (mai IP, User-Agent, URL, cookie o host).
+    console.warn(
+      `[featured-stream] richiesta rifiutata (403): ${describeSiteHeaders(request.headers, ownOrigins)}`,
+    );
+    return NextResponse.json(
+      { error: 'forbidden_player' },
+      { status: 403, headers: PRIVATE_NO_STORE },
+    );
   }
 
   // Solo con un account: gli ospiti non ascoltano né scaricano i brani in evidenza.

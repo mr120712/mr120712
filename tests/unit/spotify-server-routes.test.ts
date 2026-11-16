@@ -282,6 +282,24 @@ describe('login e callback (PKCE)', () => {
       expect(location).not.toContain('accounts.spotify.com');
       expect(response.headers.get('set-cookie')).toBeNull();
     }
+    // Web app iOS (profilo): WebKit la marca cross-site, ma il Referer è di Solco → parte.
+    const webApp = await loginGET(
+      request('/api/spotify/login', {
+        headers: { 'sec-fetch-site': 'cross-site', referer: `${ORIGIN}/library` },
+      }),
+    );
+    expect(new URL(webApp.headers.get('location') ?? '').origin).toBe(
+      'https://accounts.spotify.com',
+    );
+    expect(webApp.headers.get('set-cookie')).toMatch(/^solco_spotify_oauth=v1\./);
+    // Lo stesso cross-site con il Referer di un altro sito resta fermo.
+    const other = await loginGET(
+      request('/api/spotify/login', {
+        headers: { 'sec-fetch-site': 'cross-site', referer: 'https://altro.example/' },
+      }),
+    );
+    expect(other.headers.get('location')).toBe(`${ORIGIN}/library`);
+    expect(other.headers.get('set-cookie')).toBeNull();
     for (const site of ['same-origin', 'none']) {
       const response = await loginGET(
         request('/api/spotify/login', { headers: { 'sec-fetch-site': site } }),

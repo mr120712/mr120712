@@ -1,5 +1,6 @@
 // @polsia:user-owned — avvia «Collega audio.com» (OAuth 2.1 Authorization Code con PKCE S256).
-// Solo amministratori verificati e solo da una navigazione di Solco stesso (Sec-Fetch-Site).
+// Solo amministratori verificati e solo da una navigazione di Solco stesso (Sec-Fetch-Site; dalla
+// web app iOS, che WebKit può marcare cross-site, con Origin/Referer di Solco: own-site-request.ts).
 // La prima volta registra Solco presso audio.com come client pubblico (registrazione dinamica,
 // nessun segreto) e ne salva il client_id; poi crea state e code_verifier, li mette in un cookie
 // HttpOnly cifrato di 10 minuti limitato a /api/admin/audiocom e rimanda alla pagina di
@@ -17,11 +18,14 @@ import {
   ensureAudioComClient,
   sealAudioComOAuthCookie,
 } from '@/lib/music/audiocom-connection.server';
+import {
+  isFromOwnSite,
+  NAVIGATION_OWN_SITES,
+  ownSiteOrigins,
+} from '@/lib/security/own-site-request';
 import { createCodeVerifier, createOAuthState } from '@/lib/spotify/pkce';
 
 export const dynamic = 'force-dynamic';
-
-const ALLOWED_FETCH_SITES = new Set(['same-origin', 'none']);
 
 function redirect(location: string, cookie?: string): Response {
   const headers = new Headers({ ...audioComPrivateHeaders, Location: location });
@@ -45,9 +49,18 @@ export async function GET(request: Request) {
   const adminPage = `${config.appOrigin}${AUDIOCOM_ADMIN_PAGE}`;
   const fail = (reason: string) => redirect(`${adminPage}?audiocom=error&reason=${reason}`);
 
-  // Solo da un clic dentro Solco (o un indirizzo digitato): mai da un altro sito.
-  const site = request.headers.get('sec-fetch-site');
-  if (site !== null && !ALLOWED_FETCH_SITES.has(site)) return redirect(adminPage);
+  // Solo da un clic dentro Solco (o un indirizzo digitato): mai da un altro sito. Dalla web app iOS
+  // la richiesta può arrivare marcata cross-site: passa solo con Origin/Referer di Solco.
+  const ownOrigins = ownSiteOrigins(
+    {
+      NEXT_PUBLIC_APP_URL: config.appOrigin,
+      BETTER_AUTH_TRUSTED_ORIGINS: process.env.BETTER_AUTH_TRUSTED_ORIGINS,
+    },
+    request,
+  );
+  if (!isFromOwnSite(request.headers, ownOrigins, NAVIGATION_OWN_SITES)) {
+    return redirect(adminPage);
+  }
 
   const session = await audioComAdminSession(request);
   if (session.kind === 'signed_out') {

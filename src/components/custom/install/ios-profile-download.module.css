@@ -1,0 +1,17 @@
+/* @polsia:user-owned — nota sotto «Scarica il profilo» (pagina /app, sezione iPhone e iPad). */
+.note {
+  display: block;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px);
+  background: var(--muted);
+  color: var(--foreground);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.note strong {
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}

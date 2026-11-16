@@ -153,10 +153,30 @@ describe('GET /api/admin/audiocom/login', () => {
   });
 
   it('da un altro sito non parte (nessuna registrazione, nessun cookie)', async () => {
-    const response = await login(loginRequest({ 'sec-fetch-site': 'cross-site' }));
-    expect(response.headers.get('location')).toBe(ADMIN_PAGE);
-    expect(response.headers.get('set-cookie')).toBeNull();
+    const foreign: Record<string, string>[] = [
+      { 'sec-fetch-site': 'cross-site' },
+      { 'sec-fetch-site': 'cross-site', referer: 'https://altro.example/admin' },
+      { 'sec-fetch-site': 'same-site', referer: 'https://altro.solco.test/' },
+    ];
+    for (const headers of foreign) {
+      const response = await login(loginRequest(headers));
+      expect(response.headers.get('location'), JSON.stringify(headers)).toBe(ADMIN_PAGE);
+      expect(response.headers.get('set-cookie')).toBeNull();
+    }
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('dalla web app iOS (Sec-Fetch-Site cross-site, Referer di Solco) parte come da Solco', async () => {
+    fetchMock.mockResolvedValue(json({ client_id: CLIENT_ID }, 201));
+    const response = await login(
+      loginRequest({
+        'sec-fetch-site': 'cross-site',
+        referer: 'https://solco.test/admin/audiocom',
+      }),
+    );
+    expect(response.status).toBe(302);
+    expect(new URL(response.headers.get('location') ?? '').origin).toBe('https://api.audio.com');
+    expect(response.headers.get('set-cookie')).toContain(`${AUDIOCOM_OAUTH_COOKIE}=`);
   });
 
   it('oltre il limite per admin: torna con reason=rate_limited', async () => {
