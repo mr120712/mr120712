@@ -20,6 +20,7 @@ vi.mock('@/lib/db', () => ({
     aiMusicSearchCache: { deleteMany: zero },
     monitorRun: { deleteMany: zero },
     publicUploadPlay: { deleteMany: mocks.playDelete },
+    siteVisit: { deleteMany: zero },
   },
 }));
 vi.mock('@/lib/music/collections.server', () => ({ expireYouTubeCollectionMetadata: zero }));

@@ -326,6 +326,12 @@ export const ACTION_RATE_LIMITS = {
   // Token per mettere quel file nello staging di Vercel Blob, per admin: un po' più largo
   // dell'invio, per i caricamenti interrotti e ripresi.
   'audiocom.upload.stage.admin': [{ requests: 20, windowMs: 3_600_000 }],
+  // Segnali di visita (POST /api/visits) per IP: uno per pagina aperta, quindi largo per chi naviga
+  // davvero e stretto per uno script che volesse gonfiare le statistiche dei visitatori.
+  'site.visit': [
+    { requests: 60, windowMs: 60_000 },
+    { requests: 3000, windowMs: 86_400_000 },
+  ],
 } as const satisfies Record<string, readonly WindowLimit[]>;
 
 export type RateLimitAction = keyof typeof ACTION_RATE_LIMITS;
@@ -615,6 +621,7 @@ const actionLabels: Record<RateLimitAction, string> = {
   'audiocom.connect.admin': 'i collegamenti ad audio.com',
   'audiocom.upload.admin': 'i caricamenti su audio.com',
   'audiocom.upload.stage.admin': 'la preparazione dei caricamenti su audio.com',
+  'site.visit': 'i segnali di visita',
 };
 
 type DeniedRateLimit = Exclude<RateLimitDecision, { allowed: true }>;

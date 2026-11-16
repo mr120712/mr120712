@@ -13,6 +13,7 @@ import { ServiceWorkerRegistration } from '@/components/custom/service-worker-re
 import { Snowfall } from '@/components/custom/snowfall';
 import { SolcoSupportChat } from '@/components/custom/solco-support-chat';
 import { TelegramMiniApp } from '@/components/custom/telegram-mini-app';
+import { VisitBeacon } from '@/components/custom/visit-beacon';
 
 export function GlobalMounts() {
   return (
@@ -25,6 +26,8 @@ export function GlobalMounts() {
       <TelegramMiniApp />
       {/* Copie offline dei brani in evidenza: revoca in ogni pagina (carica il resto solo se ce ne sono). */}
       <FeaturedOfflineSyncMount />
+      {/* Statistiche di visita della scheda Visitatori (admin): solo il percorso, senza cookie. */}
+      <VisitBeacon />
     </MotionKitProvider>
   );
 }

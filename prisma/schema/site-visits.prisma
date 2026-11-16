@@ -1,0 +1,25 @@
+// @polsia:user-owned — statistiche di visita della scheda «Visitatori» dell'amministrazione, senza
+// cookie e senza dati personali. Vedi src/lib/admin/visitors.server.ts.
+
+/// Una pagina aperta nel sito. `visitorHash` è l'impronta troncata di indirizzo IP e browser con una
+/// chiave che cambia ogni giorno: conta i visitatori distinti del giorno, non segue nessuno da un
+/// giorno all'altro e non si può riportare all'indirizzo. Righe oltre 90 giorni: /api/cron/cleanup.
+model SiteVisit {
+  id           String   @id @default(cuid())
+  /// Giorno di calendario in Italia, "YYYY-MM-DD".
+  day          String
+  visitorHash  String
+  /// Percorso della pagina, normalizzato (nessuna query, segmenti variabili ridotti a "*").
+  path         String
+  /// Solo l'host del sito di provenienza (mai l'indirizzo intero), assente per gli accessi diretti.
+  referrerHost String?
+  /// Paese stimato dall'hosting (codice ISO a due lettere), se noto.
+  country      String?
+  /// desktop | mobile | tablet
+  device       String
+  createdAt    DateTime @default(now())
+
+  @@index([day, visitorHash])
+  @@index([day, path])
+  @@index([createdAt])
+}

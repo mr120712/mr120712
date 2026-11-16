@@ -22,6 +22,7 @@ vi.mock('@/lib/db', () => ({
     aiMusicSearchCache: { deleteMany: zero },
     monitorRun: { deleteMany: zero },
     publicUploadPlay: { deleteMany: zero },
+    siteVisit: { deleteMany: zero },
     lyricsTranscriptionCache: { findMany: mocks.findMany, deleteMany: mocks.deleteMany },
   },
 }));

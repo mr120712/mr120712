@@ -6,7 +6,8 @@
 // cronologia di ascolto i cui dati sono arrivati da YouTube oltre 28 giorni fa (o senza data).
 // Poi contatori della quota dei giorni passati, contatori dei limiti per azione (account o IP
 // con hash) fermi da 2 giorni, piani AI scaduti, esiti dei controlli automatici oltre 30
-// giorni e ascolti contati della classifica della community (chiavi HMAC) oltre 35 giorni.
+// giorni, ascolti contati della classifica della community (chiavi HMAC) oltre 35 giorni e visite
+// della scheda Visitatori (impronte giornaliere, nessun dato personale) oltre 90 giorni.
 // Infine le trascrizioni IA dei testi conservate cifrate e non usate da 180 giorni (a lotti
 // limitati; se la loro pulizia fallisce si riprova il giorno dopo, senza fermare le altre) e i
 // consigli personali in cache («Potrebbe piacerti») più vecchi di 2 giorni; poi ricalcola la
@@ -16,6 +17,7 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { cronAuthorized } from '@/lib/business/cron-auth.server';
+import { VISITORS_RETENTION_DAYS } from '@/lib/contracts/admin-visitors';
 import { prisma } from '@/lib/db';
 import { CLEANUP_HEARTBEAT } from '@/lib/monitoring/checks.server';
 import { recordHeartbeat } from '@/lib/monitoring/monitor.server';
@@ -50,6 +52,8 @@ const NEXT_RUN_MS = DAY_MS;
  * per non contare due volte basta il giorno corrente; si tengono circa 35 giorni, poi si cancellano.
  */
 const PUBLIC_UPLOAD_PLAY_MAX_AGE_MS = 35 * DAY_MS;
+/** Visite della scheda Visitatori: conservate 90 giorni (vedi src/lib/admin/visitors.server.ts). */
+const SITE_VISIT_MAX_AGE_MS = VISITORS_RETENTION_DAYS * DAY_MS;
 
 export async function GET(request: Request) {
   if (!cronAuthorized(request)) {
@@ -68,6 +72,7 @@ export async function GET(request: Request) {
     communityPlays,
     transcriptions,
     recommendations,
+    siteVisits,
   ] = await Promise.all([
     expireYouTubeCollectionMetadata(new Date(now.getTime() + NEXT_RUN_MS)),
     // createdAt is when YouTube sent the data: rows written with the older 29-day expiry
@@ -110,6 +115,10 @@ export async function GET(request: Request) {
     purgeStaleTranscriptions(now),
     // Consigli personali in cache oltre 2 giorni: mai throw (come le trascrizioni).
     purgeStaleRecommendations(now),
+    // Visite della scheda Visitatori (impronte giornaliere, nessun dato personale) oltre 90 giorni.
+    prisma.siteVisit.deleteMany({
+      where: { createdAt: { lt: new Date(now.getTime() - SITE_VISIT_MAX_AGE_MS) } },
+    }),
     // Classifica «Piace alla community» (conteggi aggregati) letta dai consigli: mai throw.
     refreshRecommendationCommunity(now),
   ]);
@@ -124,6 +133,7 @@ export async function GET(request: Request) {
     monitorRuns: monitorRuns.count,
     communityPlays: communityPlays.count,
     recommendations: recommendations.count,
+    siteVisits: siteVisits.count,
   };
   await recordHeartbeat(
     CLEANUP_HEARTBEAT,
@@ -132,6 +142,7 @@ export async function GET(request: Request) {
       `${removed.aiPlans} piani AI, ${removed.monitorRuns} controlli vecchi, ` +
       `${removed.communityPlays} ascolti della community vecchi, ` +
       `${removed.recommendations} consigli personali vecchi, ` +
+      `${removed.siteVisits} visite oltre ${VISITORS_RETENTION_DAYS} giorni, ` +
       `${transcriptions.count} trascrizioni cifrate non usate`,
   );
   return NextResponse.json(removed, { headers: { 'Cache-Control': 'no-store' } });

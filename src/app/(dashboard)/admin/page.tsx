@@ -3,6 +3,7 @@ import {
   ArrowRight,
   AudioLines,
   AudioWaveform,
+  BarChart3,
   Bot,
   Clapperboard,
   FileCheck2,
@@ -32,6 +33,21 @@ export default function AdminPage() {
           <Button asChild variant="outline" className="mt-1 justify-between">
             <Link href="/admin/iscritti">
               Apri iscritti
+              <ArrowRight aria-hidden="true" className="size-4" />
+            </Link>
+          </Button>
+        </article>
+        <article className="grid content-start gap-3 rounded-xl border border-border bg-card p-6">
+          <BarChart3 aria-hidden="true" className="size-5 text-primary" />
+          <h2 className="font-semibold text-card-foreground">Visitatori</h2>
+          <p className="text-sm leading-6 text-muted-foreground">
+            Quante persone aprono le pagine di Solco oggi, negli ultimi 7 e 30 giorni, le pagine più
+            viste, i Paesi, i siti di provenienza e i dispositivi. Conteggio senza cookie: solo
+            numeri aggregati, nessun indirizzo IP.
+          </p>
+          <Button asChild variant="outline" className="mt-1 justify-between">
+            <Link href="/admin/visitatori">
+              Apri visitatori
               <ArrowRight aria-hidden="true" className="size-4" />
             </Link>
           </Button>

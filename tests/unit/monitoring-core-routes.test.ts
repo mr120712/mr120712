@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   rateLimitDelete: vi.fn(),
   communityPlayDelete: vi.fn(),
   recommendationCacheDelete: vi.fn(),
+  siteVisitDelete: vi.fn(),
   communityAggregate: vi.fn(),
   communityDelete: vi.fn(),
   communityCreate: vi.fn(),
@@ -45,6 +46,7 @@ vi.mock('@/lib/db', () => ({
     monitorRun: { deleteMany: mocks.monitorRunDelete },
     publicUploadPlay: { deleteMany: mocks.communityPlayDelete },
     recommendationCache: { deleteMany: mocks.recommendationCacheDelete },
+    siteVisit: { deleteMany: mocks.siteVisitDelete },
     // Classifica aggregata «Piace alla community», ricalcolata una volta al giorno.
     $queryRaw: mocks.communityAggregate,
     $transaction: mocks.transaction,
@@ -280,6 +282,7 @@ describe('GET /api/cron/cleanup', () => {
     mocks.rateLimitDelete.mockResolvedValue({ count: 9 });
     mocks.communityPlayDelete.mockResolvedValue({ count: 10 });
     mocks.recommendationCacheDelete.mockResolvedValue({ count: 11 });
+    mocks.siteVisitDelete.mockResolvedValue({ count: 12 });
     mocks.communityAggregate.mockResolvedValue([{ qualifiedId: 'audius:c1', listeners: 4 }]);
     mocks.communityDelete.mockResolvedValue({ count: 1 });
     mocks.communityCreate.mockResolvedValue({ count: 1 });
@@ -312,7 +315,14 @@ describe('GET /api/cron/cleanup', () => {
       monitorRuns: 5,
       communityPlays: 10,
       recommendations: 11,
+      siteVisits: 12,
     });
+    // Visite della scheda Visitatori: solo le righe più vecchie di 90 giorni.
+    const visitCutoff = (
+      mocks.siteVisitDelete.mock.calls[0] as [{ where: { createdAt: { lt: Date } } }]
+    )[0].where.createdAt.lt.getTime();
+    expect(Date.now() - visitCutoff).toBeGreaterThanOrEqual(90 * 24 * 60 * 60 * 1000);
+    expect(Date.now() - visitCutoff).toBeLessThan(90 * 24 * 60 * 60 * 1000 + 60_000);
     // Consigli personali in cache: solo le righe più vecchie di 2 giorni.
     const recommendationCutoff = (
       mocks.recommendationCacheDelete.mock.calls[0] as [{ where: { generatedAt: { lt: Date } } }]

@@ -5,6 +5,7 @@ import {
   Activity,
   AudioLines,
   AudioWaveform,
+  BarChart3,
   Bot,
   Clapperboard,
   FileCheck2,
@@ -21,6 +22,7 @@ import { cn } from '@/lib/utils';
 const navItems = [
   { href: '/admin', label: 'Panoramica', icon: LayoutDashboard },
   { href: '/admin/iscritti', label: 'Iscritti', icon: Users },
+  { href: '/admin/visitatori', label: 'Visitatori', icon: BarChart3 },
   { href: '/admin/account', label: 'Gestione account', icon: UserCog },
   { href: '/admin/utenti-vecchi', label: 'Utenti del vecchio sito', icon: History },
   { href: '/admin/assistente', label: 'Assistente IA', icon: Bot },

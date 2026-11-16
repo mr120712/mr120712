@@ -152,10 +152,16 @@ export default function PrivacyPage() {
                 salvata nel database applicativo dal percorso attuale.
               </li>
               <li>
-                <strong>Misurazione delle visite:</strong> se l’ambiente di distribuzione abilita
-                l’analytics Polsia, il browser conserva in local storage un identificativo casuale e
-                lo invia con le visite al servizio Polsia. Il proprietario deve confermare
-                configurazione, finalità e base giuridica in produzione.
+                <strong>Misurazione delle visite:</strong> Solco conta le pagine aperte con un
+                sistema interno, senza cookie e senza identificativi salvati nel browser. Per ogni
+                pagina il server registra il percorso, il Paese stimato dal fornitore di hosting, il
+                tipo di dispositivo, il sito di provenienza (solo il nome del sito) e un’impronta
+                giornaliera ottenuta da indirizzo IP e browser con una chiave che cambia ogni
+                giorno: l’impronta serve a contare i visitatori distinti della giornata, non
+                consente di risalire alla persona né di seguirla da un giorno all’altro, e
+                l’indirizzo IP non viene salvato. I dati si conservano per 90 giorni e sono visibili
+                solo all’amministratore in forma aggregata. Nessun segnale viene inviato se il
+                browser chiede di non essere tracciato (Do Not Track o Global Privacy Control).
               </li>
             </ul>
           </section>
