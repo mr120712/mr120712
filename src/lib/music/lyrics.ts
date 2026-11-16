@@ -8,7 +8,8 @@
 // - LRC sincronizzato: [mm:ss], [mm:ss.x], [mm:ss.xx], [mm:ss.xxx] (anche più tempi sulla stessa
 //   riga, "[00:12.00][00:45.10]Ritornello"), [offset:+/-ms] (positivo = il testo compare PRIMA),
 //   tag di metadati ([ar:], [ti:], [al:], [length:], [by:] …) ignorati, tag parola per parola
-//   "<mm:ss.xx>" (Enhanced LRC) tolti. Righe ordinate per tempo; una riga temporizzata vuota è una
+//   "<mm:ss.xx>" (Enhanced LRC) letti come tempi delle parole (`words`, solo su righe con un tempo
+//   solo e almeno due parole) e tolti dal testo. Righe ordinate per tempo; una riga temporizzata vuota è una
 //   pausa strumentale ("♪"). Con righe miste (con e senza tempo) è sincronizzato solo se la
 //   maggioranza delle righe ha un tempo.
 // - Testo semplice: righe così come sono (le righe vuote fra le strofe restano, una sola).
@@ -18,6 +19,8 @@
 export const LYRICS_MAX_LINES = 1000;
 /** Caratteri massimi di una riga (code point). */
 export const LYRICS_MAX_LINE_CHARS = 500;
+/** Parole con tempo al massimo su una riga (Enhanced LRC). */
+export const LYRICS_MAX_WORDS_PER_LINE = 120;
 /** Testo grezzo letto al massimo (caratteri): oltre si ignora, mai elaborazioni illimitate. */
 export const LYRICS_MAX_INPUT_CHARS = 256 * 1024;
 /** Tempo massimo plausibile di una riga: 24 ore. */
@@ -28,7 +31,14 @@ const MAX_TIMES_PER_LINE = 64;
 export const LYRICS_INSTRUMENTAL = '♪';
 
 export type LyricsKind = 'synced' | 'plain';
-export type LyricsLine = { timeMs: number | null; text: string };
+/** Una parola (o un gruppo di parole fra due tag) con il suo tempo, per il karaoke. */
+export type LyricsWord = { timeMs: number; text: string };
+export type LyricsLine = {
+  timeMs: number | null;
+  text: string;
+  /** Tempi parola per parola (Enhanced LRC), solo nelle righe sincronizzate che li hanno. */
+  words?: LyricsWord[];
+};
 export type ParsedLyrics = { kind: LyricsKind; lines: LyricsLine[] };
 
 function isStrippedCodePoint(cp: number): boolean {
@@ -107,6 +117,8 @@ const TIME_TAG = /^\[(\d{1,5}):(\d{1,2})(?:[.:](\d{1,3}))?\]/;
 const META_TAG = /^\[([A-Za-z#][A-Za-z0-9_ -]{0,31}):([^\]\n]{0,512})\]\s*$/;
 // Tag parola per parola dell'Enhanced LRC: <mm:ss.xx>.
 const WORD_TAG = /<\d{1,5}:\d{1,2}(?:[.:]\d{1,3})?>/g;
+// Lo stesso tag con i gruppi del tempo (stessa forma di TIME_TAG, per tagTimeMs).
+const WORD_TAG_CAPTURE = /<(\d{1,5}):(\d{1,2})(?:[.:](\d{1,3}))?>/g;
 
 function tagTimeMs(match: RegExpExecArray): number | null {
   const minutes = Number(match[1]);
@@ -147,6 +159,49 @@ function cleanText(value: string): string {
   return sanitizeLyricsLine(value.replace(WORD_TAG, ''));
 }
 
+/**
+ * Parole con tempo di una riga Enhanced LRC ("<mm:ss.xx>parola <mm:ss.xx>parola"): il testo prima
+ * del primo tag prende il tempo della riga; i tempi non tornano mai indietro. Tempi GREZZI (senza
+ * offset: lo applica chi chiama, come per la riga). undefined senza tag o con meno di due parole.
+ */
+function extractWords(rest: string, lineTimeMs: number): LyricsWord[] | undefined {
+  if (!rest.includes('<')) return undefined;
+  const pattern = new RegExp(WORD_TAG_CAPTURE.source, 'g');
+  const words: LyricsWord[] = [];
+  let cursor = 0;
+  let timeMs = lineTimeMs;
+  let tagged = false;
+  for (let n = 0; n < LYRICS_MAX_WORDS_PER_LINE * 4; n += 1) {
+    const match = pattern.exec(rest);
+    const end = match ? match.index : rest.length;
+    const text = sanitizeLyricsLine(rest.slice(cursor, end));
+    if (text !== '' && words.length < LYRICS_MAX_WORDS_PER_LINE) words.push({ timeMs, text });
+    if (!match) break;
+    tagged = true;
+    const time = tagTimeMs(match);
+    if (time !== null) timeMs = Math.max(timeMs, time);
+    cursor = match.index + match[0].length;
+  }
+  return tagged && words.length >= 2 ? words : undefined;
+}
+
+function shiftTime(time: number, offsetMs: number): number {
+  return Math.min(MAX_TIME_MS, Math.max(0, time - offsetMs));
+}
+
+/**
+ * Indice della parola attiva a `timeMs` fra le parole di una riga (in ordine): l'ultima con tempo
+ * ≤ ora, -1 prima della prima. Poche parole per riga: ricerca lineare.
+ */
+export function activeLyricsWord(words: readonly LyricsWord[], timeMs: number): number {
+  let found = -1;
+  for (const [index, word] of words.entries()) {
+    if (word.timeMs <= timeMs) found = index;
+    else break;
+  }
+  return found;
+}
+
 /** Righe vuote multiple → una sola; niente righe vuote in testa o in coda. */
 function tidyPlain(lines: string[]): LyricsLine[] {
   const out: LyricsLine[] = [];
@@ -161,8 +216,10 @@ function tidyPlain(lines: string[]): LyricsLine[] {
   return out;
 }
 
+type SyncedEntry = { timeMs: number; text: string; order: number; words?: LyricsWord[] };
+
 /** Righe sincronizzate: ordinate per tempo (stabile), pause strumentali consecutive unite. */
-function tidySynced(entries: { timeMs: number; text: string; order: number }[]): LyricsLine[] {
+function tidySynced(entries: SyncedEntry[]): LyricsLine[] {
   const sorted = [...entries].sort((a, b) => a.timeMs - b.timeMs || a.order - b.order);
   const out: LyricsLine[] = [];
   for (const entry of sorted) {
@@ -171,7 +228,9 @@ function tidySynced(entries: { timeMs: number; text: string; order: number }[]):
     const previous = out[out.length - 1];
     // Due pause di fila (o una pause in testa a 0:00 seguita da un'altra) non aggiungono nulla.
     if (text === LYRICS_INSTRUMENTAL && previous?.text === LYRICS_INSTRUMENTAL) continue;
-    out.push({ timeMs: entry.timeMs, text });
+    const line: LyricsLine = { timeMs: entry.timeMs, text };
+    if (entry.words && text !== LYRICS_INSTRUMENTAL) line.words = entry.words;
+    out.push(line);
   }
   // Una pausa finale dopo l'ultima riga cantata resta (indica la coda strumentale).
   return out.some((line) => line.text !== LYRICS_INSTRUMENTAL) ? out : [];
@@ -192,7 +251,7 @@ export function parseLyrics(text: string | null | undefined): ParsedLyrics | nul
 
 function parseLyricsUnchecked(text: string): ParsedLyrics | null {
   let offsetMs = 0;
-  const timed: { times: number[]; text: string }[] = [];
+  const timed: { times: number[]; text: string; words?: LyricsWord[] }[] = [];
   // Tutte le righe "di contenuto" nell'ordine del file (con o senza tempo), per il testo semplice.
   const plain: string[] = [];
   let timedContent = 0;
@@ -209,7 +268,14 @@ function parseLyricsUnchecked(text: string): ParsedLyrics | null {
     if (times) {
       const content = cleanText(times.rest);
       if (times.times.length > 0) {
-        timed.push({ times: times.times, text: content });
+        // Parole con tempo solo su una riga con UN tempo: con più tempi (ritornello ripetuto) i
+        // tag varrebbero per una sola delle occorrenze.
+        const [first] = times.times;
+        const words =
+          times.times.length === 1 && first !== undefined
+            ? extractWords(times.rest, first)
+            : undefined;
+        timed.push({ times: times.times, text: content, words });
         timedContent += 1;
       }
       plain.push(content);
@@ -222,15 +288,16 @@ function parseLyricsUnchecked(text: string): ParsedLyrics | null {
 
   // Sincronizzato solo se la maggioranza delle righe ha un tempo (le altre si scartano).
   if (timedContent > 0 && timedContent > untimedContent) {
-    const entries: { timeMs: number; text: string; order: number }[] = [];
+    const entries: SyncedEntry[] = [];
     let order = 0;
     for (const row of timed) {
       for (const time of row.times) {
         if (entries.length >= LYRICS_MAX_LINES * 2) break;
         entries.push({
-          timeMs: Math.min(MAX_TIME_MS, Math.max(0, time - offsetMs)),
+          timeMs: shiftTime(time, offsetMs),
           text: row.text,
           order,
+          words: row.words?.map((word) => ({ ...word, timeMs: shiftTime(word.timeMs, offsetMs) })),
         });
         order += 1;
       }

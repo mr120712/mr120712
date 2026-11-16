@@ -4,7 +4,9 @@
 //
 // Testo sincronizzato: la riga corrente segue il tempo dell'audio letto qui (getTime, ogni
 // ~250 ms) e il pannello si aggiorna SOLO quando cambia riga, così il player non si ridisegna a
-// ogni timeupdate. La riga resta al centro (scorrimento istantaneo con "riduci movimento"); se
+// ogni timeupdate. Con i tempi delle parole (Enhanced LRC, `words`) la lettura è ogni ~100 ms e la
+// riga corrente evidenzia la parola che si sta cantando (karaoke), parola per parola. La riga
+// resta al centro (scorrimento istantaneo con "riduci movimento"); se
 // l'ascoltatore scorre a mano, lo scorrimento automatico si ferma per ~3 secondi. Ogni riga è un
 // pulsante che porta l'audio a quel punto. Per i lettori di schermo la riga corrente ha
 // aria-current (nessuna regione live che annuncia ogni riga). Testo semplice: righe leggibili.
@@ -14,12 +16,14 @@ import { Loader2, RotateCcw } from 'lucide-react';
 import { type KeyboardEvent, memo, useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/api-client';
 import { LYRICS_API_PATH, type Lyrics, LyricsResponseSchema } from '@/lib/contracts/lyrics';
-import { activeLyricsLine, LYRICS_INSTRUMENTAL } from '@/lib/music/lyrics';
+import { activeLyricsLine, activeLyricsWord, LYRICS_INSTRUMENTAL } from '@/lib/music/lyrics';
 import styles from './lyrics-panel.module.css';
 import type { LyricsTarget } from './lyrics-target';
 
 /** Ogni quanto si rilegge il tempo dell'audio (solo con testo sincronizzato e pannello aperto). */
 export const LYRICS_POLL_MS = 250;
+/** Con i tempi delle parole la lettura è più fitta: la parola cambia più spesso della riga. */
+export const LYRICS_WORD_POLL_MS = 100;
 /** Dopo uno scorrimento manuale, lo scorrimento automatico riprende dopo questo tempo. */
 export const LYRICS_MANUAL_SCROLL_PAUSE_MS = 3000;
 /** Messaggio quando il brano non ha un testo (o non si ha il diritto di mostrarlo). */
@@ -85,6 +89,8 @@ function LyricsPanelView({ source, id, getTime, onSeek, consumeReveal }: LyricsP
   const [state, setState] = useState<PanelState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [active, setActive] = useState(-1);
+  // Parola corrente della riga corrente (-1 = nessuna, o riga senza tempi delle parole).
+  const [activeWord, setActiveWord] = useState(-1);
   // Riga che riceve Tab (tabindex "itinerante"): null = segue la riga corrente.
   const [focusIndex, setFocusIndex] = useState<number | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -121,6 +127,7 @@ function LyricsPanelView({ source, id, getTime, onSeek, consumeReveal }: LyricsP
     }
     setState({ status: 'loading' });
     setActive(-1);
+    setActiveWord(-1);
     setFocusIndex(null);
     pausedUntilRef.current = 0;
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
@@ -137,20 +144,24 @@ function LyricsPanelView({ source, id, getTime, onSeek, consumeReveal }: LyricsP
   }, [source, id, attempt]);
 
   const synced = state.status === 'ready' && state.lyrics.kind === 'synced' ? state.lyrics : null;
+  const wordTimed = synced?.lines.some((line) => line.words) ?? false;
 
-  // La riga corrente segue il tempo dell'audio: si ridisegna solo quando cambia riga.
+  // La riga corrente segue il tempo dell'audio: si ridisegna solo quando cambia riga (o parola).
   useEffect(() => {
     if (!synced) return;
     const tick = () => {
       const seconds = getTime();
       // Arrotondato: 2010 ms → 2,01 s → 2009,999… ms riporterebbe la riga precedente dopo un tocco.
       const ms = Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds * 1000) : 0;
-      setActive(activeLyricsLine(synced.lines, ms));
+      const line = activeLyricsLine(synced.lines, ms);
+      setActive(line);
+      const words = synced.lines[line]?.words;
+      setActiveWord(words ? activeLyricsWord(words, ms) : -1);
     };
     tick();
-    const timer = setInterval(tick, LYRICS_POLL_MS);
+    const timer = setInterval(tick, wordTimed ? LYRICS_WORD_POLL_MS : LYRICS_POLL_MS);
     return () => clearInterval(timer);
-  }, [synced, getTime]);
+  }, [synced, wordTimed, getTime]);
 
   const centreLine = useCallback((index: number) => {
     const container = scrollRef.current;
@@ -193,7 +204,32 @@ function LyricsPanelView({ source, id, getTime, onSeek, consumeReveal }: LyricsP
     if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
     setFocusIndex(index);
     setActive(index);
+    setActiveWord(-1);
     onSeek(timeMs / 1000);
+  };
+
+  /** La riga: parola per parola (karaoke) se ha i tempi delle parole, altrimenti il testo. */
+  const renderLine = (line: Lyrics['lines'][number], current: boolean) => {
+    if (!line.words) return line.text;
+    return line.words.map((word, index) => (
+      <span
+        // biome-ignore lint/suspicious/noArrayIndexKey: parole statiche, l'ordine non cambia.
+        key={index}
+        className={styles.word}
+        data-state={
+          current
+            ? index < activeWord
+              ? 'sung'
+              : index === activeWord
+                ? 'now'
+                : 'next'
+            : undefined
+        }
+      >
+        {index > 0 ? ' ' : ''}
+        {word.text}
+      </span>
+    ));
   };
 
   const lineCount = synced?.lines.length ?? 0;
@@ -282,7 +318,7 @@ function LyricsPanelView({ source, id, getTime, onSeek, consumeReveal }: LyricsP
                     onClick={() => seekLine(index, line.timeMs)}
                     onFocus={() => setFocusIndex(index)}
                   >
-                    {line.text}
+                    {renderLine(line, current)}
                   </button>
                 </li>
               );

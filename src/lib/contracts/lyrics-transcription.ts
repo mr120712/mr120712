@@ -88,7 +88,16 @@ export const TranscribeResponseSchema = z
     durationSeconds: z.number().nonnegative().nullable(),
     /** Segmenti scartati come allucinazioni (crediti dei sottotitoli, silenzio). */
     droppedSegments: z.number().int().nonnegative(),
-    /** true = trascrizione conservata (cifrata) sul server: nessuna chiamata a OpenAI. */
+    /**
+     * Righe della bozza (1 = la prima) su cui il modello era poco sicuro (probabilità bassa, dubbio
+     * di silenzio o testo ripetitivo): da ascoltare e correggere per prime.
+     */
+    uncertainLines: z
+      .array(z.number().int().positive().max(TRANSCRIPTION_LRC_MAX_LINES))
+      .max(TRANSCRIPTION_LRC_MAX_LINES),
+    /** true = la bozza ha i tempi parola per parola (tag "<mm:ss.xx>", karaoke nel player). */
+    wordTimed: z.boolean(),
+    /** true = trascrizione conservata (cifrata) sul server: nessuna chiamata al motore. */
     fromCache: z.boolean(),
     /**
      * Quando la trascrizione è stata conservata cifrata sul server (ISO). Con fromCache false:
@@ -250,6 +259,9 @@ export function whisperLanguageCode(value: string | null | undefined): string | 
 
 /** Messaggio del 409 quando c'è già un .lrc e la sostituzione non è stata confermata. */
 export const LRC_EXISTS_MESSAGE = 'Esiste già un .lrc: conferma per sostituirlo';
+/** Nota nell'editor quando la bozza ha i tempi delle parole. */
+export const TRANSCRIPTION_WORD_TAG_HINT =
+  'Tempi parola per parola: i tag <mm:ss.xx> davanti alle parole fanno il karaoke nel player. Correggi le parole e lascia i tag.';
 /** Senza la chiave del motore la trascrizione è spenta (stesso testo nella pagina e nel 503). */
 export const TRANSCRIPTION_NOT_CONFIGURED_MESSAGE =
   'Aggiungi GROQ_API_KEY su Vercel per usare Solco AI (trascrizione dei testi)';

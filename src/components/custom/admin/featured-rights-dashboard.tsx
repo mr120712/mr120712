@@ -94,6 +94,7 @@ import {
   TRANSCRIPTION_LANGUAGES,
   TRANSCRIPTION_LRC_MAX_BYTES,
   TRANSCRIPTION_NOT_CONFIGURED_MESSAGE,
+  TRANSCRIPTION_WORD_TAG_HINT,
   type TranscribeResponse,
   TranscribeResponseSchema,
   type TranscriptionLanguage,
@@ -1724,6 +1725,13 @@ function LyricsTranscription({
                   controlla che non manchi una strofa.
                 </li>
               ) : null}
+              {draft.uncertainLines.length > 0 ? (
+                <li>
+                  Righe da controllare: {draft.uncertainLines.join(', ')} (il modello era poco
+                  sicuro: ascolta quei punti e correggi).
+                </li>
+              ) : null}
+              {draft.wordTimed ? <li>{TRANSCRIPTION_WORD_TAG_HINT}</li> : null}
             </ul>
             <LyricsEditor
               key={session.draftVersion}
@@ -1837,7 +1845,7 @@ function LyricsEditor({
         />
         <output aria-live="polite" className={styles.lineCount}>
           {parsed
-            ? `${parsed.lines.length === 1 ? '1 riga letta' : `${formatCount(parsed.lines.length)} righe lette`} dal player (${parsed.kind === 'synced' ? 'sincronizzato' : 'semplice'})`
+            ? `${parsed.lines.length === 1 ? '1 riga letta' : `${formatCount(parsed.lines.length)} righe lette`} dal player (${parsed.kind === 'synced' ? 'sincronizzato' : 'semplice'}${parsed.lines.some((line) => line.words) ? ', parola per parola' : ''})`
             : 'Nessuna riga leggibile: il player non mostrerebbe nulla.'}
         </output>
         {confirmOverwrite ? (

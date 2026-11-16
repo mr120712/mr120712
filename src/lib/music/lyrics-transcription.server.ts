@@ -78,6 +78,7 @@ import {
   isPublicBlobUrl,
   listHomeTrackCatalog,
   lyricsSidecarMatcher,
+  trackNameFromPathname,
 } from '@/lib/music/home-tracks.server';
 import { normalizeLyricsInput, parseLyrics, sanitizeLyricsLine } from '@/lib/music/lyrics';
 import {
@@ -97,6 +98,7 @@ import {
   WHISPER_TIMEOUT_MS,
   type WhisperErrorCode,
   type WhisperSegment,
+  type WhisperWord,
   whisperExtension,
 } from '@/lib/music/whisper.server';
 
@@ -121,9 +123,18 @@ export const NO_SPEECH_PROB_LIMIT = 0.6;
 export const AVG_LOGPROB_LIMIT = -1;
 /**
  * Versione di buildDraftLrc, parte della chiave della cache: va aumentata quando cambia la bozza
- * prodotta (le bozze vecchie non si riusano più e scadono da sole).
+ * prodotta (le bozze vecchie non si riusano più e scadono da sole). 2 = tempi parola per parola e
+ * righe incerte.
  */
-export const DRAFT_BUILDER_VERSION = 1;
+export const DRAFT_BUILDER_VERSION = 2;
+/** Riga "incerta" (da ricontrollare): probabilità media delle parole sotto questa… */
+export const UNCERTAIN_AVG_LOGPROB = -0.6;
+/** …o dubbio di silenzio oltre questa… */
+export const UNCERTAIN_NO_SPEECH_PROB = 0.4;
+/** …o testo troppo ripetitivo (rapporto di compressione oltre questo). */
+export const UNCERTAIN_COMPRESSION_RATIO = 2.4;
+/** Una parola di Whisper appartiene a un segmento se inizia entro questo margine (secondi). */
+const WORD_MARGIN_SECONDS = 0.05;
 /** Giri di attesa al massimo dietro una trascrizione identica in corso, poi si procede. */
 const MAX_IN_FLIGHT_WAITS = 3;
 
@@ -142,13 +153,23 @@ function abortAfter(ms: number): AbortSignal | undefined {
  * diventano minuti: 1 h 2 min 5 s → [62:05.00]). Valori non validi o negativi → [00:00.00].
  */
 export function formatLrcTimestamp(seconds: number): string {
+  return `[${formatLrcTime(seconds)}]`;
+}
+
+/** "mm:ss.xx" senza parentesi (per i tag delle parole "<mm:ss.xx>"). */
+export function formatLrcTime(seconds: number): string {
   const capped = Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds, 24 * 3600) : 0;
   const total = Math.round(capped * 100);
   const minutes = Math.floor(total / 6000);
   const secs = Math.floor((total % 6000) / 100);
   const centiseconds = total % 100;
   const pad = (value: number) => String(value).padStart(2, '0');
-  return `[${pad(minutes)}:${pad(secs)}.${pad(centiseconds)}]`;
+  return `${pad(minutes)}:${pad(secs)}.${pad(centiseconds)}`;
+}
+
+/** True se la bozza ha tag parola per parola ("<mm:ss.xx>"). */
+export function hasWordTags(draft: string): boolean {
+  return /<\d{1,5}:\d{1,2}(?:[.:]\d{1,3})?>/.test(draft);
 }
 
 // Un tempo LRC ("[01:02.03]") o un tag parola per parola ("<01:02.03>") dentro il testo di un
@@ -209,35 +230,114 @@ export function isLikelySilence(segment: Pick<WhisperSegment, 'noSpeechProb' | '
   );
 }
 
-export type DraftLrc = { draft: string; lineCount: number; droppedSegments: number };
+/** Riga su cui il modello era poco sicuro: da ascoltare e correggere per prima. */
+export function isUncertainSegment(
+  segment: Pick<WhisperSegment, 'avgLogprob' | 'noSpeechProb' | 'compressionRatio'>,
+): boolean {
+  return (
+    (segment.avgLogprob !== null && segment.avgLogprob < UNCERTAIN_AVG_LOGPROB) ||
+    (segment.noSpeechProb !== null && segment.noSpeechProb > UNCERTAIN_NO_SPEECH_PROB) ||
+    (segment.compressionRatio !== null && segment.compressionRatio > UNCERTAIN_COMPRESSION_RATIO)
+  );
+}
+
+export type DraftLrc = {
+  draft: string;
+  lineCount: number;
+  droppedSegments: number;
+  /** Righe della bozza (1 = la prima) incerte, in ordine. */
+  uncertainLines: number[];
+  /** true = almeno una riga ha i tempi delle parole. */
+  wordTimed: boolean;
+};
 
 /**
- * Bozza LRC dai segmenti di Whisper: una riga "[mm:ss.xx] testo" per segmento, nell'ordine dato.
- * Scarta (e conta) le allucinazioni note e i silenzi; salta i segmenti vuoti; NON toglie le righe
- * ripetute (i ritornelli). Mai oltre 1000 righe né 64 KB: la bozza si può sempre salvare.
+ * Le parole di Whisper che cadono nel segmento (in ordine, consumate una volta sola): dalla prima
+ * che inizia non prima dell'inizio del segmento fino all'ultima che inizia entro la sua fine.
  */
-export function buildDraftLrc(segments: readonly WhisperSegment[]): DraftLrc {
+function takeSegmentWords(
+  words: readonly WhisperWord[],
+  cursor: { index: number },
+  segment: Pick<WhisperSegment, 'start' | 'end'>,
+): WhisperWord[] {
+  const taken: WhisperWord[] = [];
+  while (cursor.index < words.length) {
+    const word = words[cursor.index];
+    if (!word) break;
+    if (word.start > segment.end + WORD_MARGIN_SECONDS) break;
+    cursor.index += 1;
+    if (word.start < segment.start - WORD_MARGIN_SECONDS) continue;
+    taken.push(word);
+  }
+  return taken;
+}
+
+/** "<mm:ss.xx>parola <mm:ss.xx>parola…" dalle parole di un segmento; '' se non ne resta nessuna. */
+function wordTimedText(words: readonly WhisperWord[]): string {
+  const parts: string[] = [];
+  for (const word of words) {
+    const text = cleanSegmentText(word.text);
+    if (text !== '') parts.push(`<${formatLrcTime(word.start)}>${text}`);
+  }
+  return parts.length >= 2 ? parts.join(' ') : '';
+}
+
+/**
+ * Bozza LRC dai segmenti di Whisper: una riga "[mm:ss.xx] testo" per segmento, nell'ordine dato;
+ * con le parole con tempo (words) la riga diventa Enhanced LRC, "[mm:ss.xx] <mm:ss.xx>parola
+ * <mm:ss.xx>parola…" (karaoke nel player). Scarta (e conta) le allucinazioni note e i silenzi;
+ * salta i segmenti vuoti; NON toglie le righe ripetute (i ritornelli); segna le righe incerte.
+ * Mai oltre 1000 righe né 64 KB: se i tempi delle parole non ci stanno, la bozza torna riga per
+ * riga. La bozza si può sempre salvare.
+ */
+export function buildDraftLrc(
+  segments: readonly WhisperSegment[],
+  words: readonly WhisperWord[] = [],
+): DraftLrc {
   const encoder = new TextEncoder();
   const lines: string[] = [];
+  const uncertainLines: number[] = [];
+  const sortedWords = [...words].sort((a, b) => a.start - b.start);
+  const cursor = { index: 0 };
   let bytes = 0;
   let droppedSegments = 0;
+  let wordTimed = false;
   for (const segment of segments) {
+    const segmentWords = takeSegmentWords(sortedWords, cursor, segment);
     const text = cleanSegmentText(segment.text);
     if (text === '') continue;
     if (isWhisperArtefact(text) || isLikelySilence(segment)) {
       droppedSegments += 1;
       continue;
     }
-    const line = `${formatLrcTimestamp(segment.start)} ${text}`;
+    const timed = wordTimedText(segmentWords);
+    const line = `${formatLrcTimestamp(segment.start)} ${timed || text}`;
     const size = encoder.encode(line).length + 1;
-    if (lines.length >= TRANSCRIPTION_LRC_MAX_LINES || bytes + size > TRANSCRIPTION_LRC_MAX_BYTES) {
+    if (lines.length >= TRANSCRIPTION_LRC_MAX_LINES) break;
+    if (bytes + size > TRANSCRIPTION_LRC_MAX_BYTES) {
+      // Con i tempi delle parole la bozza non ci sta: si rifà riga per riga (sempre più corta).
+      if (words.length > 0) return buildDraftLrc(segments, []);
       break;
     }
     lines.push(line);
     bytes += size;
+    if (timed) wordTimed = true;
+    if (isUncertainSegment(segment)) uncertainLines.push(lines.length);
   }
   const draft = lines.join('\n');
-  return { draft, lineCount: parseLyrics(draft)?.lines.length ?? 0, droppedSegments };
+  return {
+    draft,
+    lineCount: parseLyrics(draft)?.lines.length ?? 0,
+    droppedSegments,
+    uncertainLines,
+    wordTimed,
+  };
+}
+
+/** Suggerimento al modello: artista e titolo dal nome del file (nomi scritti giusti), mai il testo. */
+export function transcriptionPrompt(pathname: string): string {
+  const { title, artist } = trackNameFromPathname(pathname);
+  return artist ? `${artist} - ${title}` : title;
 }
 
 // ─── Validazione del testo da salvare ─────────────────────────────────────────────────────────────
@@ -626,6 +726,8 @@ function cachedOutcome(hit: CachedTranscription): TranscribeOutcome {
       language: hit.language,
       durationSeconds: hit.durationSeconds,
       droppedSegments: hit.droppedSegments,
+      uncertainLines: hit.uncertainLines,
+      wordTimed: hasWordTags(hit.draft),
       fromCache: true,
       cachedAt: hit.cachedAt.toISOString(),
     },
@@ -830,6 +932,9 @@ async function transcribeNow({
     language,
     apiKey: provider.apiKey,
     target: provider,
+    // Artista e titolo dal nome del file: nomi scritti giusti; tempi delle parole per il karaoke.
+    prompt: transcriptionPrompt(track.pathname),
+    wordTimestamps: true,
     timeoutMs: Math.min(WHISPER_TIMEOUT_MS, remaining),
     signal,
   });
@@ -846,7 +951,7 @@ async function transcribeNow({
     };
   }
 
-  const draft = buildDraftLrc(whisper.transcript.segments);
+  const draft = buildDraftLrc(whisper.transcript.segments, whisper.transcript.words);
   const duration = whisper.transcript.durationSeconds;
   const fields = {
     draft: draft.draft,
@@ -854,6 +959,8 @@ async function transcribeNow({
     language: whisper.transcript.language,
     durationSeconds: duration === null ? null : Math.round(duration * 10) / 10,
     droppedSegments: draft.droppedSegments,
+    uncertainLines: draft.uncertainLines,
+    wordTimed: draft.wordTimed,
   };
   // Pagata: si conserva cifrata (anche se l'admin ha annullato nel frattempo), così la prossima
   // richiesta per questa versione del file non costa nulla. Se non riesce, la bozza arriva lo stesso.

@@ -163,6 +163,7 @@ const ENTRY = {
   language: 'italian',
   durationSeconds: 184.4,
   droppedSegments: 1,
+  uncertainLines: [2],
   model: 'whisper-1',
 };
 
@@ -380,6 +381,7 @@ describe('scrittura e lettura nel database', () => {
       language: 'italian',
       durationSeconds: 184.4,
       droppedSegments: 1,
+      uncertainLines: [2],
       cachedAt: storedAt,
     });
     // L'ultimo uso si aggiorna (per la pulizia dei 180 giorni).

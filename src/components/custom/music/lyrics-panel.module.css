@@ -106,6 +106,16 @@
   background: color-mix(in srgb, var(--foreground) 6%, transparent);
 }
 
+/* Karaoke: nella riga corrente le parole già cantate sono piene, quella in corso accesa, le altre
+   attenuate. Nelle altre righe le parole seguono il colore della riga. */
+.line[data-state="current"] .word[data-state="next"] {
+  color: color-mix(in srgb, var(--foreground) 45%, transparent);
+}
+
+.line[data-state="current"] .word[data-state="now"] {
+  color: var(--primary);
+}
+
 .plain {
   display: grid;
   gap: 4px;
@@ -183,6 +193,10 @@
     transition:
       color 220ms ease,
       background-color 160ms ease;
+  }
+
+  .word {
+    transition: color 120ms linear;
   }
 
   .spin {

@@ -189,6 +189,8 @@ describe('bozza LRC', () => {
       draft: '',
       lineCount: 0,
       droppedSegments: 1,
+      uncertainLines: [],
+      wordTimed: false,
     });
   });
 });
@@ -355,6 +357,7 @@ describe('client Whisper', () => {
       text: 'Ciao',
       language: 'italian',
       durationSeconds: 12.5,
+      words: [],
       segments: [
         {
           start: 0.5,

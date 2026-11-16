@@ -24,6 +24,7 @@
 // resta possibile, ma è rara (pagina riservata agli admin, limiti per admin).
 import 'server-only';
 import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes } from 'node:crypto';
+import { z } from 'zod';
 import {
   TRANSCRIPTION_CACHE_RETENTION_DAYS,
   TranscribeResponseSchema,
@@ -222,7 +223,41 @@ const CachedFieldsSchema = TranscribeResponseSchema.pick({
   language: true,
   durationSeconds: true,
   droppedSegments: true,
+  uncertainLines: true,
 });
+
+/**
+ * Il testo cifrato di una voce: la bozza più le righe incerte, in una busta JSON con versione. Una
+ * voce vecchia (solo la bozza) si legge comunque (nessuna riga incerta).
+ */
+const PLAINTEXT_VERSION = 2;
+const PlaintextEnvelopeSchema = z.object({
+  v: z.literal(PLAINTEXT_VERSION),
+  draft: z.string(),
+  uncertainLines: z.array(z.number().int().positive()).optional(),
+});
+
+function sealedPlaintext(entry: Pick<TranscriptionToCache, 'draft' | 'uncertainLines'>): string {
+  return JSON.stringify({
+    v: PLAINTEXT_VERSION,
+    draft: entry.draft,
+    uncertainLines: entry.uncertainLines ?? [],
+  });
+}
+
+function openedFields(plaintext: string): { draft: string; uncertainLines: number[] } {
+  if (plaintext.startsWith(`{"v":${PLAINTEXT_VERSION},`)) {
+    try {
+      const parsed = PlaintextEnvelopeSchema.safeParse(JSON.parse(plaintext));
+      if (parsed.success) {
+        return { draft: parsed.data.draft, uncertainLines: parsed.data.uncertainLines ?? [] };
+      }
+    } catch {
+      // Non è una busta: è una bozza che inizia così.
+    }
+  }
+  return { draft: plaintext, uncertainLines: [] };
+}
 
 export type CachedTranscription = {
   draft: string;
@@ -230,6 +265,8 @@ export type CachedTranscription = {
   language: string | null;
   durationSeconds: number | null;
   droppedSegments: number;
+  /** Righe della bozza incerte (1 = la prima). */
+  uncertainLines: number[];
   /** Quando è stata fatta la trascrizione. */
   cachedAt: Date;
 };
@@ -295,7 +332,7 @@ export async function readCachedTranscription(
       return null;
     }
     const fields = CachedFieldsSchema.safeParse({
-      draft: opened.plaintext,
+      ...openedFields(opened.plaintext),
       lineCount: row.lineCount,
       language: row.language,
       durationSeconds: row.durationSeconds,
@@ -325,6 +362,8 @@ export type TranscriptionToCache = {
   language: string | null;
   durationSeconds: number | null;
   droppedSegments: number;
+  /** Righe della bozza incerte (1 = la prima): conservate cifrate con la bozza. */
+  uncertainLines: number[];
   model: string;
 };
 
@@ -361,7 +400,7 @@ export async function storeCachedTranscription(
       createdAt: now,
     };
     const sealed = sealTranscript(
-      entry.draft,
+      sealedPlaintext(entry),
       cacheEntryAssociatedData(keyHash, meta),
       keys.aesKey,
     );

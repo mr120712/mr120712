@@ -69,7 +69,20 @@ describe('parseLyrics: LRC sincronizzato', () => {
         '[00:01.00]<00:01.00>Ciao <00:01.50>mondo',
       ].join('\n'),
     );
-    expect(parsed).toEqual({ kind: 'synced', lines: [{ timeMs: 1000, text: 'Ciao mondo' }] });
+    // I tag delle parole non restano nel testo: diventano i tempi delle parole (karaoke).
+    expect(parsed).toEqual({
+      kind: 'synced',
+      lines: [
+        {
+          timeMs: 1000,
+          text: 'Ciao mondo',
+          words: [
+            { timeMs: 1000, text: 'Ciao' },
+            { timeMs: 1500, text: 'mondo' },
+          ],
+        },
+      ],
+    });
   });
 
   it('le righe temporizzate vuote sono pause strumentali (♪), unite se consecutive', () => {

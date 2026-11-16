@@ -338,6 +338,8 @@ describe('seconda richiesta: dalla cache', () => {
       language: 'italian',
       durationSeconds: 184.4,
       droppedSegments: 0,
+      uncertainLines: [],
+      wordTimed: false,
       fromCache: true,
       cachedAt: first.body.cachedAt,
     });

@@ -3,7 +3,12 @@
 // "testo": true in diritti.json, upload degli utenti con il testo confermato dall'autore, file del
 // dispositivo dell'ascoltatore (letti nel browser, mai inviati). Mai fonti di terzi.
 import { z } from 'zod';
-import { LYRICS_MAX_LINE_CHARS, LYRICS_MAX_LINES, sanitizeLyricsLine } from '@/lib/music/lyrics';
+import {
+  LYRICS_MAX_LINE_CHARS,
+  LYRICS_MAX_LINES,
+  LYRICS_MAX_WORDS_PER_LINE,
+  sanitizeLyricsLine,
+} from '@/lib/music/lyrics';
 
 /** Percorso della route dei testi (GET ?featured=<pathname> oppure ?upload=<id>). */
 export const LYRICS_API_PATH = '/api/music/lyrics';
@@ -23,10 +28,19 @@ export function featuredLyricsCredit(holder: string): string | null {
   return clean === '' ? null : `Testo: ${clean}`;
 }
 
+/** Una parola con il suo tempo (karaoke): dai tag "<mm:ss.xx>" dell'Enhanced LRC. */
+export const LyricsWordSchema = z.object({
+  timeMs: z.number().int().nonnegative().max(86_400_000),
+  text: z.string().min(1).max(LYRICS_MAX_LINE_CHARS),
+});
+export type LyricsWordDto = z.infer<typeof LyricsWordSchema>;
+
 export const LyricsLineSchema = z.object({
   /** Millisecondi dall'inizio del brano; null nel testo semplice. */
   timeMs: z.number().int().nonnegative().max(86_400_000).nullable(),
   text: z.string().max(LYRICS_MAX_LINE_CHARS * 2),
+  /** Parole con tempo (almeno due), solo nelle righe sincronizzate che le hanno. */
+  words: z.array(LyricsWordSchema).min(2).max(LYRICS_MAX_WORDS_PER_LINE).optional(),
 });
 export type LyricsLineDto = z.infer<typeof LyricsLineSchema>;
 

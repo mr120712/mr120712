@@ -117,6 +117,8 @@ const DRAFT: TranscribeResponse = {
   language: 'italian',
   durationSeconds: 184.4,
   droppedSegments: 2,
+  uncertainLines: [2],
+  wordTimed: false,
   fromCache: false,
   cachedAt: '2026-11-14T14:31:00.000Z',
 };
@@ -360,6 +362,8 @@ describe('trascrizione IA: richiesta', () => {
     expect(editor?.textContent).toContain('3 righe lette dal player (sincronizzato)');
     expect(editor?.textContent).toContain('Lingua riconosciuta: italiano');
     expect(editor?.textContent).toContain('2 segmenti scartati');
+    expect(editor?.textContent).toContain('Righe da controllare: 2');
+    expect(editor?.textContent).not.toContain('Tempi parola per parola');
     expect(mocks.success).toHaveBeenCalledWith('Bozza pronta: 3 righe.');
   });
 

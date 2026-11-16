@@ -507,6 +507,8 @@ describe('bozza: limiti e chiamata a OpenAI', () => {
       language: 'italian',
       durationSeconds: 184.4,
       droppedSegments: 2,
+      uncertainLines: [],
+      wordTimed: false,
       fromCache: false,
       cachedAt: null,
     });
@@ -530,7 +532,9 @@ describe('bozza: limiti e chiamata a OpenAI', () => {
     const form = init.body as FormData;
     expect(form.get('model')).toBe('whisper-large-v3');
     expect(form.get('response_format')).toBe('verbose_json');
-    expect(form.getAll('timestamp_granularities[]')).toEqual(['segment']);
+    // Segmenti e parole (karaoke); artista e titolo dal nome del file come suggerimento.
+    expect(form.getAll('timestamp_granularities[]')).toEqual(['segment', 'word']);
+    expect(form.get('prompt')).toBe('Autrice - Canzone');
     expect(form.get('language')).toBe('en');
     const file = form.get('file') as File;
     expect(file.name).toBe('audio.mp3');

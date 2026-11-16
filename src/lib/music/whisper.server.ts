@@ -42,6 +42,10 @@ export const WHISPER_TIMEOUT_MS = 100_000;
 const RESPONSE_MAX_BYTES = 8 * 1024 * 1024;
 /** Segmenti letti al massimo. */
 const MAX_SEGMENTS = 5000;
+/** Parole con tempo lette al massimo (un brano di 25 MB ne ha qualche migliaio). */
+const MAX_WORDS = 20_000;
+/** Suggerimento al modello (titolo e artista) al massimo così lungo. */
+const MAX_PROMPT_CHARS = 400;
 
 const MIME_TYPES: Record<WhisperExtension, string> = {
   flac: 'audio/flac',
@@ -76,12 +80,17 @@ export type WhisperSegment = {
   compressionRatio: number | null;
 };
 
+/** Una parola con inizio e fine in secondi (timestamp_granularities[] word). */
+export type WhisperWord = { start: number; end: number; text: string };
+
 export type WhisperTranscript = {
   text: string;
   /** Lingua riconosciuta (Whisper la dà per nome, es. "italian"), o null. */
   language: string | null;
   durationSeconds: number | null;
   segments: WhisperSegment[];
+  /** Parole con tempo, se chieste (wordTimestamps) e restituite; altrimenti vuoto. */
+  words: WhisperWord[];
 };
 
 export type WhisperErrorCode =
@@ -183,12 +192,21 @@ const SegmentSchema = z
   })
   .passthrough();
 
+const WordSchema = z
+  .object({
+    word: z.string().max(200),
+    start: finiteNumber.nonnegative(),
+    end: finiteNumber.nonnegative(),
+  })
+  .passthrough();
+
 const ResponseSchema = z
   .object({
     text: z.string().optional(),
     language: z.string().optional(),
     duration: finiteNumber.nonnegative().optional(),
     segments: z.array(z.unknown()).optional(),
+    words: z.array(z.unknown()).optional(),
   })
   .passthrough();
 
@@ -215,11 +233,20 @@ export function parseWhisperResponse(raw: unknown): WhisperTranscript | null {
       compressionRatio: segment.data.compression_ratio ?? null,
     });
   }
+  const words: WhisperWord[] = [];
+  for (const item of (parsed.data.words ?? []).slice(0, MAX_WORDS)) {
+    const word = WordSchema.safeParse(item);
+    if (!word.success) continue;
+    const text = word.data.word.trim();
+    if (text === '') continue;
+    words.push({ start: word.data.start, end: word.data.end, text });
+  }
   return {
     text: parsed.data.text ?? '',
     language: cleanLanguage(parsed.data.language),
     durationSeconds: parsed.data.duration ?? null,
     segments,
+    words,
   };
 }
 
@@ -281,6 +308,10 @@ export type WhisperRequest = {
   apiKey: string;
   /** Servizio, endpoint e modello; predefinito: OpenAI whisper-1 (compatibilità). */
   target?: TranscriptionTarget;
+  /** Suggerimento al modello (titolo e artista: nomi scritti giusti). Mai il testo del brano. */
+  prompt?: string;
+  /** true = chiede anche i tempi delle singole parole (timestamp_granularities[] word). */
+  wordTimestamps?: boolean;
   timeoutMs?: number;
   /** Interruzione dal chiamante (es. la richiesta dell'admin annullata). */
   signal?: AbortSignal;
@@ -303,6 +334,8 @@ async function postToWhisper({
   language,
   apiKey,
   target = OPENAI_TARGET,
+  prompt,
+  wordTimestamps = false,
   timeoutMs = WHISPER_TIMEOUT_MS,
   signal,
   fetcher = fetch,
@@ -322,8 +355,11 @@ async function postToWhisper({
   form.append('model', target.model);
   form.append('response_format', 'verbose_json');
   form.append('timestamp_granularities[]', 'segment');
+  if (wordTimestamps) form.append('timestamp_granularities[]', 'word');
   form.append('temperature', '0');
   if (language) form.append('language', language);
+  const hint = prompt?.replace(/\s+/g, ' ').trim().slice(0, MAX_PROMPT_CHARS);
+  if (hint) form.append('prompt', hint);
 
   // Già annullata (l'admin ha premuto «Annulla»): la richiesta non parte nemmeno.
   if (signal?.aborted) return { ...failure('no_response', target), notSent: true };
