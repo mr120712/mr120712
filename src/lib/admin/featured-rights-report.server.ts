@@ -15,8 +15,9 @@
 // Per ogni brano DICHIARATO dice anche se la COPIA OFFLINE («Scarica offline») è consentita e
 // perché (licenza, "offline": true/false, licenza "licenza" senza "offline": true, doppione):
 // stesse regole del parser e della rotta di download.
-// Per la trascrizione IA (Whisper) dice solo SE si può usare (`transcriptionAvailable`: chiave
-// OpenAI e store presenti) e, per i SOLI brani dichiarati con "testo": true, se formato e
+// Per la trascrizione con Solco AI dice solo SE si può usare (`transcriptionAvailable`: chiave del
+// motore presente), quale motore è attivo senza segreti (`transcriptionEngine`) e, per i SOLI
+// brani dichiarati con "testo": true, se formato e
 // dimensione sono accettati (`transcription`); gli altri brani non hanno il campo. Il permesso
 // vero lo ricontrolla la route della trascrizione a ogni richiesta.
 import 'server-only';
@@ -54,7 +55,11 @@ import {
   lyricsSidecarMatcher,
   sectionTitleFromDirectory,
 } from '@/lib/music/home-tracks.server';
-import { isWhisperConfigured, whisperExtension } from '@/lib/music/whisper.server';
+import {
+  activeTranscriptionEngine,
+  isTranscriptionConfigured,
+} from '@/lib/music/transcription-provider.server';
+import { whisperExtension } from '@/lib/music/whisper.server';
 
 /** Un elenco completo dello store resta valido ~1 minuto; uno parziale ~15 secondi. */
 const LISTING_TTL_MS = 60_000;
@@ -432,6 +437,7 @@ export async function buildFeaturedRightsReport(
     },
     tracks: rows,
     tracksTruncated: catalog.tracks.length > rows.length,
-    transcriptionAvailable: isWhisperConfigured(),
+    transcriptionAvailable: isTranscriptionConfigured(),
+    transcriptionEngine: activeTranscriptionEngine(),
   };
 }

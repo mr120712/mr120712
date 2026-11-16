@@ -216,7 +216,7 @@ function expectPrivate(response: Response) {
 
 beforeEach(() => {
   vi.resetAllMocks();
-  vi.stubEnv('OPENAI_API_KEY', KEY);
+  vi.stubEnv('GROQ_API_KEY', KEY);
   // Cache cifrata spenta qui (vedi lyrics-transcription-cache.test.ts): comportamento di sempre.
   vi.stubEnv('BETTER_AUTH_SECRET', '');
   errors = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -408,14 +408,14 @@ describe('bozza: permesso ricontrollato adesso', () => {
     expect(mocks.consume).not.toHaveBeenCalled();
   });
 
-  it('chiave OpenAI mancante → 503 col messaggio per Vercel, senza leggere lo store', async () => {
-    vi.stubEnv('OPENAI_API_KEY', '');
+  it('chiave del motore mancante → 503 col messaggio per Vercel, senza leggere lo store', async () => {
+    vi.stubEnv('GROQ_API_KEY', '');
     const response = await transcribe(post(TRANSCRIBE, { pathname: SONG }));
     expect(response.status).toBe(503);
     expectPrivate(response);
     expect(await response.json()).toEqual({
       error: 'transcription_not_configured',
-      message: 'Aggiungi OPENAI_API_KEY su Vercel per usare la trascrizione',
+      message: 'Aggiungi GROQ_API_KEY su Vercel per usare Solco AI (trascrizione dei testi)',
     });
     expect(mocks.list).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
@@ -525,10 +525,10 @@ describe('bozza: limiti e chiamata a OpenAI', () => {
     );
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('https://api.openai.com/v1/audio/transcriptions');
+    expect(url).toBe('https://api.groq.com/openai/v1/audio/transcriptions');
     expect(new Headers(init.headers).get('authorization')).toBe(`Bearer ${KEY}`);
     const form = init.body as FormData;
-    expect(form.get('model')).toBe('whisper-1');
+    expect(form.get('model')).toBe('whisper-large-v3');
     expect(form.get('response_format')).toBe('verbose_json');
     expect(form.getAll('timestamp_granularities[]')).toEqual(['segment']);
     expect(form.get('language')).toBe('en');
@@ -589,12 +589,12 @@ describe('bozza: limiti e chiamata a OpenAI', () => {
       [
         async () => Response.json({ error: { message: UPSTREAM_DETAIL } }, { status: 401 }),
         502,
-        'chiave OpenAI non valida',
+        'chiave Groq non valida',
       ],
       [
         async () => Response.json({ error: { message: UPSTREAM_DETAIL } }, { status: 429 }),
         429,
-        'limite OpenAI raggiunto, riprova più tardi',
+        'limite Groq raggiunto, riprova più tardi',
       ],
       [
         async () => Response.json({ error: { message: UPSTREAM_DETAIL } }, { status: 413 }),
@@ -604,9 +604,9 @@ describe('bozza: limiti e chiamata a OpenAI', () => {
       [
         async () => Response.json({ error: { message: UPSTREAM_DETAIL } }, { status: 500 }),
         502,
-        'OpenAI ha un problema',
+        'Groq ha un problema',
       ],
-      [async () => Promise.reject(new TypeError(UPSTREAM_DETAIL)), 502, 'OpenAI non risponde'],
+      [async () => Promise.reject(new TypeError(UPSTREAM_DETAIL)), 502, 'Groq non risponde'],
     ];
     for (const [respond, status, text] of cases) {
       fetchMock.mockImplementationOnce(respond);
@@ -666,7 +666,7 @@ describe('bozza: limiti e chiamata a OpenAI', () => {
     const response = await transcribe(post(TRANSCRIBE, { pathname: SONG }));
     expect(response.status).toBe(502);
     const raw = await response.text();
-    expect(JSON.parse(raw).message).toContain('OpenAI non risponde');
+    expect(JSON.parse(raw).message).toContain('Groq non risponde');
     expect(raw).not.toContain('getaddrinfo');
     expect(mocks.release).toHaveBeenCalledWith('lyrics.transcribe', 'user:admin-1');
     expect(mocks.release).toHaveBeenCalledWith('lyrics.transcribe.global', 'global');
@@ -919,7 +919,7 @@ describe('diagnosi admin: campi della trascrizione', () => {
     });
 
     clearFeaturedRightsReportCacheForTests();
-    vi.stubEnv('OPENAI_API_KEY', '');
+    vi.stubEnv('GROQ_API_KEY', '');
     const off = AdminFeaturedRightsSchema.parse(await (await getReport(reportRequest())).json());
     expect(off.transcriptionAvailable).toBe(false);
   });

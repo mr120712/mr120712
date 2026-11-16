@@ -1,10 +1,10 @@
 // @polsia:user-owned — pagina /admin/diritti-testi, trascrizione IA: il pulsante «Trascrivi con
 // l'IA» compare SOLO sui brani dichiarati con "testo": true (mai sugli altri); spento con il
-// motivo senza OPENAI_API_KEY o con un formato non accettato; lingua scelta inviata; avanzamento
+// motivo senza GROQ_API_KEY o con un formato non accettato; lingua scelta inviata; avanzamento
 // con aria-busy e «Annulla» che interrompe la richiesta; errori in linea + avviso; editor con la
 // bozza, righe lette e segmenti scartati; «Salva come .lrc», conferma prima di sostituire un .lrc
 // esistente (anche dopo un 409 del server), «Annulla» e «Riapri la bozza». Cache cifrata: badge
-// «Dalla cache» / «Nuova trascrizione», «Rigenera con l'IA» con la domanda sui crediti (ricontrolla
+// «Dalla cache» / «Nuova trascrizione», «Rigenera con Solco AI» con la domanda sui crediti (ricontrolla
 // le correzioni alla conferma), e con una bozza modificata la domanda dice se si ricarica la bozza
 // conservata (stessa lingua) o se si chiede una trascrizione nuova.
 import { act } from 'react';
@@ -270,11 +270,11 @@ describe('trascrizione IA: dove compare', () => {
   it('SOLO sui brani con "testo": true; mai sui non dichiarati o senza testo', async () => {
     const container = await mount();
     const eligible = article(container, 'Autrice — Canzone');
-    expect(eligible.textContent).toContain("Trascrizione con l'IA");
-    const start = button(eligible, "Trascrivi con l'IA");
+    expect(eligible.textContent).toContain('Trascrizione con Solco AI');
+    const start = button(eligible, 'Trascrivi con Solco AI');
     expect(start.disabled).toBe(false);
     expect(eligible.textContent).toContain(
-      "L'audio viene inviato a OpenAI solo per la trascrizione.",
+      "L'audio viene inviato a Solco AI solo per la trascrizione.",
     );
     expect(eligible.querySelector('select')?.value).toBe('');
 
@@ -286,16 +286,16 @@ describe('trascrizione IA: dove compare', () => {
     }
   });
 
-  it('senza OPENAI_API_KEY: pulsante spento con il motivo, nessuna richiesta', async () => {
+  it('senza GROQ_API_KEY: pulsante spento con il motivo, nessuna richiesta', async () => {
     handlers[REPORT] = respondWith(report({ transcriptionAvailable: undefined }));
     const container = await mount();
     const eligible = article(container, 'Autrice — Canzone');
-    const start = button(eligible, "Trascrivi con l'IA");
+    const start = button(eligible, 'Trascrivi con Solco AI');
     expect(start.disabled).toBe(true);
     const reasonId = start.getAttribute('aria-describedby');
     expect(reasonId).toBeTruthy();
     expect(document.getElementById(reasonId ?? '')?.textContent).toBe(
-      'Aggiungi OPENAI_API_KEY su Vercel per usare la trascrizione',
+      'Aggiungi GROQ_API_KEY su Vercel per usare Solco AI (trascrizione dei testi)',
     );
     await click(start);
     expect(callsTo(TRANSCRIBE)).toHaveLength(0);
@@ -304,7 +304,7 @@ describe('trascrizione IA: dove compare', () => {
   it('formato non accettato da Whisper: pulsante spento con il motivo', async () => {
     const container = await mount();
     const opus = article(container, 'Autrice — Sussurro');
-    const start = button(opus, "Trascrivi con l'IA");
+    const start = button(opus, 'Trascrivi con Solco AI');
     expect(start.disabled).toBe(true);
     expect(opus.textContent).toContain('Formato .opus non supportato dalla trascrizione');
     expect(opus.querySelector('select')).toBeNull();
@@ -328,7 +328,7 @@ describe('trascrizione IA: richiesta', () => {
       'Português',
     ]);
     await choose(select, 'it');
-    await click(button(eligible, "Trascrivi con l'IA"));
+    await click(button(eligible, 'Trascrivi con Solco AI'));
 
     const [path, init] = callsTo(TRANSCRIBE)[0] as [string, FetchInit];
     expect(path).toBe(TRANSCRIBE);
@@ -345,7 +345,7 @@ describe('trascrizione IA: richiesta', () => {
     expect(eligible.textContent).toContain(
       'Trascrizione in corso… può richiedere fino a un minuto',
     );
-    expect(maybeButton(eligible, "Trascrivi con l'IA")).toBeUndefined();
+    expect(maybeButton(eligible, 'Trascrivi con Solco AI')).toBeUndefined();
 
     await act(async () => request.resolve(DRAFT));
     await flush();
@@ -367,7 +367,7 @@ describe('trascrizione IA: richiesta', () => {
     const request = pending();
     handlers[TRANSCRIBE] = request.handler;
     const container = await mount();
-    await click(button(article(container, 'Autrice — Canzone'), "Trascrivi con l'IA"));
+    await click(button(article(container, 'Autrice — Canzone'), 'Trascrivi con Solco AI'));
     expect(requestBody(request.calls[0])).toEqual({ pathname: 'Cantautori/Autrice - Canzone.mp3' });
   });
 
@@ -376,24 +376,24 @@ describe('trascrizione IA: richiesta', () => {
     handlers[TRANSCRIBE] = request.handler;
     const container = await mount();
     const eligible = article(container, 'Autrice — Canzone');
-    await click(button(eligible, "Trascrivi con l'IA"));
+    await click(button(eligible, 'Trascrivi con Solco AI'));
     await click(button(eligible, 'Annulla'));
     expect(request.calls[0]?.signal?.aborted).toBe(true);
     expect(mocks.toast).toHaveBeenCalledWith('Trascrizione annullata.');
     expect(mocks.error).not.toHaveBeenCalled();
     expect(eligible.querySelector('section')?.getAttribute('aria-busy')).toBe('false');
-    expect(button(eligible, "Trascrivi con l'IA").disabled).toBe(false);
+    expect(button(eligible, 'Trascrivi con Solco AI').disabled).toBe(false);
     expect(dialog()).toBeNull();
   });
 
   it('errore: messaggio del server in linea e nell’avviso', async () => {
     const message = 'Trascrizione non riuscita: limite OpenAI raggiunto, riprova più tardi.';
     handlers[TRANSCRIBE] = async () => {
-      throw apiError(TRANSCRIBE, 429, { error: 'openai_rate_limited', message });
+      throw apiError(TRANSCRIBE, 429, { error: 'transcription_rate_limited', message });
     };
     const container = await mount();
     const eligible = article(container, 'Autrice — Canzone');
-    await click(button(eligible, "Trascrivi con l'IA"));
+    await click(button(eligible, 'Trascrivi con Solco AI'));
     expect(eligible.querySelector('[role="alert"]')?.textContent).toBe(message);
     expect(mocks.error).toHaveBeenCalledWith(message);
     expect(dialog()).toBeNull();
@@ -405,7 +405,7 @@ describe('trascrizione IA: editor e salvataggio', () => {
     handlers[TRANSCRIBE] = respondWith(DRAFT);
     const container = await mount();
     const card = article(container, title);
-    await click(button(card, "Trascrivi con l'IA"));
+    await click(button(card, 'Trascrivi con Solco AI'));
     const editor = dialog();
     if (!editor) throw new Error('Editor non aperto.');
     return { container, card, editor };
@@ -530,7 +530,7 @@ describe('trascrizione IA: stato che sopravvive a filtri e ricerca', () => {
     const request = pending();
     handlers[TRANSCRIBE] = request.handler;
     const container = await mount();
-    await click(button(article(container, 'Autrice — Canzone'), "Trascrivi con l'IA"));
+    await click(button(article(container, 'Autrice — Canzone'), 'Trascrivi con Solco AI'));
     await search(container, 'Ballata');
     expect(hasArticle(container, 'Autrice — Canzone')).toBe(false);
     expect(request.calls[0]?.signal?.aborted).toBe(false);
@@ -555,7 +555,7 @@ describe('trascrizione IA: stato che sopravvive a filtri e ricerca', () => {
     const request = pending();
     handlers[TRANSCRIBE] = request.handler;
     const container = await mount();
-    await click(button(article(container, 'Autrice — Canzone'), "Trascrivi con l'IA"));
+    await click(button(article(container, 'Autrice — Canzone'), 'Trascrivi con Solco AI'));
     await search(container, 'Ballata');
     await search(container, '');
     const card = article(container, 'Autrice — Canzone');
@@ -568,7 +568,7 @@ describe('trascrizione IA: stato che sopravvive a filtri e ricerca', () => {
   it('le correzioni nell’editor sopravvivono a un filtro', async () => {
     handlers[TRANSCRIBE] = respondWith(DRAFT);
     const container = await mount();
-    await click(button(article(container, 'Autrice — Canzone'), "Trascrivi con l'IA"));
+    await click(button(article(container, 'Autrice — Canzone'), 'Trascrivi con Solco AI'));
     await typeInto(dialog()?.querySelector('textarea') as HTMLTextAreaElement, '[00:01.00] Mia');
     await click(button(dialog() as HTMLElement, 'Annulla'));
     await click(button(container, 'Testo trovato'));
@@ -582,7 +582,7 @@ describe('trascrizione IA: stato che sopravvive a filtri e ricerca', () => {
     const request = pending();
     handlers[TRANSCRIBE] = request.handler;
     const container = await mount();
-    await click(button(article(container, 'Autrice — Canzone'), "Trascrivi con l'IA"));
+    await click(button(article(container, 'Autrice — Canzone'), 'Trascrivi con Solco AI'));
     for (const { root } of roots.splice(0)) await act(async () => root.unmount());
     container.remove();
     await flush();
@@ -603,7 +603,7 @@ describe('trascrizione IA: nuova trascrizione con una bozza già presente', () =
     handlers[TRANSCRIBE] = async (init) => init.schema?.parse(queue.shift() ?? first);
     const container = await mount();
     const card = article(container, 'Autrice — Canzone');
-    await click(button(card, "Trascrivi con l'IA"));
+    await click(button(card, 'Trascrivi con Solco AI'));
     await typeInto(
       dialog()?.querySelector('textarea') as HTMLTextAreaElement,
       '[00:01.00] Correzione manuale',
@@ -615,7 +615,7 @@ describe('trascrizione IA: nuova trascrizione con una bozza già presente', () =
 
   it('bozza modificata: chiede prima di sostituirla; «Tieni la bozza» non chiama OpenAI', async () => {
     const { card } = await withEditedDraft();
-    await click(button(card, "Trascrivi con l'IA"));
+    await click(button(card, 'Trascrivi con Solco AI'));
     expect(callsTo(TRANSCRIBE)).toHaveLength(1);
     expect(card.textContent).toContain(
       'Hai una bozza modificata: ricaricare la bozza conservata sul server?',
@@ -624,7 +624,7 @@ describe('trascrizione IA: nuova trascrizione con una bozza già presente', () =
     expect(document.activeElement).toBe(keep);
     await click(keep);
     expect(card.textContent).not.toContain('Hai una bozza modificata');
-    expect(document.activeElement).toBe(button(card, "Trascrivi con l'IA"));
+    expect(document.activeElement).toBe(button(card, 'Trascrivi con Solco AI'));
     expect(callsTo(TRANSCRIBE)).toHaveLength(1);
     await click(button(card, 'Riapri la bozza'));
     expect(dialog()?.querySelector('textarea')?.value).toBe('[00:01.00] Correzione manuale');
@@ -632,9 +632,9 @@ describe('trascrizione IA: nuova trascrizione con una bozza già presente', () =
 
   it('stessa lingua di una bozza conservata: la domanda dice che si ricarica QUELLA bozza, non una nuova', async () => {
     const { card } = await withEditedDraft();
-    await click(button(card, "Trascrivi con l'IA"));
+    await click(button(card, 'Trascrivi con Solco AI'));
     expect(card.textContent).toContain(
-      'Hai una bozza modificata: ricaricare la bozza conservata sul server? Le tue correzioni andrebbero perse. Per una trascrizione nuova usa «Rigenera con l’IA».',
+      'Hai una bozza modificata: ricaricare la bozza conservata sul server? Le tue correzioni andrebbero perse. Per una trascrizione nuova usa «Rigenera con Solco AI».',
     );
     expect(card.textContent).not.toContain('sostituirla con una nuova trascrizione');
     expect(maybeButton(card, 'Sì, trascrivi di nuovo')).toBeUndefined();
@@ -649,12 +649,12 @@ describe('trascrizione IA: nuova trascrizione con una bozza già presente', () =
     expect(editor.textContent).toContain('Dalla cache · nessun credito usato');
   });
 
-  it('dalla domanda, «Rigenera con l’IA» chiede dei crediti e poi rifà la trascrizione (regenerate)', async () => {
+  it('dalla domanda, «Rigenera con Solco AI» chiede dei crediti e poi rifà la trascrizione (regenerate)', async () => {
     const { card } = await withEditedDraft(DRAFT, [SECOND]);
-    await click(button(card, "Trascrivi con l'IA"));
-    await click(button(card, "Rigenera con l'IA"));
+    await click(button(card, 'Trascrivi con Solco AI'));
+    await click(button(card, 'Rigenera con Solco AI'));
     expect(card.textContent).toContain(
-      'Usa di nuovo i crediti OpenAI per questo brano? Le correzioni fatte nell’editor andrebbero perse.',
+      'Usa di nuovo Solco AI per questo brano? Le correzioni fatte nell’editor andrebbero perse.',
     );
     expect(callsTo(TRANSCRIBE)).toHaveLength(1);
     await click(button(card, 'Sì, rigenera'));
@@ -668,11 +668,11 @@ describe('trascrizione IA: nuova trascrizione con una bozza già presente', () =
   it('lingua diversa: «Sì, trascrivi di nuovo» chiede la trascrizione in quella lingua', async () => {
     const { card } = await withEditedDraft(DRAFT, [SECOND]);
     await choose(card.querySelector('select') as HTMLSelectElement, 'en');
-    await click(button(card, "Trascrivi con l'IA"));
+    await click(button(card, 'Trascrivi con Solco AI'));
     expect(card.textContent).toContain(
       'Hai una bozza modificata: sostituirla con una nuova trascrizione?',
     );
-    expect(maybeButton(card, "Rigenera con l'IA")).toBeUndefined();
+    expect(maybeButton(card, 'Rigenera con Solco AI')).toBeUndefined();
     await click(button(card, 'Sì, trascrivi di nuovo'));
     expect(requestBody(callsTo(TRANSCRIBE)[1]?.[1] as FetchInit)).toEqual({
       pathname: 'Cantautori/Autrice - Canzone.mp3',
@@ -683,7 +683,7 @@ describe('trascrizione IA: nuova trascrizione con una bozza già presente', () =
 
   it('bozza non confermata sul server (cachedAt null): si chiede una nuova trascrizione', async () => {
     const { card } = await withEditedDraft({ ...DRAFT, cachedAt: null }, [SECOND]);
-    await click(button(card, "Trascrivi con l'IA"));
+    await click(button(card, 'Trascrivi con Solco AI'));
     expect(card.textContent).toContain(
       'Hai una bozza modificata: sostituirla con una nuova trascrizione?',
     );
@@ -696,9 +696,9 @@ describe('trascrizione IA: nuova trascrizione con una bozza già presente', () =
     handlers[TRANSCRIBE] = respondWith(DRAFT);
     const container = await mount();
     const card = article(container, 'Autrice — Canzone');
-    await click(button(card, "Trascrivi con l'IA"));
+    await click(button(card, 'Trascrivi con Solco AI'));
     await click(button(dialog() as HTMLElement, 'Annulla'));
-    await click(button(card, "Trascrivi con l'IA"));
+    await click(button(card, 'Trascrivi con Solco AI'));
     expect(card.textContent).not.toContain('Hai una bozza modificata');
     expect(callsTo(TRANSCRIBE)).toHaveLength(2);
   });
@@ -710,7 +710,7 @@ describe('trascrizione IA: fuoco, lingua riconosciuta, file troppo grandi', () =
     handlers[SAVE] = respondWith({ saved: true, visibleWithinMinutes: 5 });
     const container = await mount();
     const card = article(container, 'Autrice — Canzone');
-    await click(button(card, "Trascrivi con l'IA"));
+    await click(button(card, 'Trascrivi con Solco AI'));
     await click(button(dialog() as HTMLElement, 'Annulla'));
     await settleFocus();
     expect(document.activeElement).toBe(button(card, 'Riapri la bozza'));
@@ -719,19 +719,19 @@ describe('trascrizione IA: fuoco, lingua riconosciuta, file troppo grandi', () =
     await submit(button(dialog() as HTMLElement, 'Salva come .lrc'));
     await settleFocus();
     expect(dialog()).toBeNull();
-    expect(document.activeElement).toBe(button(card, "Trascrivi con l'IA"));
+    expect(document.activeElement).toBe(button(card, 'Trascrivi con Solco AI'));
   });
 
   it('lingua riconosciuta in italiano anche fuori dal menu; sconosciuta → nessuna riga', async () => {
     handlers[TRANSCRIBE] = respondWith({ ...DRAFT, language: 'japanese' });
     const container = await mount();
-    await click(button(article(container, 'Autrice — Canzone'), "Trascrivi con l'IA"));
+    await click(button(article(container, 'Autrice — Canzone'), 'Trascrivi con Solco AI'));
     expect(dialog()?.textContent).toContain('Lingua riconosciuta: giapponese');
     expect(dialog()?.textContent).not.toContain('japanese');
     await click(button(dialog() as HTMLElement, 'Annulla'));
 
     handlers[TRANSCRIBE] = respondWith({ ...DRAFT, language: 'klingon' });
-    await click(button(article(container, 'Autrice — Ballata'), "Trascrivi con l'IA"));
+    await click(button(article(container, 'Autrice — Ballata'), 'Trascrivi con Solco AI'));
     expect(dialog()?.textContent).toContain('Testo di Autrice — Ballata');
     expect(dialog()?.textContent).not.toContain('Lingua riconosciuta');
     expect(dialog()?.textContent).not.toContain('klingon');
@@ -748,7 +748,7 @@ describe('trascrizione IA: fuoco, lingua riconosciuta, file troppo grandi', () =
     );
     const container = await mount();
     const card = article(container, 'Autrice — Lunga');
-    const start = button(card, "Trascrivi con l'IA");
+    const start = button(card, 'Trascrivi con Solco AI');
     expect(start.disabled).toBe(true);
     expect(document.getElementById(start.getAttribute('aria-describedby') ?? '')?.textContent).toBe(
       'File oltre 25 MB: la trascrizione non è disponibile.',
@@ -771,11 +771,11 @@ describe('trascrizione IA: cache cifrata sul server', () => {
     handlers[TRANSCRIBE] = respondWith(DRAFT);
     const container = await mount();
     const card = article(container, 'Autrice — Canzone');
-    await click(button(card, "Trascrivi con l'IA"));
+    await click(button(card, 'Trascrivi con Solco AI'));
     const editor = dialog() as HTMLElement;
     expect(editor.textContent).toContain('Nuova trascrizione · salvata in modo cifrato');
     expect(editor.textContent).not.toContain('Dalla cache');
-    expect(maybeButton(editor, "Rigenera con l'IA")).toBeUndefined();
+    expect(maybeButton(editor, 'Rigenera con Solco AI')).toBeUndefined();
     await click(button(editor, 'Annulla'));
     expect(card.textContent).toContain('Nuova trascrizione · salvata in modo cifrato');
   });
@@ -783,11 +783,11 @@ describe('trascrizione IA: cache cifrata sul server', () => {
   it('bozza nuova senza conferma del salvataggio (cachedAt null): "non confermato", senza promettere né escludere la cache', async () => {
     handlers[TRANSCRIBE] = respondWith({ ...DRAFT, cachedAt: null });
     const container = await mount();
-    await click(button(article(container, 'Autrice — Canzone'), "Trascrivi con l'IA"));
+    await click(button(article(container, 'Autrice — Canzone'), 'Trascrivi con Solco AI'));
     const editor = dialog() as HTMLElement;
     expect(editor.textContent).toContain('Nuova trascrizione · salvataggio cifrato non confermato');
     expect(editor.textContent).toContain(
-      'Il server non ha confermato di averla conservata cifrata: una nuova richiesta potrebbe usare di nuovo i crediti OpenAI.',
+      'Il server non ha confermato di averla conservata cifrata: una nuova richiesta potrebbe chiamare di nuovo Solco AI.',
     );
     expect(editor.textContent).not.toContain('salvata in modo cifrato');
     expect(editor.textContent).not.toContain('non salvata sul server');
@@ -796,30 +796,30 @@ describe('trascrizione IA: cache cifrata sul server', () => {
   it('bozza dalla cache: badge, data della trascrizione e avviso senza crediti', async () => {
     handlers[TRANSCRIBE] = respondWith(CACHED);
     const container = await mount();
-    await click(button(article(container, 'Autrice — Canzone'), "Trascrivi con l'IA"));
+    await click(button(article(container, 'Autrice — Canzone'), 'Trascrivi con Solco AI'));
     const editor = dialog() as HTMLElement;
     expect(editor.textContent).toContain('Dalla cache · nessun credito usato');
     // 09:05 UTC = 10:05 a Roma (ora solare).
     expect(editor.textContent).toContain('Trascritta il 12 novembre 2026 alle 10:05');
     expect(editor.querySelector('time')?.getAttribute('dateTime')).toBe(CACHED.cachedAt);
     expect(editor.querySelector('textarea')?.value).toBe(DRAFT.draft);
-    expect(button(editor, "Rigenera con l'IA")).toBeTruthy();
+    expect(button(editor, 'Rigenera con Solco AI')).toBeTruthy();
     expect(mocks.success).toHaveBeenCalledWith('Bozza dalla cache: 3 righe, nessun credito usato.');
   });
 
-  it('«Rigenera con l’IA»: chiede dei crediti; «No» non chiama OpenAI e torna al pulsante', async () => {
+  it('«Rigenera con Solco AI»: chiede dei crediti; «No» non chiama OpenAI e torna al pulsante', async () => {
     handlers[TRANSCRIBE] = respondWith(CACHED);
     const container = await mount();
-    await click(button(article(container, 'Autrice — Canzone'), "Trascrivi con l'IA"));
+    await click(button(article(container, 'Autrice — Canzone'), 'Trascrivi con Solco AI'));
     const editor = dialog() as HTMLElement;
-    await click(button(editor, "Rigenera con l'IA"));
-    expect(editor.textContent).toContain('Usa di nuovo i crediti OpenAI per questo brano?');
+    await click(button(editor, 'Rigenera con Solco AI'));
+    expect(editor.textContent).toContain('Usa di nuovo Solco AI per questo brano?');
     expect(editor.textContent).not.toContain('andrebbero perse');
     const keep = button(editor, 'No, tieni questa');
     expect(document.activeElement).toBe(keep);
     await click(keep);
-    expect(editor.textContent).not.toContain('Usa di nuovo i crediti OpenAI');
-    expect(document.activeElement).toBe(button(editor, "Rigenera con l'IA"));
+    expect(editor.textContent).not.toContain('Usa di nuovo Solco AI');
+    expect(document.activeElement).toBe(button(editor, 'Rigenera con Solco AI'));
     expect(callsTo(TRANSCRIBE)).toHaveLength(1);
   });
 
@@ -834,12 +834,12 @@ describe('trascrizione IA: cache cifrata sul server', () => {
     const container = await mount();
     const card = article(container, 'Autrice — Canzone');
     await choose(card.querySelector('select') as HTMLSelectElement, 'it');
-    await click(button(card, "Trascrivi con l'IA"));
+    await click(button(card, 'Trascrivi con Solco AI'));
     // La lingua del menu cambia dopo la bozza: la rigenerazione rifà QUELLA trascrizione.
     await click(button(dialog() as HTMLElement, 'Annulla'));
     await choose(card.querySelector('select') as HTMLSelectElement, 'en');
     await click(button(card, 'Riapri la bozza'));
-    await click(button(dialog() as HTMLElement, "Rigenera con l'IA"));
+    await click(button(dialog() as HTMLElement, 'Rigenera con Solco AI'));
     await click(button(dialog() as HTMLElement, 'Sì, rigenera'));
     await settleFocus();
 
@@ -862,19 +862,19 @@ describe('trascrizione IA: cache cifrata sul server', () => {
     const editor = dialog() as HTMLElement;
     expect(editor.querySelector('textarea')?.value).toBe(FRESH.draft);
     expect(editor.textContent).toContain('Nuova trascrizione · salvata in modo cifrato');
-    expect(maybeButton(editor, "Rigenera con l'IA")).toBeUndefined();
+    expect(maybeButton(editor, 'Rigenera con Solco AI')).toBeUndefined();
     expect(mocks.success).toHaveBeenLastCalledWith('Bozza pronta: 1 riga.');
   });
 
   it('con correzioni nell’editor la domanda avvisa che andrebbero perse', async () => {
     handlers[TRANSCRIBE] = respondWith(CACHED);
     const container = await mount();
-    await click(button(article(container, 'Autrice — Canzone'), "Trascrivi con l'IA"));
+    await click(button(article(container, 'Autrice — Canzone'), 'Trascrivi con Solco AI'));
     const editor = dialog() as HTMLElement;
     await typeInto(editor.querySelector('textarea') as HTMLTextAreaElement, '[00:01.00] Mia');
-    await click(button(editor, "Rigenera con l'IA"));
+    await click(button(editor, 'Rigenera con Solco AI'));
     expect(editor.textContent).toContain(
-      'Usa di nuovo i crediti OpenAI per questo brano? Le correzioni fatte nell’editor andrebbero perse.',
+      'Usa di nuovo Solco AI per questo brano? Le correzioni fatte nell’editor andrebbero perse.',
     );
   });
 
@@ -887,9 +887,9 @@ describe('trascrizione IA: cache cifrata sul server', () => {
       return regenerated.handler(init);
     };
     const container = await mount();
-    await click(button(article(container, 'Autrice — Canzone'), "Trascrivi con l'IA"));
+    await click(button(article(container, 'Autrice — Canzone'), 'Trascrivi con Solco AI'));
     const editor = dialog() as HTMLElement;
-    await click(button(editor, "Rigenera con l'IA"));
+    await click(button(editor, 'Rigenera con Solco AI'));
     expect(editor.textContent).not.toContain('andrebbero perse');
     const textarea = editor.querySelector('textarea') as HTMLTextAreaElement;
     await typeInto(textarea, '[00:01.00] Mia correzione');
@@ -897,7 +897,7 @@ describe('trascrizione IA: cache cifrata sul server', () => {
     // Nessuna richiesta: la domanda ora avvisa delle correzioni e il fuoco va sulla scelta sicura.
     expect(callsTo(TRANSCRIBE)).toHaveLength(1);
     expect(editor.textContent).toContain(
-      'Usa di nuovo i crediti OpenAI per questo brano? Le correzioni fatte nell’editor andrebbero perse.',
+      'Usa di nuovo Solco AI per questo brano? Le correzioni fatte nell’editor andrebbero perse.',
     );
     expect(document.activeElement).toBe(button(editor, 'No, tieni questa'));
     expect(textarea.value).toBe('[00:01.00] Mia correzione');
@@ -914,7 +914,7 @@ describe('trascrizione IA: cache cifrata sul server', () => {
     const container = await mount();
     const card = article(container, 'Autrice — Canzone');
     expect(card.textContent).not.toContain('Dalla cache');
-    await click(button(card, "Trascrivi con l'IA"));
+    await click(button(card, 'Trascrivi con Solco AI'));
     await click(button(dialog() as HTMLElement, 'Annulla'));
     expect(card.textContent).toContain('Dalla cache · nessun credito usato');
     expect(card.textContent).toContain('Trascritta il 12 novembre 2026 alle 10:05');
@@ -924,7 +924,7 @@ describe('trascrizione IA: cache cifrata sul server', () => {
     const request = pending();
     handlers[TRANSCRIBE] = request.handler;
     const container = await mount();
-    await click(button(article(container, 'Autrice — Canzone'), "Trascrivi con l'IA"));
+    await click(button(article(container, 'Autrice — Canzone'), 'Trascrivi con Solco AI'));
     await search(container, 'Ballata');
     await act(async () => request.resolve(CACHED));
     await flush();

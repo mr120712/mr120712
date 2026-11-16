@@ -6,18 +6,20 @@
 // È una DIAGNOSI: la risposta non contiene MAI il testo dei brani e non ci sono scorciatoie per
 // dichiarare brani in blocco: solo "Copia percorso" del singolo file.
 //
-// Trascrizione IA (Whisper): SOLO nelle schede dei brani dichiarati con "testo": true (campo
-// `transcription` della risposta; gli altri brani non hanno né pulsante né altro). "Trascrivi con
-// l'IA" chiede una bozza LRC a /api/admin/featured-rights/transcribe (si può annullare), la mostra
+// Trascrizione con Solco AI (motore Whisper a pesi aperti, vedi transcription-provider.server.ts):
+// SOLO nelle schede dei brani dichiarati con "testo": true (campo `transcription` della risposta;
+// gli altri brani non hanno né pulsante né altro). "Trascrivi con Solco AI" chiede una bozza LRC a
+// /api/admin/featured-rights/transcribe (si può annullare), la mostra
 // in un editor da rivedere e "Salva come .lrc" la scrive accanto al brano (sostituendo un .lrc
 // esistente solo dopo la conferma). La bozza resta in questa pagina, per questo amministratore:
 // lo stato di ogni brano (richiesta in corso, bozza, modifiche) vive sopra l'elenco, così filtri e
 // ricerca non lo perdono; una bozza modificata non si sostituisce senza chiedere.
 // Il server conserva ogni trascrizione CIFRATA e la riusa: una bozza dalla cache mostra «Dalla
-// cache · nessun credito usato» con la data della trascrizione e «Rigenera con l'IA» (dopo la
-// conferma sui crediti OpenAI chiede regenerate: true); una nuova mostra «Nuova trascrizione ·
-// salvata in modo cifrato». «Verifica chiave OpenAI» (in testa alla pagina) prova la chiave del
-// server con un secondo di silenzio e riferisce con un avviso, senza toccare i brani.
+// cache · nessun credito usato» con la data della trascrizione e «Rigenera con Solco AI» (dopo la
+// conferma chiede regenerate: true); una nuova mostra «Nuova trascrizione · salvata in modo
+// cifrato». «Verifica Solco AI» (in testa alla pagina) prova il motore del server con un secondo
+// di silenzio e riferisce con un avviso, senza toccare i brani; la scheda dice a quale motore va
+// l'audio (`transcriptionEngine` della diagnosi).
 'use client';
 
 import {
@@ -47,7 +49,7 @@ import { useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { ZodError } from 'zod';
 import { FeaturedCatalogRefreshButton } from '@/components/custom/admin/featured-catalog-refresh-button';
-import { OpenAiKeyCheckButton } from '@/components/custom/admin/openai-key-check-button';
+import { TranscriptionAiCheckButton } from '@/components/custom/admin/transcription-ai-check-button';
 import { AppSurface } from '@/components/custom/app-ui/app-shell';
 import { EmptyState } from '@/components/custom/app-ui/empty-state';
 import { ListToolbar } from '@/components/custom/app-ui/list-toolbar';
@@ -88,6 +90,7 @@ import {
 } from '@/lib/contracts/admin-featured-rights';
 import {
   SaveLyricsResponseSchema,
+  SOLCO_AI_NAME,
   TRANSCRIPTION_LANGUAGES,
   TRANSCRIPTION_LRC_MAX_BYTES,
   TRANSCRIPTION_NOT_CONFIGURED_MESSAGE,
@@ -268,7 +271,7 @@ export function FeaturedRightsDashboard() {
       <AppSurface className="bg-transparent">
         <PageHeader
           title="Diritti e testi"
-          description="Perché un brano in evidenza è (o non è) ricercabile e se il suo testo è disponibile nel player. La diagnosi non mostra mai il testo dei brani; solo per quelli dichiarati con “testo”: true puoi trascriverlo con l'IA e salvarlo come .lrc."
+          description="Perché un brano in evidenza è (o non è) ricercabile e se il suo testo è disponibile nel player. La diagnosi non mostra mai il testo dei brani; solo per quelli dichiarati con “testo”: true puoi trascriverlo con Solco AI e salvarlo come .lrc."
           actions={
             <>
               <Button
@@ -288,9 +291,9 @@ export function FeaturedRightsDashboard() {
                   una lettura nuova, anche se ce n'è una in corso: quella partì prima dello
                   svuotamento e la sua risposta viene scartata. */}
               <FeaturedCatalogRefreshButton onRefreshed={reloadAfterRefresh} />
-              {/* Prova OPENAI_API_KEY del server con un secondo di silenzio (nessun brano): dice se
-                  la trascrizione con l'IA può funzionare, o perché no (chiave, crediti, OpenAI). */}
-              <OpenAiKeyCheckButton />
+              {/* Prova il motore di trascrizione del server (Solco AI) con un secondo di silenzio
+                  (nessun brano): dice se funziona, o perché no (chiave, crediti, servizio). */}
+              <TranscriptionAiCheckButton />
             </>
           }
         />
@@ -839,6 +842,7 @@ function TracksPanel({ data }: { data: AdminFeaturedRights }) {
                   track={track}
                   manifestStatus={data.manifest.status}
                   transcriptionAvailable={data.transcriptionAvailable === true}
+                  transcriptionEngine={data.transcriptionEngine ?? SOLCO_AI_NAME}
                 />
               ))}
             </ul>
@@ -1147,8 +1151,8 @@ function DraftOrigin({ draft }: { draft: TranscribeResponse }) {
 }
 
 /**
- * «Rigenera con l'IA» per una bozza conservata sul server: prima chiede se usare di nuovo i crediti
- * OpenAI (e avvisa se le correzioni nell'editor andrebbero perse), poi `onConfirm`. Le correzioni
+ * «Rigenera con Solco AI» per una bozza conservata sul server: prima chiede se usare di nuovo
+ * Solco AI (e avvisa se le correzioni nell'editor andrebbero perse), poi `onConfirm`. Le correzioni
  * si ricontrollano alla conferma: se sono comparse mentre la domanda era aperta, prima si avvisa.
  */
 function RegenerateDraft({
@@ -1184,7 +1188,7 @@ function RegenerateDraft({
           onClick={() => setAsking({ edited: isEdited() })}
         >
           <RotateCw aria-hidden="true" />
-          Rigenera con l'IA
+          Rigenera con {SOLCO_AI_NAME}
         </Button>
       </div>
     );
@@ -1194,7 +1198,7 @@ function RegenerateDraft({
       <TriangleAlert aria-hidden="true" />
       <div className={styles.replaceBody}>
         <p id={questionId}>
-          Usa di nuovo i crediti OpenAI per questo brano?
+          Usa di nuovo {SOLCO_AI_NAME} per questo brano?
           {asking.edited ? ' Le correzioni fatte nell’editor andrebbero perse.' : ''}
         </p>
         <div className={styles.replaceActions}>
@@ -1312,7 +1316,7 @@ const IDLE_SESSION: TranscriptionSession = {
 /**
  * Stato della trascrizione di OGNI brano, tenuto sopra l'elenco: filtri, ricerca e «Aggiorna»
  * smontano le schede, ma la richiesta in corso, la bozza e le modifiche nell'editor restano (la
- * chiamata a OpenAI è a pagamento). Solo l'uscita dalla pagina interrompe le richieste.
+ * chiamata al motore è a pagamento). Solo l'uscita dalla pagina interrompe le richieste.
  */
 class TranscriptionSessions {
   private readonly sessions = new Map<string, TranscriptionSession>();
@@ -1473,11 +1477,14 @@ function LyricsTranscription({
   transcription,
   name,
   available,
+  engine,
 }: {
   track: FeaturedRightsTrack;
   transcription: FeaturedRightsTranscription;
   name: string;
   available: boolean;
+  /** Motore attivo senza segreti, es. «Solco AI (Groq · whisper-large-v3)». */
+  engine: string;
 }) {
   const pathname = track.pathname;
   const { sessions, session } = useTranscriptionSession(pathname);
@@ -1552,7 +1559,7 @@ function LyricsTranscription({
     <section className={styles.transcribe} aria-labelledby={headingId} aria-busy={running}>
       <h4 id={headingId} className={styles.transcribeTitle}>
         <Sparkles aria-hidden="true" />
-        Trascrizione con l'IA
+        Trascrizione con {SOLCO_AI_NAME}
       </h4>
       {running ? (
         <div className={styles.progress}>
@@ -1597,7 +1604,7 @@ function LyricsTranscription({
             aria-describedby={blockedReason ? reasonId : undefined}
           >
             <Sparkles aria-hidden="true" />
-            Trascrivi con l'IA
+            Trascrivi con {SOLCO_AI_NAME}
           </Button>
           {draft && !session.editorOpen ? (
             <Button
@@ -1623,7 +1630,7 @@ function LyricsTranscription({
           <div className={styles.replaceBody}>
             <p id={replaceId}>
               {reloadsStoredDraft
-                ? 'Hai una bozza modificata: ricaricare la bozza conservata sul server? Le tue correzioni andrebbero perse. Per una trascrizione nuova usa «Rigenera con l’IA».'
+                ? 'Hai una bozza modificata: ricaricare la bozza conservata sul server? Le tue correzioni andrebbero perse. Per una trascrizione nuova usa «Rigenera con Solco AI».'
                 : 'Hai una bozza modificata: sostituirla con una nuova trascrizione? Le tue correzioni andrebbero perse.'}
             </p>
             <div className={styles.replaceActions}>
@@ -1661,7 +1668,7 @@ function LyricsTranscription({
           {blockedReason}
         </p>
       ) : (
-        <p className={styles.muted}>L'audio viene inviato a OpenAI solo per la trascrizione.</p>
+        <p className={styles.muted}>L'audio viene inviato a {engine} solo per la trascrizione.</p>
       )}
       {session.phase === 'error' && session.errorMessage ? (
         <p role="alert" className={styles.inlineError}>
@@ -1700,7 +1707,7 @@ function LyricsTranscription({
             {!draft.fromCache && !draft.cachedAt ? (
               <p className={styles.muted}>
                 Il server non ha confermato di averla conservata cifrata: una nuova richiesta
-                potrebbe usare di nuovo i crediti OpenAI.
+                potrebbe chiamare di nuovo {SOLCO_AI_NAME}.
               </p>
             ) : null}
             <ul className={styles.editorMeta} aria-label="Dettagli della trascrizione">
@@ -1868,10 +1875,12 @@ function TrackItem({
   track,
   manifestStatus,
   transcriptionAvailable,
+  transcriptionEngine,
 }: {
   track: FeaturedRightsTrack;
   manifestStatus: FeaturedRightsManifestStatus;
   transcriptionAvailable: boolean;
+  transcriptionEngine: string;
 }) {
   const titleId = useId();
   const name = track.artist ? `${track.artist} — ${track.title}` : track.title;
@@ -1963,6 +1972,7 @@ function TrackItem({
               transcription={track.transcription}
               name={name}
               available={transcriptionAvailable}
+              engine={transcriptionEngine}
             />
           ) : null}
         </div>

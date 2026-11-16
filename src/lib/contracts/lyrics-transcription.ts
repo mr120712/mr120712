@@ -8,6 +8,9 @@
 // Route e pagina importano gli stessi schemi.
 import { z } from 'zod';
 
+/** Il nome del motore di trascrizione di Solco, come lo vede l'amministratore. */
+export const SOLCO_AI_NAME = 'Solco AI';
+
 /** Formati audio che Whisper accetta (dall'estensione del file). Gli altri si rifiutano. */
 export const WHISPER_EXTENSIONS = [
   'flac',
@@ -23,7 +26,7 @@ export const WHISPER_EXTENSIONS = [
 ] as const;
 export type WhisperExtension = (typeof WHISPER_EXTENSIONS)[number];
 
-/** Dimensione massima del file audio da trascrivere (limite di OpenAI: 25 MB). */
+/** Dimensione massima del file audio da trascrivere (limite dei servizi Whisper: 25 MB). */
 export const TRANSCRIPTION_MAX_AUDIO_BYTES = 25 * 1000 * 1000;
 /** Dimensione massima del .lrc salvato (come i file di testo letti dal player). */
 export const TRANSCRIPTION_LRC_MAX_BYTES = 64 * 1024;
@@ -247,28 +250,31 @@ export function whisperLanguageCode(value: string | null | undefined): string | 
 
 /** Messaggio del 409 quando c'è già un .lrc e la sostituzione non è stata confermata. */
 export const LRC_EXISTS_MESSAGE = 'Esiste già un .lrc: conferma per sostituirlo';
-/** Senza chiave OpenAI la trascrizione è spenta (stesso testo nella pagina e nel 503). */
+/** Senza la chiave del motore la trascrizione è spenta (stesso testo nella pagina e nel 503). */
 export const TRANSCRIPTION_NOT_CONFIGURED_MESSAGE =
-  'Aggiungi OPENAI_API_KEY su Vercel per usare la trascrizione';
+  'Aggiungi GROQ_API_KEY su Vercel per usare Solco AI (trascrizione dei testi)';
 
 /**
- * POST /api/admin/featured-rights/transcribe/check («Verifica chiave OpenAI»): la chiave del server
- * provata con la stessa richiesta della trascrizione su un secondo di silenzio generato sul server.
+ * POST /api/admin/featured-rights/transcribe/check («Verifica Solco AI»): il motore di trascrizione
+ * provato con la stessa richiesta della trascrizione su un secondo di silenzio generato sul server.
  * Un errore ha la forma delle altre route ({ error, message }): transcription_not_configured (503)
- * se la chiave manca su Vercel; openai_invalid_key (502), openai_no_credit (402: crediti finiti o
- * fatturazione non attiva), openai_rate_limited (429), openai_unavailable e openai_no_response
- * (502) se OpenAI rifiuta o non risponde. Il messaggio è sempre italiano, mai la chiave.
+ * se la chiave manca su Vercel; transcription_invalid_key (502), transcription_no_credit (402:
+ * crediti finiti o fatturazione non attiva), transcription_rate_limited (429),
+ * transcription_unavailable e transcription_no_response (502) se il servizio rifiuta o non
+ * risponde. Il messaggio è sempre italiano, mai la chiave.
  */
 export const TranscriptionCheckResponseSchema = z
   .object({
     ok: z.literal(true),
-    model: z.literal('whisper-1'),
-    /** Millisecondi impiegati da OpenAI per rispondere. */
+    /** Modello che ha risposto, es. "whisper-large-v3". */
+    model: z.string().min(1).max(60),
+    /** Motore senza segreti, es. «Solco AI (Groq · whisper-large-v3)». */
+    engine: z.string().min(1).max(80),
+    /** Millisecondi impiegati dal servizio per rispondere. */
     elapsedMs: z.number().int().nonnegative(),
     checkedAt: z.string().datetime(),
   })
   .strict();
 export type TranscriptionCheckResponse = z.infer<typeof TranscriptionCheckResponseSchema>;
-/** Avviso di «Verifica chiave OpenAI» quando la prova riesce. */
-export const TRANSCRIPTION_CHECK_SUCCESS =
-  'Chiave OpenAI valida: la trascrizione con l’IA funziona';
+/** Avviso di «Verifica Solco AI» quando la prova riesce. */
+export const TRANSCRIPTION_CHECK_SUCCESS = 'Solco AI funziona: trascrizione dei testi pronta';

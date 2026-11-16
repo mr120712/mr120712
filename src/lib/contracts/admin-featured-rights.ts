@@ -190,10 +190,12 @@ export const AdminFeaturedRightsSchema = z
     /** true = lo store ha più brani di quanti ne mostra la risposta. */
     tracksTruncated: z.boolean(),
     /**
-     * true = la trascrizione IA dei testi si può usare (OPENAI_API_KEY e store configurati).
+     * true = la trascrizione dei testi con Solco AI si può usare (chiave del motore configurata).
      * Assente = false.
      */
     transcriptionAvailable: z.boolean().optional(),
+    /** Motore attivo senza segreti, es. «Solco AI (Groq · whisper-large-v3)». Assente se spento. */
+    transcriptionEngine: z.string().max(80).optional(),
   })
   .strict();
 

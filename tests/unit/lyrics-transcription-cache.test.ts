@@ -234,7 +234,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   clearTranscriptionCacheForTests();
   clearFeaturedSearchCacheForTests();
-  vi.stubEnv('OPENAI_API_KEY', KEY);
+  vi.stubEnv('GROQ_API_KEY', KEY);
   vi.stubEnv('BETTER_AUTH_SECRET', SECRET);
   vi.spyOn(console, 'error').mockImplementation(() => {});
   warns = vi.spyOn(console, 'warn').mockImplementation(() => {});

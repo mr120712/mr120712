@@ -288,15 +288,15 @@ export const ACTION_RATE_LIMITS = {
     { requests: 8, windowMs: 60_000 },
     { requests: 40, windowMs: 86_400_000 },
   ],
-  // Trascrizione IA dei testi (OpenAI Whisper, a pagamento) dalla pagina admin «Diritti e testi»,
-  // solo brani dichiarati con "testo": true. Contata solo quando la chiamata a OpenAI parte davvero:
-  // per admin, più un tetto giornaliero per l'intera app.
+  // Trascrizione dei testi con Solco AI (Whisper su Groq, a consumo) dalla pagina admin «Diritti e
+  // testi», solo brani dichiarati con "testo": true. Contata solo quando la chiamata al motore parte
+  // davvero: per admin, più un tetto giornaliero per l'intera app.
   'lyrics.transcribe': [
     { requests: 10, windowMs: 3_600_000 },
     { requests: 30, windowMs: 86_400_000 },
   ],
   'lyrics.transcribe.global': [{ requests: 50, windowMs: 86_400_000 }],
-  // «Verifica chiave OpenAI» (un secondo di silenzio a Whisper: costo irrisorio ma reale), per admin.
+  // «Verifica Solco AI» (un secondo di silenzio al motore: costo irrisorio ma reale), per admin.
   'lyrics.transcribe.check': [
     { requests: 6, windowMs: 3_600_000 },
     { requests: 20, windowMs: 86_400_000 },
@@ -620,7 +620,7 @@ const actionLabels: Record<RateLimitAction, string> = {
   'recordings.write': 'le registrazioni dei brani',
   'lyrics.transcribe': 'le trascrizioni dei testi con l’IA',
   'lyrics.transcribe.global': 'le trascrizioni dei testi con l’IA di oggi',
-  'lyrics.transcribe.check': 'le verifiche della chiave OpenAI',
+  'lyrics.transcribe.check': 'le verifiche di Solco AI',
   'lyrics.transcribe.save': 'i salvataggi dei testi',
   'audiocom.search.global': 'le ricerche su audio.com di questo minuto',
   'audiocom.search': 'le tue ricerche su audio.com',

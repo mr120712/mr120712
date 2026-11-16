@@ -736,7 +736,7 @@ describe('raggiungibilità', () => {
     const card = link?.closest('article');
     expect(card?.querySelector('h2')?.textContent).toBe('Diritti e testi');
     expect(card?.textContent).toContain('La diagnosi non mostra il testo');
-    expect(card?.textContent).toContain('puoi trascriverlo con l’IA');
+    expect(card?.textContent).toContain('puoi trascriverlo con Solco AI');
   });
 });
 

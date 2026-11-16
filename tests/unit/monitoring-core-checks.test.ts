@@ -73,7 +73,7 @@ const SECRETS = {
   NEXT_PUBLIC_GOOGLE_SIGNIN_CLIENT_ID: '1234567890-fakeclient.apps.googleusercontent.com',
   YOUTUBE_DATA_API_KEY: 'AIzaFakeYouTubeKey0123456789abcdef',
   ANTHROPIC_API_KEY: ['sk', 'ant', 'api03', 'fake-anthropic-key-0123456789'].join('-'),
-  OPENAI_API_KEY: ['sk', 'proj', 'fake-openai-key-0123456789'].join('-'),
+  GROQ_API_KEY: ['gsk', 'fake-groq-key-0123456789abcdef'].join('_'),
   // Built at runtime: a literal key-shaped string would trip secret scanners.
   STRIPE_SECRET_KEY: ['sk', 'live', 'FAKE0'.repeat(5)].join('_'),
   RESEND_API_KEY: 're_fake_resend_key_0123456789',
@@ -153,7 +153,12 @@ function makeDeps(
     radioStations: async () => ({ outcome: 'results', stations: [{ id: 's1' }, { id: 's2' }] }),
     podcastSearch: async () => ({ outcome: 'results', podcasts: [{ id: 'p1' }] }),
     jamendoTracks: async () => ({ outcome: 'results', tracks: [{ id: 'j1' }] }),
-    openAiProbe: async () => ({ ok: true, model: 'whisper-1', elapsedMs: 420 }),
+    transcriptionProbe: async () => ({
+      ok: true,
+      model: 'whisper-large-v3',
+      engine: 'Solco AI (Groq · whisper-large-v3)',
+      elapsedMs: 420,
+    }),
     ...rest,
   };
 }
@@ -686,53 +691,62 @@ describe('anthropic', () => {
   });
 });
 
-describe('openai', () => {
-  it('passes the key, a timeout under the check limit and the injected fetch to the probe', async () => {
-    const probe = vi.fn(async () => ({
+describe('solco_ai', () => {
+  const okProbe = () =>
+    vi.fn(async () => ({
       ok: true as const,
-      model: 'whisper-1' as const,
+      model: 'whisper-large-v3',
+      engine: 'Solco AI (Groq · whisper-large-v3)',
       elapsedMs: 420,
     }));
+
+  it('passes the Groq provider, a timeout under the check limit and the injected fetch to the probe', async () => {
+    const probe = okProbe();
     const fetcher = makeFetch();
     const result = await runCheck(
-      'openai',
-      makeDeps({ fetch: fetcher as never, openAiProbe: probe, timeoutMs: 1_000 }),
+      'solco_ai',
+      makeDeps({ fetch: fetcher as never, transcriptionProbe: probe, timeoutMs: 1_000 }),
     );
     expect(result).toMatchObject({
       status: 'ok',
-      detail: 'Chiave valida: Whisper ha risposto in 420 ms',
+      detail: 'Solco AI (Groq): whisper-large-v3 ha risposto in 420 ms',
     });
     expect(probe).toHaveBeenCalledTimes(1);
     const [input] = probe.mock.calls[0] as unknown as [
-      { apiKey: string; timeoutMs: number; fetcher: unknown },
+      {
+        provider: { id: string; apiKey: string; model: string; endpoint: string };
+        timeoutMs: number;
+        fetcher: unknown;
+      },
     ];
-    expect(input.apiKey).toBe(SECRETS.OPENAI_API_KEY);
+    expect(input.provider).toMatchObject({
+      id: 'groq',
+      apiKey: SECRETS.GROQ_API_KEY,
+      model: 'whisper-large-v3',
+      endpoint: 'https://api.groq.com/openai/v1/audio/transcriptions',
+    });
     expect(input.timeoutMs).toBe(1_000);
     expect(input.fetcher).toBe(fetcher);
-    const slack = vi.fn(async () => ({
-      ok: true as const,
-      model: 'whisper-1' as const,
-      elapsedMs: 1,
-    }));
-    await runCheck('openai', makeDeps({ openAiProbe: slack, timeoutMs: 8_000 }));
+    const slack = okProbe();
+    await runCheck('solco_ai', makeDeps({ transcriptionProbe: slack, timeoutMs: 8_000 }));
     expect((slack.mock.calls[0] as unknown as [{ timeoutMs: number }])[0].timeoutMs).toBe(7_500);
   });
 
   it.each([
-    ['invalid_key', 'fail', 'Chiave non valida o revocata'],
-    ['no_credit', 'fail', 'Crediti OpenAI esauriti o fatturazione non attiva'],
-    ['rate_limited', 'warn', 'OpenAI limita temporaneamente le richieste'],
-    ['no_response', 'fail', 'OpenAI non risponde entro il tempo previsto'],
-    ['unavailable', 'fail', 'OpenAI ha un problema temporaneo (errore del servizio)'],
-    ['rejected', 'fail', 'OpenAI non ha accettato la prova audio'],
+    ['invalid_key', 'fail', 'Chiave Groq non valida o revocata'],
+    ['no_credit', 'fail', 'Crediti Groq esauriti o fatturazione non attiva'],
+    ['rate_limited', 'warn', 'Groq limita temporaneamente le richieste'],
+    ['no_response', 'fail', 'Groq non risponde entro il tempo previsto'],
+    ['unavailable', 'fail', 'Groq ha un problema temporaneo (errore del servizio)'],
+    ['rejected', 'fail', 'Groq non ha accettato la prova audio'],
   ] as const)('maps the probe error %s to %s', async (error, expected, detail) => {
     const result = await runCheck(
-      'openai',
+      'solco_ai',
       makeDeps({
-        openAiProbe: async () => ({
+        transcriptionProbe: async () => ({
           ok: false,
           error,
-          message: `Trascrizione non riuscita: ${SECRETS.OPENAI_API_KEY}`,
+          message: `Trascrizione non riuscita: ${SECRETS.GROQ_API_KEY}`,
           elapsedMs: 12,
         }),
       }),
@@ -741,19 +755,35 @@ describe('openai', () => {
     expectNoSecrets([result.detail]);
   });
 
-  it('warns when the key is missing, without calling OpenAI', async () => {
-    const probe = vi.fn(async () => ({
-      ok: true as const,
-      model: 'whisper-1' as const,
-      elapsedMs: 1,
-    }));
+  it('warns when the key of the chosen engine is missing, without calling it', async () => {
+    const probe = okProbe();
     const result = await runCheck(
-      'openai',
-      makeDeps({ openAiProbe: probe, env: { ...ENV, OPENAI_API_KEY: '  ' } }),
+      'solco_ai',
+      makeDeps({ transcriptionProbe: probe, env: { ...ENV, GROQ_API_KEY: '  ' } }),
     );
     expect(result).toMatchObject({
       status: 'warn',
-      detail: 'Non configurata (OPENAI_API_KEY): la trascrizione dei testi con l’IA è spenta',
+      detail: 'Non configurata (GROQ_API_KEY): Solco AI per i testi è spenta',
+    });
+    // OpenAI only when chosen explicitly: its key alone does not turn the engine on.
+    const openAiOnly = await runCheck(
+      'solco_ai',
+      makeDeps({
+        transcriptionProbe: probe,
+        env: { ...ENV, GROQ_API_KEY: '', OPENAI_API_KEY: 'sk-proj-fake-openai-0123456789' },
+      }),
+    );
+    expect(openAiOnly.status).toBe('warn');
+    const chosen = await runCheck(
+      'solco_ai',
+      makeDeps({
+        transcriptionProbe: probe,
+        env: { ...ENV, GROQ_API_KEY: '', LYRICS_AI_PROVIDER: 'openai' },
+      }),
+    );
+    expect(chosen).toMatchObject({
+      status: 'warn',
+      detail: 'Non configurata (OPENAI_API_KEY): Solco AI per i testi è spenta',
     });
     expect(probe).not.toHaveBeenCalled();
   });
@@ -836,7 +866,7 @@ describe('secrets never reach a detail', () => {
         radioStations: thrower,
         podcastSearch: thrower,
         jamendoTracks: thrower,
-        openAiProbe: async () => ({
+        transcriptionProbe: async () => ({
           ok: false,
           error: 'invalid_key',
           message: SECRET_VALUES.join(' '),

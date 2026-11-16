@@ -18,6 +18,11 @@ import { listJamendoTracks } from '@/lib/music/jamendo.server';
 import { readYouTubeApiKey } from '@/lib/music/music-api.server';
 import { searchPodcasts } from '@/lib/music/podcasts.server';
 import { listStations } from '@/lib/music/radio-browser.server';
+import {
+  type TranscriptionProvider,
+  transcriptionKeyEnvName,
+  transcriptionProvider,
+} from '@/lib/music/transcription-provider.server';
 import type { WhisperProbeResult } from '@/lib/music/whisper.server';
 import { readYouTubeQuotaUsage, type YouTubeQuotaUsage } from '@/lib/music/youtube-budget.server';
 import { formatItalianTime } from '@/lib/music/youtube-query';
@@ -62,12 +67,12 @@ export type CheckDeps = {
   podcastSearch: (fetcher: Fetcher) => Promise<CatalogOutcome & { podcasts: readonly unknown[] }>;
   jamendoTracks: (fetcher: Fetcher) => Promise<CatalogOutcome & { tracks: readonly unknown[] }>;
   /**
-   * Prova della chiave OpenAI: un secondo di silenzio a Whisper (whisper.server, probeWhisper),
-   * la stessa richiesta della trascrizione dei testi. Costo irrisorio ma reale, per questo la
-   * chiamata è iniettabile e il modulo si carica solo quando il controllo gira davvero.
+   * Prova del motore di trascrizione (Solco AI): un secondo di silenzio con la stessa richiesta
+   * della trascrizione dei testi (whisper.server, probeTranscription). Costo irrisorio ma reale,
+   * per questo la chiamata è iniettabile e il modulo si carica solo quando il controllo gira.
    */
-  openAiProbe: (input: {
-    apiKey: string;
+  transcriptionProbe: (input: {
+    provider: TranscriptionProvider;
     timeoutMs: number;
     fetcher: Fetcher;
   }) => Promise<WhisperProbeResult>;
@@ -110,8 +115,8 @@ export function defaultCheckDeps(): CheckDeps {
     radioStations: (fetcher) => listStations({ country: 'IT', limit: 5 }, fetcher),
     podcastSearch: (fetcher) => searchPodcasts('musica', fetcher),
     jamendoTracks: (fetcher) => listJamendoTracks({}, fetcher),
-    openAiProbe: (input) =>
-      import('@/lib/music/whisper.server').then((whisper) => whisper.probeWhisper(input)),
+    transcriptionProbe: (input) =>
+      import('@/lib/music/whisper.server').then((whisper) => whisper.probeTranscription(input)),
   };
 }
 
@@ -459,35 +464,41 @@ const checkAnthropic: Check = async (deps) => {
 };
 
 /**
- * OPENAI_API_KEY serve solo alla trascrizione dei testi (pagina admin «Diritti e testi»). La prova
- * è la stessa richiesta della trascrizione su un secondo di silenzio generato dal server: nessun
- * brano, costo irrisorio. Chiave assente o OpenAI che limita le richieste: avviso; chiave rifiutata,
- * crediti finiti o OpenAI irraggiungibile: errore (l'amministratore deve intervenire).
+ * Il motore di trascrizione dei testi («Solco AI»: Whisper large-v3 su Groq, chiave GROQ_API_KEY;
+ * OpenAI solo se LYRICS_AI_PROVIDER=openai) serve solo alla pagina admin «Diritti e testi». La
+ * prova è la stessa richiesta della trascrizione su un secondo di silenzio generato dal server:
+ * nessun brano, costo irrisorio. Chiave assente o servizio che limita le richieste: avviso; chiave
+ * rifiutata, crediti finiti o servizio irraggiungibile: errore (l'amministratore deve intervenire).
  */
-const checkOpenAi: Check = async (deps) => {
-  const key = deps.env.OPENAI_API_KEY?.trim();
-  if (!key) {
-    return warn('Non configurata (OPENAI_API_KEY): la trascrizione dei testi con l’IA è spenta');
+const checkSolcoAi: Check = async (deps) => {
+  const provider = transcriptionProvider(deps.env);
+  if (!provider) {
+    return warn(
+      `Non configurata (${transcriptionKeyEnvName(deps.env)}): Solco AI per i testi è spenta`,
+    );
   }
-  const probe = await deps.openAiProbe({
-    apiKey: key,
+  const probe = await deps.transcriptionProbe({
+    provider,
     timeoutMs: Math.max(1_000, deps.timeoutMs - 500),
     fetcher: deps.fetch,
   });
-  if (probe.ok) return ok(`Chiave valida: Whisper ha risposto in ${probe.elapsedMs} ms`);
+  const { vendor } = provider;
+  if (probe.ok) {
+    return ok(`${provider.label}: ${provider.model} ha risposto in ${probe.elapsedMs} ms`);
+  }
   switch (probe.error) {
     case 'invalid_key':
-      return fail('Chiave non valida o revocata');
+      return fail(`Chiave ${vendor} non valida o revocata`);
     case 'no_credit':
-      return fail('Crediti OpenAI esauriti o fatturazione non attiva');
+      return fail(`Crediti ${vendor} esauriti o fatturazione non attiva`);
     case 'rate_limited':
-      return warn('OpenAI limita temporaneamente le richieste');
+      return warn(`${vendor} limita temporaneamente le richieste`);
     case 'no_response':
-      return fail('OpenAI non risponde entro il tempo previsto');
+      return fail(`${vendor} non risponde entro il tempo previsto`);
     case 'unavailable':
-      return fail('OpenAI ha un problema temporaneo (errore del servizio)');
+      return fail(`${vendor} ha un problema temporaneo (errore del servizio)`);
     default:
-      return fail('OpenAI non ha accettato la prova audio');
+      return fail(`${vendor} non ha accettato la prova audio`);
   }
 };
 
@@ -536,7 +547,7 @@ export const MONITOR_CHECK_FUNCTIONS: Record<MonitorCheckId, Check> = {
   jamendo: checkJamendo,
   email: checkEmail,
   anthropic: checkAnthropic,
-  openai: checkOpenAi,
+  solco_ai: checkSolcoAi,
   stripe: checkStripe,
   cron_cleanup: checkCronCleanup,
 };

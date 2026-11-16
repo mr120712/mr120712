@@ -1,23 +1,25 @@
-// @polsia:user-owned — POST /api/admin/featured-rights/transcribe/check: «Verifica chiave OpenAI»
-// dalla pagina admin «Diritti e testi». Invia a Whisper un secondo di silenzio generato sul server
-// (nessun brano dello store, costo di circa un centesimo di centesimo) con la stessa richiesta della
-// trascrizione e risponde se la chiave funziona (200), se manca su Vercel (503
-// transcription_not_configured) o perché no (openai_invalid_key, openai_no_credit,
-// openai_rate_limited, openai_unavailable, openai_no_response: gli stessi codici della trascrizione,
-// mai la chiave né il testo di OpenAI). Solo admin con email verificata, stessa origine, limite
-// 'lyrics.transcribe.check' per admin (consumato solo con la chiave presente); risposta privata,
-// mai in cache.
+// @polsia:user-owned — POST /api/admin/featured-rights/transcribe/check: «Verifica Solco AI» dalla
+// pagina admin «Diritti e testi». Invia al motore di trascrizione configurato (Groq, modello Whisper
+// large-v3 a pesi aperti; OpenAI solo se LYRICS_AI_PROVIDER=openai) un secondo di silenzio generato
+// sul server (nessun brano dello store, costo irrisorio) con la stessa richiesta della trascrizione
+// e risponde se funziona (200 con modello e motore), se la chiave manca su Vercel (503
+// transcription_not_configured) o perché no (transcription_invalid_key, transcription_no_credit,
+// transcription_rate_limited, transcription_unavailable, transcription_no_response: gli stessi
+// codici della trascrizione, mai la chiave né il testo della risposta). Solo admin con email
+// verificata, stessa origine, limite 'lyrics.transcribe.check' per admin (consumato solo con la
+// chiave presente); risposta privata, mai in cache.
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { consumeRateLimit, rateLimitResponse } from '@/lib/business/rate-limit.server';
 import { TranscriptionCheckResponseSchema } from '@/lib/contracts/lyrics-transcription';
 import { transcriptionRefusalResponse } from '@/lib/music/lyrics-transcription.server';
-import { openAiApiKey, probeMessage, probeWhisper } from '@/lib/music/whisper.server';
+import { transcriptionProvider } from '@/lib/music/transcription-provider.server';
+import { probeMessage, probeTranscription } from '@/lib/music/whisper.server';
 import { sameOrigin } from '@/lib/same-origin';
 
 export const dynamic = 'force-dynamic';
-/** La prova a OpenAI dura al massimo 20 secondi. */
+/** La prova al servizio dura al massimo 20 secondi. */
 export const maxDuration = 30;
 
 const privateHeaders = { 'Cache-Control': 'private, no-store', Vary: 'Cookie' };
@@ -46,8 +48,8 @@ export async function POST(request: Request) {
   const access = await requireAdmin(request);
   if (!access.allowed) return access.response;
 
-  const apiKey = openAiApiKey();
-  if (!apiKey) return transcriptionRefusalResponse({ kind: 'not_configured' });
+  const provider = transcriptionProvider();
+  if (!provider) return transcriptionRefusalResponse({ kind: 'not_configured' });
 
   const decision = await consumeRateLimit('lyrics.transcribe.check', `user:${access.userId}`);
   if (!decision.allowed) {
@@ -56,11 +58,11 @@ export async function POST(request: Request) {
     return response;
   }
 
-  const probe = await probeWhisper({ apiKey, signal: request.signal });
+  const probe = await probeTranscription({ provider, signal: request.signal });
   if (!probe.ok) {
-    // Solo il codice nei log: niente chiave, niente testo di OpenAI.
+    // Solo motore e codice nei log: niente chiave, niente testo della risposta.
     // biome-ignore lint/suspicious/noConsole: log del server con il solo codice dell'esito.
-    console.warn(`[admin/featured-rights/transcribe/check] chiave OpenAI: ${probe.error}`);
+    console.warn(`[admin/featured-rights/transcribe/check] ${provider.id}: ${probe.error}`);
     return transcriptionRefusalResponse({
       kind: 'whisper',
       error: probe.error,
@@ -71,6 +73,7 @@ export async function POST(request: Request) {
     TranscriptionCheckResponseSchema.parse({
       ok: true,
       model: probe.model,
+      engine: probe.engine,
       elapsedMs: probe.elapsedMs,
       checkedAt: new Date().toISOString(),
     }),

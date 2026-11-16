@@ -16,7 +16,7 @@ export const MONITOR_CHECK_IDS = [
   'jamendo',
   'email',
   'anthropic',
-  'openai',
+  'solco_ai',
   'stripe',
   'cron_cleanup',
 ] as const;

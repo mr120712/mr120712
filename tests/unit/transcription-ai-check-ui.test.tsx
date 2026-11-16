@@ -1,5 +1,5 @@
-// @polsia:user-owned — pulsante «Verifica chiave OpenAI» della pagina admin «Diritti e testi»: una
-// sola richiesta POST per volta (aria-busy, il secondo clic non parte), avviso di riuscita con il
+// @polsia:user-owned — pulsante «Verifica Solco AI» della pagina admin «Diritti e testi»: una sola
+// richiesta POST per volta (aria-busy, il secondo clic non parte), avviso di riuscita con motore e
 // tempo di risposta, avviso di errore con il messaggio del server (chiave non valida, crediti
 // finiti, chiave assente) o con un testo per i codici noti; risposta non valida e rete gestite.
 import { act } from 'react';
@@ -21,9 +21,9 @@ vi.mock('sonner', () => ({
 import {
   checkFailureText,
   checkSuccessText,
-  OPENAI_CHECK_ENDPOINT,
-  OpenAiKeyCheckButton,
-} from '@/components/custom/admin/openai-key-check-button';
+  TRANSCRIPTION_CHECK_ENDPOINT,
+  TranscriptionAiCheckButton,
+} from '@/components/custom/admin/transcription-ai-check-button';
 import {
   TRANSCRIPTION_CHECK_SUCCESS,
   TRANSCRIPTION_NOT_CONFIGURED_MESSAGE,
@@ -32,6 +32,7 @@ import {
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+const ENGINE = 'Solco AI (Groq · whisper-large-v3)';
 const roots: Array<{ root: ReturnType<typeof createRoot>; container: HTMLElement }> = [];
 
 async function flush() {
@@ -45,7 +46,7 @@ async function mount() {
   document.body.append(container);
   const root = createRoot(container);
   roots.push({ root, container });
-  await act(async () => root.render(<OpenAiKeyCheckButton />));
+  await act(async () => root.render(<TranscriptionAiCheckButton />));
   await flush();
   const button = container.querySelector('button');
   if (!button) throw new Error('Pulsante non trovato.');
@@ -60,7 +61,7 @@ async function click(element: HTMLElement) {
 }
 
 function apiError(status: number, body: Record<string, unknown>) {
-  return new Error(`apiFetch ${OPENAI_CHECK_ENDPOINT} failed (${status})`, { cause: body });
+  return new Error(`apiFetch ${TRANSCRIPTION_CHECK_ENDPOINT} failed (${status})`, { cause: body });
 }
 
 beforeEach(() => {
@@ -74,8 +75,8 @@ afterEach(async () => {
   }
 });
 
-describe('OpenAiKeyCheckButton', () => {
-  it('chiede la verifica al server e conferma con il tempo di risposta', async () => {
+describe('TranscriptionAiCheckButton', () => {
+  it('chiede la verifica al server e conferma con motore e tempo di risposta', async () => {
     let resolve: (value: unknown) => void = () => undefined;
     mocks.apiFetch.mockImplementationOnce(
       () =>
@@ -84,12 +85,13 @@ describe('OpenAiKeyCheckButton', () => {
         }),
     );
     const button = await mount();
-    expect(button.textContent).toContain('Verifica chiave OpenAI');
+    expect(button.textContent).toContain('Verifica Solco AI');
+    expect(button.textContent).not.toContain('OpenAI');
     expect(button.getAttribute('aria-busy')).toBeNull();
 
     await click(button);
     expect(mocks.apiFetch).toHaveBeenCalledTimes(1);
-    expect(mocks.apiFetch).toHaveBeenCalledWith(OPENAI_CHECK_ENDPOINT, {
+    expect(mocks.apiFetch).toHaveBeenCalledWith(TRANSCRIPTION_CHECK_ENDPOINT, {
       method: 'POST',
       schema: TranscriptionCheckResponseSchema,
     });
@@ -103,14 +105,19 @@ describe('OpenAiKeyCheckButton', () => {
     await act(async () => {
       resolve({
         ok: true,
-        model: 'whisper-1',
+        model: 'whisper-large-v3',
+        engine: ENGINE,
         elapsedMs: 1234,
         checkedAt: '2026-11-16T13:00:00.000Z',
       });
     });
     await flush();
-    expect(mocks.success).toHaveBeenCalledWith(checkSuccessText(1234));
-    expect(checkSuccessText(1234)).toBe(`${TRANSCRIPTION_CHECK_SUCCESS} (risposta in 1,2 s)`);
+    expect(mocks.success).toHaveBeenCalledWith(
+      checkSuccessText({ engine: ENGINE, elapsedMs: 1234 }),
+    );
+    expect(checkSuccessText({ engine: ENGINE, elapsedMs: 1234 })).toBe(
+      `${TRANSCRIPTION_CHECK_SUCCESS} · ${ENGINE} · risposta in 1,2 s`,
+    );
     expect(mocks.error).not.toHaveBeenCalled();
     expect(button.getAttribute('aria-busy')).toBeNull();
   });
@@ -121,15 +128,15 @@ describe('OpenAiKeyCheckButton', () => {
       [
         502,
         {
-          error: 'openai_invalid_key',
-          message: 'Chiave OpenAI non valida (controlla OPENAI_API_KEY su Vercel).',
+          error: 'transcription_invalid_key',
+          message: 'Chiave Groq non valida (controlla GROQ_API_KEY su Vercel).',
         },
       ],
       [
         402,
         {
-          error: 'openai_no_credit',
-          message: 'Crediti OpenAI esauriti o fatturazione non attiva.',
+          error: 'transcription_no_credit',
+          message: 'Crediti Groq esauriti o fatturazione non attiva.',
         },
       ],
       [
@@ -152,7 +159,7 @@ describe('OpenAiKeyCheckButton', () => {
     expect(checkFailureText(apiError(403, { error: 'forbidden' }))).toContain('amministratore');
     expect(checkFailureText(apiError(403, { error: 'forbidden_origin' }))).toContain('ricarica');
     expect(checkFailureText(apiError(500, { error: 'boh' }))).toBe(
-      'Verifica della chiave OpenAI non riuscita. Riprova tra poco.',
+      'Verifica di Solco AI non riuscita. Riprova tra poco.',
     );
     expect(checkFailureText(new ZodError([]))).toContain('formato atteso');
     expect(checkFailureText(new TypeError('fetch failed'))).toContain('Connessione non riuscita');

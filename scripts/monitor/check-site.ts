@@ -197,7 +197,7 @@ export const INTERNAL_CHECKS: Record<string, { label: string; critical: boolean 
   jamendo: { label: 'Jamendo', critical: false },
   email: { label: 'Email', critical: false },
   anthropic: { label: 'Ricerca AI', critical: false },
-  openai: { label: 'Trascrizione IA (OpenAI)', critical: false },
+  solco_ai: { label: 'Solco AI (trascrizione testi)', critical: false },
   stripe: { label: 'Pagamenti Stripe', critical: false },
   cron_cleanup: { label: 'Pulizia giornaliera', critical: false },
 };

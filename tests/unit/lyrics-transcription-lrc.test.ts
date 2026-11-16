@@ -36,8 +36,8 @@ import {
   lrcPathnameFor,
   validateLrcForSave,
 } from '@/lib/music/lyrics-transcription.server';
+import { isTranscriptionConfigured } from '@/lib/music/transcription-provider.server';
 import {
-  isWhisperConfigured,
   parseWhisperResponse,
   transcribeWithWhisper,
   WHISPER_ENDPOINT,
@@ -280,10 +280,11 @@ describe('client Whisper', () => {
     expect(whisperExtension('a.opus')).toBeNull();
     expect(whisperExtension('a.aac')).toBeNull();
     expect(whisperExtension('a.m4b')).toBeNull();
-    vi.stubEnv('OPENAI_API_KEY', '');
-    expect(isWhisperConfigured()).toBe(false);
-    vi.stubEnv('OPENAI_API_KEY', ` ${KEY} `);
-    expect(isWhisperConfigured()).toBe(true);
+    vi.stubEnv('GROQ_API_KEY', '');
+    vi.stubEnv('LYRICS_AI_PROVIDER', '');
+    expect(isTranscriptionConfigured()).toBe(false);
+    vi.stubEnv('GROQ_API_KEY', ` ${KEY} `);
+    expect(isTranscriptionConfigured()).toBe(true);
   });
 
   it('richiesta multipart: modello, formato, granularità, temperatura, estensione, lingua', async () => {

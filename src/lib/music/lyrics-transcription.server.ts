@@ -1,5 +1,7 @@
-// @polsia:user-owned — trascrizione IA (OpenAI Whisper) dei testi dei "brani in evidenza", SOLO per
-// i brani dichiarati in diritti.json con "testo": true (l'amministratore ha i diritti sul testo).
+// @polsia:user-owned — trascrizione dei testi dei "brani in evidenza" con «Solco AI» (Whisper
+// large-v3 a pesi aperti su Groq; OpenAI solo se LYRICS_AI_PROVIDER=openai, vedi
+// transcription-provider.server.ts), SOLO per i brani dichiarati in diritti.json con "testo": true
+// (l'amministratore ha i diritti sul testo).
 // Lo store contiene anche file senza licenza: per ogni altro brano la funzione NON esiste, e il
 // server risponde sempre con lo stesso 404 (percorso non valido, non audio, non dichiarato,
 // "testo" mancante o false, file assente), senza chiamare OpenAI e senza consumare limiti.
@@ -87,9 +89,11 @@ import {
   transcriptionInFlight,
 } from '@/lib/music/transcription-cache.server';
 import {
-  openAiApiKey,
+  type TranscriptionProvider,
+  transcriptionProvider,
+} from '@/lib/music/transcription-provider.server';
+import {
   transcribeWithWhisper,
-  WHISPER_MODEL,
   WHISPER_TIMEOUT_MS,
   type WhisperErrorCode,
   type WhisperSegment,
@@ -441,7 +445,7 @@ function json(status: number, body: Record<string, unknown>, headers: HeadersIni
 const WHISPER_STATUS: Partial<Record<WhisperErrorCode, number>> = {
   too_large: 413,
   rate_limited: 429,
-  // Crediti OpenAI finiti o fatturazione non attiva: "pagamento richiesto", non un limite.
+  // Crediti del servizio finiti o fatturazione non attiva: "pagamento richiesto", non un limite.
   no_credit: 402,
 };
 
@@ -505,7 +509,7 @@ export function transcriptionRefusalResponse(refusal: TranscriptionRefusal): Res
     case 'whisper':
       return json(
         WHISPER_STATUS[refusal.error] ?? 502,
-        { error: `openai_${refusal.error}`, message: refusal.message },
+        { error: `transcription_${refusal.error}`, message: refusal.message },
         refusal.error === 'rate_limited' ? { 'Retry-After': '60' } : {},
       );
     case 'invalid_lrc':
@@ -700,8 +704,8 @@ export async function transcribeFeaturedTrack({
   regenerate = false,
 }: TranscribeInput): Promise<TranscribeOutcome> {
   const startedAt = Date.now();
-  const apiKey = openAiApiKey();
-  if (!apiKey) return { ok: false, refusal: { kind: 'not_configured' } };
+  const provider = transcriptionProvider();
+  if (!provider) return { ok: false, refusal: { kind: 'not_configured' } };
 
   const eligibility = await checkTranscriptionEligibility(pathname);
   if (eligibility.status !== 'eligible') return { ok: false, refusal: refusalOf(eligibility) };
@@ -724,10 +728,20 @@ export async function transcribeFeaturedTrack({
     pathname: track.pathname,
     audioVersion: track.audioVersion,
     language: language ?? 'auto',
-    model: WHISPER_MODEL,
+    model: provider.model,
     draftVersion: DRAFT_BUILDER_VERSION,
   });
-  const run = { track, token, extension, language, identity, signal, apiKey, startedAt, cacheKey };
+  const run = {
+    track,
+    token,
+    extension,
+    language,
+    identity,
+    signal,
+    provider,
+    startedAt,
+    cacheKey,
+  };
   if (!cacheKey) return transcribeNow({ ...run, waited: false });
 
   if (!regenerate) {
@@ -759,7 +773,8 @@ type TranscribeRun = {
   language?: TranscriptionLanguage;
   identity: string;
   signal?: AbortSignal;
-  apiKey: string;
+  /** Il motore configurato (Solco AI su Groq, o OpenAI su scelta esplicita). */
+  provider: TranscriptionProvider;
   startedAt: number;
   /** Chiave della cache cifrata, o null se è spenta. */
   cacheKey: string | null;
@@ -775,7 +790,7 @@ async function transcribeNow({
   language,
   identity,
   signal,
-  apiKey,
+  provider,
   startedAt,
   cacheKey,
   waited,
@@ -813,7 +828,8 @@ async function transcribeNow({
     audio: audio.bytes,
     extension,
     language,
-    apiKey,
+    apiKey: provider.apiKey,
+    target: provider,
     timeoutMs: Math.min(WHISPER_TIMEOUT_MS, remaining),
     signal,
   });
@@ -842,7 +858,7 @@ async function transcribeNow({
   // Pagata: si conserva cifrata (anche se l'admin ha annullato nel frattempo), così la prossima
   // richiesta per questa versione del file non costa nulla. Se non riesce, la bozza arriva lo stesso.
   const cachedAt = cacheKey
-    ? await storeCachedTranscription(cacheKey, { ...fields, model: WHISPER_MODEL })
+    ? await storeCachedTranscription(cacheKey, { ...fields, model: provider.model })
     : null;
   return {
     ok: true,

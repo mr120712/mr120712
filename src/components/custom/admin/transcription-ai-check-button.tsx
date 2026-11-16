@@ -1,8 +1,8 @@
-// @polsia:user-owned — pulsante «Verifica chiave OpenAI» della pagina admin «Diritti e testi»: chiede
-// a POST /api/admin/featured-rights/transcribe/check di provare OPENAI_API_KEY del server con un
-// secondo di silenzio inviato a Whisper (stessa richiesta della trascrizione, costo di circa un
-// centesimo di centesimo) e riferisce con un avviso (toast): chiave valida con il tempo di risposta,
-// oppure il messaggio del server (chiave non valida, crediti esauriti, limite raggiunto, OpenAI non
+// @polsia:user-owned — pulsante «Verifica Solco AI» della pagina admin «Diritti e testi»: chiede a
+// POST /api/admin/featured-rights/transcribe/check di provare il motore di trascrizione del server
+// con un secondo di silenzio (stessa richiesta della trascrizione, costo irrisorio) e riferisce con
+// un avviso (toast): motore e modello che hanno risposto con il tempo di risposta, oppure il
+// messaggio del server (chiave non valida, crediti esauriti, limite raggiunto, servizio non
 // raggiungibile, chiave assente su Vercel). La chiave non arriva mai nel browser.
 'use client';
 
@@ -13,11 +13,13 @@ import { ZodError } from 'zod';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
 import {
+  SOLCO_AI_NAME,
   TRANSCRIPTION_CHECK_SUCCESS,
+  type TranscriptionCheckResponse,
   TranscriptionCheckResponseSchema,
 } from '@/lib/contracts/lyrics-transcription';
 
-export const OPENAI_CHECK_ENDPOINT = '/api/admin/featured-rights/transcribe/check';
+export const TRANSCRIPTION_CHECK_ENDPOINT = '/api/admin/featured-rights/transcribe/check';
 const MESSAGE_MAX = 300;
 
 const ERROR_CODE_TEXT: Record<string, string> = {
@@ -29,9 +31,9 @@ const ERROR_CODE_TEXT: Record<string, string> = {
 
 const secondsFormat = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 1 });
 
-/** «Chiave OpenAI valida: … (risposta in 1,2 s)». */
-export function checkSuccessText(elapsedMs: number): string {
-  return `${TRANSCRIPTION_CHECK_SUCCESS} (risposta in ${secondsFormat.format(elapsedMs / 1000)} s)`;
+/** «Solco AI funziona: … · Solco AI (Groq · whisper-large-v3) · risposta in 1,2 s». */
+export function checkSuccessText(result: Pick<TranscriptionCheckResponse, 'engine' | 'elapsedMs'>) {
+  return `${TRANSCRIPTION_CHECK_SUCCESS} · ${result.engine} · risposta in ${secondsFormat.format(result.elapsedMs / 1000)} s`;
 }
 
 /** Il messaggio del server quando c'è, altrimenti un testo breve in italiano. */
@@ -49,10 +51,10 @@ export function checkFailureText(error: unknown): string {
   if (typeof code === 'string' && Object.hasOwn(ERROR_CODE_TEXT, code)) {
     return ERROR_CODE_TEXT[code] ?? '';
   }
-  return 'Verifica della chiave OpenAI non riuscita. Riprova tra poco.';
+  return `Verifica di ${SOLCO_AI_NAME} non riuscita. Riprova tra poco.`;
 }
 
-export function OpenAiKeyCheckButton() {
+export function TranscriptionAiCheckButton() {
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
 
@@ -61,11 +63,11 @@ export function OpenAiKeyCheckButton() {
     busyRef.current = true;
     setBusy(true);
     try {
-      const result = await apiFetch(OPENAI_CHECK_ENDPOINT, {
+      const result = await apiFetch(TRANSCRIPTION_CHECK_ENDPOINT, {
         method: 'POST',
         schema: TranscriptionCheckResponseSchema,
       });
-      toast.success(checkSuccessText(result.elapsedMs));
+      toast.success(checkSuccessText(result));
     } catch (error) {
       toast.error(checkFailureText(error));
     } finally {
@@ -81,7 +83,7 @@ export function OpenAiKeyCheckButton() {
       onClick={() => void check()}
       aria-disabled={busy || undefined}
       aria-busy={busy || undefined}
-      title="Prova OPENAI_API_KEY del server con un secondo di silenzio inviato a Whisper (costo di circa un centesimo di centesimo) e dice se la trascrizione con l'IA può funzionare"
+      title={`Prova il motore di trascrizione dei testi (${SOLCO_AI_NAME}) con un secondo di silenzio generato dal server: nessun brano, costo irrisorio`}
       className="aria-disabled:cursor-progress aria-disabled:opacity-70"
     >
       {busy ? (
@@ -89,7 +91,7 @@ export function OpenAiKeyCheckButton() {
       ) : (
         <KeyRound aria-hidden="true" />
       )}
-      Verifica chiave OpenAI
+      Verifica {SOLCO_AI_NAME}
     </Button>
   );
 }
