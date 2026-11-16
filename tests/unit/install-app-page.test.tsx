@@ -6,7 +6,11 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import InstallAppPage, { metadata } from '@/app/(custom)/app/page';
-import { ANDROID_APP_CERT_SHA256, ANDROID_APP_VERSION } from '@/lib/android-app';
+import {
+  ANDROID_APP_CERT_SHA256,
+  ANDROID_APP_PACKAGE,
+  ANDROID_APP_VERSION,
+} from '@/lib/android-app';
 
 function render(element: React.ReactElement): HTMLElement {
   const container = document.createElement('div');
@@ -24,9 +28,10 @@ describe('pagina /app', () => {
     const root = render(<InstallAppPage />);
     const android = root.querySelector('#android');
     expect(android?.textContent).toContain(`Versione ${ANDROID_APP_VERSION}`);
+    expect(android?.textContent).toContain(`pacchetto ${ANDROID_APP_PACKAGE}`);
     expect(android?.querySelector('code')?.textContent).toBe(ANDROID_APP_CERT_SHA256);
     expect(android?.textContent).toContain('/.well-known/assetlinks.json');
-    expect(android?.textContent).toContain('Hai già Solco 1.1.0?');
+    expect(android?.textContent).toContain('Hai già Solco 1.1.0 o 1.2.0?');
     const download = android?.querySelector('a[href="/solco.apk"]');
     expect(download?.getAttribute('download')).toBe('solco.apk');
   });

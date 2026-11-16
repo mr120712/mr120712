@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import {
   ANDROID_APP_CERT_SHA256,
   ANDROID_APP_MIN_VERSION,
+  ANDROID_APP_PACKAGE,
   ANDROID_APP_VERSION,
 } from '@/lib/android-app';
 import { siteUrl } from '@/lib/site';
@@ -54,7 +55,8 @@ export default function InstallAppPage() {
           </a>
         </Button>
         <p className={styles.meta}>
-          Versione {ANDROID_APP_VERSION} · {ANDROID_APP_MIN_VERSION}
+          Versione {ANDROID_APP_VERSION} · {ANDROID_APP_MIN_VERSION} · pacchetto{' '}
+          {ANDROID_APP_PACKAGE}
         </p>
         <ol className={styles.steps}>
           {androidSteps.map((step) => (
@@ -62,9 +64,9 @@ export default function InstallAppPage() {
           ))}
         </ol>
         <p className={styles.meta}>
-          Hai già Solco 1.1.0? L’aggiornamento si installa sopra e conserva i tuoi dati. Una
-          versione più vecchia (installata prima dell’11 novembre 2026) va disinstallata prima: era
-          firmata con un’altra chiave e Android non può aggiornarla.
+          Hai già Solco 1.1.0 o 1.2.0? Per Google Play il nome del pacchetto è cambiato, quindi
+          Android vede questa versione come un’app nuova: installala, poi disinstalla la precedente,
+          che non riceverà più aggiornamenti. Il tuo account e la tua Libreria restano sul sito.
         </p>
         <p className={styles.meta}>
           Certificato che firma l’APK (impronta SHA-256), lo stesso che il sito pubblica in

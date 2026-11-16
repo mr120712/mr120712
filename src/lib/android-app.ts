@@ -5,15 +5,24 @@
 // tests/unit/android-apk-certificates.test.ts confronta questi valori con l'APK in public/solco.apk
 // e con il progetto android/, così la pagina /app e il file pubblicato non possono divergere dal binario.
 
-/** Package Android dell'app (android/app/build.gradle, assetlinks.json). */
-export const ANDROID_APP_PACKAGE = 'app.solcomusic.solco';
+/**
+ * Package Android dell'app (applicationId in android/app/build.gradle, assetlinks.json). Dal 16 novembre
+ * 2026 è online.solcomusic.solco: Play Console ha rifiutato app.solcomusic.solco perché già in uso.
+ */
+export const ANDROID_APP_PACKAGE = 'online.solcomusic.solco';
+
+/**
+ * Package degli APK 1.1.0 e 1.2.0 distribuiti da /app prima del cambio. Per Android è un'altra app: resta in
+ * assetlinks.json perché chi li ha installati continui ad aprirli a schermo intero, ma non si aggiornano.
+ */
+export const ANDROID_LEGACY_PACKAGE = 'app.solcomusic.solco';
 
 /** Dominio che l'app apre e verifica (host della TWA e sito degli asset statements). */
 export const ANDROID_APP_HOST = 'www.solcomusic.online';
 
 /** Versione e codice dell'APK in public/solco.apk. */
-export const ANDROID_APP_VERSION = '1.2.0';
-export const ANDROID_APP_VERSION_CODE = 3;
+export const ANDROID_APP_VERSION = '1.3.0';
+export const ANDROID_APP_VERSION_CODE = 4;
 
 /** Requisito minimo (minSdk 24). */
 export const ANDROID_APP_MIN_VERSION = 'Android 7.0 o successivo';

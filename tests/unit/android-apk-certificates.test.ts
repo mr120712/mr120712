@@ -16,6 +16,7 @@ import {
   ANDROID_APP_VERSION,
   ANDROID_APP_VERSION_CODE,
   ANDROID_LEGACY_CERT_SHA256,
+  ANDROID_LEGACY_PACKAGE,
   SHA256_FINGERPRINT_PATTERN,
 } from '@/lib/android-app';
 
@@ -165,7 +166,12 @@ function includesText(binary: Buffer, text: string): boolean {
 const apk = readFileSync(APK_PATH);
 const entries = zipEntries(apk);
 const assetStatements = JSON.parse(readFileSync(ASSETLINKS_PATH, 'utf8')) as AssetStatement[];
-const publishedFingerprints = assetStatements[0]?.target.sha256_cert_fingerprints ?? [];
+const statementFor = (packageName: string) =>
+  assetStatements.find((statement) => statement.target.package_name === packageName);
+const publishedFingerprints =
+  statementFor(ANDROID_APP_PACKAGE)?.target.sha256_cert_fingerprints ?? [];
+const legacyFingerprints =
+  statementFor(ANDROID_LEGACY_PACKAGE)?.target.sha256_cert_fingerprints ?? [];
 const twaManifest = JSON.parse(readFileSync(TWA_MANIFEST_PATH, 'utf8')) as TwaManifest;
 const buildGradle = readFileSync(BUILD_GRADLE_PATH, 'utf8');
 
@@ -179,17 +185,24 @@ describe('APK Android: certificati e Digital Asset Links', () => {
     }
   });
 
-  it('assetlinks.json dichiara il package, la relazione della TWA e impronte ben formate', () => {
-    expect(assetStatements).toHaveLength(1);
-    const statement = assetStatements[0];
-    expect(statement?.relation).toContain('delegate_permission/common.handle_all_urls');
-    expect(statement?.target.namespace).toBe('android_app');
-    expect(statement?.target.package_name).toBe(ANDROID_APP_PACKAGE);
-    for (const fingerprint of publishedFingerprints) {
-      expect(fingerprint).toMatch(SHA256_FINGERPRINT_PATTERN);
+  it('assetlinks.json dichiara il package attuale e quello precedente, con impronte ben formate', () => {
+    expect(assetStatements.map((statement) => statement.target.package_name)).toEqual([
+      ANDROID_APP_PACKAGE,
+      ANDROID_LEGACY_PACKAGE,
+    ]);
+    for (const statement of assetStatements) {
+      expect(statement.relation).toContain('delegate_permission/common.handle_all_urls');
+      expect(statement.target.namespace).toBe('android_app');
+      const fingerprints = statement.target.sha256_cert_fingerprints;
+      for (const fingerprint of fingerprints) {
+        expect(fingerprint).toMatch(SHA256_FINGERPRINT_PATTERN);
+      }
+      expect(new Set(fingerprints).size).toBe(fingerprints.length);
     }
-    expect(new Set(publishedFingerprints).size).toBe(publishedFingerprints.length);
-    expect(publishedFingerprints).toEqual(
+    // Il package nuovo ha solo il certificato attuale; quello vecchio conserva anche il certificato degli
+    // APK precedenti all'11 novembre 2026, così le installazioni esistenti restano a schermo intero.
+    expect(publishedFingerprints).toEqual([ANDROID_APP_CERT_SHA256]);
+    expect(legacyFingerprints).toEqual(
       expect.arrayContaining([ANDROID_APP_CERT_SHA256, ANDROID_LEGACY_CERT_SHA256]),
     );
   });
@@ -204,7 +217,10 @@ describe('APK Android: certificati e Digital Asset Links', () => {
     expect(twaManifest.iconUrl.startsWith(`https://${ANDROID_APP_HOST}/`)).toBe(true);
     const declared = twaManifest.fingerprints.map((entry) => entry.value);
     expect(declared).toContain(ANDROID_APP_CERT_SHA256);
-    expect([...declared].sort()).toEqual([...publishedFingerprints].sort());
+    const published = new Set([...publishedFingerprints, ...legacyFingerprints]);
+    for (const value of declared) {
+      expect(published.has(value)).toBe(true);
+    }
     for (const entry of twaManifest.fingerprints) {
       expect((entry.name ?? '').length).toBeGreaterThan(10);
     }
@@ -219,6 +235,9 @@ describe('APK Android: certificati e Digital Asset Links', () => {
 
   it('build.gradle e strings.xml dichiarano package, versione e dominio della pagina /app', () => {
     expect(buildGradle).toContain(`applicationId "${ANDROID_APP_PACKAGE}"`);
+    expect(buildGradle).toContain(`applicationId: '${ANDROID_APP_PACKAGE}'`);
+    // Il namespace del codice Java resta quello originale: cambia solo il pacchetto visto da Android.
+    expect(buildGradle).toContain(`namespace "${ANDROID_LEGACY_PACKAGE}"`);
     expect(buildGradle).toContain(`versionName "${ANDROID_APP_VERSION}"`);
     expect(buildGradle).toContain(`hostName: '${ANDROID_APP_HOST}'`);
     expect(buildGradle).toContain(`?: '${ANDROID_APP_VERSION_CODE}'`);
