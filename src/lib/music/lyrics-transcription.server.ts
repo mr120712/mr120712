@@ -14,6 +14,11 @@
 //    con il token dello store, Whisper, e una bozza LRC "[mm:ss.xx] testo" per segmento. Si
 //    scartano solo le allucinazioni note (crediti dei sottotitoli, "Grazie per la visione"…) e i
 //    segmenti quasi certamente silenziosi; i ritornelli ripetuti restano.
+// 1b. Allineamento (lyrics-align.server.ts): il testo UFFICIALE incollato dall'admin prende i tempi
+//    dall'audio: riusa questa bozza (stesso permesso, limiti e cache; l'inizio del testo fa da
+//    suggerimento al modello in una trascrizione nuova, `lyricsHint`) e la riscrive con le parole del
+//    testo (lyrics-align.ts, puro). I rifiuti `align_invalid`/`align_no_match` rispondono 400 sul
+//    campo `lyrics`.
 // 2. Salvataggio (saveTranscribedLyrics): stesso controllo del permesso, testo validato con il
 //    parser dei testi (≤ 64 KB, righe limitate), scritto come "<stessa cartella>/<stesso nome>.lrc"
 //    (ricavato SOLO dal pathname validato), sempre PRIVATO, sostituendo un .lrc esistente solo
@@ -80,6 +85,7 @@ import {
   lyricsSidecarMatcher,
   trackNameFromPathname,
 } from '@/lib/music/home-tracks.server';
+import { formatLrcTime, formatLrcTimestamp } from '@/lib/music/lrc-format';
 import { normalizeLyricsInput, parseLyrics, sanitizeLyricsLine } from '@/lib/music/lyrics';
 import {
   beginTranscription,
@@ -148,24 +154,9 @@ function abortAfter(ms: number): AbortSignal | undefined {
 
 // ─── Bozza LRC ──────────────────────────────────────────────────────────────────────────────────
 
-/**
- * "[mm:ss.xx]" dall'inizio in secondi: centesimi arrotondati, minuti senza tetto (le ore
- * diventano minuti: 1 h 2 min 5 s → [62:05.00]). Valori non validi o negativi → [00:00.00].
- */
-export function formatLrcTimestamp(seconds: number): string {
-  return `[${formatLrcTime(seconds)}]`;
-}
-
-/** "mm:ss.xx" senza parentesi (per i tag delle parole "<mm:ss.xx>"). */
-export function formatLrcTime(seconds: number): string {
-  const capped = Number.isFinite(seconds) && seconds > 0 ? Math.min(seconds, 24 * 3600) : 0;
-  const total = Math.round(capped * 100);
-  const minutes = Math.floor(total / 6000);
-  const secs = Math.floor((total % 6000) / 100);
-  const centiseconds = total % 100;
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `${pad(minutes)}:${pad(secs)}.${pad(centiseconds)}`;
-}
+// I formati dei tempi ("[mm:ss.xx]" e "<mm:ss.xx>") stanno in lrc-format.ts (puro: lo usa anche
+// l'allineamento del testo ufficiale); qui si riesportano per chi li importava da questo modulo.
+export { formatLrcTime, formatLrcTimestamp };
 
 /** True se la bozza ha tag parola per parola ("<mm:ss.xx>"). */
 export function hasWordTags(draft: string): boolean {
@@ -338,6 +329,17 @@ export function buildDraftLrc(
 export function transcriptionPrompt(pathname: string): string {
   const { title, artist } = trackNameFromPathname(pathname);
   return artist ? `${artist} - ${title}` : title;
+}
+
+/**
+ * Lo stesso suggerimento con, in coda, l'inizio del testo ufficiale fornito dall'admin per
+ * l'allineamento (ne ha i diritti): il modello scrive giuste le parole che vede. Whisper taglia il
+ * suggerimento a 400 caratteri. Senza testo: solo artista e titolo.
+ */
+export function transcriptionPromptWithHint(pathname: string, lyricsHint?: string): string {
+  const base = transcriptionPrompt(pathname);
+  const hint = lyricsHint?.replace(/\s+/g, ' ').trim() ?? '';
+  return hint ? `${base}. ${hint}` : base;
 }
 
 // ─── Validazione del testo da salvare ─────────────────────────────────────────────────────────────
@@ -528,7 +530,17 @@ export type TranscriptionRefusal =
   | { kind: 'whisper'; error: WhisperErrorCode; message: string }
   | { kind: 'invalid_lrc'; message: string }
   | { kind: 'lrc_exists' }
-  | { kind: 'save_failed' };
+  | { kind: 'save_failed' }
+  /** Allineamento del testo ufficiale: il testo fornito non va (vuoto, troppo lungo): messaggio sul campo. */
+  | { kind: 'align_invalid'; message: string }
+  /** Allineamento: il testo trova troppo poco riscontro fra le parole riconosciute nell'audio. */
+  | { kind: 'align_no_match'; coverage: number };
+
+/** Messaggio sul campo del testo quando l'allineamento non trova riscontro (`coverage` 0-1). */
+export function alignNoMatchMessage(coverage: number): string {
+  const percent = Math.round(Math.max(0, Math.min(1, coverage)) * 100);
+  return `Il testo trova riscontro solo nel ${percent}% delle parole riconosciute nell'audio: controlla che sia il testo di questo brano e che le righe seguano l'ordine in cui vengono cantate.`;
+}
 
 /** Stessa risposta per ogni brano che non si può trascrivere (nessun indizio sul perché). */
 export const NOT_ELIGIBLE_MESSAGE =
@@ -616,6 +628,13 @@ export function transcriptionRefusalResponse(refusal: TranscriptionRefusal): Res
       return json(400, { error: 'invalid_lrc', errors: { lrc: refusal.message } });
     case 'lrc_exists':
       return json(409, { error: 'lrc_exists', errors: { lrc: LRC_EXISTS_MESSAGE } });
+    case 'align_invalid':
+      return json(400, { error: 'align_invalid', errors: { lyrics: refusal.message } });
+    case 'align_no_match':
+      return json(400, {
+        error: 'align_no_match',
+        errors: { lyrics: alignNoMatchMessage(refusal.coverage) },
+      });
     default:
       return json(502, {
         error: 'save_failed',
@@ -710,6 +729,11 @@ export type TranscribeInput = {
    * ignora, si rifà e si sostituisce. Assente o false = si riusa se c'è.
    */
   regenerate?: boolean;
+  /**
+   * Inizio del testo ufficiale fornito dall'admin (allineamento): fa da suggerimento al modello in
+   * una trascrizione NUOVA (parole scritte giuste). Una bozza conservata si riusa com'è.
+   */
+  lyricsHint?: string;
 };
 
 export type TranscribeOutcome =
@@ -804,6 +828,7 @@ export async function transcribeFeaturedTrack({
   identity,
   signal,
   regenerate = false,
+  lyricsHint,
 }: TranscribeInput): Promise<TranscribeOutcome> {
   const startedAt = Date.now();
   const provider = transcriptionProvider();
@@ -843,6 +868,7 @@ export async function transcribeFeaturedTrack({
     provider,
     startedAt,
     cacheKey,
+    lyricsHint,
   };
   if (!cacheKey) return transcribeNow({ ...run, waited: false });
 
@@ -882,6 +908,8 @@ type TranscribeRun = {
   cacheKey: string | null;
   /** true = ha aspettato una trascrizione identica (finita senza una bozza da riusare). */
   waited: boolean;
+  /** Inizio del testo ufficiale (allineamento), per il suggerimento al modello. */
+  lyricsHint?: string;
 };
 
 /** Limiti, lettura dell'audio, Whisper, bozza e (se la cache è attiva) salvataggio cifrato. */
@@ -896,6 +924,7 @@ async function transcribeNow({
   startedAt,
   cacheKey,
   waited,
+  lyricsHint,
 }: TranscribeRun): Promise<TranscribeOutcome> {
   // Prima di prenotare i limiti e leggere l'audio: dopo un'attesa (o uno store lento) potrebbe
   // non restare il tempo per lettura + Whisper. Meglio dirlo subito che consumare e restituire.
@@ -932,8 +961,9 @@ async function transcribeNow({
     language,
     apiKey: provider.apiKey,
     target: provider,
-    // Artista e titolo dal nome del file: nomi scritti giusti; tempi delle parole per il karaoke.
-    prompt: transcriptionPrompt(track.pathname),
+    // Artista e titolo dal nome del file (e l'inizio del testo ufficiale, se l'admin lo ha dato):
+    // nomi e parole scritti giusti; tempi delle parole per il karaoke.
+    prompt: transcriptionPromptWithHint(track.pathname, lyricsHint),
     wordTimestamps: true,
     timeoutMs: Math.min(WHISPER_TIMEOUT_MS, remaining),
     signal,

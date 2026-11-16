@@ -1,5 +1,6 @@
 // @polsia:user-owned — contratto della trascrizione IA dei testi (Whisper) nella pagina admin
-// «Diritti e testi»: POST /api/admin/featured-rights/transcribe (bozza LRC) e POST
+// «Diritti e testi»: POST /api/admin/featured-rights/transcribe (bozza LRC), POST
+// …/transcribe/align (testo ufficiale allineato ai tempi dell'audio) e POST
 // /api/admin/featured-rights/transcribe/save (salvataggio del .lrc accanto al brano). Vale SOLO per
 // i brani in evidenza dichiarati in diritti.json con "testo": true: per ogni altro brano la
 // funzione non esiste (nessun pulsante, il server risponde 404 sempre uguale). La bozza torna solo
@@ -77,6 +78,21 @@ export const TranscribeRequestSchema = z
   .strict();
 export type TranscribeRequest = z.infer<typeof TranscribeRequestSchema>;
 
+/** Esito dell'allineamento del testo ufficiale alle parole con tempo (…/transcribe/align). */
+export const AlignmentStatsSchema = z
+  .object({
+    /** Quota (0-1) delle parole del testo con un tempo preso dall'audio; le altre sono interpolate. */
+    coverage: z.number().min(0).max(1),
+    matchedWords: z.number().int().nonnegative(),
+    totalWords: z.number().int().nonnegative(),
+    /** Righe del risultato (1 = la prima) con poche parole abbinate: da controllare per prime. */
+    unmatchedLines: z
+      .array(z.number().int().positive().max(TRANSCRIPTION_LRC_MAX_LINES))
+      .max(TRANSCRIPTION_LRC_MAX_LINES),
+  })
+  .strict();
+export type AlignmentStats = z.infer<typeof AlignmentStatsSchema>;
+
 export const TranscribeResponseSchema = z
   .object({
     /** Bozza LRC: una riga "[mm:ss.xx] testo" per segmento riconosciuto. */
@@ -105,9 +121,38 @@ export const TranscribeResponseSchema = z
      * prossima richiesta potrebbe pagarla di nuovo).
      */
     cachedAt: z.string().datetime().nullable(),
+    /**
+     * Solo da POST …/transcribe/align: la bozza è il testo UFFICIALE fornito dall'admin con i tempi
+     * presi dall'audio (allineamento), con la copertura e le righe senza riscontro.
+     */
+    aligned: AlignmentStatsSchema.optional(),
   })
   .strict();
 export type TranscribeResponse = z.infer<typeof TranscribeResponseSchema>;
+
+/** Il testo ufficiale da allineare: al massimo come il .lrc salvato. */
+export const ALIGN_LYRICS_MAX_CHARS = TRANSCRIPTION_LRC_MAX_BYTES;
+
+/**
+ * POST /api/admin/featured-rights/transcribe/align: il testo ufficiale del brano (una riga per
+ * verso; anche un LRC: contano solo le parole) allineato alle parole con tempo riconosciute da
+ * Solco AI (trascrizione conservata, o nuova con il testo come suggerimento al modello). Risposta:
+ * TranscribeResponse con `aligned`. Errori sul campo `lyrics` (400: testo vuoto, troppo lungo o
+ * senza riscontro nell'audio); gli altri come la trascrizione (404 brano non ammesso, 503, 429…).
+ */
+export const AlignLyricsRequestSchema = z
+  .object({
+    pathname: PathnameSchema,
+    lyrics: z.string().min(1).max(ALIGN_LYRICS_MAX_CHARS),
+    /** Assente = riconoscimento automatico della lingua (solo per una trascrizione nuova). */
+    language: TranscriptionLanguageSchema.optional(),
+  })
+  .strict();
+export type AlignLyricsRequest = z.infer<typeof AlignLyricsRequestSchema>;
+
+/** Nota nell'editor per una bozza allineata al testo fornito. */
+export const TRANSCRIPTION_ALIGNED_HINT =
+  'Parole del tuo testo, tempi di Solco AI: controlla per prime le righe senza riscontro nell’audio.';
 
 export const SaveLyricsRequestSchema = z
   .object({

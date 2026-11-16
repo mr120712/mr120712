@@ -11,9 +11,13 @@
 // gli altri brani non hanno né pulsante né altro). "Trascrivi con Solco AI" chiede una bozza LRC a
 // /api/admin/featured-rights/transcribe (si può annullare), la mostra
 // in un editor da rivedere e "Salva come .lrc" la scrive accanto al brano (sostituendo un .lrc
-// esistente solo dopo la conferma). La bozza resta in questa pagina, per questo amministratore:
-// lo stato di ogni brano (richiesta in corso, bozza, modifiche) vive sopra l'elenco, così filtri e
-// ricerca non lo perdono; una bozza modificata non si sostituisce senza chiedere.
+// esistente solo dopo la conferma). «Ho il testo: allinea» apre il campo del testo UFFICIALE (l'admin
+// ne ha i diritti) e «Allinea con Solco AI» chiede a …/transcribe/align lo stesso testo con i tempi
+// presi dall'audio (Enhanced LRC: karaoke con le parole giuste); l'editor dice la copertura e le
+// righe senza riscontro, e «Copia il testo» mette il testo dell'editor negli appunti. La bozza resta
+// in questa pagina, per questo amministratore: lo stato di ogni brano (richiesta in corso, bozza,
+// modifiche, testo incollato) vive sopra l'elenco, così filtri e ricerca non lo perdono; una bozza
+// modificata non si sostituisce senza chiedere (né con una trascrizione né con l'allineamento).
 // Il server conserva ogni trascrizione CIFRATA e la riusa: una bozza dalla cache mostra «Dalla
 // cache · nessun credito usato» con la data della trascrizione e «Rigenera con Solco AI» (dopo la
 // conferma chiede regenerate: true); una nuova mostra «Nuova trascrizione · salvata in modo
@@ -23,6 +27,7 @@
 'use client';
 
 import {
+  AlignLeft,
   CircleX,
   ClipboardCopy,
   FileCheck2,
@@ -89,8 +94,10 @@ import {
   type FeaturedRightsTranscription,
 } from '@/lib/contracts/admin-featured-rights';
 import {
+  ALIGN_LYRICS_MAX_CHARS,
   SaveLyricsResponseSchema,
   SOLCO_AI_NAME,
+  TRANSCRIPTION_ALIGNED_HINT,
   TRANSCRIPTION_LANGUAGES,
   TRANSCRIPTION_LRC_MAX_BYTES,
   TRANSCRIPTION_NOT_CONFIGURED_MESSAGE,
@@ -1094,7 +1101,9 @@ function copyTitlesManifest(tracks: readonly FeaturedRightsTrack[], truncated: b
 // ─── Trascrizione con l'IA (solo brani dichiarati con "testo": true) ────────────────────────────
 
 const TRANSCRIBE_ENDPOINT = '/api/admin/featured-rights/transcribe';
+const ALIGN_LYRICS_ENDPOINT = '/api/admin/featured-rights/transcribe/align';
 const SAVE_LYRICS_ENDPOINT = '/api/admin/featured-rights/transcribe/save';
+const LYRICS_EMPTY_MESSAGE = 'Incolla il testo del brano, una riga per verso.';
 const FORMAT_LIST = `${WHISPER_EXTENSIONS.slice(0, -1).join(', ')} o ${WHISPER_EXTENSIONS.at(-1)}`;
 const TOO_LARGE_REASON = 'File oltre 25 MB: la trascrizione non è disponibile.';
 const utf8 = new TextEncoder();
@@ -1286,6 +1295,8 @@ type TranscriptionSession = {
   /** Lingua scelta nel menu ('' = automatica). */
   language: TranscriptionLanguage | '';
   phase: 'idle' | 'running' | 'error';
+  /** Che cosa fa la richiesta in corso: trascrizione, o allineamento del testo fornito. */
+  task: 'transcribe' | 'align';
   errorMessage: string | null;
   /** Ultima bozza ricevuta (null = nessuna, o già salvata). */
   draft: TranscribeResponse | null;
@@ -1294,9 +1305,16 @@ type TranscriptionSession = {
   /** Cresce a ogni bozza nuova: l'editor riparte dal testo della bozza. */
   draftVersion: number;
   editorOpen: boolean;
-  /** Domanda prima di sostituire una bozza modificata con una nuova trascrizione. */
-  confirmReplace: boolean;
+  /**
+   * Domanda prima di sostituire una bozza modificata: con una nuova trascrizione ('transcribe')
+   * o con il testo fornito allineato ('align'); false = nessuna domanda aperta.
+   */
+  confirmReplace: false | 'transcribe' | 'align';
   savedNote: string | null;
+  /** Blocco «Ho il testo: allinea» aperto nella scheda. */
+  alignOpen: boolean;
+  /** Errore sul testo fornito (vuoto, o il 400 del server sul campo): resta sotto il testo. */
+  alignError: string | null;
   /** Richiesta in corso (per «Annulla»). */
   controller: AbortController | null;
 };
@@ -1304,6 +1322,7 @@ type TranscriptionSession = {
 const IDLE_SESSION: TranscriptionSession = {
   language: '',
   phase: 'idle',
+  task: 'transcribe',
   errorMessage: null,
   draft: null,
   draftLanguage: '',
@@ -1311,6 +1330,8 @@ const IDLE_SESSION: TranscriptionSession = {
   editorOpen: false,
   confirmReplace: false,
   savedNote: null,
+  alignOpen: false,
+  alignError: null,
   controller: null,
 };
 
@@ -1323,6 +1344,8 @@ class TranscriptionSessions {
   private readonly sessions = new Map<string, TranscriptionSession>();
   /** Testo dell'editor per brano: fuori dallo stato osservato perché cambia a ogni tasto. */
   private readonly texts = new Map<string, string>();
+  /** Testo ufficiale incollato per brano («Ho il testo: allinea»): resta anche se la scheda sparisce. */
+  private readonly officialTexts = new Map<string, string>();
   private readonly mounted = new Map<string, number>();
   private readonly listeners = new Set<() => void>();
 
@@ -1348,6 +1371,14 @@ class TranscriptionSessions {
 
   setText(pathname: string, value: string) {
     this.texts.set(pathname, value);
+  }
+
+  official(pathname: string): string {
+    return this.officialTexts.get(pathname) ?? '';
+  }
+
+  setOfficial(pathname: string, value: string) {
+    this.officialTexts.set(pathname, value);
   }
 
   /** True se il testo nell'editor non è più quello della bozza ricevuta (modifiche dell'admin). */
@@ -1407,9 +1438,11 @@ async function runTranscription(
   const controller = new AbortController();
   sessions.update(pathname, {
     phase: 'running',
+    task: 'transcribe',
     errorMessage: null,
     savedNote: null,
     confirmReplace: false,
+    alignError: null,
     controller,
   });
   try {
@@ -1466,6 +1499,93 @@ async function runTranscription(
   }
 }
 
+/** Il messaggio del server sul campo `lyrics` (400 dell'allineamento), o null. */
+function lyricsFieldError(error: unknown): string | null {
+  const cause =
+    error instanceof Error && typeof error.cause === 'object' && error.cause !== null
+      ? (error.cause as { errors?: unknown })
+      : null;
+  const errors = cause?.errors;
+  if (typeof errors !== 'object' || errors === null) return null;
+  const message = (errors as { lyrics?: unknown }).lyrics;
+  return typeof message === 'string' && message.trim()
+    ? message.trim().slice(0, ERROR_TEXT_MAX)
+    : null;
+}
+
+/**
+ * Allinea il testo ufficiale incollato dall'admin ai tempi dell'audio (…/transcribe/align): stesso
+ * stato della trascrizione (avanzamento, «Annulla», bozza nell'editor, anche se la scheda è
+ * nascosta). Un errore sul testo (il 400 del server sul campo `lyrics`) resta sotto il testo, nel
+ * blocco che riapre; gli altri errori come la trascrizione.
+ */
+async function runAlignment(
+  sessions: TranscriptionSessions,
+  pathname: string,
+  name: string,
+  language: TranscriptionLanguage | '',
+  lyrics: string,
+) {
+  const controller = new AbortController();
+  sessions.update(pathname, {
+    phase: 'running',
+    task: 'align',
+    errorMessage: null,
+    savedNote: null,
+    confirmReplace: false,
+    alignError: null,
+    controller,
+  });
+  try {
+    const result = await apiFetch(ALIGN_LYRICS_ENDPOINT, {
+      method: 'POST',
+      body: JSON.stringify({ pathname, lyrics, ...(language ? { language } : {}) }),
+      schema: TranscribeResponseSchema,
+      signal: controller.signal,
+    });
+    if (sessions.get(pathname).controller !== controller) return;
+    const visible = sessions.isMounted(pathname);
+    sessions.setText(pathname, result.draft);
+    sessions.update(pathname, {
+      phase: 'idle',
+      controller: null,
+      draft: result,
+      draftLanguage: language,
+      draftVersion: sessions.get(pathname).draftVersion + 1,
+      editorOpen: visible,
+      alignOpen: false,
+    });
+    const percent = Math.round((result.aligned?.coverage ?? 0) * 100);
+    const summary = `${linesText(result.lineCount)}, ${percent}% delle parole con un tempo preso dall’audio`;
+    toast.success(
+      visible
+        ? `Testo allineato: ${summary}.`
+        : `Testo allineato per ${name}: ${summary}. Lo trovi con «Riapri la bozza» nella sua scheda.`,
+    );
+  } catch (error) {
+    if (sessions.get(pathname).controller !== controller) return;
+    if (isAbort(error, controller.signal)) {
+      sessions.update(pathname, { phase: 'idle', controller: null });
+      toast('Allineamento annullato.');
+      return;
+    }
+    const fieldError = lyricsFieldError(error);
+    if (fieldError) {
+      sessions.update(pathname, {
+        phase: 'idle',
+        controller: null,
+        alignOpen: true,
+        alignError: fieldError,
+      });
+      toast.error(fieldError);
+      return;
+    }
+    const message = actionErrorMessage(error, 'L’allineamento non è riuscito. Riprova.');
+    sessions.update(pathname, { phase: 'error', errorMessage: message, controller: null });
+    toast.error(message);
+  }
+}
+
 type LrcForm = { lrc: string };
 
 /**
@@ -1493,6 +1613,10 @@ function LyricsTranscription({
   const selectId = useId();
   const reasonId = useId();
   const replaceId = useId();
+  const lyricsId = useId();
+  const alignBlockId = useId();
+  const alignHelpId = useId();
+  const alignErrorId = useId();
   const startRef = useRef<HTMLButtonElement>(null);
   const reopenRef = useRef<HTMLButtonElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
@@ -1524,10 +1648,27 @@ function LyricsTranscription({
     if (blockedReason || current.phase === 'running') return;
     // Una bozza modificata (e non salvata) non si sostituisce senza chiedere.
     if (!force && sessions.edited(pathname)) {
-      sessions.update(pathname, { confirmReplace: true });
+      sessions.update(pathname, { confirmReplace: 'transcribe' });
       return;
     }
     void runTranscription(sessions, pathname, name, current.language);
+  };
+
+  // «Allinea con Solco AI»: il testo incollato (mai vuoto) prende i tempi dell'audio; una bozza
+  // modificata e non salvata non si sostituisce senza chiedere.
+  const align = (force = false) => {
+    const current = sessions.get(pathname);
+    if (blockedReason || current.phase === 'running') return;
+    const lyrics = sessions.official(pathname).trim();
+    if (!lyrics) {
+      sessions.update(pathname, { alignOpen: true, alignError: LYRICS_EMPTY_MESSAGE });
+      return;
+    }
+    if (!force && sessions.edited(pathname)) {
+      sessions.update(pathname, { confirmReplace: 'align' });
+      return;
+    }
+    void runAlignment(sessions, pathname, name, current.language, lyrics);
   };
 
   const keepDraft = () => {
@@ -1552,6 +1693,7 @@ function LyricsTranscription({
   // Stessa lingua di una bozza conservata sul server: «Trascrivi con l'IA» riavrebbe QUELLA bozza
   // dalla cache (gratis), non una trascrizione nuova; per una nuova serve «Rigenera con l'IA».
   const reloadsStoredDraft =
+    session.confirmReplace !== 'align' &&
     draft !== null &&
     session.language === session.draftLanguage &&
     (draft.fromCache || draft.cachedAt !== null);
@@ -1566,7 +1708,9 @@ function LyricsTranscription({
         <div className={styles.progress}>
           <output aria-live="polite" className={styles.progressText}>
             <LoaderCircle aria-hidden="true" className="motion-safe:animate-spin" />
-            Trascrizione in corso… può richiedere fino a un minuto
+            {session.task === 'align'
+              ? 'Allineamento in corso… può richiedere fino a un minuto'
+              : 'Trascrizione in corso… può richiedere fino a un minuto'}
           </output>
           <Button ref={cancelRef} type="button" size="sm" variant="outline" onClick={cancel}>
             Annulla
@@ -1607,6 +1751,21 @@ function LyricsTranscription({
             <Sparkles aria-hidden="true" />
             Trascrivi con {SOLCO_AI_NAME}
           </Button>
+          {blockedReason ? null : (
+            <Button
+              type="button"
+              size="sm"
+              variant={session.alignOpen ? 'secondary' : 'outline'}
+              aria-expanded={session.alignOpen}
+              aria-controls={session.alignOpen ? alignBlockId : undefined}
+              onClick={() =>
+                sessions.update(pathname, { alignOpen: !session.alignOpen, alignError: null })
+              }
+            >
+              <AlignLeft aria-hidden="true" />
+              Ho il testo: allinea
+            </Button>
+          )}
           {draft && !session.editorOpen ? (
             <Button
               ref={reopenRef}
@@ -1620,6 +1779,48 @@ function LyricsTranscription({
           ) : null}
         </div>
       )}
+      {session.alignOpen && !running && !blockedReason ? (
+        <div id={alignBlockId} className={styles.alignBlock}>
+          <Label htmlFor={lyricsId}>Testo ufficiale del brano (una riga per verso)</Label>
+          <Textarea
+            id={lyricsId}
+            className={styles.alignInput}
+            rows={8}
+            maxLength={ALIGN_LYRICS_MAX_CHARS}
+            spellCheck={false}
+            defaultValue={sessions.official(pathname)}
+            aria-describedby={session.alignError ? `${alignHelpId} ${alignErrorId}` : alignHelpId}
+            aria-invalid={session.alignError ? true : undefined}
+            onChange={(event) => {
+              sessions.setOfficial(pathname, event.target.value);
+              if (session.alignError) sessions.update(pathname, { alignError: null });
+            }}
+          />
+          <p id={alignHelpId} className={styles.muted}>
+            {SOLCO_AI_NAME} prende i tempi dall’audio e li mette sulle tue parole: il karaoke esce
+            con il testo giusto. Il testo non si conserva sul server.
+          </p>
+          {session.alignError ? (
+            <p id={alignErrorId} role="alert" className={styles.inlineError}>
+              {session.alignError}
+            </p>
+          ) : null}
+          <div className={styles.alignActions}>
+            <Button type="button" size="sm" onClick={() => align()}>
+              <AlignLeft aria-hidden="true" />
+              Allinea con {SOLCO_AI_NAME}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => sessions.update(pathname, { alignOpen: false, alignError: null })}
+            >
+              Chiudi
+            </Button>
+          </div>
+        </div>
+      ) : null}
       {draft && !running ? (
         <div className={styles.origin}>
           <DraftOrigin draft={draft} />
@@ -1630,18 +1831,24 @@ function LyricsTranscription({
           <TriangleAlert aria-hidden="true" />
           <div className={styles.replaceBody}>
             <p id={replaceId}>
-              {reloadsStoredDraft
-                ? 'Hai una bozza modificata: ricaricare la bozza conservata sul server? Le tue correzioni andrebbero perse. Per una trascrizione nuova usa «Rigenera con Solco AI».'
-                : 'Hai una bozza modificata: sostituirla con una nuova trascrizione? Le tue correzioni andrebbero perse.'}
+              {session.confirmReplace === 'align'
+                ? 'Hai una bozza modificata: sostituirla con il tuo testo allineato? Le tue correzioni andrebbero perse.'
+                : reloadsStoredDraft
+                  ? 'Hai una bozza modificata: ricaricare la bozza conservata sul server? Le tue correzioni andrebbero perse. Per una trascrizione nuova usa «Rigenera con Solco AI».'
+                  : 'Hai una bozza modificata: sostituirla con una nuova trascrizione? Le tue correzioni andrebbero perse.'}
             </p>
             <div className={styles.replaceActions}>
               <Button
                 type="button"
                 size="sm"
                 aria-describedby={replaceId}
-                onClick={() => start(true)}
+                onClick={() => (session.confirmReplace === 'align' ? align(true) : start(true))}
               >
-                {reloadsStoredDraft ? 'Sì, ricarica la bozza' : 'Sì, trascrivi di nuovo'}
+                {session.confirmReplace === 'align'
+                  ? 'Sì, allinea il testo'
+                  : reloadsStoredDraft
+                    ? 'Sì, ricarica la bozza'
+                    : 'Sì, trascrivi di nuovo'}
               </Button>
               <Button
                 ref={keepRef}
@@ -1692,7 +1899,9 @@ function LyricsTranscription({
             <DialogHeader>
               <DialogTitle>Testo di {name}</DialogTitle>
               <DialogDescription>
-                Bozza automatica: controlla parole e tempi prima di salvare.
+                {draft.aligned
+                  ? `Il tuo testo con i tempi di ${SOLCO_AI_NAME}: controlla i tempi prima di salvare.`
+                  : 'Bozza automatica: controlla parole e tempi prima di salvare.'}
               </DialogDescription>
             </DialogHeader>
             <div className={styles.origin}>
@@ -1731,6 +1940,21 @@ function LyricsTranscription({
                   sicuro: ascolta quei punti e correggi).
                 </li>
               ) : null}
+              {draft.aligned ? (
+                <li>
+                  Allineato al tuo testo: {Math.round(draft.aligned.coverage * 100)}% delle parole (
+                  {formatCount(draft.aligned.matchedWords)} su{' '}
+                  {formatCount(draft.aligned.totalWords)}) ha un tempo preso dall’audio; le altre
+                  sono interpolate.
+                </li>
+              ) : null}
+              {draft.aligned && draft.aligned.unmatchedLines.length > 0 ? (
+                <li>
+                  Righe senza riscontro nell’audio: {draft.aligned.unmatchedLines.join(', ')}{' '}
+                  (controlla parole e tempi).
+                </li>
+              ) : null}
+              {draft.aligned ? <li>{TRANSCRIPTION_ALIGNED_HINT}</li> : null}
               {draft.wordTimed ? <li>{TRANSCRIPTION_WORD_TAG_HINT}</li> : null}
             </ul>
             <LyricsEditor
@@ -1863,6 +2087,20 @@ function LyricsEditor({
           </p>
         ) : null}
         <DialogFooter className={styles.editorActions}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() =>
+              void copyText(
+                lrc,
+                'Testo copiato negli appunti.',
+                'Copia non riuscita: seleziona il testo nell’editor e copialo a mano.',
+              )
+            }
+          >
+            <ClipboardCopy aria-hidden="true" />
+            Copia il testo
+          </Button>
           <Button type="button" variant="outline" onClick={onClose}>
             Annulla
           </Button>

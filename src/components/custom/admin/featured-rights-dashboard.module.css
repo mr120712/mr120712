@@ -465,3 +465,21 @@
   font-size: 0.8125rem;
   overflow-wrap: anywhere;
 }
+
+/* «Ho il testo: allinea»: il testo ufficiale da allineare ai tempi dell'audio con Solco AI */
+.alignBlock {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  min-width: 0;
+}
+.alignInput {
+  min-height: 9rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.alignActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
