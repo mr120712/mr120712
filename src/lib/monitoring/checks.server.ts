@@ -19,6 +19,7 @@ import { readYouTubeApiKey } from '@/lib/music/music-api.server';
 import { searchPodcasts } from '@/lib/music/podcasts.server';
 import { listStations } from '@/lib/music/radio-browser.server';
 import {
+  apiKeyShape,
   type TranscriptionProvider,
   transcriptionKeyEnvName,
   transcriptionProvider,
@@ -488,7 +489,10 @@ const checkSolcoAi: Check = async (deps) => {
   }
   switch (probe.error) {
     case 'invalid_key':
-      return fail(`Chiave ${vendor} non valida o revocata`);
+      // Mai la chiave: solo lo stato HTTP e com'è fatta (lunghezza, prefisso, caratteri estranei).
+      return fail(
+        `Chiave ${vendor} non valida o revocata (HTTP ${probe.status ?? 'n/d'}; ${apiKeyShape(provider)})`,
+      );
     case 'no_credit':
       return fail(`Crediti ${vendor} esauriti o fatturazione non attiva`);
     case 'rate_limited':

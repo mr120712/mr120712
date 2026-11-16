@@ -14,7 +14,11 @@ import { auth } from '@/lib/auth';
 import { consumeRateLimit, rateLimitResponse } from '@/lib/business/rate-limit.server';
 import { TranscriptionCheckResponseSchema } from '@/lib/contracts/lyrics-transcription';
 import { transcriptionRefusalResponse } from '@/lib/music/lyrics-transcription.server';
-import { transcriptionProvider } from '@/lib/music/transcription-provider.server';
+import {
+  apiKeyShape,
+  type TranscriptionProvider,
+  transcriptionProvider,
+} from '@/lib/music/transcription-provider.server';
 import { probeMessage, probeTranscription } from '@/lib/music/whisper.server';
 import { sameOrigin } from '@/lib/same-origin';
 
@@ -43,6 +47,23 @@ async function requireAdmin(request: Request): Promise<AdminAccess> {
   }
 }
 
+/**
+ * Il messaggio della prova con la diagnosi che serve all'amministratore: lo stato HTTP del
+ * servizio e, per una chiave rifiutata, com'è fatta la chiave su Vercel (lunghezza, prefisso,
+ * caratteri estranei), mai la chiave stessa.
+ */
+export function probeDiagnosis(
+  provider: TranscriptionProvider,
+  probe: { error: string; message: string; status?: number },
+): string {
+  const base = probeMessage(probe.message);
+  const http = probe.status === undefined ? 'nessuna risposta HTTP' : `HTTP ${probe.status}`;
+  if (probe.error === 'invalid_key') {
+    return `${base} ${provider.vendor} ha risposto ${http}; la chiave su Vercel: ${apiKeyShape(provider)}.`;
+  }
+  return probe.status === undefined ? base : `${base} (${provider.vendor}: ${http})`;
+}
+
 export async function POST(request: Request) {
   if (!sameOrigin(request)) return failure('forbidden_origin', 403);
   const access = await requireAdmin(request);
@@ -66,7 +87,7 @@ export async function POST(request: Request) {
     return transcriptionRefusalResponse({
       kind: 'whisper',
       error: probe.error,
-      message: probeMessage(probe.message),
+      message: probeDiagnosis(provider, probe),
     });
   }
   return NextResponse.json(

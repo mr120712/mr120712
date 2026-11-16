@@ -73,7 +73,8 @@ const SECRETS = {
   NEXT_PUBLIC_GOOGLE_SIGNIN_CLIENT_ID: '1234567890-fakeclient.apps.googleusercontent.com',
   YOUTUBE_DATA_API_KEY: 'AIzaFakeYouTubeKey0123456789abcdef',
   ANTHROPIC_API_KEY: ['sk', 'ant', 'api03', 'fake-anthropic-key-0123456789'].join('-'),
-  GROQ_API_KEY: ['gsk', 'fake-groq-key-0123456789abcdef'].join('_'),
+  // Forma di una chiave Groq vera: "gsk_" più 52 caratteri (valore finto).
+  GROQ_API_KEY: `gsk_${'fakegroqkey0123456789'.repeat(3).slice(0, 52)}`,
   // Built at runtime: a literal key-shaped string would trip secret scanners.
   STRIPE_SECRET_KEY: ['sk', 'live', 'FAKE0'.repeat(5)].join('_'),
   RESEND_API_KEY: 're_fake_resend_key_0123456789',
@@ -733,7 +734,11 @@ describe('solco_ai', () => {
   });
 
   it.each([
-    ['invalid_key', 'fail', 'Chiave Groq non valida o revocata'],
+    [
+      'invalid_key',
+      'fail',
+      `Chiave Groq non valida o revocata (HTTP n/d; ${SECRETS.GROQ_API_KEY.length} caratteri, inizia con gsk_)`,
+    ],
     ['no_credit', 'fail', 'Crediti Groq esauriti o fatturazione non attiva'],
     ['rate_limited', 'warn', 'Groq limita temporaneamente le richieste'],
     ['no_response', 'fail', 'Groq non risponde entro il tempo previsto'],

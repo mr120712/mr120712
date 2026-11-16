@@ -103,6 +103,8 @@ export type WhisperFailure = {
    * connessione rifiutata): nessun costo, chi chiama può restituire i limiti.
    */
   notSent?: true;
+  /** Stato HTTP della risposta del servizio, se ha risposto (es. 401): utile per la diagnosi. */
+  status?: number;
 };
 
 export type WhisperResult = { ok: true; transcript: WhisperTranscript } | WhisperFailure;
@@ -148,8 +150,10 @@ export const WHISPER_ERROR_MESSAGES: Record<WhisperErrorCode, string> = Object.f
   WHISPER_ERROR_CODES.map((code) => [code, whisperErrorMessage(code, OPENAI_TARGET)]),
 ) as Record<WhisperErrorCode, string>;
 
-function failure(error: WhisperErrorCode, target: MessageTarget): WhisperFailure {
-  return { ok: false, error, message: whisperErrorMessage(error, target) };
+function failure(error: WhisperErrorCode, target: MessageTarget, status?: number): WhisperFailure {
+  const result: WhisperFailure = { ok: false, error, message: whisperErrorMessage(error, target) };
+  if (status !== undefined) result.status = status;
+  return result;
 }
 
 /** Errori di connessione che avvengono PRIMA di inviare la richiesta (DNS, porta chiusa). */
@@ -241,18 +245,23 @@ const QUOTA_PATTERN =
 
 async function errorFromStatus(response: Response, target: MessageTarget): Promise<WhisperFailure> {
   const { status } = response;
-  if (status === 401 || status === 403) return failure('invalid_key', target);
+  if (status === 401 || status === 403) return failure('invalid_key', target, status);
   if (status === 429) {
     return failure(
       (await bodyMentions(response, QUOTA_PATTERN)) ? 'no_credit' : 'rate_limited',
       target,
+      status,
     );
   }
-  if (status === 413) return failure('too_large', target);
+  if (status === 413) return failure('too_large', target, status);
   if (status === 400 || status === 415 || status === 422) {
-    return failure((await bodyMentions(response, SIZE_PATTERN)) ? 'too_large' : 'rejected', target);
+    return failure(
+      (await bodyMentions(response, SIZE_PATTERN)) ? 'too_large' : 'rejected',
+      target,
+      status,
+    );
   }
-  return failure(status >= 500 ? 'unavailable' : 'rejected', target);
+  return failure(status >= 500 ? 'unavailable' : 'rejected', target, status);
 }
 
 function combinedSignal(timeoutMs: number, signal?: AbortSignal): AbortSignal | undefined {

@@ -113,3 +113,37 @@ export function activeTranscriptionEngine(env?: EnvLike): string | undefined {
   const provider = transcriptionProvider(env);
   return provider ? transcriptionEngineLabel(provider) : undefined;
 }
+
+/** Prefisso con cui iniziano le chiavi del servizio (Groq «gsk_», OpenAI «sk-»). */
+const KEY_PREFIX: Record<TranscriptionProviderId, string> = { groq: 'gsk_', openai: 'sk-' };
+/** Le chiavi Groq sono "gsk_" più 52 caratteri. */
+const GROQ_KEY_LENGTH = 56;
+/** Caratteri ammessi in una chiave: lettere, cifre, trattino e trattino basso. */
+const KEY_CHARS = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * Com'è fatta la chiave SENZA rivelarla, per capire un rifiuto del servizio: lunghezza, prefisso
+ * atteso e caratteri estranei (spazi, a capo, virgolette, asterischi o puntini della versione
+ * nascosta copiata dalla lista delle chiavi). Es. «56 caratteri, inizia con gsk_» oppure
+ * «22 caratteri, contiene caratteri non ammessi (asterischi, puntini o simboli)».
+ */
+export function apiKeyShape(provider: Pick<TranscriptionProvider, 'id' | 'apiKey'>): string {
+  const key = provider.apiKey;
+  const prefix = KEY_PREFIX[provider.id];
+  const problems: string[] = [];
+  if (/\s/.test(key)) problems.push('contiene spazi o a capo');
+  if (/["'`«»]/.test(key)) problems.push('contiene virgolette');
+  if (!KEY_CHARS.test(key.replace(/[\s"'`«»]/g, ''))) {
+    problems.push(
+      'contiene caratteri non ammessi (asterischi, puntini o simboli: forse è la versione nascosta mostrata nella lista, non la chiave intera)',
+    );
+  }
+  if (!key.startsWith(prefix)) problems.push(`non inizia con ${prefix}`);
+  if (provider.id === 'groq' && key.length !== GROQ_KEY_LENGTH) {
+    problems.push(`lunghezza insolita (le chiavi Groq hanno ${GROQ_KEY_LENGTH} caratteri)`);
+  }
+  const length = `${key.length} caratteri`;
+  return problems.length > 0
+    ? `${length}, ${problems.join(', ')}`
+    : `${length}, inizia con ${prefix}`;
+}
