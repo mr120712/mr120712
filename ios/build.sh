@@ -32,7 +32,9 @@ if ! command -v xcodebuild >/dev/null 2>&1; then
   echo "xcodebuild non trovato: questo script gira solo su un Mac con Xcode (o sul workflow GitHub Actions)." >&2
   exit 1
 fi
-xcodebuild -version | head -n 1
+# Niente `| head`: xcodebuild di Xcode 16 va in abort (SIGPIPE) se chi legge chiude il tubo prima.
+xcode_version="$(xcodebuild -version)"
+echo "${xcode_version%%$'\n'*}"
 
 # Esegue xcodebuild salvando il log completo e mostrando solo errori ed esiti.
 run_xcodebuild() {
