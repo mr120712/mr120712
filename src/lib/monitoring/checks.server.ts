@@ -468,8 +468,10 @@ const checkAnthropic: Check = async (deps) => {
  * Il motore di trascrizione dei testi («Solco AI»: Whisper large-v3 su Groq, chiave GROQ_API_KEY;
  * OpenAI solo se LYRICS_AI_PROVIDER=openai) serve solo alla pagina admin «Diritti e testi». La
  * prova è la stessa richiesta della trascrizione su un secondo di silenzio generato dal server:
- * nessun brano, costo irrisorio. Chiave assente o servizio che limita le richieste: avviso; chiave
- * rifiutata, crediti finiti o servizio irraggiungibile: errore (l'amministratore deve intervenire).
+ * nessun brano, costo irrisorio. È uno strumento solo per l'amministratore: un problema qui non
+ * tocca chi ascolta, quindi ogni esito negativo è un AVVISO con il motivo preciso (chiave
+ * rifiutata, crediti finiti, servizio irraggiungibile…), mai un guasto che segnerebbe il sito
+ * come «degradato» nella pagina pubblica di stato.
  */
 const checkSolcoAi: Check = async (deps) => {
   const provider = transcriptionProvider(deps.env);
@@ -490,19 +492,19 @@ const checkSolcoAi: Check = async (deps) => {
   switch (probe.error) {
     case 'invalid_key':
       // Mai la chiave: solo lo stato HTTP e com'è fatta (lunghezza, prefisso, caratteri estranei).
-      return fail(
+      return warn(
         `Chiave ${vendor} non valida o revocata (HTTP ${probe.status ?? 'n/d'}; ${apiKeyShape(provider)})`,
       );
     case 'no_credit':
-      return fail(`Crediti ${vendor} esauriti o fatturazione non attiva`);
+      return warn(`Crediti ${vendor} esauriti o fatturazione non attiva`);
     case 'rate_limited':
       return warn(`${vendor} limita temporaneamente le richieste`);
     case 'no_response':
-      return fail(`${vendor} non risponde entro il tempo previsto`);
+      return warn(`${vendor} non risponde entro il tempo previsto`);
     case 'unavailable':
-      return fail(`${vendor} ha un problema temporaneo (errore del servizio)`);
+      return warn(`${vendor} ha un problema temporaneo (errore del servizio)`);
     default:
-      return fail(`${vendor} non ha accettato la prova audio`);
+      return warn(`${vendor} non ha accettato la prova audio`);
   }
 };
 

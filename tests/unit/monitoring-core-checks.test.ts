@@ -734,16 +734,17 @@ describe('solco_ai', () => {
   });
 
   it.each([
+    // Strumento solo per l'amministratore: ogni esito negativo è un avviso (mai «degradato»).
     [
       'invalid_key',
-      'fail',
+      'warn',
       `Chiave Groq non valida o revocata (HTTP n/d; ${SECRETS.GROQ_API_KEY.length} caratteri, inizia con gsk_)`,
     ],
-    ['no_credit', 'fail', 'Crediti Groq esauriti o fatturazione non attiva'],
+    ['no_credit', 'warn', 'Crediti Groq esauriti o fatturazione non attiva'],
     ['rate_limited', 'warn', 'Groq limita temporaneamente le richieste'],
-    ['no_response', 'fail', 'Groq non risponde entro il tempo previsto'],
-    ['unavailable', 'fail', 'Groq ha un problema temporaneo (errore del servizio)'],
-    ['rejected', 'fail', 'Groq non ha accettato la prova audio'],
+    ['no_response', 'warn', 'Groq non risponde entro il tempo previsto'],
+    ['unavailable', 'warn', 'Groq ha un problema temporaneo (errore del servizio)'],
+    ['rejected', 'warn', 'Groq non ha accettato la prova audio'],
   ] as const)('maps the probe error %s to %s', async (error, expected, detail) => {
     const result = await runCheck(
       'solco_ai',
