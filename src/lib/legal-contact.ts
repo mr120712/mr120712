@@ -54,11 +54,30 @@ export function ownerStatement(contact: LegalContact): string {
     const parts = [contact.ownerName.trim()];
     if (contact.address.trim()) parts.push(contact.address.trim());
     if (contact.taxId.trim()) parts.push(`codice fiscale o partita IVA ${contact.taxId.trim()}`);
-    return `Il titolare del servizio è ${parts.join(', ')} (${contact.country}).`;
+    return `Solco è gestito da ${parts.join(', ')} (${contact.country}).`;
   }
   return (
     `Solco è un servizio indipendente, gestito dal suo creatore in ${contact.country}, senza una ` +
     `società alle spalle. La denominazione e l'indirizzo completi del titolare si ottengono ` +
     `scrivendo a ${contact.email}.`
   );
+}
+
+/** Forme societarie e enti: la denominazione è di un'organizzazione, non di una persona. */
+const COMPANY_PATTERN =
+  /\b(s\.?\s?r\.?\s?l\.?s?|s\.?\s?p\.?\s?a\.?|s\.?\s?a\.?\s?s\.?|s\.?\s?n\.?\s?c\.?|sagl|ltd|llc|gmbh|inc|società|societa|cooperativa|associazione|fondazione|ets|onlus|aps)\b/i;
+
+/** True se la denominazione pubblicata sembra una società o un ente, non una persona. */
+export function looksLikeCompany(name: string): boolean {
+  return COMPANY_PATTERN.test(name.trim());
+}
+
+/**
+ * Il titolare nei dati strutturati (schema.org Organization): una società diventa `legalName`,
+ * una persona `founder` (Person). Niente se la denominazione non è pubblicata.
+ */
+export function ownerSchema(contact: LegalContact): Record<string, unknown> {
+  if (!hasPublishedOwner(contact)) return {};
+  const name = contact.ownerName.trim();
+  return looksLikeCompany(name) ? { legalName: name } : { founder: { '@type': 'Person', name } };
 }

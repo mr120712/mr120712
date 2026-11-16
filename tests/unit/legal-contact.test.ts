@@ -9,6 +9,8 @@ import {
   contactMailto,
   hasPublishedOwner,
   type LegalContact,
+  looksLikeCompany,
+  ownerSchema,
   ownerStatement,
 } from '@/lib/legal-contact';
 
@@ -32,8 +34,8 @@ describe('ownerStatement', () => {
   });
 
   it('con la denominazione la riporta, con indirizzo e codice fiscale solo se presenti', () => {
-    expect(ownerStatement({ ...BASE, ownerName: ' Solco di Mario Rossi ' })).toBe(
-      'Il titolare del servizio è Solco di Mario Rossi (Italia).',
+    expect(ownerStatement({ ...BASE, ownerName: ' Marco ' })).toBe(
+      'Solco è gestito da Marco (Italia).',
     );
     expect(
       ownerStatement({
@@ -43,10 +45,36 @@ describe('ownerStatement', () => {
         taxId: 'IT01234567890',
       }),
     ).toBe(
-      'Il titolare del servizio è Solco S.r.l., Via Roma 1, 00100 Roma, codice fiscale o partita IVA IT01234567890 (Italia).',
+      'Solco è gestito da Solco S.r.l., Via Roma 1, 00100 Roma, codice fiscale o partita IVA IT01234567890 (Italia).',
     );
     expect(hasPublishedOwner({ ownerName: 'X' })).toBe(true);
     expect(hasPublishedOwner({ ownerName: '   ' })).toBe(false);
+  });
+});
+
+describe('ownerSchema / looksLikeCompany', () => {
+  it('una persona diventa founder, una società legalName, niente senza denominazione', () => {
+    expect(ownerSchema(BASE)).toEqual({});
+    expect(ownerSchema({ ...BASE, ownerName: 'Marco' })).toEqual({
+      founder: { '@type': 'Person', name: 'Marco' },
+    });
+    expect(ownerSchema({ ...BASE, ownerName: 'Solco S.r.l.' })).toEqual({
+      legalName: 'Solco S.r.l.',
+    });
+    for (const company of [
+      'Solco SRL',
+      'Solco srls',
+      'Note S.p.A.',
+      'Musica Sas',
+      'Suoni GmbH',
+      'Associazione Solco',
+      'Solco Società Cooperativa',
+    ]) {
+      expect(looksLikeCompany(company), company).toBe(true);
+    }
+    for (const person of ['Marco', 'Marco Rossi', 'Maria Luisa Bianchi', 'Salvatore Spano']) {
+      expect(looksLikeCompany(person), person).toBe(false);
+    }
   });
 });
 
@@ -62,11 +90,12 @@ describe('contactMailto', () => {
 });
 
 describe('legalContact (brand.ts)', () => {
-  it('ha email, Paese e tempo di risposta; le voci vuote restano stringhe', () => {
+  it('ha email, Paese, tempo di risposta e il nome del gestore pubblicato', () => {
     expect(legalContact.email).toMatch(/^[^@\s]+@[^@\s]+\.[a-z]+$/i);
     expect(legalContact.country.length).toBeGreaterThan(0);
     expect(legalContact.responseTime.length).toBeGreaterThan(0);
-    for (const key of ['ownerName', 'address', 'taxId'] as const) {
+    expect(legalContact.ownerName).toBe('Marco');
+    for (const key of ['address', 'taxId'] as const) {
       expect(typeof legalContact[key]).toBe('string');
     }
   });

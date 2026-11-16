@@ -3,7 +3,7 @@
 // next/script with the passed `nonce` (CSP-safe). Edit freely.
 
 import { legalContact, socialLinks } from '@/lib/brand';
-import { hasPublishedOwner } from '@/lib/legal-contact';
+import { ownerSchema } from '@/lib/legal-contact';
 import { SIGNED_IN_HINT_SCRIPT } from '@/lib/signed-in-hint';
 import { siteDescription, siteName, siteUrl } from '@/lib/site';
 
@@ -34,7 +34,8 @@ const structuredData = JSON.stringify([
     '@type': 'Organization',
     '@id': ORGANIZATION_ID,
     name: siteName,
-    ...(hasPublishedOwner(legalContact) ? { legalName: legalContact.ownerName } : {}),
+    // Chi gestisce Solco: `founder` (persona) o `legalName` (società), dalla stessa fonte di /contatti.
+    ...ownerSchema(legalContact),
     url: siteUrl,
     logo: `${siteUrl}/solco-icon-512.png`,
     email: legalContact.email,

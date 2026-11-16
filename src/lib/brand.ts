@@ -37,7 +37,7 @@ export const socialLinks = {
  * ScamAdviser); finché restano '' il sito dice che i dati completi si ottengono via email.
  */
 export const legalContact: LegalContact = {
-  ownerName: '',
+  ownerName: 'Marco',
   address: '',
   taxId: '',
   country: 'Italia',

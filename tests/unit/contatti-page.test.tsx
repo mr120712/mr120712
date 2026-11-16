@@ -83,7 +83,7 @@ describe('pagine legali senza frasi da bozza', () => {
       );
       expect(text, name).toContain(legalContact.email);
       expect(text, name).toContain('16 novembre 2026');
-      expect(text, name).toMatch(/servizio indipendente|Il titolare del servizio è/);
+      expect(text, name).toMatch(/servizio indipendente|Solco è gestito da/);
     }
     const privacy = render(<PrivacyPage />);
     expect(privacy.querySelector('a[href="/contatti"]')).not.toBeNull();
