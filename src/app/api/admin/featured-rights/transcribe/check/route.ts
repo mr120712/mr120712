@@ -1,29 +1,35 @@
 // @polsia:user-owned — POST /api/admin/featured-rights/transcribe/check: «Verifica Solco AI» dalla
-// pagina admin «Diritti e testi». Invia al motore di trascrizione configurato (Groq, modello Whisper
-// large-v3 a pesi aperti; OpenAI solo se LYRICS_AI_PROVIDER=openai) un secondo di silenzio generato
-// sul server (nessun brano dello store, costo irrisorio) con la stessa richiesta della trascrizione
-// e risponde se funziona (200 con modello e motore), se la chiave manca su Vercel (503
-// transcription_not_configured) o perché no (transcription_invalid_key, transcription_no_credit,
-// transcription_rate_limited, transcription_unavailable, transcription_no_response: gli stessi
-// codici della trascrizione, mai la chiave né il testo della risposta). Solo admin con email
-// verificata, stessa origine, limite 'lyrics.transcribe.check' per admin (consumato solo con la
-// chiave presente); risposta privata, mai in cache.
+// pagina admin «Diritti e testi». Prova OGNI motore configurato (Groq, Deepgram, ElevenLabs, OpenAI,
+// Fireworks, Mistral, Cloudflare: quelli con la chiave su Vercel, nell'ordine in cui la trascrizione
+// li usa) con un secondo di silenzio generato sul server (nessun brano dello store, costo irrisorio)
+// e la stessa richiesta della trascrizione. Risponde 200 se almeno un motore funziona (modello e
+// motore del primo che risponde, più l'esito di tutti in `engines`), 503 transcription_not_configured
+// se nessuna chiave è su Vercel, altrimenti l'errore del primo motore con i motivi di tutti
+// (transcription_invalid_key, transcription_no_credit, transcription_rate_limited,
+// transcription_unavailable, transcription_no_response: gli stessi codici della trascrizione, mai la
+// chiave né il testo della risposta). Solo admin con email verificata, stessa origine, limite
+// 'lyrics.transcribe.check' per admin (consumato solo con almeno una chiave); risposta privata.
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { consumeRateLimit, rateLimitResponse } from '@/lib/business/rate-limit.server';
-import { TranscriptionCheckResponseSchema } from '@/lib/contracts/lyrics-transcription';
+import {
+  TranscriptionCheckResponseSchema,
+  type TranscriptionEngineProbe,
+} from '@/lib/contracts/lyrics-transcription';
 import { transcriptionRefusalResponse } from '@/lib/music/lyrics-transcription.server';
+import { probeProvider } from '@/lib/music/transcription-engines.server';
 import {
   apiKeyShape,
+  configuredTranscriptionProviders,
   type TranscriptionProvider,
-  transcriptionProvider,
+  transcriptionEngineLabel,
 } from '@/lib/music/transcription-provider.server';
-import { probeMessage, probeTranscription } from '@/lib/music/whisper.server';
+import { probeMessage, type WhisperProbeResult } from '@/lib/music/whisper.server';
 import { sameOrigin } from '@/lib/same-origin';
 
 export const dynamic = 'force-dynamic';
-/** La prova al servizio dura al massimo 20 secondi. */
+/** Le prove ai servizi partono insieme e durano al massimo 20 secondi. */
 export const maxDuration = 30;
 
 const privateHeaders = { 'Cache-Control': 'private, no-store', Vary: 'Cookie' };
@@ -64,13 +70,27 @@ export function probeDiagnosis(
   return probe.status === undefined ? base : `${base} (${provider.vendor}: ${http})`;
 }
 
+/** L'esito di un motore nel contratto: tempo di risposta e, se fallisce, la diagnosi. */
+export function engineProbe(
+  provider: TranscriptionProvider,
+  probe: WhisperProbeResult,
+): TranscriptionEngineProbe {
+  return {
+    id: provider.id,
+    label: transcriptionEngineLabel(provider),
+    ok: probe.ok,
+    elapsedMs: probe.elapsedMs,
+    message: probe.ok ? null : probeDiagnosis(provider, probe),
+  };
+}
+
 export async function POST(request: Request) {
   if (!sameOrigin(request)) return failure('forbidden_origin', 403);
   const access = await requireAdmin(request);
   if (!access.allowed) return access.response;
 
-  const provider = transcriptionProvider();
-  if (!provider) return transcriptionRefusalResponse({ kind: 'not_configured' });
+  const providers = configuredTranscriptionProviders();
+  if (providers.length === 0) return transcriptionRefusalResponse({ kind: 'not_configured' });
 
   const decision = await consumeRateLimit('lyrics.transcribe.check', `user:${access.userId}`);
   if (!decision.allowed) {
@@ -79,24 +99,42 @@ export async function POST(request: Request) {
     return response;
   }
 
-  const probe = await probeTranscription({ provider, signal: request.signal });
-  if (!probe.ok) {
-    // Solo motore e codice nei log: niente chiave, niente testo della risposta.
-    // biome-ignore lint/suspicious/noConsole: log del server con il solo codice dell'esito.
-    console.warn(`[admin/featured-rights/transcribe/check] ${provider.id}: ${probe.error}`);
+  // Tutti insieme: la risposta arriva nel tempo del motore più lento, non della somma.
+  const probes = await Promise.all(
+    providers.map((provider) => probeProvider(provider, { signal: request.signal })),
+  );
+  const engines = providers.map((provider, index) => {
+    const probe = probes[index] as WhisperProbeResult;
+    if (!probe.ok) {
+      // Solo motore e codice nei log: niente chiave, niente testo della risposta.
+      // biome-ignore lint/suspicious/noConsole: log del server con il solo codice dell'esito.
+      console.warn(`[admin/featured-rights/transcribe/check] ${provider.id}: ${probe.error}`);
+    }
+    return { provider, probe, summary: engineProbe(provider, probe) };
+  });
+
+  const working = engines.find((engine) => engine.probe.ok);
+  if (!working || !working.probe.ok) {
+    const [first] = engines;
+    const failed = first && !first.probe.ok ? first.probe : null;
+    const reasons = engines.map((engine) => engine.summary.message ?? '').filter(Boolean);
     return transcriptionRefusalResponse({
       kind: 'whisper',
-      error: probe.error,
-      message: probeDiagnosis(provider, probe),
+      error: failed?.error ?? 'unavailable',
+      message:
+        reasons.length === 1
+          ? (reasons[0] ?? '')
+          : `Nessun motore di Solco AI funziona. ${reasons.join(' ')}`,
     });
   }
   return NextResponse.json(
     TranscriptionCheckResponseSchema.parse({
       ok: true,
-      model: probe.model,
-      engine: probe.engine,
-      elapsedMs: probe.elapsedMs,
+      model: working.probe.model,
+      engine: working.probe.engine,
+      elapsedMs: working.probe.elapsedMs,
       checkedAt: new Date().toISOString(),
+      engines: engines.map((engine) => engine.summary),
     }),
     { headers: privateHeaders },
   );

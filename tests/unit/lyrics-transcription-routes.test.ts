@@ -63,6 +63,7 @@ import { clearFeaturedRightsReportCacheForTests } from '@/lib/admin/featured-rig
 import { AdminFeaturedRightsSchema } from '@/lib/contracts/admin-featured-rights';
 import {
   SaveLyricsResponseSchema,
+  TRANSCRIPTION_NOT_CONFIGURED_MESSAGE,
   TranscribeResponseSchema,
 } from '@/lib/contracts/lyrics-transcription';
 import { clearFeaturedLyricsCacheForTests } from '@/lib/music/featured-lyrics.server';
@@ -415,7 +416,7 @@ describe('bozza: permesso ricontrollato adesso', () => {
     expectPrivate(response);
     expect(await response.json()).toEqual({
       error: 'transcription_not_configured',
-      message: 'Aggiungi GROQ_API_KEY su Vercel per usare Solco AI (trascrizione dei testi)',
+      message: TRANSCRIPTION_NOT_CONFIGURED_MESSAGE,
     });
     expect(mocks.list).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
@@ -509,6 +510,7 @@ describe('bozza: limiti e chiamata a OpenAI', () => {
       droppedSegments: 2,
       uncertainLines: [],
       wordTimed: false,
+      engine: 'Solco AI (Groq · whisper-large-v3)',
       fromCache: false,
       cachedAt: null,
     });

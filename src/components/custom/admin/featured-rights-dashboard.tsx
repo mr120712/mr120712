@@ -1921,6 +1921,7 @@ function LyricsTranscription({
               </p>
             ) : null}
             <ul className={styles.editorMeta} aria-label="Dettagli della trascrizione">
+              {draft.engine ? <li>Motore: {draft.engine}</li> : null}
               {detected ? <li>Lingua riconosciuta: {detected}</li> : null}
               {draft.durationSeconds !== null ? (
                 <li>Durata: {formatDuration(draft.durationSeconds)}</li>

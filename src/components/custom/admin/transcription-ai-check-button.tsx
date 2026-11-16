@@ -1,9 +1,10 @@
 // @polsia:user-owned — pulsante «Verifica Solco AI» della pagina admin «Diritti e testi»: chiede a
-// POST /api/admin/featured-rights/transcribe/check di provare il motore di trascrizione del server
-// con un secondo di silenzio (stessa richiesta della trascrizione, costo irrisorio) e riferisce con
-// un avviso (toast): motore e modello che hanno risposto con il tempo di risposta, oppure il
+// POST /api/admin/featured-rights/transcribe/check di provare TUTTI i motori di trascrizione
+// configurati sul server con un secondo di silenzio (stessa richiesta della trascrizione, costo
+// irrisorio) e riferisce con un avviso (toast): il primo motore che funziona con il tempo di
+// risposta e, con più motori, l'esito di ciascuno (ok con il tempo, oppure il motivo); altrimenti il
 // messaggio del server (chiave non valida, crediti esauriti, limite raggiunto, servizio non
-// raggiungibile, chiave assente su Vercel). La chiave non arriva mai nel browser.
+// raggiungibile, nessuna chiave su Vercel). Le chiavi non arrivano mai nel browser.
 'use client';
 
 import { KeyRound, LoaderCircle } from 'lucide-react';
@@ -17,6 +18,7 @@ import {
   TRANSCRIPTION_CHECK_SUCCESS,
   type TranscriptionCheckResponse,
   TranscriptionCheckResponseSchema,
+  type TranscriptionEngineProbe,
 } from '@/lib/contracts/lyrics-transcription';
 
 export const TRANSCRIPTION_CHECK_ENDPOINT = '/api/admin/featured-rights/transcribe/check';
@@ -31,9 +33,28 @@ const ERROR_CODE_TEXT: Record<string, string> = {
 
 const secondsFormat = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 1 });
 
+function seconds(elapsedMs: number) {
+  return `${secondsFormat.format(elapsedMs / 1000)} s`;
+}
+
 /** «Solco AI funziona: … · Solco AI (Groq · whisper-large-v3) · risposta in 1,2 s». */
 export function checkSuccessText(result: Pick<TranscriptionCheckResponse, 'engine' | 'elapsedMs'>) {
-  return `${TRANSCRIPTION_CHECK_SUCCESS} · ${result.engine} · risposta in ${secondsFormat.format(result.elapsedMs / 1000)} s`;
+  return `${TRANSCRIPTION_CHECK_SUCCESS} · ${result.engine} · risposta in ${seconds(result.elapsedMs)}`;
+}
+
+/**
+ * Con più motori, l'esito di ciascuno nell'ordine in cui la trascrizione li prova: «Deepgram
+ * (nova-3): ok in 0,6 s · OpenAI (whisper-1): chiave OpenAI non valida…». Null con un motore solo.
+ */
+export function checkEnginesText(engines: readonly TranscriptionEngineProbe[]): string | null {
+  if (engines.length < 2) return null;
+  return engines
+    .map((engine) =>
+      engine.ok
+        ? `${engine.label}: ok in ${seconds(engine.elapsedMs)}`
+        : `${engine.label}: ${engine.message ?? 'non risponde'}`,
+    )
+    .join(' · ');
 }
 
 /** Il messaggio del server quando c'è, altrimenti un testo breve in italiano. */
@@ -67,7 +88,9 @@ export function TranscriptionAiCheckButton() {
         method: 'POST',
         schema: TranscriptionCheckResponseSchema,
       });
-      toast.success(checkSuccessText(result));
+      const description = checkEnginesText(result.engines);
+      if (description) toast.success(checkSuccessText(result), { description });
+      else toast.success(checkSuccessText(result));
     } catch (error) {
       toast.error(checkFailureText(error));
     } finally {
@@ -83,7 +106,7 @@ export function TranscriptionAiCheckButton() {
       onClick={() => void check()}
       aria-disabled={busy || undefined}
       aria-busy={busy || undefined}
-      title={`Prova il motore di trascrizione dei testi (${SOLCO_AI_NAME}) con un secondo di silenzio generato dal server: nessun brano, costo irrisorio`}
+      title={`Prova i motori di trascrizione dei testi (${SOLCO_AI_NAME}) con un secondo di silenzio generato dal server: nessun brano, costo irrisorio`}
       className="aria-disabled:cursor-progress aria-disabled:opacity-70"
     >
       {busy ? (

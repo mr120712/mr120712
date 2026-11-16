@@ -195,7 +195,7 @@ export const AdminFeaturedRightsSchema = z
      */
     transcriptionAvailable: z.boolean().optional(),
     /** Motore attivo senza segreti, es. «Solco AI (Groq · whisper-large-v3)». Assente se spento. */
-    transcriptionEngine: z.string().max(80).optional(),
+    transcriptionEngine: z.string().max(240).optional(),
   })
   .strict();
 

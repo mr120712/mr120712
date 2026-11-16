@@ -20,9 +20,10 @@ import { searchPodcasts } from '@/lib/music/podcasts.server';
 import { listStations } from '@/lib/music/radio-browser.server';
 import {
   apiKeyShape,
+  configuredTranscriptionProviders,
   type TranscriptionProvider,
-  transcriptionKeyEnvName,
-  transcriptionProvider,
+  transcriptionEngineLabel,
+  transcriptionKeyEnvNames,
 } from '@/lib/music/transcription-provider.server';
 import type { WhisperProbeResult } from '@/lib/music/whisper.server';
 import { readYouTubeQuotaUsage, type YouTubeQuotaUsage } from '@/lib/music/youtube-budget.server';
@@ -68,9 +69,10 @@ export type CheckDeps = {
   podcastSearch: (fetcher: Fetcher) => Promise<CatalogOutcome & { podcasts: readonly unknown[] }>;
   jamendoTracks: (fetcher: Fetcher) => Promise<CatalogOutcome & { tracks: readonly unknown[] }>;
   /**
-   * Prova del motore di trascrizione (Solco AI): un secondo di silenzio con la stessa richiesta
-   * della trascrizione dei testi (whisper.server, probeTranscription). Costo irrisorio ma reale,
-   * per questo la chiamata è iniettabile e il modulo si carica solo quando il controllo gira.
+   * Prova di UN motore di trascrizione (Solco AI): un secondo di silenzio con la stessa richiesta
+   * della trascrizione dei testi (transcription-engines.server, probeProvider), chiamata una volta
+   * per motore configurato. Costo irrisorio ma reale, per questo la chiamata è iniettabile e il
+   * modulo si carica solo quando il controllo gira.
    */
   transcriptionProbe: (input: {
     provider: TranscriptionProvider;
@@ -117,7 +119,12 @@ export function defaultCheckDeps(): CheckDeps {
     podcastSearch: (fetcher) => searchPodcasts('musica', fetcher),
     jamendoTracks: (fetcher) => listJamendoTracks({}, fetcher),
     transcriptionProbe: (input) =>
-      import('@/lib/music/whisper.server').then((whisper) => whisper.probeTranscription(input)),
+      import('@/lib/music/transcription-engines.server').then((engines) =>
+        engines.probeProvider(input.provider, {
+          timeoutMs: input.timeoutMs,
+          fetcher: input.fetcher,
+        }),
+      ),
   };
 }
 
@@ -473,39 +480,69 @@ const checkAnthropic: Check = async (deps) => {
  * rifiutata, crediti finiti, servizio irraggiungibile…), mai un guasto che segnerebbe il sito
  * come «degradato» nella pagina pubblica di stato.
  */
-const checkSolcoAi: Check = async (deps) => {
-  const provider = transcriptionProvider(deps.env);
-  if (!provider) {
-    return warn(
-      `Non configurata (${transcriptionKeyEnvName(deps.env)}): Solco AI per i testi è spenta`,
-    );
-  }
-  const probe = await deps.transcriptionProbe({
-    provider,
-    timeoutMs: Math.max(1_000, deps.timeoutMs - 500),
-    fetcher: deps.fetch,
-  });
+/** Perché la prova di un motore non è riuscita: mai la chiave, mai il testo del servizio. */
+function engineProbeReason(
+  provider: TranscriptionProvider,
+  probe: Exclude<WhisperProbeResult, { ok: true }>,
+): string {
   const { vendor } = provider;
-  if (probe.ok) {
-    return ok(`${provider.label}: ${provider.model} ha risposto in ${probe.elapsedMs} ms`);
-  }
   switch (probe.error) {
     case 'invalid_key':
       // Mai la chiave: solo lo stato HTTP e com'è fatta (lunghezza, prefisso, caratteri estranei).
-      return warn(
-        `Chiave ${vendor} non valida o revocata (HTTP ${probe.status ?? 'n/d'}; ${apiKeyShape(provider)})`,
-      );
+      return `Chiave ${vendor} non valida o revocata (HTTP ${probe.status ?? 'n/d'}; ${apiKeyShape(provider)})`;
     case 'no_credit':
-      return warn(`Crediti ${vendor} esauriti o fatturazione non attiva`);
+      return `Crediti ${vendor} esauriti o fatturazione non attiva`;
     case 'rate_limited':
-      return warn(`${vendor} limita temporaneamente le richieste`);
+      return `${vendor} limita temporaneamente le richieste`;
     case 'no_response':
-      return warn(`${vendor} non risponde entro il tempo previsto`);
+      return `${vendor} non risponde entro il tempo previsto`;
     case 'unavailable':
-      return warn(`${vendor} ha un problema temporaneo (errore del servizio)`);
+      return `${vendor} ha un problema temporaneo (errore del servizio)`;
     default:
-      return warn(`${vendor} non ha accettato la prova audio`);
+      return `${vendor} non ha accettato la prova audio`;
   }
+}
+
+const checkSolcoAi: Check = async (deps) => {
+  const providers = configuredTranscriptionProviders(deps.env);
+  if (providers.length === 0) {
+    return warn(
+      `Non configurata (nessuna chiave: ${transcriptionKeyEnvNames(deps.env).join(', ')}): Solco AI per i testi è spenta`,
+    );
+  }
+  // Tutti i motori insieme, ognuno con quasi tutto il tempo del controllo: basta che uno risponda.
+  const probes = await Promise.all(
+    providers.map((provider) =>
+      deps.transcriptionProbe({
+        provider,
+        timeoutMs: Math.max(1_000, deps.timeoutMs - 500),
+        fetcher: deps.fetch,
+      }),
+    ),
+  );
+  const working: Array<{ provider: TranscriptionProvider; elapsedMs: number }> = [];
+  const reasons: string[] = [];
+  for (const [index, provider] of providers.entries()) {
+    const probe = probes[index];
+    if (!probe) continue;
+    if (probe.ok) working.push({ provider, elapsedMs: probe.elapsedMs });
+    else reasons.push(engineProbeReason(provider, probe));
+  }
+  if (working.length === 0) {
+    return warn(
+      reasons.length === 1 ? (reasons[0] ?? '') : `Nessun motore risponde: ${reasons.join('; ')}`,
+    );
+  }
+  const [first] = working;
+  if (providers.length === 1 && first) {
+    return ok(
+      `${first.provider.label}: ${first.provider.model} ha risposto in ${first.elapsedMs} ms`,
+    );
+  }
+  const responded = working
+    .map((item) => `${transcriptionEngineLabel(item.provider)}: ${item.elapsedMs} ms`)
+    .join(', ');
+  return ok(reasons.length === 0 ? responded : `${responded}; ${reasons.join('; ')}`);
 };
 
 const checkStripe: Check = async (deps) => {

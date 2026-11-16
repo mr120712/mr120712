@@ -32,12 +32,17 @@ import {
 } from '@/lib/contracts/lyrics-transcription';
 import {
   activeTranscriptionEngine,
+  configuredTranscriptionProviders,
+  DEFAULT_ENGINE_ORDER,
+  engineLabelForModel,
   GROQ_TARGET,
   GROQ_TRANSCRIPTION_ENDPOINT,
   isTranscriptionConfigured,
   OPENAI_TARGET,
   transcriptionEngineLabel,
+  transcriptionEngineOrder,
   transcriptionKeyEnvName,
+  transcriptionKeyEnvNames,
   transcriptionProvider,
 } from '@/lib/music/transcription-provider.server';
 import {
@@ -104,7 +109,7 @@ afterEach(() => {
 });
 
 describe('transcriptionProvider', () => {
-  it('Groq con whisper-large-v3 per impostazione predefinita; OpenAI mai senza scelta esplicita', () => {
+  it('Groq con whisper-large-v3 per impostazione predefinita; OpenAI subentra come riserva', () => {
     const provider = transcriptionProvider({
       GROQ_API_KEY: ` ${KEY} `,
       OPENAI_API_KEY: OPENAI_KEY,
@@ -119,8 +124,8 @@ describe('transcriptionProvider', () => {
       apiKey: KEY,
     });
     expect(GROQ_TRANSCRIPTION_ENDPOINT).toBe('https://api.groq.com/openai/v1/audio/transcriptions');
-    // Solo la chiave OpenAI: senza LYRICS_AI_PROVIDER=openai il motore è spento.
-    expect(transcriptionProvider({ OPENAI_API_KEY: OPENAI_KEY })).toBeNull();
+    // Solo la chiave OpenAI: una chiave qualunque accende Solco AI.
+    expect(transcriptionProvider({ OPENAI_API_KEY: OPENAI_KEY })).toMatchObject({ id: 'openai' });
     expect(transcriptionProvider({ GROQ_API_KEY: '  ' })).toBeNull();
     expect(transcriptionProvider({})).toBeNull();
   });
@@ -133,7 +138,7 @@ describe('transcriptionProvider', () => {
     expect(groq({ GROQ_WHISPER_MODEL: '  ' }).model).toBe('whisper-large-v3');
   });
 
-  it('LYRICS_AI_PROVIDER=openai: OpenAI whisper-1 con OPENAI_API_KEY, Groq ignorato', () => {
+  it('LYRICS_AI_PROVIDER=openai: OpenAI whisper-1 per primo, Groq in riserva', () => {
     const provider = transcriptionProvider({
       LYRICS_AI_PROVIDER: ' OpenAI ',
       OPENAI_API_KEY: OPENAI_KEY,
@@ -147,7 +152,10 @@ describe('transcriptionProvider', () => {
       label: 'OpenAI',
       apiKey: OPENAI_KEY,
     });
-    expect(transcriptionProvider({ LYRICS_AI_PROVIDER: 'openai', GROQ_API_KEY: KEY })).toBeNull();
+    // OpenAI scelto ma senza la sua chiave: Groq, che la chiave l'ha, resta come riserva.
+    expect(
+      transcriptionProvider({ LYRICS_AI_PROVIDER: 'openai', GROQ_API_KEY: KEY }),
+    ).toMatchObject({ id: 'groq' });
     expect(transcriptionKeyEnvName({ LYRICS_AI_PROVIDER: 'openai' })).toBe('OPENAI_API_KEY');
     expect(transcriptionKeyEnvName({})).toBe('GROQ_API_KEY');
   });
@@ -332,10 +340,8 @@ describe('POST /api/admin/featured-rights/transcribe/check', () => {
     expect(mocks.consume).not.toHaveBeenCalled();
   });
 
-  it('senza GROQ_API_KEY → 503 con il messaggio della pagina, nessun limite consumato', async () => {
+  it('senza nessuna chiave → 503 con il messaggio della pagina, nessun limite consumato', async () => {
     vi.stubEnv('GROQ_API_KEY', '  ');
-    // La chiave OpenAI da sola non basta: il motore predefinito è Groq.
-    vi.stubEnv('OPENAI_API_KEY', OPENAI_KEY);
     const response = await check(post());
     expect(response.status).toBe(503);
     expectPrivate(response);
@@ -379,6 +385,15 @@ describe('POST /api/admin/featured-rights/transcribe/check', () => {
     expect(body.ok).toBe(true);
     expect(body.model).toBe('whisper-large-v3');
     expect(body.engine).toBe('Solco AI (Groq · whisper-large-v3)');
+    expect(body.engines).toEqual([
+      {
+        id: 'groq',
+        label: 'Solco AI (Groq · whisper-large-v3)',
+        ok: true,
+        elapsedMs: body.elapsedMs,
+        message: null,
+      },
+    ]);
     expect(Number.isNaN(Date.parse(body.checkedAt))).toBe(false);
     expect(mocks.consume).toHaveBeenCalledWith('lyrics.transcribe.check', 'user:admin-1');
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -390,6 +405,7 @@ describe('POST /api/admin/featured-rights/transcribe/check', () => {
   it('LYRICS_AI_PROVIDER=openai: la prova va a OpenAI con OPENAI_API_KEY', async () => {
     vi.stubEnv('LYRICS_AI_PROVIDER', 'openai');
     vi.stubEnv('OPENAI_API_KEY', OPENAI_KEY);
+    vi.stubEnv('GROQ_API_KEY', '');
     fetchMock.mockResolvedValueOnce(new Response('{}', { status: 200 }));
     const body = TranscriptionCheckResponseSchema.parse(await (await check(post())).json());
     expect(body).toMatchObject({ model: 'whisper-1', engine: 'OpenAI (whisper-1)' });
@@ -431,5 +447,102 @@ describe('POST /api/admin/featured-rights/transcribe/check', () => {
     expect(logged).toContain('groq: invalid_key');
     expect(logged).toContain('no_credit');
     expect(logged).not.toContain(KEY);
+  });
+
+  it('più motori: le prove partono insieme; 200 col primo che funziona e l’esito di ciascuno', async () => {
+    vi.stubEnv('DEEPGRAM_API_KEY', 'dgfakekey0123456789abcdef0123456789abcd');
+    fetchMock.mockImplementation(async (url: string) =>
+      url.startsWith('https://api.groq.com') ? upstream(401) : new Response('{}', { status: 200 }),
+    );
+    const response = await check(post());
+    expect(response.status).toBe(200);
+    const body = TranscriptionCheckResponseSchema.parse(await response.json());
+    expect(body).toMatchObject({ model: 'nova-3', engine: 'Deepgram (nova-3)' });
+    expect(body.engines.map((engine) => [engine.id, engine.ok])).toEqual([
+      ['groq', false],
+      ['deepgram', true],
+    ]);
+    expect(body.engines[0]?.message).toContain('Chiave Groq non valida');
+    expect(body.engines[0]?.message).toContain('HTTP 401');
+    expect(body.engines[1]?.message).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(urls.some((url) => url.startsWith('https://api.deepgram.com/v1/listen?'))).toBe(true);
+    expect(JSON.stringify(body)).not.toContain(KEY);
+    expect(JSON.stringify(body)).not.toContain('dgfakekey');
+  });
+
+  it('più motori, nessuno funziona: il codice del primo e i motivi di tutti', async () => {
+    vi.stubEnv('DEEPGRAM_API_KEY', 'dgfakekey0123456789abcdef0123456789abcd');
+    fetchMock.mockImplementation(async (url: string) =>
+      url.startsWith('https://api.groq.com')
+        ? upstream(401)
+        : upstream(402, 'Insufficient credits for this project'),
+    );
+    const response = await check(post());
+    expect(response.status).toBe(502);
+    const body = await response.json();
+    expect(body.error).toBe('transcription_invalid_key');
+    expect(body.message).toContain('Nessun motore di Solco AI funziona.');
+    expect(body.message).toContain('Chiave Groq non valida');
+    expect(body.message).toContain('Crediti Deepgram esauriti');
+    expect(JSON.stringify(body)).not.toContain('dgfakekey');
+  });
+});
+
+describe('motori multipli', () => {
+  it('ordine predefinito, solo i motori con la chiave; LYRICS_AI_ENGINES sceglie e ordina', () => {
+    const env = { GROQ_API_KEY: KEY, DEEPGRAM_API_KEY: 'dg-fake', OPENAI_API_KEY: OPENAI_KEY };
+    expect(configuredTranscriptionProviders(env).map((provider) => provider.id)).toEqual([
+      'groq',
+      'deepgram',
+      'openai',
+    ]);
+    expect(
+      configuredTranscriptionProviders({ ...env, LYRICS_AI_ENGINES: 'openai, deepgram' }).map(
+        (provider) => provider.id,
+      ),
+    ).toEqual(['openai', 'deepgram']);
+    // Nomi sconosciuti si ignorano: resta l'ordine predefinito.
+    expect(
+      configuredTranscriptionProviders({ ...env, LYRICS_AI_ENGINES: 'boh' }).map(
+        (provider) => provider.id,
+      ),
+    ).toEqual(['groq', 'deepgram', 'openai']);
+    expect(transcriptionEngineOrder({})).toEqual(DEFAULT_ENGINE_ORDER);
+    expect(transcriptionEngineOrder({ LYRICS_AI_PROVIDER: 'openai' })[0]).toBe('openai');
+    expect(transcriptionEngineOrder({ LYRICS_AI_ENGINES: 'deepgram;groq deepgram' })).toEqual([
+      'deepgram',
+      'groq',
+    ]);
+    expect(activeTranscriptionEngine(env)).toBe(
+      'Solco AI (Groq · whisper-large-v3); riserva: Deepgram (nova-3), OpenAI (whisper-1)',
+    );
+    expect(transcriptionKeyEnvNames({ LYRICS_AI_ENGINES: 'deepgram' })).toEqual([
+      'DEEPGRAM_API_KEY',
+    ]);
+    expect(transcriptionKeyEnvNames({})[0]).toBe('GROQ_API_KEY');
+  });
+
+  it('Cloudflare solo con token e account; etichette dei motori dal modello', () => {
+    expect(configuredTranscriptionProviders({ CLOUDFLARE_API_TOKEN: 'tok' })).toEqual([]);
+    const [cloudflare] = configuredTranscriptionProviders({
+      CLOUDFLARE_API_TOKEN: 'tok',
+      CLOUDFLARE_ACCOUNT_ID: 'abc123def4567890',
+    });
+    expect(cloudflare).toMatchObject({
+      id: 'cloudflare',
+      protocol: 'cloudflare',
+      accountId: 'abc123def4567890',
+      endpoint:
+        'https://api.cloudflare.com/client/v4/accounts/abc123def4567890/ai/run/@cf/openai/whisper-large-v3-turbo',
+    });
+    expect(engineLabelForModel('nova-3')).toBe('Deepgram (nova-3)');
+    expect(engineLabelForModel('whisper-large-v3-turbo')).toBe(
+      'Solco AI (Groq · whisper-large-v3-turbo)',
+    );
+    expect(engineLabelForModel('scribe_v1')).toBe('ElevenLabs (scribe_v1)');
+    expect(engineLabelForModel('boh')).toBeUndefined();
+    expect(engineLabelForModel(null)).toBeUndefined();
   });
 });

@@ -769,9 +769,11 @@ describe('solco_ai', () => {
     );
     expect(result).toMatchObject({
       status: 'warn',
-      detail: 'Non configurata (GROQ_API_KEY): Solco AI per i testi è spenta',
+      detail:
+        'Non configurata (nessuna chiave: GROQ_API_KEY, DEEPGRAM_API_KEY, ELEVENLABS_API_KEY, OPENAI_API_KEY, FIREWORKS_API_KEY, MISTRAL_API_KEY, CLOUDFLARE_API_TOKEN): Solco AI per i testi è spenta',
     });
-    // OpenAI only when chosen explicitly: its key alone does not turn the engine on.
+    expect(probe).not.toHaveBeenCalled();
+    // Any key turns Solco AI on: with the OpenAI key alone the engine is OpenAI.
     const openAiOnly = await runCheck(
       'solco_ai',
       makeDeps({
@@ -779,7 +781,11 @@ describe('solco_ai', () => {
         env: { ...ENV, GROQ_API_KEY: '', OPENAI_API_KEY: 'sk-proj-fake-openai-0123456789' },
       }),
     );
-    expect(openAiOnly.status).toBe('warn');
+    expect(openAiOnly).toMatchObject({
+      status: 'ok',
+      detail: 'OpenAI: whisper-1 ha risposto in 420 ms',
+    });
+    expect(probe).toHaveBeenCalledTimes(1);
     const chosen = await runCheck(
       'solco_ai',
       makeDeps({
@@ -789,9 +795,47 @@ describe('solco_ai', () => {
     );
     expect(chosen).toMatchObject({
       status: 'warn',
-      detail: 'Non configurata (OPENAI_API_KEY): Solco AI per i testi è spenta',
+      detail:
+        'Non configurata (nessuna chiave: OPENAI_API_KEY, GROQ_API_KEY, DEEPGRAM_API_KEY, ELEVENLABS_API_KEY, FIREWORKS_API_KEY, MISTRAL_API_KEY, CLOUDFLARE_API_TOKEN): Solco AI per i testi è spenta',
     });
-    expect(probe).not.toHaveBeenCalled();
+    expect(probe).toHaveBeenCalledTimes(1);
+  });
+
+  it('several engines: ok when at least one answers, with its time and the reasons of the others', async () => {
+    const probe = vi.fn(
+      async ({ provider }: { provider: { id: string; model: string; label: string } }) =>
+        provider.id === 'groq'
+          ? {
+              ok: false as const,
+              error: 'invalid_key' as const,
+              message: `Trascrizione non riuscita: ${SECRETS.GROQ_API_KEY}`,
+              status: 401,
+              elapsedMs: 50,
+            }
+          : { ok: true as const, model: provider.model, engine: provider.label, elapsedMs: 640 },
+    );
+    const env = { ...ENV, DEEPGRAM_API_KEY: 'dgfakekey0123456789abcdef0123456789abcd' };
+    const result = await runCheck('solco_ai', makeDeps({ transcriptionProbe: probe, env }));
+    expect(result).toMatchObject({
+      status: 'ok',
+      detail: `Deepgram (nova-3): 640 ms; Chiave Groq non valida o revocata (HTTP 401; ${SECRETS.GROQ_API_KEY.length} caratteri, inizia con gsk_)`,
+    });
+    expect(probe).toHaveBeenCalledTimes(2);
+    expectNoSecrets([result.detail]);
+    expect(result.detail).not.toContain('dgfakekey');
+
+    // Nobody answers: a warning with every reason, in order.
+    const down = vi.fn(async ({ provider }: { provider: { id: string } }) => ({
+      ok: false as const,
+      error: provider.id === 'groq' ? ('invalid_key' as const) : ('no_response' as const),
+      message: 'Trascrizione non riuscita: x',
+      elapsedMs: 10,
+    }));
+    const none = await runCheck('solco_ai', makeDeps({ transcriptionProbe: down, env }));
+    expect(none).toMatchObject({
+      status: 'warn',
+      detail: `Nessun motore risponde: Chiave Groq non valida o revocata (HTTP n/d; ${SECRETS.GROQ_API_KEY.length} caratteri, inizia con gsk_); Deepgram non risponde entro il tempo previsto`,
+    });
   });
 });
 

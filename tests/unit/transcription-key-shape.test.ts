@@ -185,3 +185,17 @@ describe('probeDiagnosis', () => {
     expect(JSON.stringify(body)).not.toContain(KEY);
   });
 });
+
+describe('apiKeyShape per gli altri motori', () => {
+  it('senza prefisso noto dice solo la lunghezza; segnala comunque spazi e virgolette', () => {
+    expect(apiKeyShape({ id: 'deepgram', apiKey: 'a'.repeat(40) })).toBe('40 caratteri');
+    expect(apiKeyShape({ id: 'elevenlabs', apiKey: `"${'b'.repeat(10)}"` })).toBe(
+      '12 caratteri, contiene virgolette',
+    );
+    expect(apiKeyShape({ id: 'fireworks', apiKey: 'fw_abc' })).toBe('6 caratteri, inizia con fw_');
+    expect(apiKeyShape({ id: 'fireworks', apiKey: 'abc' })).toBe('3 caratteri, non inizia con fw_');
+    expect(apiKeyShape({ id: 'cloudflare', apiKey: 'tok en' })).toBe(
+      '6 caratteri, contiene spazi o a capo',
+    );
+  });
+});

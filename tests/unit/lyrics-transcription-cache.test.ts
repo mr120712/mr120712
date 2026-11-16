@@ -334,6 +334,7 @@ describe('seconda richiesta: dalla cache', () => {
     expect(response.headers.get('cache-control')).toBe('private, no-store');
     expect(TranscribeResponseSchema.parse(body)).toEqual({
       draft: DRAFT,
+      engine: 'Solco AI (Groq · whisper-large-v3)',
       lineCount: 2,
       language: 'italian',
       durationSeconds: 184.4,

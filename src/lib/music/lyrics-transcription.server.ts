@@ -1,7 +1,8 @@
-// @polsia:user-owned — trascrizione dei testi dei "brani in evidenza" con «Solco AI» (Whisper
-// large-v3 a pesi aperti su Groq; OpenAI solo se LYRICS_AI_PROVIDER=openai, vedi
-// transcription-provider.server.ts), SOLO per i brani dichiarati in diritti.json con "testo": true
-// (l'amministratore ha i diritti sul testo).
+// @polsia:user-owned — trascrizione dei testi dei "brani in evidenza" con «Solco AI»: più motori
+// (Groq con Whisper large-v3, Deepgram, ElevenLabs, OpenAI, Fireworks, Mistral, Cloudflare: quelli
+// con la chiave su Vercel, nell'ordine di transcription-provider.server.ts) con passaggio automatico
+// al successivo quando uno non risponde (transcription-engines.server.ts), SOLO per i brani
+// dichiarati in diritti.json con "testo": true (l'amministratore ha i diritti sul testo).
 // Lo store contiene anche file senza licenza: per ogni altro brano la funzione NON esiste, e il
 // server risponde sempre con lo stesso 404 (percorso non valido, non audio, non dichiarato,
 // "testo" mancante o false, file assente), senza chiamare OpenAI e senza consumare limiti.
@@ -95,12 +96,14 @@ import {
   transcriptionCacheKey,
   transcriptionInFlight,
 } from '@/lib/music/transcription-cache.server';
+import { transcribeWithFailover } from '@/lib/music/transcription-engines.server';
 import {
+  configuredTranscriptionProviders,
+  engineLabelForModel,
   type TranscriptionProvider,
-  transcriptionProvider,
+  transcriptionEngineLabel,
 } from '@/lib/music/transcription-provider.server';
 import {
-  transcribeWithWhisper,
   WHISPER_TIMEOUT_MS,
   type WhisperErrorCode,
   type WhisperSegment,
@@ -752,6 +755,7 @@ function cachedOutcome(hit: CachedTranscription): TranscribeOutcome {
       droppedSegments: hit.droppedSegments,
       uncertainLines: hit.uncertainLines,
       wordTimed: hasWordTags(hit.draft),
+      engine: engineLabelForModel(hit.model),
       fromCache: true,
       cachedAt: hit.cachedAt.toISOString(),
     },
@@ -815,7 +819,7 @@ async function claimTranscription(
 }
 
 /**
- * La bozza LRC di un brano dichiarato con "testo": true. Ordine dei controlli: chiave OpenAI,
+ * La bozza LRC di un brano dichiarato con "testo": true. Ordine dei controlli: almeno un motore,
  * permesso (fresco), formato, dimensione dall'elenco; poi la cache cifrata (salvo `regenerate`):
  * se c'è la trascrizione di questa versione del file, torna subito (fromCache: true) senza
  * leggere l'audio, senza OpenAI e senza consumare limiti. Altrimenti si consumano i limiti, si
@@ -831,8 +835,8 @@ export async function transcribeFeaturedTrack({
   lyricsHint,
 }: TranscribeInput): Promise<TranscribeOutcome> {
   const startedAt = Date.now();
-  const provider = transcriptionProvider();
-  if (!provider) return { ok: false, refusal: { kind: 'not_configured' } };
+  const providers = configuredTranscriptionProviders();
+  if (providers.length === 0) return { ok: false, refusal: { kind: 'not_configured' } };
 
   const eligibility = await checkTranscriptionEligibility(pathname);
   if (eligibility.status !== 'eligible') return { ok: false, refusal: refusalOf(eligibility) };
@@ -850,14 +854,19 @@ export async function transcribeFeaturedTrack({
   }
 
   // Solo dopo permesso, formato e dimensione: la cache non scavalca mai il controllo dei diritti.
-  // null = cache spenta (BETTER_AUTH_SECRET assente): si trascrive come sempre.
-  const cacheKey = transcriptionCacheKey({
-    pathname: track.pathname,
-    audioVersion: track.audioVersion,
-    language: language ?? 'auto',
-    model: provider.model,
-    draftVersion: DRAFT_BUILDER_VERSION,
-  });
+  // Una chiave per motore (il modello fa parte della chiave): una bozza già pagata con qualunque
+  // motore si riusa, anche se quel motore ora è giù. null = cache spenta (BETTER_AUTH_SECRET
+  // assente): si trascrive come sempre.
+  const cacheKeyFor = (model: string) =>
+    transcriptionCacheKey({
+      pathname: track.pathname,
+      audioVersion: track.audioVersion,
+      language: language ?? 'auto',
+      model,
+      draftVersion: DRAFT_BUILDER_VERSION,
+    });
+  const cacheKeys = providers.map((provider) => cacheKeyFor(provider.model));
+  const cacheKey = cacheKeys[0] ?? null;
   const run = {
     track,
     token,
@@ -865,16 +874,20 @@ export async function transcribeFeaturedTrack({
     language,
     identity,
     signal,
-    provider,
+    providers,
     startedAt,
     cacheKey,
+    cacheKeyFor,
     lyricsHint,
   };
   if (!cacheKey) return transcribeNow({ ...run, waited: false });
 
   if (!regenerate) {
-    const hit = await readCachedTranscription(cacheKey);
-    if (hit) return cachedOutcome(hit);
+    for (const key of cacheKeys) {
+      if (!key) continue;
+      const hit = await readCachedTranscription(key);
+      if (hit) return cachedOutcome(hit);
+    }
   }
   // Una rigenerazione riusa solo una trascrizione scritta dopo l'inizio di questa richiesta.
   const claim = await claimTranscription(cacheKey, regenerate ? new Date(startedAt) : null, signal);
@@ -901,11 +914,13 @@ type TranscribeRun = {
   language?: TranscriptionLanguage;
   identity: string;
   signal?: AbortSignal;
-  /** Il motore configurato (Solco AI su Groq, o OpenAI su scelta esplicita). */
-  provider: TranscriptionProvider;
+  /** I motori configurati, nell'ordine in cui si provano (transcription-provider.server.ts). */
+  providers: TranscriptionProvider[];
   startedAt: number;
-  /** Chiave della cache cifrata, o null se è spenta. */
+  /** Chiave della cache del primo motore (segna la trascrizione in corso), o null se è spenta. */
   cacheKey: string | null;
+  /** La chiave della cache per il modello che ha trascritto davvero. */
+  cacheKeyFor: (model: string) => string | null;
   /** true = ha aspettato una trascrizione identica (finita senza una bozza da riusare). */
   waited: boolean;
   /** Inizio del testo ufficiale (allineamento), per il suggerimento al modello. */
@@ -920,9 +935,9 @@ async function transcribeNow({
   language,
   identity,
   signal,
-  provider,
+  providers,
   startedAt,
-  cacheKey,
+  cacheKeyFor,
   waited,
   lyricsHint,
 }: TranscribeRun): Promise<TranscribeOutcome> {
@@ -955,51 +970,63 @@ async function transcribeNow({
     await releaseTranscriptionLimits(identity);
     return { ok: false, refusal: { kind: 'store_unavailable' } };
   }
-  const whisper = await transcribeWithWhisper({
-    audio: audio.bytes,
-    extension,
-    language,
-    apiKey: provider.apiKey,
-    target: provider,
-    // Artista e titolo dal nome del file (e l'inizio del testo ufficiale, se l'admin lo ha dato):
-    // nomi e parole scritti giusti; tempi delle parole per il karaoke.
-    prompt: transcriptionPromptWithHint(track.pathname, lyricsHint),
-    wordTimestamps: true,
-    timeoutMs: Math.min(WHISPER_TIMEOUT_MS, remaining),
-    signal,
-  });
+  // Il primo motore che riesce, nell'ordine configurato: chi rifiuta la chiave, non ha crediti,
+  // limita o non risponde lascia il posto al successivo (transcription-engines.server.ts).
+  const whisper = await transcribeWithFailover(
+    providers,
+    {
+      audio: audio.bytes,
+      extension,
+      language,
+      // Artista e titolo dal nome del file (e l'inizio del testo ufficiale, se l'admin lo ha dato):
+      // nomi e parole scritti giusti; tempi delle parole per il karaoke.
+      prompt: transcriptionPromptWithHint(track.pathname, lyricsHint),
+      wordTimestamps: true,
+      timeoutMs: Math.min(WHISPER_TIMEOUT_MS, remaining),
+      signal,
+    },
+    { deadline: startedAt + TRANSCRIBE_BUDGET_MS },
+  );
   if (!whisper.ok) {
-    // La richiesta non è arrivata a OpenAI (annullata prima dell'invio, DNS, connessione
+    // Nessuna richiesta è arrivata a un motore (annullata prima dell'invio, DNS, connessione
     // rifiutata): i limiti si restituiscono. Una chiamata partita conta sempre.
-    if (whisper.notSent) {
+    if (whisper.failure.notSent) {
       await releaseTranscriptionLimits(identity);
       if (signal?.aborted) return { ok: false, refusal: { kind: 'cancelled' } };
     }
     return {
       ok: false,
-      refusal: { kind: 'whisper', error: whisper.error, message: whisper.message },
+      refusal: { kind: 'whisper', error: whisper.failure.error, message: whisper.failure.message },
     };
   }
 
-  const draft = buildDraftLrc(whisper.transcript.segments, whisper.transcript.words);
-  const duration = whisper.transcript.durationSeconds;
+  const { provider, transcript } = whisper;
+  const draft = buildDraftLrc(transcript.segments, transcript.words);
+  const duration = transcript.durationSeconds;
   const fields = {
     draft: draft.draft,
     lineCount: draft.lineCount,
-    language: whisper.transcript.language,
+    language: transcript.language,
     durationSeconds: duration === null ? null : Math.round(duration * 10) / 10,
     droppedSegments: draft.droppedSegments,
     uncertainLines: draft.uncertainLines,
     wordTimed: draft.wordTimed,
   };
-  // Pagata: si conserva cifrata (anche se l'admin ha annullato nel frattempo), così la prossima
-  // richiesta per questa versione del file non costa nulla. Se non riesce, la bozza arriva lo stesso.
+  // Pagata: si conserva cifrata (anche se l'admin ha annullato nel frattempo), con la chiave del
+  // motore che ha trascritto, così la prossima richiesta per questa versione del file non costa
+  // nulla. Se non riesce, la bozza arriva lo stesso.
+  const cacheKey = cacheKeyFor(provider.model);
   const cachedAt = cacheKey
     ? await storeCachedTranscription(cacheKey, { ...fields, model: provider.model })
     : null;
   return {
     ok: true,
-    result: { ...fields, fromCache: false, cachedAt: cachedAt ? cachedAt.toISOString() : null },
+    result: {
+      ...fields,
+      engine: transcriptionEngineLabel(provider),
+      fromCache: false,
+      cachedAt: cachedAt ? cachedAt.toISOString() : null,
+    },
   };
 }
 

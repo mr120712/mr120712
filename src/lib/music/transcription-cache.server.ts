@@ -267,6 +267,8 @@ export type CachedTranscription = {
   droppedSegments: number;
   /** Righe della bozza incerte (1 = la prima). */
   uncertainLines: number[];
+  /** Il modello che ha trascritto (dice anche quale motore: transcription-provider, engineLabelForModel). */
+  model: string;
   /** Quando è stata fatta la trascrizione. */
   cachedAt: Date;
 };
@@ -349,7 +351,7 @@ export async function readCachedTranscription(
         .catch((error: unknown) => logProblem('ultimo uso non aggiornato', error)),
       WRITE_DEADLINE_MS,
     );
-    return { ...fields.data, cachedAt: row.createdAt };
+    return { ...fields.data, model: row.model, cachedAt: row.createdAt };
   } catch (error) {
     logProblem('lettura non riuscita', error);
     return null;

@@ -122,6 +122,12 @@ export const TranscribeResponseSchema = z
      */
     cachedAt: z.string().datetime().nullable(),
     /**
+     * Il motore che ha trascritto, senza segreti («Solco AI (Groq · whisper-large-v3)», «Deepgram
+     * (nova-3)»): Solco AI prova i motori configurati in ordine e passa al successivo se uno non
+     * risponde. Assente per le bozze conservate da versioni precedenti.
+     */
+    engine: z.string().max(120).optional(),
+    /**
      * Solo da POST …/transcribe/align: la bozza è il testo UFFICIALE fornito dall'admin con i tempi
      * presi dall'audio (allineamento), con la copertura e le righe senza riscontro.
      */
@@ -307,9 +313,12 @@ export const LRC_EXISTS_MESSAGE = 'Esiste già un .lrc: conferma per sostituirlo
 /** Nota nell'editor quando la bozza ha i tempi delle parole. */
 export const TRANSCRIPTION_WORD_TAG_HINT =
   'Tempi parola per parola: i tag <mm:ss.xx> davanti alle parole fanno il karaoke nel player. Correggi le parole e lascia i tag.';
-/** Senza la chiave del motore la trascrizione è spenta (stesso testo nella pagina e nel 503). */
+/**
+ * Senza nessuna chiave di un motore la trascrizione è spenta (stesso testo nella pagina e nel 503).
+ * Basta UNA di queste variabili su Vercel; con più chiavi Solco AI passa da un motore all'altro.
+ */
 export const TRANSCRIPTION_NOT_CONFIGURED_MESSAGE =
-  'Aggiungi GROQ_API_KEY su Vercel per usare Solco AI (trascrizione dei testi)';
+  'Aggiungi su Vercel la chiave di un motore per Solco AI (trascrizione dei testi): GROQ_API_KEY, DEEPGRAM_API_KEY, ELEVENLABS_API_KEY, OPENAI_API_KEY, FIREWORKS_API_KEY, MISTRAL_API_KEY oppure CLOUDFLARE_API_TOKEN con CLOUDFLARE_ACCOUNT_ID';
 
 /**
  * POST /api/admin/featured-rights/transcribe/check («Verifica Solco AI»): il motore di trascrizione
@@ -320,16 +329,34 @@ export const TRANSCRIPTION_NOT_CONFIGURED_MESSAGE =
  * transcription_unavailable e transcription_no_response (502) se il servizio rifiuta o non
  * risponde. Il messaggio è sempre italiano, mai la chiave.
  */
+/** L'esito della prova di UN motore (tutti i motori configurati si provano insieme). */
+export const TranscriptionEngineProbeSchema = z
+  .object({
+    /** Identificatore del motore: groq, deepgram, elevenlabs, openai, fireworks, mistral, cloudflare. */
+    id: z.string().min(1).max(20),
+    /** Motore senza segreti, es. «Deepgram (nova-3)». */
+    label: z.string().min(1).max(120),
+    ok: z.boolean(),
+    /** Millisecondi impiegati dal servizio per rispondere (o per fallire). */
+    elapsedMs: z.number().int().nonnegative(),
+    /** Perché non funziona (italiano, senza chiave né testo del servizio); null se funziona. */
+    message: z.string().max(600).nullable(),
+  })
+  .strict();
+export type TranscriptionEngineProbe = z.infer<typeof TranscriptionEngineProbeSchema>;
+
 export const TranscriptionCheckResponseSchema = z
   .object({
     ok: z.literal(true),
-    /** Modello che ha risposto, es. "whisper-large-v3". */
+    /** Modello del primo motore che ha risposto, es. "whisper-large-v3". */
     model: z.string().min(1).max(60),
-    /** Motore senza segreti, es. «Solco AI (Groq · whisper-large-v3)». */
-    engine: z.string().min(1).max(80),
-    /** Millisecondi impiegati dal servizio per rispondere. */
+    /** Primo motore funzionante senza segreti, es. «Solco AI (Groq · whisper-large-v3)». */
+    engine: z.string().min(1).max(120),
+    /** Millisecondi impiegati da quel motore per rispondere. */
     elapsedMs: z.number().int().nonnegative(),
     checkedAt: z.string().datetime(),
+    /** Tutti i motori configurati con il loro esito, nell'ordine in cui la trascrizione li prova. */
+    engines: z.array(TranscriptionEngineProbeSchema).min(1).max(10),
   })
   .strict();
 export type TranscriptionCheckResponse = z.infer<typeof TranscriptionCheckResponseSchema>;

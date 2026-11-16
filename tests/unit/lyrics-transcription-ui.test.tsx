@@ -296,8 +296,8 @@ describe('trascrizione IA: dove compare', () => {
     expect(start.disabled).toBe(true);
     const reasonId = start.getAttribute('aria-describedby');
     expect(reasonId).toBeTruthy();
-    expect(document.getElementById(reasonId ?? '')?.textContent).toBe(
-      'Aggiungi GROQ_API_KEY su Vercel per usare Solco AI (trascrizione dei testi)',
+    expect(document.getElementById(reasonId ?? '')?.textContent).toContain(
+      'Aggiungi su Vercel la chiave di un motore per Solco AI',
     );
     await click(start);
     expect(callsTo(TRANSCRIBE)).toHaveLength(0);

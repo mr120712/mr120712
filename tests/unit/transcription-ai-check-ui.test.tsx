@@ -19,6 +19,7 @@ vi.mock('sonner', () => ({
 }));
 
 import {
+  checkEnginesText,
   checkFailureText,
   checkSuccessText,
   TRANSCRIPTION_CHECK_ENDPOINT,
@@ -109,6 +110,7 @@ describe('TranscriptionAiCheckButton', () => {
         engine: ENGINE,
         elapsedMs: 1234,
         checkedAt: '2026-11-16T13:00:00.000Z',
+        engines: [{ id: 'groq', label: ENGINE, ok: true, elapsedMs: 1234, message: null }],
       });
     });
     await flush();
@@ -120,6 +122,28 @@ describe('TranscriptionAiCheckButton', () => {
     );
     expect(mocks.error).not.toHaveBeenCalled();
     expect(button.getAttribute('aria-busy')).toBeNull();
+  });
+
+  it('con più motori l’avviso elenca l’esito di ciascuno', async () => {
+    const reason = 'Chiave Groq non valida (controlla GROQ_API_KEY su Vercel).';
+    mocks.apiFetch.mockResolvedValueOnce({
+      ok: true,
+      model: 'nova-3',
+      engine: 'Deepgram (nova-3)',
+      elapsedMs: 600,
+      checkedAt: '2026-11-16T13:00:00.000Z',
+      engines: [
+        { id: 'groq', label: ENGINE, ok: false, elapsedMs: 300, message: reason },
+        { id: 'deepgram', label: 'Deepgram (nova-3)', ok: true, elapsedMs: 600, message: null },
+      ],
+    });
+    const button = await mount();
+    await click(button);
+    expect(mocks.success).toHaveBeenCalledWith(
+      checkSuccessText({ engine: 'Deepgram (nova-3)', elapsedMs: 600 }),
+      { description: `${ENGINE}: ${reason} · Deepgram (nova-3): ok in 0,6 s` },
+    );
+    expect(checkEnginesText([])).toBeNull();
   });
 
   it('errore: il messaggio del server (chiave, crediti, chiave assente) in un avviso', async () => {

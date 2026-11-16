@@ -377,6 +377,7 @@ describe('scrittura e lettura nel database', () => {
     const hit = await readCachedTranscription(hash);
     expect(hit).toEqual({
       draft: LYRICS,
+      model: 'whisper-1',
       lineCount: 2,
       language: 'italian',
       durationSeconds: 184.4,

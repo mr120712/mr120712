@@ -1,9 +1,12 @@
 // @polsia:user-owned — client minimo (fetch, senza SDK) dell'API di trascrizione in stile Whisper
-// usata da «Solco AI»: Groq (whisper-large-v3, predefinito) o OpenAI (whisper-1, solo su scelta
-// esplicita), vedi transcription-provider.server.ts. Usato SOLO dalla trascrizione dei testi dei
-// brani in evidenza dichiarati con "testo": true (lyrics-transcription.server.ts), dalla pagina
-// admin. La chiave resta sul server: non finisce mai nei log né nei messaggi d'errore, e degli
-// errori del servizio si restituisce solo un messaggio italiano generico, mai il testo della risposta.
+// (OpenAI): il protocollo condiviso dai motori Groq, OpenAI, Fireworks e Mistral di «Solco AI»
+// (transcription-provider.server.ts). Deepgram, ElevenLabs e Cloudflare hanno i loro moduli e
+// riusano da qui tipi, codici d'errore, messaggi, la mappa degli stati HTTP e la lettura del corpo;
+// il passaggio da un motore all'altro sta in transcription-engines.server.ts. Usato SOLO dalla
+// trascrizione dei testi dei brani in evidenza dichiarati con "testo": true
+// (lyrics-transcription.server.ts), dalla pagina admin. La chiave resta sul server: non finisce mai
+// nei log né nei messaggi d'errore, e degli errori del servizio si restituisce solo un messaggio
+// italiano generico, mai il testo della risposta.
 //
 // Richiesta: POST <endpoint>/audio/transcriptions, multipart/form-data con `file` (i byte
 // dell'audio, nome "audio.<estensione originale>" così il formato si riconosce e il nome del brano
@@ -39,15 +42,15 @@ export const WHISPER_MODEL = OPENAI_TARGET.model;
 /** Tempo massimo di una trascrizione (la route ha 120 secondi in tutto). */
 export const WHISPER_TIMEOUT_MS = 100_000;
 /** Risposta del servizio letta al massimo (un brano di 25 MB ne produce molto meno). */
-const RESPONSE_MAX_BYTES = 8 * 1024 * 1024;
+export const RESPONSE_MAX_BYTES = 8 * 1024 * 1024;
 /** Segmenti letti al massimo. */
-const MAX_SEGMENTS = 5000;
+export const MAX_SEGMENTS = 5000;
 /** Parole con tempo lette al massimo (un brano di 25 MB ne ha qualche migliaio). */
-const MAX_WORDS = 20_000;
+export const MAX_WORDS = 20_000;
 /** Suggerimento al modello (titolo e artista) al massimo così lungo. */
-const MAX_PROMPT_CHARS = 400;
+export const MAX_PROMPT_CHARS = 400;
 
-const MIME_TYPES: Record<WhisperExtension, string> = {
+export const MIME_TYPES: Record<WhisperExtension, string> = {
   flac: 'audio/flac',
   m4a: 'audio/mp4',
   mp3: 'audio/mpeg',
@@ -118,7 +121,7 @@ export type WhisperFailure = {
 
 export type WhisperResult = { ok: true; transcript: WhisperTranscript } | WhisperFailure;
 
-type MessageTarget = Pick<TranscriptionTarget, 'vendor' | 'envName' | 'billingHost'>;
+export type MessageTarget = Pick<TranscriptionTarget, 'vendor' | 'envName' | 'billingHost'>;
 
 /** Messaggi italiani per il servizio indicato: mai il testo della sua risposta, mai la chiave. */
 export function whisperErrorMessage(code: WhisperErrorCode, target: MessageTarget): string {
@@ -159,7 +162,11 @@ export const WHISPER_ERROR_MESSAGES: Record<WhisperErrorCode, string> = Object.f
   WHISPER_ERROR_CODES.map((code) => [code, whisperErrorMessage(code, OPENAI_TARGET)]),
 ) as Record<WhisperErrorCode, string>;
 
-function failure(error: WhisperErrorCode, target: MessageTarget, status?: number): WhisperFailure {
+export function failure(
+  error: WhisperErrorCode,
+  target: MessageTarget,
+  status?: number,
+): WhisperFailure {
   const result: WhisperFailure = { ok: false, error, message: whisperErrorMessage(error, target) };
   if (status !== undefined) result.status = status;
   return result;
@@ -173,7 +180,7 @@ const NOT_SENT_CODES = new Set([
   'UND_ERR_CONNECT_TIMEOUT',
 ]);
 
-function failedBeforeSending(error: unknown): boolean {
+export function failedBeforeSending(error: unknown): boolean {
   const cause =
     error instanceof Error ? (error.cause as { code?: unknown } | undefined) : undefined;
   return typeof cause?.code === 'string' && NOT_SENT_CODES.has(cause.code);
@@ -210,8 +217,8 @@ const ResponseSchema = z
   })
   .passthrough();
 
-/** Nome della lingua come lo dà Whisper: minuscole, solo lettere, spazi e trattini, corto. */
-function cleanLanguage(value: string | undefined): string | null {
+/** Nome (o codice) della lingua come lo dà il servizio: minuscole, solo lettere, spazi e trattini. */
+export function cleanLanguage(value: string | null | undefined): string | null {
   const language = value?.trim().toLowerCase() ?? '';
   return /^[\p{L} -]{2,40}$/u.test(language) ? language : null;
 }
@@ -250,8 +257,66 @@ export function parseWhisperResponse(raw: unknown): WhisperTranscript | null {
   };
 }
 
+/** Una parola con tempo e, se il servizio la dà, la sua log-probabilità. */
+export type TimedWordWithLogprob = WhisperWord & { logprob?: number };
+/** Pausa fra due parole che apre una riga nuova. */
+export const SEGMENT_GAP_SECONDS = 0.9;
+/** Dopo un segno di fine frase basta una pausa più breve. */
+export const SEGMENT_SENTENCE_GAP_SECONDS = 0.25;
+/** Parole al massimo in una riga ricavata dalle parole. */
+export const SEGMENT_MAX_WORDS = 16;
+
+/**
+ * Segmenti (righe) dalle sole parole con tempo, per i servizi che non li danno (ElevenLabs) o non
+ * sempre (Deepgram): una riga nuova dopo una pausa di SEGMENT_GAP_SECONDS, dopo un segno di fine
+ * frase seguito da una pausa più breve, o oltre SEGMENT_MAX_WORDS parole. avg_logprob = media delle
+ * log-probabilità delle parole quando il servizio le dà, così le righe incerte funzionano uguale.
+ */
+export function segmentsFromWords(words: readonly TimedWordWithLogprob[]): WhisperSegment[] {
+  const segments: WhisperSegment[] = [];
+  let current: TimedWordWithLogprob[] = [];
+  const flush = () => {
+    const first = current[0];
+    const last = current[current.length - 1];
+    if (!first || !last) return;
+    const logprobs = current
+      .map((word) => word.logprob)
+      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+    segments.push({
+      start: first.start,
+      end: Math.max(first.start, last.end),
+      text: current.map((word) => word.text).join(' '),
+      avgLogprob:
+        logprobs.length === current.length && logprobs.length > 0
+          ? logprobs.reduce((sum, value) => sum + value, 0) / logprobs.length
+          : null,
+      noSpeechProb: null,
+      compressionRatio: null,
+    });
+    current = [];
+  };
+  for (const word of words.slice(0, MAX_WORDS)) {
+    const previous = current[current.length - 1];
+    if (previous) {
+      const gap = word.start - previous.end;
+      const sentenceEnd = /[.!?…]$/.test(previous.text);
+      if (
+        gap >= SEGMENT_GAP_SECONDS ||
+        (sentenceEnd && gap >= SEGMENT_SENTENCE_GAP_SECONDS) ||
+        current.length >= SEGMENT_MAX_WORDS
+      ) {
+        flush();
+      }
+    }
+    current.push(word);
+    if (segments.length >= MAX_SEGMENTS) break;
+  }
+  flush();
+  return segments;
+}
+
 /** True se il corpo di un errore (letto solo qui, mai restituito) contiene uno dei motivi. */
-async function bodyMentions(response: Response, pattern: RegExp): Promise<boolean> {
+export async function bodyMentions(response: Response, pattern: RegExp): Promise<boolean> {
   try {
     if (!response.body) return false;
     const bytes = await readUpTo(response.body, 16 * 1024);
@@ -268,11 +333,28 @@ const SIZE_PATTERN = /too large|maximum content size|size limit|file size|262144
  * "credit_balance_exhausted"), non di un vero limite di richieste.
  */
 const QUOTA_PATTERN =
-  /insufficient_quota|exceeded your current quota|credit_balance_exhausted|billing/i;
+  /insufficient_quota|exceeded your current quota|credit_balance_exhausted|quota_exceeded|insufficient[ _]credits|billing/i;
+/**
+ * Il corpo di un 401/403 parla di quota o crediti finiti (ElevenLabs risponde 401 con
+ * detail.status "quota_exceeded"): non è la chiave a essere sbagliata.
+ */
+const KEY_QUOTA_PATTERN =
+  /quota_exceeded|insufficient[ _]credits|credit_balance_exhausted|payment required/i;
 
-async function errorFromStatus(response: Response, target: MessageTarget): Promise<WhisperFailure> {
+/** Lo stato HTTP di un errore → codice e messaggio italiano, uguali per tutti i motori. */
+export async function errorFromStatus(
+  response: Response,
+  target: MessageTarget,
+): Promise<WhisperFailure> {
   const { status } = response;
-  if (status === 401 || status === 403) return failure('invalid_key', target, status);
+  if (status === 401 || status === 403) {
+    return failure(
+      (await bodyMentions(response, KEY_QUOTA_PATTERN)) ? 'no_credit' : 'invalid_key',
+      target,
+      status,
+    );
+  }
+  if (status === 402) return failure('no_credit', target, status);
   if (status === 429) {
     return failure(
       (await bodyMentions(response, QUOTA_PATTERN)) ? 'no_credit' : 'rate_limited',
@@ -291,7 +373,7 @@ async function errorFromStatus(response: Response, target: MessageTarget): Promi
   return failure(status >= 500 ? 'unavailable' : 'rejected', target, status);
 }
 
-function combinedSignal(timeoutMs: number, signal?: AbortSignal): AbortSignal | undefined {
+export function combinedSignal(timeoutMs: number, signal?: AbortSignal): AbortSignal | undefined {
   const timeout =
     typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
       ? AbortSignal.timeout(timeoutMs)
@@ -319,7 +401,11 @@ export type WhisperRequest = {
   fetcher?: typeof fetch;
 };
 
-type WhisperPost =
+/** La richiesta a un motore qualunque: chiave ed endpoint li mette il motore (TranscriptionProvider). */
+export type EngineRequest = Omit<WhisperRequest, 'apiKey' | 'target'>;
+
+/** La risposta HTTP 2xx di un motore (corpo da leggere), oppure un errore già tradotto. */
+export type WhisperPost =
   | { ok: true; response: Response; abort: AbortSignal | undefined }
   | WhisperFailure;
 
@@ -355,7 +441,8 @@ async function postToWhisper({
   form.append('model', target.model);
   form.append('response_format', 'verbose_json');
   form.append('timestamp_granularities[]', 'segment');
-  if (wordTimestamps) form.append('timestamp_granularities[]', 'word');
+  // Solo i servizi che danno i tempi delle parole (Mistral no: la bozza esce riga per riga).
+  if (wordTimestamps && target.wordTimestamps) form.append('timestamp_granularities[]', 'word');
   form.append('temperature', '0');
   if (language) form.append('language', language);
   const hint = prompt?.replace(/\s+/g, ' ').trim().slice(0, MAX_PROMPT_CHARS);
@@ -396,13 +483,25 @@ export async function transcribeWithWhisper(request: WhisperRequest): Promise<Wh
   const target = request.target ?? OPENAI_TARGET;
   const posted = await postToWhisper(request);
   if (!posted.ok) return posted;
-  const { response, abort } = posted;
+  return readJsonTranscript(posted, target, parseWhisperResponse);
+}
 
+/**
+ * Legge il corpo JSON di una risposta 2xx (al massimo RESPONSE_MAX_BYTES) e lo traduce con `parse`
+ * (il formato del motore): ogni problema (corpo interrotto, JSON non valido, formato inatteso) è un
+ * codice con il messaggio italiano, mai un throw. Condiviso da tutti i motori.
+ */
+export async function readJsonTranscript(
+  posted: Extract<WhisperPost, { ok: true }>,
+  target: MessageTarget,
+  parse: (raw: unknown) => WhisperTranscript | null,
+): Promise<WhisperResult> {
+  const { response, abort } = posted;
   try {
     if (!response.body) return failure('invalid_response', target);
     const body = await readUpTo(response.body, RESPONSE_MAX_BYTES + 1);
     if (body.length > RESPONSE_MAX_BYTES) return failure('invalid_response', target);
-    const transcript = parseWhisperResponse(JSON.parse(new TextDecoder().decode(body)));
+    const transcript = parse(JSON.parse(new TextDecoder().decode(body)));
     return transcript ? { ok: true, transcript } : failure('invalid_response', target);
   } catch {
     // Corpo interrotto (scadenza) o JSON non valido.
