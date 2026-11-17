@@ -49,9 +49,14 @@ export function AccountDeletionPanel() {
           Eliminazione account
         </h2>
         <p className="text-sm text-muted-foreground">
-          Elimina in modo definitivo l’account Solco, il diario d’ascolto, le relazioni community e
-          i dati di prodotti e controlli associati. Le sessioni verranno revocate. L’operazione non
-          si può annullare.
+          Elimina in modo definitivo l’account Solco e i dati associati: diario e cronologia
+          d’ascolto, libreria, community e conversazioni, collegamenti (Spotify, TikTok, Telegram) e
+          i brani che hai pubblicato. Le sessioni verranno revocate. L’operazione non si può
+          annullare.
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Hai un abbonamento attivo? Disdicilo prima da «Gestisci abbonamento»: l’eliminazione
+          dell’account non lo chiude.
         </p>
         <p className="text-sm text-muted-foreground">
           Leggi l’

@@ -44,6 +44,7 @@ describe('esiti dell’accesso social', () => {
     expect(appleOAuthCredentials(' service-id ', ' private-secret ')).toEqual({
       clientId: 'service-id',
       clientSecret: 'private-secret',
+      disableIdTokenSignIn: true,
     });
   });
 

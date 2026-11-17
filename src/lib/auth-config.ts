@@ -148,6 +148,17 @@ export const authConfig: BetterAuthOptions = {
   // is linked instead of failing with account_not_linked.
   account: {
     accountLinking: { enabled: true, trustedProviders: ['google'] },
+    // Token di accesso e di aggiornamento di Google/Apple cifrati nel database (XChaCha20-Poly1305,
+    // chiave derivata da BETTER_AUTH_SECRET): una copia rubata del database non basta per usarli.
+    // Compatibile con le righe già salvate: un token in chiaro (non esadecimale) si legge così com'è
+    // e viene sostituito da quello cifrato al prossimo accesso.
+    encryptOAuthTokens: true,
+  },
+  // Link «Password dimenticata»: nel database finisce solo l'hash SHA-256 del token, così chi legge
+  // il database non può usarlo per cambiare la password di qualcun altro. I link inviati prima di
+  // questa impostazione restano validi (better-auth cerca prima l'hash, poi il valore in chiaro).
+  verification: {
+    storeIdentifier: { default: 'plain', overrides: { 'reset-password:': 'hashed' } },
   },
   emailAndPassword: {
     enabled: true,

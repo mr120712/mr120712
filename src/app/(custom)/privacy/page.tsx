@@ -315,13 +315,18 @@ export default function PrivacyPage() {
             <h2>Conservazione e cancellazione</h2>
             <p>
               I dati dell’account e le registrazioni restano nel database dell’app fino alla
-              cancellazione dell’account. La richiesta autenticata elimina account, sessioni,
-              diario, raccolte, dati dei prodotti e relativi controlli dal database applicativo. Le
-              copie di sicurezza del fornitore del database e i log tecnici dell’hosting vengono
-              sovrascritti automaticamente entro pochi giorni; i dati di fatturazione restano presso
-              Stripe o PayPal per il tempo richiesto dagli obblighi fiscali. La cancellazione
-              dell’account non chiude da sola un abbonamento attivo: disdicilo da «Gestisci
-              abbonamento» o dal tuo account PayPal.
+              cancellazione dell’account. La richiesta autenticata elimina dal database applicativo,
+              in un’unica operazione, account e sessioni, accessi collegati (Google, Apple, Spotify,
+              TikTok, bot Telegram), profilo e relazioni community, conversazioni private, diario,
+              libreria e cronologia d’ascolto, premi e inviti, segnalazioni fatte e brani che hai
+              pubblicato, i cui file vengono tolti anche dalla rete di distribuzione. Restano solo
+              le registrazioni di abbonamenti e pagamenti (identificativi di piano e abbonamento,
+              senza nome né email), conservate per gli obblighi fiscali. Le copie di sicurezza del
+              fornitore del database e i log tecnici dell’hosting vengono sovrascritti
+              automaticamente entro pochi giorni; i dati di fatturazione restano presso Stripe o
+              PayPal per il tempo richiesto dagli obblighi fiscali. La cancellazione dell’account
+              non chiude da sola un abbonamento attivo: disdicilo prima da «Gestisci abbonamento» o
+              dal tuo account PayPal.
             </p>
             <p>
               Puoi avviare la cancellazione da{' '}
@@ -336,9 +341,11 @@ export default function PrivacyPage() {
               Solco limita le operazioni sul diario alla sessione autenticata e comunica con il
               database solo tramite il proprio server; tutto il sito viaggia su HTTPS, le chiavi dei
               servizi esterni restano sul server e le richieste che modificano dati accettano solo
-              la stessa origine. Chi scopre una vulnerabilità può segnalarla come indicato in{' '}
-              <Link href="/contatti">Contatti</Link>. Questa informativa viene aggiornata quando
-              cambiano funzioni o servizi esterni.
+              la stessa origine. Nel database i token dei servizi collegati (Google, Apple, Spotify,
+              TikTok) vengono salvati cifrati e i link per reimpostare la password solo come
+              impronta (hash), mai in chiaro. Chi scopre una vulnerabilità può segnalarla come
+              indicato in <Link href="/contatti">Contatti</Link>. Questa informativa viene
+              aggiornata quando cambiano funzioni o servizi esterni.
             </p>
           </section>
         </div>

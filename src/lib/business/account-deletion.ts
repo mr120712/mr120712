@@ -56,6 +56,30 @@ export type AccountDeletionTransaction = {
   recommendationHidden?: UserOwnedRecords;
   /** UID leggibile dell'account (gestione account; nessuna relazione con User). Optional as above. */
   userUid?: UserOwnedRecords;
+  /** Collegamento al bot Telegram (chat id e username; nessuna relazione con User). Optional as above. */
+  telegramAccountLink?: UserOwnedRecords;
+  /** Usi mensili del bot (nessuna relazione con User). Optional as above. */
+  botUse?: UserOwnedRecords;
+  /** Piano scelto prima del pagamento (nessuna relazione con User). Optional as above. */
+  solcoPlanSelection?: UserOwnedRecords;
+  /** Conversazioni private: i messaggi seguono per cascata. Optional as above. */
+  conversation?: {
+    deleteMany(args: {
+      where: { OR: Array<{ participantAId: string } | { participantBId: string }> };
+    }): Promise<unknown>;
+  };
+  /** Segnalazioni fatte dall'utente ai brani pubblicati. Optional as above. */
+  publicUploadReport?: {
+    deleteMany(args: { where: { reporterUserId: string } }): Promise<unknown>;
+  };
+  /** Brani pubblicati dall'utente: segnalazioni e ascolti seguono per cascata. Optional as above. */
+  publicUpload?: {
+    findMany(args: {
+      where: { uploaderUserId: string };
+      select: { blobUrl: true };
+    }): Promise<Array<{ blobUrl: string }>>;
+    deleteMany(args: { where: { uploaderUserId: string } }): Promise<unknown>;
+  };
   referral: {
     deleteMany(args: {
       where: { OR: Array<{ inviterId: string } | { inviteeId: string }> };
@@ -65,11 +89,31 @@ export type AccountDeletionTransaction = {
   verification: VerificationRecords;
 };
 
+export type AccountDeletionResult = {
+  /**
+   * File su Vercel Blob dei brani pubblicati dall'account. Le righe spariscono nella transazione;
+   * i file si tolgono dalla CDN DOPO il commit (un rollback non deve lasciare righe senza file).
+   */
+  publicUploadBlobUrls: string[];
+};
+
+/**
+ * Cancella tutti i dati dell'account dentro una transazione.
+ *
+ * Restano di proposito:
+ * - abbonamenti e pagamenti (SolcoSubscription, PayPalSubscription, SolcoIapSubscription): sono
+ *   registrazioni contabili da conservare per legge, e la cancellazione non chiude un abbonamento
+ *   attivo presso Stripe, PayPal o Apple (lo dice anche l'informativa privacy);
+ * - LegacyUserImport: solo id, nessun dato personale. È il registro che impedisce a un futuro
+ *   trasferimento dal vecchio database di ricreare un account che l'utente ha cancellato;
+ * - righe scritte dagli amministratori (fonti di riproduzione, prove dei diritti, clip TikTok):
+ *   tengono traccia di chi ha fatto cosa nell'amministrazione.
+ */
 export async function deleteAccountData(
   transaction: AccountDeletionTransaction,
   userId: string,
   email: string,
-): Promise<void> {
+): Promise<AccountDeletionResult> {
   await transaction.userFollow.deleteMany({
     where: { OR: [{ followerId: userId }, { followedId: userId }] },
   });
@@ -105,6 +149,21 @@ export async function deleteAccountData(
   await transaction.spotifyConnection?.deleteMany({ where: { userId } });
   // TikTok tokens: deleted with the account (no relation to User).
   await transaction.tikTokConnection?.deleteMany({ where: { userId } });
+  // Bot Telegram: collegamento (chat id, username) e conteggio degli usi.
+  await transaction.telegramAccountLink?.deleteMany({ where: { userId } });
+  await transaction.botUse?.deleteMany({ where: { userId } });
+  await transaction.solcoPlanSelection?.deleteMany({ where: { userId } });
+  // Conversazioni private in cui l'utente è uno dei due: i messaggi vanno via per cascata.
+  await transaction.conversation?.deleteMany({
+    where: { OR: [{ participantAId: userId }, { participantBId: userId }] },
+  });
+  await transaction.publicUploadReport?.deleteMany({ where: { reporterUserId: userId } });
+  const uploads =
+    (await transaction.publicUpload?.findMany({
+      where: { uploaderUserId: userId },
+      select: { blobUrl: true },
+    })) ?? [];
+  await transaction.publicUpload?.deleteMany({ where: { uploaderUserId: userId } });
   await transaction.referral.deleteMany({
     where: { OR: [{ inviterId: userId }, { inviteeId: userId }] },
   });
@@ -112,4 +171,5 @@ export async function deleteAccountData(
     where: { OR: [{ identifier: email }, { identifier: { endsWith: `:${email}` } }] },
   });
   await transaction.user.delete({ where: { id: userId } });
+  return { publicUploadBlobUrls: uploads.map((upload) => upload.blobUrl) };
 }

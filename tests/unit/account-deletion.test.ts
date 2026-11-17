@@ -127,6 +127,7 @@ describe('cancellazione dell’account Solco', () => {
           model === 'user'
             ? { delete: async () => ({}) }
             : {
+                findMany: async () => [],
                 deleteMany: async ({ where }: { where: { userId?: string } }) => {
                   deleted.push(`${model}:${where.userId ?? ''}`);
                   return { count: 1 };
@@ -139,5 +140,85 @@ describe('cancellazione dell’account Solco', () => {
 
     expect(deleted).toContain('recommendationCache:user-18');
     expect(deleted).toContain('recommendationHidden:user-18');
+  });
+
+  it('toglie bot Telegram, piano scelto, conversazioni, segnalazioni e brani pubblicati', async () => {
+    const operations: string[] = [];
+    const record = (model: string) => ({
+      deleteMany: async ({ where }: { where: unknown }) => {
+        operations.push(`${model}.deleteMany:${JSON.stringify(where)}`);
+        return { count: 1 };
+      },
+    });
+    const blobUrls = [
+      'https://blob.example/public-uploads/a.mp3',
+      'https://blob.example/public-uploads/b.mp3',
+    ];
+    const transaction = new Proxy(
+      {},
+      {
+        get: (_target, model: string) => {
+          if (model === 'user') {
+            return {
+              delete: async ({ where }: { where: { id: string } }) => {
+                operations.push(`user.delete:${where.id}`);
+                return {};
+              },
+            };
+          }
+          if (model === 'publicUpload') {
+            return {
+              ...record(model),
+              findMany: async (args: unknown) => {
+                operations.push(`publicUpload.findMany:${JSON.stringify(args)}`);
+                return blobUrls.map((blobUrl) => ({ blobUrl }));
+              },
+            };
+          }
+          return record(model);
+        },
+      },
+    ) as AccountDeletionTransaction;
+
+    const result = await deleteAccountData(transaction, 'user-19', 'third@example.test');
+
+    // I file su Blob tornano al chiamante: si tolgono dalla CDN solo dopo il commit.
+    expect(result).toEqual({ publicUploadBlobUrls: blobUrls });
+    expect(operations).toEqual(
+      expect.arrayContaining([
+        'telegramAccountLink.deleteMany:{"userId":"user-19"}',
+        'botUse.deleteMany:{"userId":"user-19"}',
+        'solcoPlanSelection.deleteMany:{"userId":"user-19"}',
+        'conversation.deleteMany:{"OR":[{"participantAId":"user-19"},{"participantBId":"user-19"}]}',
+        'publicUploadReport.deleteMany:{"reporterUserId":"user-19"}',
+        'publicUpload.deleteMany:{"uploaderUserId":"user-19"}',
+      ]),
+    );
+    expect(
+      operations.indexOf(
+        'publicUpload.findMany:{"where":{"uploaderUserId":"user-19"},"select":{"blobUrl":true}}',
+      ),
+    ).toBeLessThan(operations.indexOf('publicUpload.deleteMany:{"uploaderUserId":"user-19"}'));
+    expect(operations.at(-1)).toBe('user.delete:user-19');
+    // Restano i pagamenti (obblighi contabili) e il registro del vecchio database (solo id).
+    expect(operations.some((operation) => /subscription|legacyUserImport/i.test(operation))).toBe(
+      false,
+    );
+  });
+
+  it('senza brani pubblicati non c’è nessun file da togliere', async () => {
+    const transaction = new Proxy(
+      {},
+      {
+        get: (_target, model: string) =>
+          model === 'user'
+            ? { delete: async () => ({}) }
+            : { findMany: async () => [], deleteMany: async () => ({ count: 0 }) },
+      },
+    ) as AccountDeletionTransaction;
+
+    expect(await deleteAccountData(transaction, 'user-20', 'none@example.test')).toEqual({
+      publicUploadBlobUrls: [],
+    });
   });
 });

@@ -579,6 +579,7 @@ describe('cancellazione dell’account', () => {
           name === 'user'
             ? { delete: async () => calls.push('user') }
             : {
+                findMany: async () => [],
                 deleteMany: async (args: { where: { userId?: string } }) =>
                   owned(name).deleteMany({ where: { userId: args.where.userId ?? '*' } }),
               },

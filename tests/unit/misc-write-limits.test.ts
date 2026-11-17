@@ -56,6 +56,7 @@ vi.mock('@/lib/music/private-audio-source.server', () => ({
   inspectPrivateEvidenceFile: vi.fn(),
 }));
 vi.mock('@/lib/business/account-deletion', () => ({ deleteAccountData: mocks.deleteAccountData }));
+vi.mock('@/lib/music/public-uploads.server', () => ({ deletePublicUploadBlobs: vi.fn() }));
 vi.mock('@/lib/db', () => ({
   prisma: {
     $transaction: mocks.transaction,

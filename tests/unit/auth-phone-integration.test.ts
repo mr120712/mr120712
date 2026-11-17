@@ -3,8 +3,10 @@
 //
 // Integrazione con better-auth VERO (database in memoria, Twilio simulato): verifica che i guardiani
 // scattino sugli endpoint reali e che l'accesso col telefono crei l'account come previsto.
-import { betterAuth } from 'better-auth';
+import { createHash } from 'node:crypto';
+import { type BetterAuthOptions, betterAuth } from 'better-auth';
 import { memoryAdapter } from 'better-auth/adapters/memory';
+import { decryptOAuthToken, setTokenUtil } from 'better-auth/oauth2';
 import { admin } from 'better-auth/plugins';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -42,16 +44,18 @@ vi.mock('@/lib/db', () => ({
 vi.mock('next/server', () => ({ after: (promise: Promise<unknown>) => promise }));
 
 import { authConfig } from '@/lib/auth-config';
+import { appleOAuthCredentials } from '@/lib/business/social-auth';
 
 const BASE = 'http://localhost:3000';
 let db: Record<string, Record<string, unknown>[]>;
 let auth: ReturnType<typeof makeAuth>;
 
-function makeAuth() {
+function makeAuth(extra: Pick<BetterAuthOptions, 'socialProviders'> = {}) {
   // La configurazione vera di Solco (plugin, reset, hook), su un database in memoria.
   const { advanced: _advanced, ...config } = authConfig;
   return betterAuth({
     ...config,
+    ...extra,
     // Come in src/lib/auth.ts: admin() prima dei plugin di Solco (definisce role/ban).
     plugins: [admin({ defaultRole: 'user', adminRoles: ['admin'] }), ...(config.plugins ?? [])],
     database: memoryAdapter(db),
@@ -301,6 +305,57 @@ describe('recupero password (better-auth reale)', () => {
     ).toBe(401);
   });
 
+  it('il token del link non è leggibile nel database: si salva solo il suo hash', async () => {
+    await post('/sign-up/email', {
+      email: 'mario@example.com',
+      password: 'vecchiaPassword1',
+      name: 'Mario',
+    });
+    await post('/request-password-reset', { email: 'mario@example.com', redirectTo: '/' });
+    const token =
+      /reset-password\/([^?]+)/.exec(mocks.resetEmail.mock.calls[0]?.[0].url ?? '')?.[1] ?? '';
+    expect(token).toBeTruthy();
+
+    const identifiers = (db.verification ?? []).map((row) => String(row.identifier));
+    const hashed = createHash('sha256').update(`reset-password:${token}`).digest('base64url');
+    expect(identifiers).toContain(hashed);
+    expect(identifiers.some((identifier) => identifier.includes(token))).toBe(false);
+
+    expect((await post('/reset-password', { token, newPassword: 'nuovaPassword1' })).status).toBe(
+      200,
+    );
+  });
+
+  it('link inviato prima dell’hash (token in chiaro nel database): vale ancora, una volta sola', async () => {
+    await post('/sign-up/email', {
+      email: 'mario@example.com',
+      password: 'vecchiaPassword1',
+      name: 'Mario',
+    });
+    const userId = String(db.user?.[0]?.id ?? '');
+    expect(userId).toBeTruthy();
+    const now = Date.now();
+    db.verification?.push({
+      id: 'vecchio-link',
+      identifier: 'reset-password:tokenDiPrimaInChiaro',
+      value: userId,
+      expiresAt: new Date(now + 60 * 60 * 1000),
+      createdAt: new Date(now),
+      updatedAt: new Date(now),
+    });
+
+    const reset = await post('/reset-password', {
+      token: 'tokenDiPrimaInChiaro',
+      newPassword: 'nuovaPassword1',
+    });
+    expect(reset.status).toBe(200);
+    const reuse = await post('/reset-password', {
+      token: 'tokenDiPrimaInChiaro',
+      newPassword: 'altraPassword2',
+    });
+    expect(reuse.status).toBe(400);
+  });
+
   it('redirect esterno nel link di reset: rifiutato', async () => {
     const res = await post('/request-password-reset', {
       email: 'mario@example.com',
@@ -320,5 +375,48 @@ describe('recupero password (better-auth reale)', () => {
     } as never);
     const res = await post('/request-password-reset', { email: 'a@b.it', redirectTo: '/' });
     expect(res.status).toBe(429);
+  });
+});
+
+describe('token OAuth nel database (better-auth reale)', () => {
+  /** Il contesto vero dell'istanza, col tipo che chiedono le utilità sui token. */
+  async function tokenContext() {
+    return (await auth.$context) as unknown as Parameters<typeof setTokenUtil>[1];
+  }
+
+  it('Google/Apple: i token si salvano cifrati e si rileggono uguali', async () => {
+    const context = await tokenContext();
+    const stored = await setTokenUtil('ya29.token-di-prova', context);
+    expect(typeof stored).toBe('string');
+    expect(stored).not.toContain('ya29');
+    expect(await decryptOAuthToken(stored as string, context)).toBe('ya29.token-di-prova');
+  });
+
+  it('Apple: nessun accesso «portando» un id token, solo il flusso con redirect', async () => {
+    auth = makeAuth({
+      socialProviders: { apple: appleOAuthCredentials('online.solcomusic.web', 'segreto-apple') },
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+    const res = await post('/sign-in/social', {
+      provider: 'apple',
+      idToken: { token: 'intestazione.contenuto.firma' },
+    });
+
+    expect(res.status).toBe(401);
+    expect(db.session ?? []).toHaveLength(0);
+    expect(db.user ?? []).toHaveLength(0);
+    // Rifiutato prima di scaricare le chiavi di Apple: il percorso è proprio chiuso.
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('righe salvate prima della cifratura: il token in chiaro si legge così com’è', async () => {
+    const context = await tokenContext();
+    expect(await decryptOAuthToken('ya29.vecchio-in-chiaro', context)).toBe(
+      'ya29.vecchio-in-chiaro',
+    );
+    expect(await decryptOAuthToken('1//refresh-vecchio-in-chiaro', context)).toBe(
+      '1//refresh-vecchio-in-chiaro',
+    );
   });
 });

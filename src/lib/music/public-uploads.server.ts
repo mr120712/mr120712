@@ -439,6 +439,21 @@ export async function deletePublicUpload(userId: string, uploadId: string): Prom
   return true;
 }
 
+/**
+ * Toglie dalla CDN i file dei brani di un account appena cancellato (le righe sono già sparite
+ * nella transazione). Best effort come per il singolo brano: non lancia mai, così un Blob non
+ * raggiungibile non fa sembrare fallita una cancellazione dell'account già avvenuta.
+ */
+export async function deletePublicUploadBlobs(blobUrls: readonly string[]): Promise<void> {
+  const token = env.BLOB_READ_WRITE_TOKEN;
+  if (!token || blobUrls.length === 0) return;
+  try {
+    await del([...blobUrls], { token });
+  } catch {
+    // Già rimossi o Blob non raggiungibile: l'account resta comunque cancellato.
+  }
+}
+
 function isUniqueViolation(error: unknown): boolean {
   return (
     typeof error === 'object' &&

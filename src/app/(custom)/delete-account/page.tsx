@@ -20,8 +20,8 @@ export default function DeleteAccountPage() {
 
         <p className={styles.notice}>
           Se puoi accedere al tuo account, apri il profilo e usa il comando di eliminazione:
-          l’account, le sessioni, il diario e i dati di prodotti e controlli associati vengono
-          rimossi dal database Solco in un’unica operazione. La cancellazione è definitiva.
+          l’account, le sessioni e i dati associati vengono rimossi dal database Solco in un’unica
+          operazione. La cancellazione è definitiva.
         </p>
 
         <div className={styles.body}>
@@ -53,10 +53,17 @@ export default function DeleteAccountPage() {
           <section>
             <h2>Dati coinvolti</h2>
             <p>
-              La cancellazione autenticata rimuove l’account e le sessioni Better Auth, le voci del
-              diario e i dati di negozi e controlli creati dall’utente. Eventuali dati mantenuti da
-              fornitori esterni, copie di backup o registri soggetti a obblighi legali devono essere
-              verificati dal titolare; i relativi tempi non sono ancora confermati.
+              La cancellazione autenticata rimuove account e sessioni, accessi collegati (Google,
+              Apple, Spotify, TikTok, bot Telegram), profilo e relazioni community, conversazioni
+              private, diario, libreria e cronologia d’ascolto, premi e inviti, segnalazioni fatte e
+              i brani che hai pubblicato, con i loro file. Restano solo le registrazioni di
+              abbonamenti e pagamenti (identificativi, senza nome né email), per gli obblighi
+              fiscali. Eventuali dati mantenuti da fornitori esterni e copie di backup seguono i
+              tempi indicati nell’informativa.
+            </p>
+            <p>
+              Un abbonamento attivo non si chiude da solo con l’account: disdicilo prima da
+              «Gestisci abbonamento» o dal tuo account PayPal.
             </p>
             <p>
               Per conoscere i dati trattati e le informazioni ancora da confermare, consulta l’

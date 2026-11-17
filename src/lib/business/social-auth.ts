@@ -90,6 +90,10 @@ export function appleOAuthCredentials(clientId?: string, clientSecret?: string) 
   return {
     clientId: normalizedClientId,
     clientSecret: normalizedClientSecret,
+    // Solco usa solo il flusso con redirect (il codice si scambia direttamente con Apple). Chiuso
+    // l'accesso «portando» un id token già emesso: nessun client lo usa, e un id token letto da
+    // una copia del database varrebbe ancora fino a un'ora per entrare nell'account.
+    disableIdTokenSignIn: true,
   };
 }
 

@@ -8,6 +8,7 @@ import {
   AccountDeletionResponseSchema,
 } from '@/lib/contracts/account-deletion';
 import { prisma } from '@/lib/db';
+import { deletePublicUploadBlobs } from '@/lib/music/public-uploads.server';
 import { requireAuth, type SessionUser } from '@/lib/require-auth';
 import { sameOrigin } from '@/lib/same-origin';
 
@@ -34,10 +35,15 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: 'confirmation_required' }, { status: 400 });
   }
 
+  let publicUploadBlobUrls: string[];
   try {
-    await prisma.$transaction((transaction) => deleteAccountData(transaction, user.id, user.email));
-    return NextResponse.json(AccountDeletionResponseSchema.parse({ deleted: true }));
+    ({ publicUploadBlobUrls } = await prisma.$transaction((transaction) =>
+      deleteAccountData(transaction, user.id, user.email),
+    ));
   } catch {
     return NextResponse.json({ error: 'account_deletion_failed' }, { status: 500 });
   }
+  // Solo dopo il commit: i file dei brani pubblicati spariscono anche dalla CDN pubblica.
+  await deletePublicUploadBlobs(publicUploadBlobUrls);
+  return NextResponse.json(AccountDeletionResponseSchema.parse({ deleted: true }));
 }
