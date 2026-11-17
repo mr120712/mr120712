@@ -735,6 +735,8 @@ describe('vercel.json — /sw.js headers', () => {
     expect(vercel.crons).toEqual([
       { path: '/api/cron/cleanup', schedule: '17 3 * * *' },
       { path: '/api/cron/health', schedule: '41 5 * * *' },
+      // «Skynet»: la sentinella guarda il sito ogni minuto (src/lib/skynet/).
+      { path: '/api/cron/skynet', schedule: '* * * * *' },
     ]);
   });
 });

@@ -1,0 +1,40 @@
+// @polsia:user-owned — «Skynet»: la sentinella che ogni minuto guarda Solco (src/lib/skynet/).
+// Solo lettura e avvisi: non cambia mai firewall, codice, impostazioni o dati del sito.
+
+/// Stato corrente della sentinella: una sola riga (id "main").
+model SkynetState {
+  id              String    @id
+  updatedAt       DateTime
+  /// Problemi visti di fila: { "<chiave>": giri consecutivi } (src/lib/skynet/signals.ts)
+  streaks         Json
+  /// Giri consecutivi senza problemi confermati, per chiudere un incidente senza sbalzi
+  calmStreak      Int       @default(0)
+  /// Incidente aperto: da quando e con quali problemi confermati
+  incidentSince   DateTime?
+  incidentKeys    String[]  @default([])
+  lastNotifiedAt  DateTime?
+  /// Ultima versione del firewall di Vercel vista, per accorgersi delle modifiche
+  firewallVersion Int?
+  /// Ultimi segnali letti (SkynetSignals), per il pannello di amministrazione
+  lastSignals     Json?
+  /// Un solo giro alla volta: chi lo prende lo tiene fino a qui (giri che si sovrappongono)
+  lockedUntil     DateTime?
+}
+
+/// Diario della sentinella: incidenti, aggiornamenti, promemoria, risoluzioni, modifiche al firewall.
+model SkynetEvent {
+  id       String   @id @default(cuid())
+  at       DateTime @default(now())
+  /// incident | update | reminder | resolved | change
+  kind     String
+  /// critical | warning | info
+  severity String
+  title    String
+  report   String
+  /// Chiavi dei problemi (es. ["ddos", "site-down"])
+  keys     String[] @default([])
+  /// A quante chat Telegram è arrivato l'avviso
+  notified Int      @default(0)
+
+  @@index([at])
+}

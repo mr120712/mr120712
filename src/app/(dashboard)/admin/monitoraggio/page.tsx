@@ -1,6 +1,8 @@
 // @polsia:user-owned
 import type { Metadata } from 'next';
+import { AppSurface } from '@/components/custom/app-ui/app-shell';
 import { MonitoringDashboard } from '@/components/custom/monitoring/monitoring-dashboard';
+import { SkynetPanel } from '@/components/custom/monitoring/skynet-panel';
 
 export const metadata: Metadata = {
   title: 'Monitoraggio — Amministrazione Solco',
@@ -8,5 +10,13 @@ export const metadata: Metadata = {
 };
 
 export default function MonitoringAdminPage() {
-  return <MonitoringDashboard />;
+  return (
+    <>
+      <MonitoringDashboard />
+      {/* «Skynet»: la sentinella che guarda il sito ogni minuto (src/lib/skynet/). */}
+      <AppSurface>
+        <SkynetPanel />
+      </AppSurface>
+    </>
+  );
 }
