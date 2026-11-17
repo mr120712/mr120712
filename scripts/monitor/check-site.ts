@@ -7,9 +7,13 @@
 //
 // Esito: exit 1 se in questo giro parte almeno un avviso (GitHub manda un'email), 0 altrimenti,
 // 2 se lo script stesso si interrompe. Lo stato tra un giro e l'altro vive in STATE_FILE.
+import { promises as dnsPromises } from 'node:dns';
 import { realpathSync } from 'node:fs';
 import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { isIP } from 'node:net';
 import { dirname, resolve } from 'node:path';
+import type { ConnectionOptions, TLSSocket } from 'node:tls';
+import { connect as tlsConnect } from 'node:tls';
 import { pathToFileURL } from 'node:url';
 
 export const DEFAULT_BASE_URL = 'https://www.solcomusic.online';
@@ -99,7 +103,53 @@ export type MonitorDeps = {
   now: () => Date;
   timeoutMs: number;
   retryDelayMs: number;
+  /** Una stretta di mano TLS verso il sito (controllo «Crittografia HTTPS»): mai una richiesta HTTP. */
+  tlsProbe: (request: TlsProbeRequest) => Promise<TlsProbeResult>;
+  /** Record DNS CAA di un nome ([] se non ce ne sono). */
+  resolveCaa: (name: string) => Promise<CaaRecord[]>;
 };
+
+// ---------- Tipi del controllo TLS ----------
+
+export type TlsVersionName = 'TLSv1' | 'TLSv1.1' | 'TLSv1.2' | 'TLSv1.3';
+
+export type TlsProbeRequest = {
+  host: string;
+  port: number;
+  minVersion?: TlsVersionName;
+  maxVersion?: TlsVersionName;
+  /** Elenco OpenSSL: le suite TLS 1.3 iniziano con «TLS_», le altre valgono per TLS 1.2 e prima. */
+  ciphers?: string;
+};
+
+export type TlsCertificateInfo = {
+  keyType: 'RSA' | 'EC' | 'altro';
+  /** Bit della chiave pubblica (RSA: modulo; EC: dimensione della curva). */
+  keyBits: number | null;
+  /** Curva della chiave EC (P-256, P-384…). */
+  curve: string | null;
+  /** Organizzazione e nome dell'autorità che l'ha emesso (es. «Let's Encrypt E6»). */
+  issuer: string | null;
+  /** Scadenza in ISO, null se illeggibile. */
+  validTo: string | null;
+};
+
+export type TlsProbeResult =
+  | {
+      ok: true;
+      protocol: string | null;
+      /** Nome standard IANA della suite (es. TLS_AES_256_GCM_SHA384). */
+      cipher: string | null;
+      /** Gruppo dello scambio di chiavi effimero (es. X25519). */
+      group: string | null;
+      /** Catena valida e nome del sito coperto dal certificato. */
+      authorized: boolean;
+      authorizationError: string | null;
+      certificate: TlsCertificateInfo | null;
+    }
+  | { ok: false; code: string };
+
+export type CaaRecord = { critical: number; issue?: string; issuewild?: string; iodef?: string };
 
 export type CheckState = { failingSince: string; consecutive: number; lastAlertAt: string | null };
 /** An alerted check that recovered: if it breaks again soon it keeps its alert clock. */
@@ -205,6 +255,7 @@ export const INTERNAL_CHECKS: Record<string, { label: string; critical: boolean 
 const CHECK_LABELS: Record<string, string> = {
   site_health: 'Sito raggiungibile (/health)',
   security_headers: 'Intestazioni di sicurezza',
+  tls: 'Crittografia HTTPS (TLS e certificato)',
   response_time: 'Velocità della home',
   seo_files: 'robots.txt e sitemap.xml',
   google_signin: 'Accesso con Google',
@@ -515,6 +566,319 @@ export async function checkSecurityHeaders(deps: MonitorDeps): Promise<CheckOutc
   if (gated) return gated;
   if (response.status !== 200) return fail(`La home risponde HTTP ${response.status}`);
   return evaluateSecurityHeaders(response.headers);
+}
+
+// ---------- Crittografia HTTPS (TLS) ----------
+
+/**
+ * Giorni alla scadenza del certificato sotto i quali scatta un avviso: Vercel lo rinnova da sé
+ * circa 30 giorni prima, quindi meno di 21 vuol dire che il rinnovo non sta andando.
+ */
+export const TLS_WARN_DAYS = 21;
+/** Sotto questa soglia è un errore critico: email al primo giro, il sito sta per diventare rosso. */
+export const TLS_FAIL_DAYS = 7;
+/** Minimi correnti (NIST SP 800-57): RSA 2048 bit, curve ellittiche 256 bit. */
+export const TLS_MIN_RSA_BITS = 2048;
+export const TLS_MIN_EC_BITS = 256;
+const TLS_PROBE_TIMEOUT_MS = 10_000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** Errori del nostro client, non del server: quel tentativo non dice nulla sul sito. */
+const LOCAL_TLS_LIMITS = new Set([
+  'ERR_SSL_NO_PROTOCOLS_AVAILABLE',
+  'ERR_SSL_NO_CIPHERS_AVAILABLE',
+  'ERR_SSL_NO_CIPHER_MATCH',
+  'ERR_TLS_INVALID_PROTOCOL_VERSION',
+  'ERR_INVALID_ARG_VALUE',
+  'TIMEOUT',
+]);
+
+function tlsErrorCode(error: unknown): string {
+  const code = isRecord(error) ? error.code : null;
+  return typeof code === 'string' && /^[A-Z0-9_]{2,80}$/.test(code) ? code : 'ERRORE';
+}
+
+function text(value: unknown): string | null {
+  if (Array.isArray(value)) return text(value[0]);
+  return typeof value === 'string' && value.trim() ? clip(value, 60) : null;
+}
+
+/** Una stretta di mano TLS (nessuna richiesta HTTP), con i dati del certificato e della cifratura. */
+export function probeTls(
+  request: TlsProbeRequest,
+  timeoutMs = TLS_PROBE_TIMEOUT_MS,
+): Promise<TlsProbeResult> {
+  return new Promise((resolveProbe) => {
+    let settled = false;
+    let socket: TLSSocket | undefined;
+    const finish = (result: TlsProbeResult) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket?.destroy();
+      resolveProbe(result);
+    };
+    const timer = setTimeout(() => finish({ ok: false, code: 'TIMEOUT' }), timeoutMs);
+    const options: ConnectionOptions = {
+      host: request.host,
+      port: request.port,
+      // Nessuna verifica bloccante: la validità del certificato si legge da `authorized`.
+      rejectUnauthorized: false,
+      ALPNProtocols: ['h2', 'http/1.1'],
+      ...(isIP(request.host) ? {} : { servername: request.host }),
+      ...(request.minVersion ? { minVersion: request.minVersion } : {}),
+      ...(request.maxVersion ? { maxVersion: request.maxVersion } : {}),
+      ...(request.ciphers ? { ciphers: request.ciphers } : {}),
+    };
+    try {
+      socket = tlsConnect(options, () => {
+        const secure = socket as TLSSocket;
+        const peer = secure.getPeerCertificate(false);
+        const cipher = secure.getCipher();
+        const ephemeral = secure.getEphemeralKeyInfo();
+        const hasCert = isRecord(peer) && Object.keys(peer).length > 0;
+        const keyType = !hasCert
+          ? null
+          : peer.modulus
+            ? 'RSA'
+            : peer.asn1Curve || peer.nistCurve
+              ? 'EC'
+              : 'altro';
+        const validTo = hasCert ? Date.parse(peer.valid_to) : Number.NaN;
+        const issuer = hasCert
+          ? [text(peer.issuer?.O), text(peer.issuer?.CN)].filter(Boolean).join(' ') || null
+          : null;
+        const authError = secure.authorizationError as unknown;
+        finish({
+          ok: true,
+          protocol: secure.getProtocol(),
+          cipher: cipher?.standardName || cipher?.name || null,
+          group: isRecord(ephemeral) && typeof ephemeral.name === 'string' ? ephemeral.name : null,
+          authorized: secure.authorized,
+          authorizationError: secure.authorized
+            ? null
+            : isRecord(authError) && typeof authError.code === 'string'
+              ? authError.code
+              : authError
+                ? clip(String(authError), 80)
+                : 'sconosciuto',
+          certificate: keyType
+            ? {
+                keyType,
+                keyBits: typeof peer.bits === 'number' ? peer.bits : null,
+                curve: text(peer.nistCurve) ?? text(peer.asn1Curve),
+                issuer,
+                validTo: Number.isFinite(validTo) ? new Date(validTo).toISOString() : null,
+              }
+            : null,
+        });
+      });
+      socket.once('error', (error) => finish({ ok: false, code: tlsErrorCode(error) }));
+    } catch (error) {
+      finish({ ok: false, code: tlsErrorCode(error) });
+    }
+  });
+}
+
+/** Record CAA validi per il sito: quelli del nome stesso o, se mancano, del primo genitore che li ha. */
+export async function lookupCaa(
+  deps: Pick<MonitorDeps, 'resolveCaa'>,
+  host: string,
+): Promise<string[] | null> {
+  if (isIP(host)) return [];
+  const labels = host.split('.').filter(Boolean);
+  try {
+    for (let index = 0; index <= labels.length - 2; index += 1) {
+      const records = await deps.resolveCaa(labels.slice(index).join('.'));
+      if (records.length > 0) {
+        return records.map((record) =>
+          record.issue !== undefined
+            ? `issue ${record.issue || ';'}`
+            : record.issuewild !== undefined
+              ? `issuewild ${record.issuewild || ';'}`
+              : record.iodef !== undefined
+                ? 'iodef'
+                : 'altro',
+        );
+      }
+    }
+    return [];
+  } catch {
+    return null;
+  }
+}
+
+export type TlsInspection = {
+  main: TlsProbeResult;
+  tls12: TlsProbeResult;
+  tls11: TlsProbeResult;
+  tls10: TlsProbeResult;
+  aes256: TlsProbeResult;
+  chacha: TlsProbeResult;
+  cbc: TlsProbeResult;
+  noForwardSecrecy: TlsProbeResult;
+  caa: string[] | null;
+};
+
+/** Accettato, rifiutato dal server, o non verificabile (limite del nostro client). */
+function verdict(result: TlsProbeResult): 'sì' | 'no' | '?' {
+  if (result.ok) return 'sì';
+  return LOCAL_TLS_LIMITS.has(result.code) ? '?' : 'no';
+}
+
+const VERSION_LABELS: Record<string, string> = {
+  TLSv1: 'TLS 1.0',
+  'TLSv1.1': 'TLS 1.1',
+  'TLSv1.2': 'TLS 1.2',
+  'TLSv1.3': 'TLS 1.3',
+};
+
+/** Nome breve della cifratura simmetrica (es. TLS_AES_256_GCM_SHA384 → AES-256-GCM). */
+export function cipherLabel(cipher: string | null): string {
+  if (!cipher) return 'cifratura sconosciuta';
+  if (/CHACHA20/.test(cipher)) return 'ChaCha20-Poly1305';
+  const aes = /AES_?(128|256)_?(GCM|CCM|CBC)?/.exec(cipher.replace(/-/g, '_'));
+  if (aes) return `AES-${aes[1]}${aes[2] ? `-${aes[2]}` : ''}`;
+  return clip(cipher, 40);
+}
+
+function isAead(cipher: string | null): boolean {
+  return Boolean(cipher && /GCM|CHACHA20|CCM/.test(cipher));
+}
+
+export function evaluateTls(report: TlsInspection, now: Date): CheckOutcome {
+  const { main } = report;
+  if (!main.ok) return fail(`Connessione HTTPS non riuscita (${main.code})`);
+  const problems: string[] = [];
+  const warnings: string[] = [];
+  const facts: string[] = [];
+  let critical = false;
+
+  const protocol = main.protocol ? (VERSION_LABELS[main.protocol] ?? main.protocol) : '?';
+  if (main.protocol !== 'TLSv1.3' && main.protocol !== 'TLSv1.2') {
+    problems.push(`protocollo debole (${protocol})`);
+  }
+  if (!isAead(main.cipher)) warnings.push(`cifratura non AEAD (${cipherLabel(main.cipher)})`);
+  facts.push(
+    `${protocol}, ${cipherLabel(main.cipher)}${main.group ? `, scambio ${clip(main.group, 24)}` : ''}`,
+  );
+
+  if (!main.authorized) {
+    problems.push(`certificato non valido (${main.authorizationError ?? 'sconosciuto'})`);
+    critical = true;
+  }
+  const cert = main.certificate;
+  if (!cert) {
+    problems.push('certificato non leggibile');
+  } else {
+    const bits = cert.keyBits;
+    let key: string;
+    if (cert.keyType === 'RSA') {
+      key = `RSA ${bits ?? '?'} bit`;
+      if (bits !== null && bits < TLS_MIN_RSA_BITS)
+        problems.push(`chiave RSA debole (${bits} bit)`);
+    } else if (cert.keyType === 'EC') {
+      key = `ECDSA ${cert.curve ?? `${bits ?? '?'} bit`}`;
+      if (bits !== null && bits < TLS_MIN_EC_BITS) problems.push(`chiave EC debole (${bits} bit)`);
+    } else {
+      key = 'chiave di tipo sconosciuto';
+    }
+    const expires = cert.validTo ? Date.parse(cert.validTo) : Number.NaN;
+    const days = Number.isFinite(expires) ? Math.floor((expires - now.getTime()) / DAY_MS) : null;
+    if (days === null) {
+      warnings.push('scadenza del certificato illeggibile');
+    } else if (days < TLS_FAIL_DAYS) {
+      problems.push(
+        days < 0 ? 'certificato scaduto' : `certificato in scadenza tra ${days} giorni`,
+      );
+      critical = true;
+    } else if (days < TLS_WARN_DAYS) {
+      warnings.push(`certificato in scadenza tra ${days} giorni (rinnovo automatico in ritardo)`);
+    }
+    facts.push(
+      `certificato ${key}${cert.issuer ? ` di ${cert.issuer}` : ''}${days !== null && days >= 0 ? `, scade tra ${days} gg` : ''}`,
+    );
+  }
+
+  const legacy = { 'TLS 1.0': verdict(report.tls10), 'TLS 1.1': verdict(report.tls11) };
+  const accepted = Object.entries(legacy)
+    .filter(([, value]) => value === 'sì')
+    .map(([name]) => name);
+  if (accepted.length > 0) warnings.push(`accetta ancora ${accepted.join(' e ')}`);
+  else if (Object.values(legacy).includes('?')) facts.push('TLS 1.0/1.1 non verificabili');
+  else facts.push('TLS 1.0/1.1 rifiutati');
+
+  const strong = [
+    verdict(report.aes256) === 'sì' ? 'AES-256' : null,
+    verdict(report.chacha) === 'sì' ? 'ChaCha20' : null,
+  ].filter(Boolean);
+  if (strong.length > 0) facts.push(`TLS 1.3 offre ${strong.join(' e ')}`);
+  if (verdict(report.tls12) === 'sì') facts.push('anche TLS 1.2');
+  if (verdict(report.cbc) === 'sì') facts.push('accetta CBC per vecchi client');
+  if (verdict(report.noForwardSecrecy) === 'sì') facts.push('accetta scambio RSA senza PFS');
+  facts.push(
+    report.caa === null
+      ? 'CAA non letto'
+      : report.caa.length > 0
+        ? `CAA: ${report.caa.join(', ')}`
+        : 'nessun record CAA',
+  );
+
+  if (problems.length > 0) {
+    return fail(
+      `${[...problems, ...warnings].join('; ')} | ${facts.join('; ')}`,
+      critical || undefined,
+    );
+  }
+  if (warnings.length > 0) return warn(`${warnings.join('; ')} | ${facts.join('; ')}`);
+  return ok(facts.join('; '));
+}
+
+/**
+ * Crittografia HTTPS vista da fuori: protocollo e cifratura negoziati, chiave e scadenza del
+ * certificato, rifiuto di TLS 1.0/1.1, suite forti offerte, record CAA. Solo strette di mano TLS
+ * (nessuna pagina richiesta) più una lettura DNS: pochi millisecondi ogni ora.
+ */
+export async function checkTls(deps: MonitorDeps): Promise<CheckOutcome> {
+  const url = new URL(deps.baseUrl);
+  if (url.protocol !== 'https:')
+    return warn('Il sito non è controllato in HTTPS: TLS non verificato');
+  const host = url.hostname.replace(/^\[|\]$/g, '');
+  const port = url.port ? Number(url.port) : 443;
+  const probe = (extra: Omit<TlsProbeRequest, 'host' | 'port'> = {}) =>
+    deps.tlsProbe({ host, port, ...extra });
+  const main = await probe();
+  if (!main.ok) return fail(`Connessione HTTPS non riuscita (${main.code})`);
+  const legacyCiphers = 'DEFAULT:@SECLEVEL=0';
+  const report: TlsInspection = {
+    main,
+    tls12: await probe({ minVersion: 'TLSv1.2', maxVersion: 'TLSv1.2' }),
+    tls11: await probe({ minVersion: 'TLSv1.1', maxVersion: 'TLSv1.1', ciphers: legacyCiphers }),
+    tls10: await probe({ minVersion: 'TLSv1', maxVersion: 'TLSv1', ciphers: legacyCiphers }),
+    aes256: await probe({ minVersion: 'TLSv1.3', ciphers: 'TLS_AES_256_GCM_SHA384' }),
+    chacha: await probe({ minVersion: 'TLSv1.3', ciphers: 'TLS_CHACHA20_POLY1305_SHA256' }),
+    cbc: await probe({
+      maxVersion: 'TLSv1.2',
+      ciphers:
+        'ECDHE-ECDSA-AES128-SHA:ECDHE-RSA-AES128-SHA:ECDHE-ECDSA-AES256-SHA:ECDHE-RSA-AES256-SHA',
+    }),
+    noForwardSecrecy: await probe({
+      maxVersion: 'TLSv1.2',
+      ciphers: 'AES128-GCM-SHA256:AES256-GCM-SHA384:AES128-SHA:AES256-SHA',
+    }),
+    caa: await lookupCaa(deps, host),
+  };
+  return evaluateTls(report, deps.now());
+}
+
+/** Lettura CAA reale: «nessun record» e «nome inesistente» valgono come elenco vuoto. */
+async function resolveCaaRecords(name: string): Promise<CaaRecord[]> {
+  try {
+    return (await dnsPromises.resolveCaa(name)) as CaaRecord[];
+  } catch (error) {
+    const code = isRecord(error) ? error.code : null;
+    if (code === 'ENODATA' || code === 'ENOTFOUND') return [];
+    throw error;
+  }
 }
 
 export async function checkSeoFiles(deps: MonitorDeps): Promise<CheckOutcome> {
@@ -836,6 +1200,7 @@ export async function runAllChecks(deps: MonitorDeps): Promise<CheckResult[]> {
       single(`${PAGE_PREFIX}${page.path}`, page.critical, (d) => checkPage(d, page.path)),
     ),
     single('security_headers', false, checkSecurityHeaders),
+    single('tls', false, checkTls),
     single('seo_files', false, checkSeoFiles),
     single('google_signin', true, checkGoogleSignIn),
     single('signup_route', true, checkSignupRoute),
@@ -1291,6 +1656,8 @@ export function createDeps(baseUrl: string, overrides: Partial<MonitorDeps> = {}
     now: () => new Date(),
     timeoutMs: REQUEST_TIMEOUT_MS,
     retryDelayMs: RETRY_DELAY_MS,
+    tlsProbe: (request) => probeTls(request),
+    resolveCaa: resolveCaaRecords,
     ...overrides,
   };
 }

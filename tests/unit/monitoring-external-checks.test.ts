@@ -37,8 +37,36 @@ import {
   runAllChecks,
   runCheck,
   STATUS_REREAD_DELAY_MS,
+  type TlsProbeRequest,
+  type TlsProbeResult,
   USER_AGENT,
 } from '../../scripts/monitor/check-site';
+
+/** Un sito con TLS moderno: nessuna stretta di mano vera nei test. */
+async function strongTls(request: TlsProbeRequest): Promise<TlsProbeResult> {
+  if (request.maxVersion === 'TLSv1' || request.maxVersion === 'TLSv1.1') {
+    return { ok: false, code: 'ERR_SSL_TLSV1_ALERT_PROTOCOL_VERSION' };
+  }
+  if (request.ciphers && !request.ciphers.startsWith('TLS_')) {
+    return { ok: false, code: 'ERR_SSL_SSLV3_ALERT_HANDSHAKE_FAILURE' };
+  }
+  return {
+    ok: true,
+    protocol: request.maxVersion === 'TLSv1.2' ? 'TLSv1.2' : 'TLSv1.3',
+    cipher: 'TLS_AES_256_GCM_SHA384',
+    group: 'X25519',
+    authorized: true,
+    authorizationError: null,
+    certificate: {
+      keyType: 'EC',
+      keyBits: 256,
+      curve: 'P-256',
+      issuer: "Let's Encrypt E6",
+      validTo: '2027-01-20T00:00:00.000Z',
+    },
+  };
+}
+const noCaa = async () => [];
 
 const BASE = 'https://solco.test';
 /** Five minutes after the checkedAt of the healthy /api/status: no re-read by default. */
@@ -162,6 +190,8 @@ function setup(
       return tick;
     },
     now: () => NOW,
+    tlsProbe: strongTls,
+    resolveCaa: noCaa,
     ...extra,
   });
   return { deps, calls, sleeps };
@@ -951,6 +981,7 @@ describe('runAllChecks', () => {
       ...PUBLIC_PAGES.map((page) => `page:${page.path}`),
       'security_headers',
       'response_time',
+      'tls',
       'seo_files',
       'google_signin',
       'signup_route',
@@ -1025,7 +1056,13 @@ describe('main', () => {
         GITHUB_STEP_SUMMARY: join(dir, 'summary.md'),
         ...extraEnv,
       },
-      { fetch: fakeFetch(handlers, calls), sleep: async () => {}, now: () => NOW },
+      {
+        fetch: fakeFetch(handlers, calls),
+        sleep: async () => {},
+        now: () => NOW,
+        tlsProbe: strongTls,
+        resolveCaa: noCaa,
+      },
     );
     const state = JSON.parse(await readFile(join(dir, 'state.json'), 'utf8'));
     return { code, state };
