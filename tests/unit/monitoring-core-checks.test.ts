@@ -52,6 +52,7 @@ function quotaUsage(overrides: Partial<YouTubeQuotaUsage> = {}): YouTubeQuotaUsa
     searchCap: YOUTUBE_SEARCH_DAILY_CAP,
     genreSearches: 0,
     songSearches: 0,
+    refreshSearches: 0,
     units: 3,
     unitsCap: 1000,
     searchBlocked: false,
@@ -559,6 +560,22 @@ describe('youtube_search', () => {
     expect(silent).toMatchObject({ status: 'warn' });
     expect(silent.detail).toMatch(/ultime 72 ore/);
     expect((await run({ usage: quotaUsage(), lastSearchAt: null })).status).toBe('warn');
+  });
+
+  it('counts the searches renewed in the background after a reused saved result', async () => {
+    const result = await runCheck(
+      'youtube_search',
+      makeDeps({
+        youtubeSearchHealth: async () => ({
+          usage: quotaUsage({ searches: 20, refreshSearches: 4 }),
+          lastSearchAt: new Date(NOW.getTime() - HOUR),
+        }),
+      }),
+    );
+    expect(result.status).toBe('ok');
+    expect(result.detail).toMatch(
+      /^20 ricerche su 85 oggi \(di cui 4 rinnovate in background\); ultima ricerca nuova: /,
+    );
   });
 
   it('fails when the key is missing or the budget cannot be read', async () => {

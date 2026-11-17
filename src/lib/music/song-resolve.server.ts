@@ -13,6 +13,7 @@ import {
 } from '@/lib/music/youtube-budget.server';
 import {
   searchYouTubeMusic,
+  type YouTubeSearchResult,
   type YouTubeUnavailableReason,
 } from '@/lib/music/youtube-search.server';
 import { storedYouTubeSearchWithTime } from '@/lib/music/youtube-search-store.server';
@@ -90,8 +91,9 @@ export async function peekSongResolution(
 }
 
 /**
- * Searches YouTube (shared 24 h search cache first) and stores the choice. A real search uses the
- * imported-songs share of the daily budget (search:song), only when no saved search answers.
+ * Searches YouTube (shared search cache first: 24 h, or up to 7 days when the saved search has the
+ * song) and stores the choice. A real search uses the imported-songs share of the daily budget
+ * (search:song), only when no saved search answers.
  */
 export async function searchSong(
   title: string,
@@ -107,16 +109,24 @@ export async function searchSong(
         purpose: 'song',
       })
     : async () => ({ outcome: 'unavailable', videos: [], unavailableReason: 'not_configured' });
-  const { result, fetchedAt, stale, blockedBy } = await storedYouTubeSearchWithTime(
-    canonical.query,
-    SONG_SEARCH_RESULTS,
-    load,
-  );
+  const pick = (found: YouTubeSearchResult) =>
+    found.outcome === 'unavailable' ? null : pickVideoForSong({ title, artist }, found.videos);
+  // A search for these words saved in the last 7 days is enough to pick the video, without a new
+  // search: songs never refresh in the background (the choice is kept 28 days anyway).
+  let stored = await storedYouTubeSearchWithTime(canonical.query, SONG_SEARCH_RESULTS, load, {
+    reuse: { refresh: null },
+  });
+  let picked = pick(stored.result);
+  if (stored.reused && !picked) {
+    // That older search does not have the song: a new search decides, as for one over 24 h old.
+    stored = await storedYouTubeSearchWithTime(canonical.query, SONG_SEARCH_RESULTS, load);
+    picked = pick(stored.result);
+  }
+  const { result, fetchedAt, stale, blockedBy } = stored;
   // Quota finished or API error: do not remember "not found" for something we could not check.
   if (result.outcome === 'unavailable') {
     return { ok: false, error: 'unavailable', reason: blockedBy ?? result.unavailableReason };
   }
-  const picked = pickVideoForSong({ title, artist }, result.videos);
   const video = picked
     ? {
         videoId: picked.videoId,

@@ -18,6 +18,10 @@ const mocks = vi.hoisted(() => ({
   stale: false,
   apiKey: 'key',
   budget: vi.fn((load: unknown) => load),
+  // A saved search 1 to 7 days old the store would reuse (only when the caller allows reuse).
+  reused: null as null | { outcome: 'results'; videos: unknown[] },
+  reusedAt: new Date('2026-11-08T12:00:00Z'),
+  storeCalls: [] as string[],
 }));
 vi.mock('server-only', () => ({}));
 vi.mock('@/lib/music/music-api.server', () => ({ readYouTubeApiKey: () => mocks.apiKey }));
@@ -31,7 +35,12 @@ vi.mock('@/lib/music/youtube-search-store.server', () => ({
     query: string,
     _n: number,
     load: (term: string, size: number) => Promise<{ outcome: string; unavailableReason?: string }>,
+    options?: { reuse?: { refresh: unknown } },
   ) => {
+    mocks.storeCalls.push(options?.reuse ? 'reuse' : 'search');
+    if (options?.reuse && mocks.reused) {
+      return { result: mocks.reused, fetchedAt: mocks.reusedAt, stale: false, reused: true };
+    }
     const result = await load(query, 25);
     return {
       result,
@@ -92,6 +101,8 @@ beforeEach(() => {
   mocks.stale = false;
   mocks.apiKey = 'key';
   mocks.budget.mockClear();
+  mocks.reused = null;
+  mocks.storeCalls = [];
 });
 
 describe('brani importati: ricerca del video', () => {
@@ -142,6 +153,33 @@ describe('brani importati: ricerca del video', () => {
     expect(await resolveSong('Altro Brano', 'Nessuno', now)).toEqual({ ok: true, video: null });
     const row = [...mocks.rows.values()][0];
     expect(row?.expiresAt.getTime()).toBe(now.getTime() + NOT_FOUND_ON_SAVED_TTL_MS);
+  });
+
+  it('una ricerca salvata da pochi giorni che ha il brano basta: nessuna ricerca nuova', async () => {
+    mocks.reused = { outcome: 'results', videos: [official] };
+    expect(await resolveSong('Strada Nuova', 'Band Finta', now)).toEqual({
+      ok: true,
+      video: official,
+    });
+    expect(mocks.search).not.toHaveBeenCalled();
+    // Songs never refresh in the background: the choice is kept 28 days anyway.
+    expect(mocks.storeCalls).toEqual(['reuse']);
+    const row = [...mocks.rows.values()][0];
+    expect(row?.expiresAt.getTime()).toBe(mocks.reusedAt.getTime() + FOUND_TTL_MS);
+  });
+
+  it('se la ricerca salvata non ha il brano, ne decide una nuova (come dopo 24 ore)', async () => {
+    mocks.reused = {
+      outcome: 'results',
+      videos: [{ ...official, videoId: 'ddddddddddd', title: 'Tutt’altro brano' }],
+    };
+    mocks.search.mockResolvedValueOnce({ outcome: 'results', videos: [official] });
+    expect(await resolveSong('Strada Nuova', 'Band Finta', now)).toEqual({
+      ok: true,
+      video: official,
+    });
+    expect(mocks.storeCalls).toEqual(['reuse', 'search']);
+    expect(mocks.search).toHaveBeenCalledOnce();
   });
 
   it('cerca su YouTube la forma canonica del brano', async () => {

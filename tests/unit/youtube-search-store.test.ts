@@ -12,9 +12,12 @@ import {
   YOUTUBE_STORE_FRESH_MS,
   YOUTUBE_STORE_MAX_AGE_MS,
   YOUTUBE_STORE_RECHECK_BACKOFF_MS,
+  YOUTUBE_STORE_REFRESH_LEASE_MS,
+  YOUTUBE_STORE_REUSE_MS,
   YOUTUBE_STORE_STALE_MS,
   YOUTUBE_STORE_UNVERIFIED_MS,
   type YouTubeRecheck,
+  type YouTubeSearchReuse,
   youtubeStoreKey,
 } from '@/lib/music/youtube-search-store.server';
 import { createYouTubeDbFake, type YouTubeDbFake } from './support/youtube-db-fake';
@@ -55,13 +58,28 @@ function search(
   query: string,
   maxResults: number,
   load: Parameters<typeof storedYouTubeSearchWithTime>[2],
-  options: { now?: Date; recheck?: YouTubeRecheck | null } = {},
+  options: { now?: Date; recheck?: YouTubeRecheck | null; reuse?: YouTubeSearchReuse } = {},
 ) {
   return storedYouTubeSearchWithTime(query, maxResults, load, {
     now: options.now ?? NOW,
     db: db as never,
     recheck: options.recheck ?? null,
+    ...(options.reuse ? { reuse: options.reuse } : {}),
   });
+}
+
+/** Tasks scheduled "after the response", run when the test decides. */
+function background() {
+  const tasks: Array<() => Promise<void>> = [];
+  return {
+    schedule: (task: () => Promise<void>) => {
+      tasks.push(task);
+    },
+    tasks,
+    async runAll() {
+      for (const task of tasks.splice(0)) await task();
+    },
+  };
 }
 
 function saveRow(key: string, payload: unknown, ageMs: number) {
@@ -323,5 +341,152 @@ describe('cache delle ricerche YouTube nel database', () => {
     await search('nuova', 10, async () => results(1));
     expect(db.searches.has(youtubeStoreKey('vecchia'))).toBe(false);
     expect(db.searches.has(youtubeStoreKey('recente'))).toBe(true);
+  });
+});
+
+describe('riuso delle ricerche salvate da 1 a 7 giorni (opzione reuse)', () => {
+  const savedAlfa = (count = 25, ageMs = 2 * DAY_MS) =>
+    saveRow(youtubeStoreKey('alfa'), { ...results(count), size: 25 }, ageMs);
+  const newVideos = Array.from({ length: 25 }, (_, index) => video(100 + index));
+
+  it('risponde subito come attuale, senza aspettare YouTube; la ricerca nuova parte dopo', async () => {
+    savedAlfa();
+    const load = vi.fn(async () => results(25));
+    const refresh = vi.fn(async () => ({ outcome: 'results' as const, videos: newVideos }));
+    const after = background();
+    const reuse = { refresh, schedule: after.schedule };
+
+    const stored = await search('Alfa', 10, load, { reuse });
+    expect(stored).toMatchObject({ stale: false, reused: true, result: { outcome: 'results' } });
+    expect(stored.result.videos).toHaveLength(10);
+    // The 28 days still count from when YouTube sent the saved search.
+    expect(stored.fetchedAt).toEqual(new Date(NOW.getTime() - 2 * DAY_MS));
+    expect(load).not.toHaveBeenCalled();
+    expect(refresh).not.toHaveBeenCalled();
+    expect(after.tasks).toHaveLength(1);
+
+    await after.runAll();
+    expect(refresh).toHaveBeenCalledWith('Alfa', YOUTUBE_SEARCH_FETCH_SIZE);
+    // The new search replaces the saved one and is current for the next 24 h.
+    const next = await search('alfa', 10, load, { reuse });
+    expect(next).toMatchObject({ stale: false, result: { outcome: 'results' } });
+    expect(next.reused).toBeUndefined();
+    expect(next.fetchedAt).toEqual(NOW);
+    expect(next.result.videos[0]?.videoId).toBe(video(100).videoId);
+    expect(after.tasks).toHaveLength(0);
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it('il rinnovo si prova una volta per riga ogni 6 ore, anche da più istanze', async () => {
+    savedAlfa();
+    const load = vi.fn(async () => results(25));
+    // No quota to spare: the budget refuses the refresh.
+    const refresh = vi.fn(async () => out('budget_exhausted'));
+    const after = background();
+    const reuse = { refresh, schedule: after.schedule };
+    // Two instances answer the same search at the same moment.
+    await search('alfa', 10, load, { reuse });
+    await search('alfa', 10, load, { reuse });
+    await after.runAll();
+    expect(refresh).toHaveBeenCalledOnce();
+
+    const later = new Date(NOW.getTime() + YOUTUBE_STORE_REFRESH_LEASE_MS - 60_000);
+    const stillSaved = await search('alfa', 10, load, { reuse, now: later });
+    expect(stillSaved).toMatchObject({ stale: false, reused: true });
+    await after.runAll();
+    expect(refresh).toHaveBeenCalledOnce();
+
+    await search('alfa', 10, load, {
+      reuse,
+      now: new Date(NOW.getTime() + YOUTUBE_STORE_REFRESH_LEASE_MS),
+    });
+    await after.runAll();
+    expect(refresh).toHaveBeenCalledTimes(2);
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it('oltre 7 giorni non riusa: cerca subito, come prima', async () => {
+    savedAlfa(25, YOUTUBE_STORE_REUSE_MS + 60_000);
+    const load = vi.fn(async () => results(25));
+    const after = background();
+    const stored = await search('alfa', 10, load, {
+      reuse: { refresh: vi.fn(async () => results(25)), schedule: after.schedule },
+    });
+    expect(load).toHaveBeenCalledOnce();
+    expect(stored.reused).toBeUndefined();
+    expect(stored.fetchedAt).toEqual(NOW);
+    expect(after.tasks).toHaveLength(0);
+  });
+
+  it('i video riusati si ricontrollano una volta al giorno: quelli spariti non si mostrano', async () => {
+    savedAlfa(3);
+    const recheck = vi.fn(async () => new Map([[video(1).videoId, video(1, 'Titolo nuovo')]]));
+    const load = vi.fn(async () => results(25));
+    const after = background();
+    const reuse = { refresh: null, schedule: after.schedule };
+
+    const stored = await search('alfa', 10, load, { recheck, reuse });
+    expect(recheck).toHaveBeenCalledOnce();
+    expect(stored.result.videos.map((item) => item.title)).toEqual(['Titolo nuovo']);
+    const hourLater = new Date(NOW.getTime() + 60 * 60 * 1000);
+    const again = await search('alfa', 10, load, { recheck, reuse, now: hourLater });
+    expect(recheck).toHaveBeenCalledOnce();
+    expect(again.result.videos).toHaveLength(1);
+    expect(load).not.toHaveBeenCalled();
+    // `refresh: null`: reuse only, nothing scheduled.
+    expect(after.tasks).toHaveLength(0);
+  });
+
+  it('se nessun video riusato è ancora disponibile decide una ricerca nuova', async () => {
+    savedAlfa(3);
+    const recheck = vi.fn(async () => new Map<string, YouTubeVideoSearchResult>());
+    const load = vi.fn(async () => results(25));
+    const after = background();
+    const stored = await search('alfa', 10, load, {
+      recheck,
+      reuse: { refresh: vi.fn(async () => results(25)), schedule: after.schedule },
+    });
+    expect(recheck).toHaveBeenCalledOnce();
+    expect(load).toHaveBeenCalledOnce();
+    expect(stored).toMatchObject({ stale: false, result: { outcome: 'results' } });
+    expect(stored.reused).toBeUndefined();
+    expect(after.tasks).toHaveLength(0);
+  });
+
+  it('una ricerca salvata senza risultati si riusa come tale e si rinnova', async () => {
+    saveRow(youtubeStoreKey('zzz'), { outcome: 'no_results', videos: [], size: 25 }, 3 * DAY_MS);
+    const load = vi.fn(async () => results(25));
+    const refresh = vi.fn(async () => results(25));
+    const after = background();
+    const stored = await search('zzz', 10, load, {
+      reuse: { refresh, schedule: after.schedule },
+    });
+    expect(stored).toMatchObject({ reused: true, result: { outcome: 'no_results', videos: [] } });
+    expect(load).not.toHaveBeenCalled();
+    await after.runAll();
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it('un risultato salvato con meno video di quelli chiesti non si riusa', async () => {
+    saveRow('10:beta', results(10), 2 * DAY_MS);
+    const load = vi.fn(async () => results(25));
+    const stored = await search('beta', 25, load, { reuse: { refresh: null } });
+    expect(load).toHaveBeenCalledOnce();
+    expect(stored.reused).toBeUndefined();
+  });
+
+  it('fuori da una richiesta (script) il rinnovo parte subito, senza far aspettare', async () => {
+    savedAlfa();
+    const refresh = vi.fn(async () => results(25));
+    const stored = await search(
+      'alfa',
+      10,
+      vi.fn(async () => results(25)),
+      {
+        reuse: { refresh },
+      },
+    );
+    expect(stored.reused).toBe(true);
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
   });
 });

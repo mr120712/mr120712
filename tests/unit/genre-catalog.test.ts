@@ -5,8 +5,16 @@ import { describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   search: vi.fn(async () => ({ outcome: 'results' as const, videos: [] })),
   apiKey: 'key',
+  // Tasks scheduled after the response (next/server after()), run when the test decides.
+  afterTasks: [] as Array<() => Promise<unknown>>,
 }));
 vi.mock('server-only', () => ({}));
+vi.mock('next/server', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('next/server')>()),
+  after: (task: () => Promise<unknown>) => {
+    mocks.afterTasks.push(task);
+  },
+}));
 vi.mock('@/lib/music/youtube-search.server', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/music/youtube-search.server')>()),
   searchYouTubeMusic: mocks.search,
@@ -106,7 +114,8 @@ describe('generi e playlist', () => {
       `${youtubeQuotaDay()}|search:genre`,
       youtubeSearchPurposeCap('genre', youtubeQuotaDay()),
     );
-    const savedAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    // Over 7 days old (not reused as current), re-checked today: shown as saved, with its date.
+    const savedAt = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
     // The techno page searches "underground techno".
     db.searches.set(youtubeStoreKey('Underground Techno'), {
       key: youtubeStoreKey('underground techno'),
@@ -142,6 +151,54 @@ describe('generi e playlist', () => {
       limit: 'everyone',
     });
     expect(response.headers.get('cache-control')).toBe('public, max-age=300, s-maxage=900');
+  });
+
+  it('un genere salvato da pochi giorni si mostra subito; la quota dei generi lo rinnova dopo', async () => {
+    db.reset();
+    mocks.search.mockClear();
+    mocks.afterTasks.length = 0;
+    const savedAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    db.searches.set(youtubeStoreKey('underground techno'), {
+      key: youtubeStoreKey('underground techno'),
+      payload: {
+        outcome: 'results',
+        size: 25,
+        checkedAt: new Date().toISOString(),
+        videos: [
+          {
+            provider: 'youtube',
+            videoId: 'abcdefghijk',
+            title: 'Techno salvata',
+            channelTitle: 'Canale',
+            channelId: null,
+            description: null,
+            publishedAt: null,
+            thumbnailUrl: null,
+          },
+        ],
+      },
+      createdAt: savedAt,
+      expiresAt: new Date(savedAt.getTime() + 24 * 60 * 60 * 1000),
+    });
+    const response = await GET(new Request('https://solco.test/api/music/genres/techno'), {
+      params: Promise.resolve({ slug: 'techno' }),
+    });
+    const body = await response.json();
+    // Shown at once as current: nobody waits for YouTube.
+    expect(body.videos).toHaveLength(1);
+    expect(body.youtube).toMatchObject({ freshness: 'live', savedAt: null });
+    expect(response.headers.get('cache-control')).toBe('public, max-age=600, s-maxage=3600');
+    expect(mocks.search).not.toHaveBeenCalled();
+    expect(mocks.afterTasks).toHaveLength(1);
+
+    // After the response: one new search from the genre share, saved for the next visits.
+    for (const task of mocks.afterTasks.splice(0)) await task();
+    expect(mocks.search).toHaveBeenCalledOnce();
+    expect(mocks.search).toHaveBeenCalledWith('underground techno', 'key', fetch, 25);
+    expect(db.usage.get(`${youtubeQuotaDay()}|search:genre`)).toBe(1);
+    expect(
+      db.searches.get(youtubeStoreKey('underground techno'))?.createdAt.getTime(),
+    ).toBeGreaterThan(savedAt.getTime());
   });
 
   it('il monitor automatico non spende ricerche YouTube: solo risultati salvati', async () => {

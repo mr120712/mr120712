@@ -1,4 +1,5 @@
-// @polsia:user-owned — brani YouTube per un genere o una playlist Solco (ricerca fissa, cache 24 h).
+// @polsia:user-owned — brani YouTube per un genere o una playlist Solco (ricerca fissa, cache 24 h,
+// poi riusata fino a 7 giorni mentre si rinnova dopo la risposta).
 // Le ricerche dei generi hanno una quota propria (search:genre) dentro il budget giornaliero: a
 // quota finita la pagina mostra i brani salvati se sono recenti (vedi youtube-search-store), con
 // la loro data. Senza chiave API, o per il monitor automatico (User-Agent "SolcoMonitor/"), non si
@@ -40,12 +41,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
       : withYouTubeSearchBudget((term, size) => searchYouTubeMusic(term, apiKey, fetch, size), {
           purpose: 'genre',
         });
-  const stored = await storedYouTubeSearchWithTime(
-    genre.query,
-    GENRE_RESULTS,
-    load,
-    monitor ? { recheck: null } : {},
-  );
+  const stored = await storedYouTubeSearchWithTime(genre.query, GENRE_RESULTS, load, {
+    ...(monitor ? { recheck: null } : {}),
+    // Results saved 1 to 7 days ago are shown at once; the new search, paid by the genre share,
+    // runs after the response. The monitor (and a missing key) never search.
+    reuse: { refresh: monitor || !apiKey ? null : load },
+  });
   const { result } = stored;
   const unavailableReason = contractUnavailableReason(result.unavailableReason);
   const body = {
@@ -69,8 +70,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
   };
   return NextResponse.json(YouTubeMusicSearchResponseSchema.parse(body), {
     headers: {
-      // The database already limits YouTube to one search per genre per day; the edge keeps a
-      // copy for 1 h only, so results shown as current are never much older than 24 h.
+      // The database already limits YouTube to one search per genre per day, and shows a saved
+      // genre (re-checked daily) for up to 7 days while the genre share renews it in the
+      // background; the edge keeps a copy for 1 h only.
       'Cache-Control':
         result.outcome === 'unavailable' || monitor
           ? 'no-store'

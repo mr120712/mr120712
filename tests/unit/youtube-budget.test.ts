@@ -15,6 +15,7 @@ import {
   withYouTubeSearchBudget,
   YOUTUBE_BLOCK_RETRY_MS,
   YOUTUBE_QUOTA_USAGE_KEEP_MS,
+  YOUTUBE_REFRESH_POOL_CEILING,
   YOUTUBE_SEARCH_DAILY_CAP,
   YOUTUBE_SEARCH_PURPOSE_CAPS,
   YOUTUBE_UNITS_DAILY_CAP,
@@ -189,6 +190,38 @@ describe('budget giornaliero delle ricerche YouTube', () => {
     await expect(take()).resolves.toEqual({ ok: true });
     await expect(take({ purpose: 'song' })).resolves.toEqual({ ok: true });
     expect(db.usage.get(`${DAY}|search:song`)).toBe(1);
+  });
+
+  it('i rinnovi in background hanno 20 ricerche e solo finché il giorno ne ha usate meno di 50', async () => {
+    const consume = consumer();
+    const cap = YOUTUBE_SEARCH_PURPOSE_CAPS.refresh;
+    for (let index = 0; index < cap; index += 1) {
+      await expect(take({ purpose: 'refresh', consume: consume as never })).resolves.toEqual({
+        ok: true,
+      });
+    }
+    await expect(take({ purpose: 'refresh' })).resolves.toEqual({
+      ok: false,
+      reason: 'budget_exhausted',
+    });
+    expect(db.usage.get(`${DAY}|search:refresh`)).toBe(cap);
+    // Never anyone's personal share.
+    expect(consume).not.toHaveBeenCalled();
+    expect((await readYouTubeQuotaUsage(NOW, db as never)).refreshSearches).toBe(cap);
+
+    // A busy day: the last part of the pool stays for new searches.
+    db.reset();
+    db.usage.set(`${DAY}|search`, YOUTUBE_REFRESH_POOL_CEILING - 1);
+    await expect(take({ purpose: 'refresh' })).resolves.toEqual({ ok: true });
+    await expect(take({ purpose: 'refresh' })).resolves.toEqual({
+      ok: false,
+      reason: 'budget_exhausted',
+    });
+    expect(db.usage.get(`${DAY}|search`)).toBe(YOUTUBE_REFRESH_POOL_CEILING);
+    await expect(take()).resolves.toEqual({ ok: true });
+    await expect(take({ purpose: 'genre' })).resolves.toEqual({ ok: true });
+    // Refreshes can use at most 20 of the 85: new searches always keep 65.
+    expect(YOUTUBE_SEARCH_DAILY_CAP - cap).toBeGreaterThanOrEqual(65);
   });
 
   it('i generi hanno 40 ricerche al giorno fino al 18 novembre, poi tornano a 15', () => {

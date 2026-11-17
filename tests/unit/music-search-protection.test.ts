@@ -11,9 +11,17 @@ const mocks = vi.hoisted(() => ({
     return ip ? `ip:${ip}` : null;
   }),
   consumeRateLimit: vi.fn(),
+  // Tasks scheduled after the response (next/server after()), run when the test decides.
+  afterTasks: [] as Array<() => Promise<unknown>>,
 }));
 
 vi.mock('server-only', () => ({}));
+vi.mock('next/server', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('next/server')>()),
+  after: (task: () => Promise<unknown>) => {
+    mocks.afterTasks.push(task);
+  },
+}));
 // The real YouTube budget and search store run on an in-memory database.
 vi.mock('@/lib/db', async () => ({
   prisma: {
@@ -204,7 +212,8 @@ describe('route di ricerca musicale', () => {
     const fetcher = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', fetcher);
     db.usage.set(`${youtubeQuotaDay()}|search`, YOUTUBE_SEARCH_DAILY_CAP);
-    const savedAt = savedSearch('Lucio Dalla', 2 * 24 * 60 * 60 * 1000);
+    // Over 7 days old (not reused as current), re-checked today: shown as saved, with its date.
+    const savedAt = savedSearch('Lucio Dalla', 8 * 24 * 60 * 60 * 1000);
 
     const response = await GET(request('lucio dalla!', 'youtube', true, '192.0.2.92'));
     const body = await response.json();
@@ -216,6 +225,50 @@ describe('route di ricerca musicale', () => {
     expect(fetcher).not.toHaveBeenCalled();
     // The personal share is not spent when the shared pool is already empty.
     expect(mocks.consumeRateLimit).not.toHaveBeenCalled();
+  });
+
+  it('una ricerca salvata da 2 giorni risponde subito e si rinnova dopo, senza quota personale', async () => {
+    vi.stubEnv('YOUTUBE_DATA_API_KEY', 'server-key');
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        items: [
+          {
+            id: { videoId: 'aaaaaaaaaaa' },
+            snippet: { title: 'Brano nuovo', channelTitle: 'Canale' },
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal('fetch', fetcher);
+    mocks.afterTasks.length = 0;
+    savedSearch('Lucio Dalla', 2 * 24 * 60 * 60 * 1000);
+
+    const response = await GET(request('lucio dalla!', 'youtube', true, '192.0.2.95'));
+    expect(await response.json()).toMatchObject({
+      outcome: 'results',
+      videos: [{ videoId: 'dQw4w9WgXcQ', title: 'Brano salvato' }],
+      youtube: { freshness: 'live', savedAt: null, limit: null },
+    });
+    // Nobody waited for YouTube, and nobody's daily share was spent.
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(mocks.consumeRateLimit).not.toHaveBeenCalled();
+    expect(mocks.afterTasks).toHaveLength(1);
+
+    // After the response: one search from the background share, with quota to spare.
+    for (const task of mocks.afterTasks.splice(0)) await task();
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(String(fetcher.mock.calls[0]?.[0])).toContain('/youtube/v3/search');
+    expect(db.usage.get(`${youtubeQuotaDay()}|search:refresh`)).toBe(1);
+    expect(mocks.consumeRateLimit).not.toHaveBeenCalled();
+
+    // The next listener gets the renewed search.
+    clearYouTubeSearchCacheForTests();
+    const next = await GET(request('Lucio Dalla', 'youtube', true, '192.0.2.96'));
+    expect(await next.json()).toMatchObject({
+      videos: [{ videoId: 'aaaaaaaaaaa', title: 'Brano nuovo' }],
+      youtube: { freshness: 'live' },
+    });
+    expect(fetcher).toHaveBeenCalledOnce();
   });
 
   it('distingue le ricerche finite della connessione (senza accesso) da quelle finite per tutti', async () => {

@@ -33,8 +33,17 @@ export { youtubeQuotaDay };
  * 10,000 units under the older accounting), so the 1-unit calls always keep some headroom.
  */
 export const YOUTUBE_SEARCH_DAILY_CAP = 85;
-/** Shares of that pool for fixed or automatic searches, so listeners keep most of it. */
-export const YOUTUBE_SEARCH_PURPOSE_CAPS = { genre: 15, song: 20 } as const;
+/**
+ * Shares of that pool for fixed or automatic searches, so listeners keep most of it. `refresh`:
+ * new searches run after the response in place of a listener's saved search 1 to 7 days old
+ * (youtube-search-store `reuse`), never from anyone's personal share.
+ */
+export const YOUTUBE_SEARCH_PURPOSE_CAPS = { genre: 15, song: 20, refresh: 20 } as const;
+/**
+ * Refreshes run only while today's pool is below this: the rest of the day stays for new
+ * searches (listeners, genres, imported songs), which have no saved result to fall back on.
+ */
+export const YOUTUBE_REFRESH_POOL_CEILING = 50;
 /**
  * Start-up share for the genre pages: the deploy of 12 Nov 2026 emptied the edge copies and the
  * database had no recent saved results for most of the ~70 genres. Until this quota day
@@ -67,7 +76,10 @@ export const YOUTUBE_QUOTA_USAGE_KEEP_MS = 3 * 24 * 60 * 60 * 1000;
 /** How long a "quota exceeded" answer from YouTube stops calls of that kind before a new try. */
 export const YOUTUBE_BLOCK_RETRY_MS = 30 * 60 * 1000;
 
-/** Who a search is for: a listener (with a per-person share), a genre page or an imported song. */
+/**
+ * Who a search is for: a listener (with a per-person share), a genre page, an imported song, or
+ * a refresh after the response of a listener's saved search.
+ */
 export type YouTubeSearchPurpose = 'listener' | keyof typeof YOUTUBE_SEARCH_PURPOSE_CAPS;
 /** What a 1-unit call is for: a re-check of saved searches, or a call with its own share. */
 export type YouTubeUnitsPurpose = 'recheck' | keyof typeof YOUTUBE_UNITS_PURPOSE_CAPS;
@@ -100,6 +112,8 @@ export type YouTubeQuotaUsage = {
   searchCap: number;
   genreSearches: number;
   songSearches: number;
+  /** Searches run after the response in place of a reused saved search. */
+  refreshSearches: number;
   units: number;
   unitsCap: number;
   /** YouTube itself answered "quota exceeded" in the last 30 minutes (YOUTUBE_BLOCK_RETRY_MS). */
@@ -133,6 +147,7 @@ export async function readYouTubeQuotaUsage(
     searchCap: YOUTUBE_SEARCH_DAILY_CAP,
     genreSearches: count('search:genre'),
     songSearches: count('search:song'),
+    refreshSearches: count('search:refresh'),
     units: count(UNITS),
     unitsCap: YOUTUBE_UNITS_DAILY_CAP,
     searchBlocked: activeBlock(searchBlockedAt, now),
@@ -293,8 +308,18 @@ export async function takeYouTubeSearch(
   }
   if (usage.searchBlocked) return { ok: false, reason: 'quota_exceeded' };
   const purposeUsed =
-    purpose === 'genre' ? usage.genreSearches : purpose === 'song' ? usage.songSearches : 0;
-  if (usage.searches >= usage.searchCap || (purposeCap !== null && purposeUsed >= purposeCap)) {
+    purpose === 'genre'
+      ? usage.genreSearches
+      : purpose === 'song'
+        ? usage.songSearches
+        : purpose === 'refresh'
+          ? usage.refreshSearches
+          : 0;
+  if (
+    usage.searches >= usage.searchCap ||
+    (purposeCap !== null && purposeUsed >= purposeCap) ||
+    (purpose === 'refresh' && usage.searches >= YOUTUBE_REFRESH_POOL_CEILING)
+  ) {
     return { ok: false, reason: 'budget_exhausted' };
   }
   // Only what was really taken is given back (a failed take added nothing).

@@ -404,7 +404,9 @@ const checkYouTubeSearch: Check = async (deps) => {
     return fail(`Impossibile leggere il budget delle ricerche YouTube${prismaCode(error)}`);
   }
   const { usage, lastSearchAt } = health;
-  const counts = `${usage.searches} ricerche su ${usage.searchCap} oggi`;
+  const refreshed =
+    usage.refreshSearches > 0 ? ` (di cui ${usage.refreshSearches} rinnovate in background)` : '';
+  const counts = `${usage.searches} ricerche su ${usage.searchCap} oggi${refreshed}`;
   const reset = `tornano alle ${formatItalianTime(usage.resetsAt)} ora italiana, intanto si usano i risultati salvati`;
   if (usage.searchBlocked)
     return warn(`YouTube ha esaurito la quota delle ricerche (${counts}): ${reset}`);

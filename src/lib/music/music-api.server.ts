@@ -8,7 +8,10 @@ import {
   searchAudiusPlaylists,
 } from '@/lib/music/audius-source.server';
 import { sourceStatus } from '@/lib/music/source-policy';
-import { withYouTubeSearchBudget } from '@/lib/music/youtube-budget.server';
+import {
+  withYouTubeSearchBudget,
+  type YouTubeSearchLoader,
+} from '@/lib/music/youtube-budget.server';
 import {
   contractUnavailableReason,
   youtubeSearchNotice,
@@ -139,14 +142,18 @@ export async function searchMusic(
       sourceStatus: { ...status, unavailableReason: 'not_configured' as const },
     };
   }
+  const search: YouTubeSearchLoader = (term, size) => searchYouTubeMusic(term, apiKey, fetch, size);
   const stored = await youtubeSearchCache.get(query, () =>
     storedYouTubeSearchWithTime(
       query,
       LISTENER_SEARCH_RESULTS,
-      withYouTubeSearchBudget((term, size) => searchYouTubeMusic(term, apiKey, fetch, size), {
+      withYouTubeSearchBudget(search, {
         identity: options.youtubeIdentity ?? null,
         purpose: 'listener',
       }),
+      // A search saved 1 to 7 days ago answers at once, spending nobody's share; the new search
+      // runs after the response, only with quota to spare (purpose 'refresh').
+      { reuse: { refresh: withYouTubeSearchBudget(search, { purpose: 'refresh' }) } },
     ),
   );
   const { result } = stored;
