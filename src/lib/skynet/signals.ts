@@ -33,6 +33,8 @@ export type SkynetSignals = {
     aiBotsActive: boolean | null;
     skynetRulesActive: number | null;
     attackMode: boolean | null;
+    /** Recidivi che devono superare la verifica (regole IP «Skynet ·» attive). */
+    hunted: number | null;
   };
   site: {
     healthOk: boolean;

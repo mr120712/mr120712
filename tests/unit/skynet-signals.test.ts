@@ -37,6 +37,7 @@ function signals(
       aiBotsActive: true,
       skynetRulesActive: 3,
       attackMode: false,
+      hunted: 0,
       ...overrides.vercel,
     },
     site: {

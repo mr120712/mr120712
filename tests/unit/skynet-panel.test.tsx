@@ -30,6 +30,7 @@ function overview(overrides: Partial<SkynetOverview> = {}): SkynetOverview {
         aiBotsActive: true,
         skynetRulesActive: 3,
         attackMode: false,
+        hunted: 2,
       },
       site: {
         healthOk: true,

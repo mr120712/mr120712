@@ -13,6 +13,9 @@ export const SkynetSignalsSchema = z.object({
     aiBotsActive: z.boolean().nullable(),
     skynetRulesActive: z.number().int().nonnegative().nullable(),
     attackMode: z.boolean().nullable(),
+    /** Recidivi rimandati alla verifica del browser (regole IP create da Skynet). */
+    // I segnali salvati prima del cacciatore non hanno il campo: valgono null.
+    hunted: z.number().int().nonnegative().nullable().optional(),
   }),
   site: z.object({
     healthOk: z.boolean(),
@@ -26,7 +29,7 @@ export const SkynetSignalsSchema = z.object({
 export const SkynetEventSchema = z.object({
   id: z.string(),
   at: z.string(),
-  kind: z.enum(['incident', 'update', 'reminder', 'resolved', 'change']),
+  kind: z.enum(['incident', 'update', 'reminder', 'resolved', 'change', 'hunt']),
   severity: z.enum(['critical', 'warning', 'info']),
   title: z.string(),
   report: z.string(),

@@ -5,9 +5,13 @@
 // src/lib/skynet/signals.ts e, quando c'è da dirlo, avvisa gli amministratori su Telegram con un
 // rapporto scritto da Claude (o un testo fisso se Claude non è disponibile).
 //
-// SOLO LETTURA E AVVISI (scelta del proprietario): nessuna chiamata che cambi Vercel, nessuna
-// scrittura fuori dalle tabelle di Skynet e dal battito «skynet» del monitoraggio. Il token Vercel
-// (SKYNET_VERCEL_TOKEN) resta qui: non va mai nei log, nel database, nei messaggi o a Claude.
+// Sugli incidenti Skynet AVVISA SOLTANTO (scelta del proprietario): non accende né spegne
+// protezioni. L'unica modifica che fa da sola è quella del cacciatore (src/lib/skynet/hunter.ts,
+// scelta del proprietario): chi il firewall ha già fermato due volte in 24 ore per sonde o tentativi
+// a raffica deve superare la verifica del browser per 24 ore (regola IP «challenge» con nota
+// «Skynet · …», tolta alla scadenza). Mai blocchi totali, mai le regole messe a mano, mai indirizzi
+// IP nel database. Il token Vercel (SKYNET_VERCEL_TOKEN) resta qui: mai nei log, nel database, nei
+// messaggi o a Claude.
 import 'server-only';
 import { resolveAdminAccess } from '@/lib/business/admin-account-policy';
 import {
@@ -22,6 +26,18 @@ import { sendTelegramMessage } from '@/lib/business/telegram-bot.server';
 import type { MonitorRun } from '@/lib/contracts/monitoring';
 import { prisma } from '@/lib/db';
 import { latestRun, recordHeartbeat, STALE_AFTER_MS } from '@/lib/monitoring/monitor.server';
+import {
+  CHALLENGE_HOURS,
+  huntReport,
+  type IpRule,
+  LOOKBACK_MS,
+  noteExpiry,
+  type Offender,
+  parseFirewallBlocks,
+  parseIpRules,
+  planHunt,
+  skynetNote,
+} from './hunter';
 import {
   decide,
   detectProblems,
@@ -54,6 +70,8 @@ const TELEGRAM_MAX_CHARS = 3_900;
 
 type EnvLike = Record<string, string | undefined>;
 
+export type EventKind = SkynetDecision['kind'] | 'change' | 'hunt';
+
 export type ReportInput = {
   kind: SkynetDecision['kind'] | 'change';
   problems: Problem[];
@@ -81,6 +99,8 @@ export type SentinelResult = {
   problems: ProblemKey[];
   notified: number;
   vercel: 'off' | 'ok' | 'blind';
+  /** Recidivi rimandati alla verifica in questo giro. */
+  hunted: number;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -141,14 +161,21 @@ const NO_VERCEL: SkynetSignals['vercel'] = {
   aiBotsActive: null,
   skynetRulesActive: null,
   attackMode: null,
+  hunted: null,
 };
 
-/** Solo letture (GET): anomalie, firewall attivo, impostazioni di sicurezza del progetto. */
-export async function readVercel(deps: SentinelDeps): Promise<SkynetSignals['vercel']> {
-  const access = vercelAccess(deps.env);
-  if (!access) return NO_VERCEL;
+function vercelQuery(access: VercelAccess): string {
   const team = access.teamId ? `&teamId=${encodeURIComponent(access.teamId)}` : '';
-  const query = `projectId=${encodeURIComponent(access.projectId)}${team}`;
+  return `projectId=${encodeURIComponent(access.projectId)}${team}`;
+}
+
+type VercelReading = { signals: SkynetSignals['vercel']; ipRules: IpRule[] | null };
+
+/** Letture (GET): anomalie, firewall attivo (con le regole IP), sicurezza del progetto. */
+export async function readVercel(deps: SentinelDeps): Promise<VercelReading> {
+  const access = vercelAccess(deps.env);
+  if (!access) return { signals: NO_VERCEL, ipRules: null };
+  const query = vercelQuery(access);
   const [attack, firewall, project] = await Promise.all([
     getJson(deps, `${VERCEL_API}/v1/security/firewall/attack-status?${query}`, access.token),
     getJson(deps, `${VERCEL_API}/v1/security/firewall/config/active?${query}`, access.token),
@@ -164,7 +191,9 @@ export async function readVercel(deps: SentinelDeps): Promise<SkynetSignals['ver
   let firewallVersion: number | null = null;
   let aiBotsActive: boolean | null = null;
   let skynetRulesActive: number | null = null;
+  let ipRules: IpRule[] | null = null;
   if (isRecord(firewall)) {
+    ipRules = parseIpRules(firewall);
     if (typeof firewall.firewallEnabled === 'boolean') firewallEnabled = firewall.firewallEnabled;
     if (typeof firewall.version === 'number' && Number.isInteger(firewall.version)) {
       firewallVersion = firewall.version;
@@ -186,14 +215,18 @@ export async function readVercel(deps: SentinelDeps): Promise<SkynetSignals['ver
   const security = isRecord(project) && isRecord(project.security) ? project.security : null;
   const attackMode = security ? security.attackModeEnabled === true : null;
   return {
-    configured: true,
-    reachable: attack !== null || firewall !== null || project !== null,
-    anomalies,
-    firewallEnabled,
-    firewallVersion,
-    aiBotsActive,
-    skynetRulesActive,
-    attackMode,
+    signals: {
+      configured: true,
+      reachable: attack !== null || firewall !== null || project !== null,
+      anomalies,
+      firewallEnabled,
+      firewallVersion,
+      aiBotsActive,
+      skynetRulesActive,
+      attackMode,
+      hunted: ipRules ? ipRules.filter((rule) => noteExpiry(rule.notes) !== null).length : null,
+    },
+    ipRules,
   };
 }
 
@@ -244,13 +277,129 @@ export async function readInternal(
   }
 }
 
-export async function gatherSignals(deps: SentinelDeps): Promise<SkynetSignals> {
+export async function gatherSignals(
+  deps: SentinelDeps,
+): Promise<{ signals: SkynetSignals; ipRules: IpRule[] | null }> {
   const [vercel, health, internal] = await Promise.all([
     readVercel(deps),
     readHealth(deps),
     readInternal(deps),
   ]);
-  return { at: deps.now().toISOString(), vercel, site: { ...health, ...internal } };
+  return {
+    signals: {
+      at: deps.now().toISOString(),
+      vercel: vercel.signals,
+      site: { ...health, ...internal },
+    },
+    ipRules: vercel.ipRules,
+  };
+}
+
+// ------------------------------------------------------------------ cacciatore
+
+async function patchFirewall(
+  deps: SentinelDeps,
+  access: VercelAccess,
+  body: Record<string, unknown>,
+): Promise<boolean> {
+  try {
+    const response = await deps.fetch(
+      `${VERCEL_API}/v1/security/firewall/config?${vercelQuery(access)}`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${access.token}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(VERCEL_TIMEOUT_MS),
+        cache: 'no-store',
+      },
+    );
+    await response.body?.cancel().catch(() => {});
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** I blocchi persistenti delle ultime 24 ore dal registro del firewall (fino a 3 pagine). */
+async function readFirewallBlocks(deps: SentinelDeps, access: VercelAccess, now: Date) {
+  const since = now.getTime() - LOOKBACK_MS;
+  const blocks = [];
+  let cursor: string | null = null;
+  for (let page = 0; page < 3; page += 1) {
+    const url = `${VERCEL_API}/v1/security/firewall/events?${vercelQuery(access)}&startTimestamp=${since}&limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+    const raw = await getJson(deps, url, access.token);
+    if (raw === null) return page === 0 ? null : blocks;
+    blocks.push(...parseFirewallBlocks(raw));
+    const pagination = isRecord(raw) && isRecord(raw.pagination) ? raw.pagination : null;
+    cursor =
+      pagination?.hasMore === true && typeof pagination.next === 'string' ? pagination.next : null;
+    if (!cursor) break;
+  }
+  return blocks;
+}
+
+export type HuntResult = {
+  challenged: Offender[];
+  released: number;
+  failed: number;
+  capped: number;
+  /** Regole Skynet attive dopo il giro; null se il cacciatore non ha potuto guardare. */
+  active: number | null;
+  /** Versione del firewall dopo le modifiche di Skynet (per non scambiarle per manomissioni). */
+  version: number | null;
+};
+
+/** Rimanda alla verifica i recidivi e toglie le regole Skynet scadute. Mai le regole manuali. */
+export async function huntOffenders(
+  deps: SentinelDeps,
+  ipRules: IpRule[] | null,
+  now: Date,
+): Promise<HuntResult | null> {
+  const access = vercelAccess(deps.env);
+  if (!access || ipRules === null) return null;
+  const blocks = await readFirewallBlocks(deps, access, now);
+  if (blocks === null) return null;
+  const plan = planHunt(blocks, ipRules, now);
+  let released = 0;
+  for (const rule of plan.release) {
+    if (await patchFirewall(deps, access, { action: 'ip.remove', id: rule.id, value: null })) {
+      released += 1;
+    }
+  }
+  const expiresAt = new Date(now.getTime() + CHALLENGE_HOURS * 60 * 60 * 1000);
+  const challenged: Offender[] = [];
+  let failed = 0;
+  for (const offender of plan.challenge) {
+    const ok = await patchFirewall(deps, access, {
+      action: 'ip.insert',
+      id: null,
+      value: { ip: offender.ip, hostname: '*', action: 'challenge', notes: skynetNote(expiresAt) },
+    });
+    if (ok) challenged.push(offender);
+    else failed += 1;
+  }
+  let version: number | null = null;
+  if (released > 0 || challenged.length > 0) {
+    const firewall = await getJson(
+      deps,
+      `${VERCEL_API}/v1/security/firewall/config/active?${vercelQuery(access)}`,
+      access.token,
+    );
+    if (isRecord(firewall) && typeof firewall.version === 'number') version = firewall.version;
+  }
+  const before = ipRules.filter((rule) => noteExpiry(rule.notes) !== null).length;
+  return {
+    challenged,
+    released,
+    failed,
+    capped: plan.capped,
+    active: before - released + challenged.length,
+    version,
+  };
 }
 
 // ------------------------------------------------------------------ memoria
@@ -327,19 +476,20 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-const HEADLINES: Record<SkynetDecision['kind'] | 'change', (severity: string) => string> = {
+const HEADLINES: Record<EventKind, (severity: string) => string> = {
   incident: (severity) =>
     severity === 'critical' ? '🚨 Skynet · incidente critico' : '⚠️ Skynet · da controllare',
   update: () => '🚨 Skynet · l’incidente si allarga',
   reminder: () => '⏰ Skynet · incidente ancora aperto',
   resolved: () => '✅ Skynet · tutto tornato normale',
   change: () => '⚙️ Skynet · firewall modificato',
+  hunt: () => '🛡️ Skynet · hacker rimandati alla verifica',
   none: () => 'Skynet',
 };
 
 /** Messaggio Telegram (HTML): titolo, problemi, rapporto, collegamento al pannello. */
 export function telegramText(
-  event: { kind: SkynetDecision['kind'] | 'change'; severity: string; title: string },
+  event: { kind: EventKind; severity: string; title: string },
   problems: Problem[],
   report: string,
   origin: string,
@@ -367,7 +517,7 @@ export function telegramText(
 async function announce(
   deps: SentinelDeps,
   event: {
-    kind: SkynetDecision['kind'] | 'change';
+    kind: EventKind;
     severity: 'critical' | 'warning' | 'info';
     title: string;
     report: string;
@@ -427,7 +577,10 @@ function heartbeatLine(signals: SkynetSignals, memory: SkynetMemory): string {
   const v = signals.vercel;
   if (!v.configured) parts.push('Vercel: manca il token');
   else if (v.reachable === false) parts.push('Vercel: non risponde');
-  else parts.push(`Vercel: ${v.anomalies ?? '?'} anomalie, firewall v${v.firewallVersion ?? '?'}`);
+  else {
+    parts.push(`Vercel: ${v.anomalies ?? '?'} anomalie, firewall v${v.firewallVersion ?? '?'}`);
+    if (v.hunted) parts.push(`${v.hunted} in verifica`);
+  }
   const s = signals.site;
   parts.push(
     s.healthOk
@@ -522,7 +675,10 @@ export function defaultSentinelDeps(): SentinelDeps {
   };
 }
 
-/** Un giro: segnali → problemi → decisione → diario e avvisi. Non cambia mai nulla fuori da Skynet. */
+/**
+ * Un giro: segnali → problemi → decisione → cacciatore → diario e avvisi. Sugli incidenti avvisa e
+ * basta; l'unica modifica a Vercel è la verifica di 24 ore per i recidivi (huntOffenders).
+ */
 export async function runSentinel(options: Partial<SentinelDeps> = {}): Promise<SentinelResult> {
   const deps: SentinelDeps = { ...defaultSentinelDeps(), ...options };
   const now = deps.now();
@@ -534,14 +690,22 @@ export async function runSentinel(options: Partial<SentinelDeps> = {}): Promise<
       problems: [],
       notified: 0,
       vercel: 'off',
+      hunted: 0,
     };
   }
   try {
-    const signals = await gatherSignals(deps);
+    const { signals, ipRules } = await gatherSignals(deps);
     const row = await deps.db.skynetState.findUnique({ where: { id: SKYNET_STATE_ID } });
     const memory = memoryFromRow(row);
     const problems = detectProblems(signals);
     const step = decide(memory, problems, signals, now);
+
+    // Il cacciatore lavora dopo la decisione: le sue modifiche al firewall non sono «manomissioni».
+    const hunt = await huntOffenders(deps, ipRules, now).catch(() => null);
+    if (hunt) {
+      signals.vercel.hunted = hunt.active;
+      if (hunt.version !== null) step.memory.firewallVersion = hunt.version;
+    }
 
     await deps.db.skynetState.update({
       where: { id: SKYNET_STATE_ID },
@@ -568,6 +732,24 @@ export async function runSentinel(options: Partial<SentinelDeps> = {}): Promise<
           title: `Firewall di Vercel modificato: versione ${from} → ${to}`,
           report:
             'Qualcuno ha cambiato le regole del firewall. Se è stato lei, nessun problema. Se no: controlli Vercel → progetto → Firewall, cambi la password di Vercel e revochi i token che non riconosce.',
+          keys: [],
+        },
+        [],
+      );
+    }
+
+    if (hunt && (hunt.challenged.length > 0 || hunt.failed > 0)) {
+      const count = hunt.challenged.length;
+      notified += await announce(
+        deps,
+        {
+          kind: 'hunt',
+          severity: 'warning',
+          title:
+            count === 1
+              ? `1 indirizzo rimandato alla verifica per ${CHALLENGE_HOURS} ore`
+              : `${count} indirizzi rimandati alla verifica per ${CHALLENGE_HOURS} ore`,
+          report: huntReport(hunt.challenged, hunt.failed, hunt.capped),
           keys: [],
         },
         [],
@@ -616,6 +798,7 @@ export async function runSentinel(options: Partial<SentinelDeps> = {}): Promise<
         : signals.vercel.reachable === false
           ? 'blind'
           : 'ok',
+      hunted: hunt?.challenged.length ?? 0,
     };
   } finally {
     await deps.db.skynetState

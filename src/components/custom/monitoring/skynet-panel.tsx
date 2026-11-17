@@ -30,6 +30,7 @@ const KIND_LABELS: Record<SkynetOverview['events'][number]['kind'], string> = {
   reminder: 'Promemoria',
   resolved: 'Risolto',
   change: 'Modifica al firewall',
+  hunt: 'Hacker in verifica',
 };
 
 const INTERNAL_LABELS: Record<string, string> = {
@@ -55,7 +56,7 @@ function vercelText(data: SkynetOverview): string {
   if (!data.configured.vercel) return 'Manca il token: Skynet non vede attacchi e firewall';
   if (!vercel) return 'In attesa del primo giro';
   if (vercel.reachable === false) return 'Non risponde: token scaduto o revocato?';
-  return 'Collegato (sola lettura)';
+  return 'Collegato';
 }
 
 function firewallText(data: SkynetOverview): string {
@@ -65,6 +66,13 @@ function firewallText(data: SkynetOverview): string {
   const rules = vercel.skynetRulesActive === null ? '?' : String(vercel.skynetRulesActive);
   const ai = vercel.aiBotsActive ? 'blocco AI attivo' : 'blocco AI spento';
   return `Attivo · versione ${vercel.firewallVersion ?? '?'} · regole Skynet ${rules}/3 · ${ai}`;
+}
+
+function huntedText(data: SkynetOverview): string {
+  const hunted = data.signals?.vercel.hunted;
+  if (hunted === null || hunted === undefined) return '—';
+  if (hunted === 0) return 'Nessuno';
+  return hunted === 1 ? '1 indirizzo' : `${hunted} indirizzi`;
 }
 
 function healthText(data: SkynetOverview): string {
@@ -98,7 +106,7 @@ export function SkynetPanel() {
   return (
     <Panel
       title="Skynet · sentinella"
-      description="Guarda il sito ogni minuto e avvisa gli amministratori su Telegram. Solo avvisi: non cambia mai nulla da sola."
+      description="Guarda il sito ogni minuto e avvisa gli amministratori su Telegram. Sugli incidenti avvisa soltanto; chi il firewall ferma due volte in 24 ore deve superare la verifica del browser per 24 ore."
     >
       {error ? (
         <p role="alert" className={styles.muted}>
@@ -148,6 +156,8 @@ function SkynetBody({ data, now }: { data: SkynetOverview; now: number }) {
         <dd>{data.signals?.vercel.anomalies ?? '—'}</dd>
         <dt>Firewall</dt>
         <dd>{firewallText(data)}</dd>
+        <dt>Recidivi in verifica (24 ore)</dt>
+        <dd>{huntedText(data)}</dd>
         <dt>Protezione anti-attacco</dt>
         <dd>
           {data.signals?.vercel.attackMode === null || !data.signals
@@ -187,7 +197,7 @@ function SkynetBody({ data, now }: { data: SkynetOverview; now: number }) {
               Progetto → Settings → Environment Variables: <code>SKYNET_VERCEL_TOKEN</code>, solo
               Production, segnata come Sensitive.
             </li>
-            <li>Nuovo deploy: dal giro successivo Skynet legge Vercel (solo in lettura).</li>
+            <li>Nuovo deploy: dal giro successivo Skynet legge Vercel e caccia i recidivi.</li>
           </ol>
         </div>
       ) : null}
