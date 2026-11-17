@@ -40,6 +40,14 @@ export async function proxy(request: NextRequest) {
   const apex = apexRedirect(request);
   if (apex) return apex;
 
+  // Regola ferrea dell'amministrazione (src/lib/security/admin-gate.ts): /admin esiste solo per un
+  // amministratore con email verificata. Per chiunque altro (visitatori, utenti, Googlebot e ogni
+  // crawler) è un 404 senza HTML dell'amministrazione, mai in cache né indicizzabile. Prima del
+  // gate UAM, così /admin non riceve mai schermate di verifica né anteprime per i social.
+  const { adminGate } = await import('@/lib/security/admin-gate');
+  const adminDenied = await adminGate(request);
+  if (adminDenied) return adminDenied;
+
   // Solco "Under Attack Mode" (src/lib/security/uam-gate.ts): schermata di caricamento con prova di
   // lavoro prima delle pagine. Spenta finché su Vercel non ci sono UAM_MODE (first-visit | attack)
   // e un UAM_SECRET di almeno 32 caratteri; in caso di errore lascia passare (fail open). Le API
