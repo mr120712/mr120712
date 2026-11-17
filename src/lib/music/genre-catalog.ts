@@ -1,6 +1,11 @@
-// @polsia:user-owned — generi (anche underground) e playlist a tema di Solco.
+// @polsia:user-owned — generi (anche underground), playlist a tema e playlist divertenti di Solco.
 // Ogni voce ha una ricerca YouTube fissa (così il risultato si mette in cache una volta al giorno),
-// un tag Radio Browser per le radio e un tag Jamendo per il catalogo globale.
+// un tag Radio Browser per le radio e un tag Jamendo per il catalogo globale. Le playlist
+// divertenti («Piede comodino» e compagnia) sono «di casa»: vivono qui, nel server, con una
+// copertina disegnata (playlist-covers.ts) e le stesse fonti lecite dei generi (YouTube, Audius,
+// radio): nessun brano in evidenza.
+
+import type { PlaylistCoverId } from '@/lib/music/playlist-covers';
 
 export type GenreFamily =
   | 'hiphop'
@@ -9,7 +14,8 @@ export type GenreFamily =
   | 'metal'
   | 'mondo'
   | 'atmosfere'
-  | 'playlist';
+  | 'playlist'
+  | 'divertenti';
 
 export type GenreEntry = {
   slug: string;
@@ -22,9 +28,14 @@ export type GenreEntry = {
   /** Tag Jamendo; null se il catalogo non lo copre. */
   jamendoTag: string | null;
   description: string;
+  /** Copertina disegnata (solo le playlist divertenti). */
+  cover?: PlaylistCoverId;
+  /** Ricerca Audius, quando quella YouTube è in italiano o troppo lunga per il catalogo Audius. */
+  audiusQuery?: string;
 };
 
 export const genreFamilies: { id: GenreFamily; label: string }[] = [
+  { id: 'divertenti', label: 'Playlist divertenti' },
   { id: 'playlist', label: 'Playlist Solco' },
   { id: 'hiphop', label: 'Hip-hop e rap' },
   { id: 'elettronica', label: 'Elettronica e club' },
@@ -44,7 +55,173 @@ const g = (
   description: string,
 ): GenreEntry => ({ slug, name, family, query, radioTag, jamendoTag, description });
 
+/** Una playlist divertente: come `g`, con la copertina disegnata e la ricerca Audius. */
+const fun = (
+  slug: string,
+  name: string,
+  cover: PlaylistCoverId,
+  query: string,
+  audiusQuery: string,
+  radioTag: string | null,
+  jamendoTag: string | null,
+  description: string,
+): GenreEntry => ({
+  slug,
+  name,
+  family: 'divertenti',
+  query,
+  audiusQuery,
+  radioTag,
+  jamendoTag,
+  description,
+  cover,
+});
+
 export const genreCatalog: GenreEntry[] = [
+  // Playlist divertenti: situazioni di tutti i giorni, prese un po' in giro. Il nome e la copertina
+  // fanno ridere, la musica è seria: la ricerca YouTube resta nella categoria Musica e quella Audius
+  // è breve (genere o mood) perché lì gli artisti famosi non ci sono.
+  fun(
+    'piede-comodino',
+    'Piede comodino',
+    'comodino',
+    'screamo',
+    'screamo',
+    'metal',
+    'metal',
+    'Il mignolo contro lo spigolo alle tre di notte: urla, chitarre e rabbia per il dolore più ingiusto del mondo.',
+  ),
+  fun(
+    'lunedi-mattina',
+    'Lunedì mattina',
+    'caffe',
+    'lofi morning coffee',
+    'lofi',
+    'lofi',
+    'lofi',
+    'La sveglia ha vinto ai punti: caffè doppio, occhi a fessura e beat lenti per ripartire senza fretta.',
+  ),
+  fun(
+    'concerto-sotto-la-doccia',
+    'Concerto sotto la doccia',
+    'doccia',
+    'canzoni da cantare a squarciagola',
+    'pop',
+    'pop',
+    'pop',
+    'Acustica perfetta e pubblico zero: i pezzi da cantare a squarciagola con lo shampoo negli occhi.',
+  ),
+  fun(
+    'tangenziale-alle-18',
+    'Tangenziale alle 18',
+    'traffico',
+    'night drive synthwave mix',
+    'synthwave',
+    'synthwave',
+    'synthwave',
+    'Fermi in coda con le luci rosse davanti: synth e bassi lenti per non attaccarsi al clacson.',
+  ),
+  fun(
+    'pulizie-di-casa',
+    'Pulizie di casa',
+    'scopa',
+    'nu disco funk mix',
+    'disco funk',
+    'disco',
+    'funk',
+    'La scopa è un microfono e il pavimento una pista: disco e funk finché tutto non brilla.',
+  ),
+  fun(
+    'pennichella',
+    'Pennichella',
+    'cuscino',
+    'soft piano sleep music',
+    'sleep',
+    'sleep',
+    'ambient',
+    'Venti minuti che diventano due ore: piano e suoni morbidi per il sonnellino del pomeriggio.',
+  ),
+  fun(
+    'pizza-del-venerdi',
+    'Pizza del venerdì',
+    'pizza',
+    'italo disco',
+    'italo disco',
+    'italo disco',
+    'disco',
+    'Settimana finita, forno acceso, mozzarella che fila: italo disco da tavola per il venerdì sera.',
+  ),
+  fun(
+    'zanzara-alle-3',
+    'Zanzara alle 3',
+    'zanzara',
+    'breakcore',
+    'breakcore',
+    'hardcore',
+    null,
+    'Quel ronzio nell’orecchio al buio: ritmi frenetici per una caccia notturna senza pietà.',
+  ),
+  fun(
+    'palestra-a-gennaio',
+    'Palestra a gennaio',
+    'manubrio',
+    'gym workout music motivation',
+    'workout',
+    'workout',
+    null,
+    'Il buon proposito dura tre settimane: bassi pesanti e cassa dritta finché resiste la motivazione.',
+  ),
+  fun(
+    'bolletta-della-luce',
+    'Bolletta della luce',
+    'lampadina',
+    'blues',
+    'blues',
+    'blues',
+    'blues',
+    'Hai aperto la busta e ti è venuto il blues: chitarre lente da ascoltare con tutte le luci spente.',
+  ),
+  fun(
+    'fila-alle-poste',
+    'Fila alle poste',
+    'biglietto',
+    'bossa nova lounge',
+    'bossa nova',
+    'bossa nova',
+    'bossanova',
+    'Il tuo numero è il 342, sono al 17: bossa nova e lounge per aspettare con dignità.',
+  ),
+  fun(
+    'nonna-in-cucina',
+    'Nonna in cucina',
+    'pentola',
+    'swing italiano anni 50',
+    'swing',
+    'italian',
+    'swing',
+    'Domenica, sugo sul fuoco e radio accesa: swing e canzoni italiane di una volta, da cucina.',
+  ),
+  fun(
+    'riunione-che-poteva-essere-una-mail',
+    'Riunione che poteva essere una mail',
+    'portatile',
+    'ambient chill work music',
+    'chillout',
+    'chillout',
+    'chillout',
+    'Camera spenta e microfono muto: sottofondo discreto mentre annuisci con convinzione.',
+  ),
+  fun(
+    'esame-domani',
+    'Esame domani',
+    'libri',
+    'deep focus music study',
+    'focus',
+    'study',
+    'lofi',
+    'Hai aperto il libro adesso: beat concentrati e niente parole per la notte prima dell’esame.',
+  ),
+
   // Playlist a tema
   g(
     'natale',
@@ -574,3 +751,19 @@ export const genreCatalog: GenreEntry[] = [
 export function findGenre(slug: string) {
   return genreCatalog.find((entry) => entry.slug === slug) ?? null;
 }
+
+/** Le famiglie che sono playlist (a tema o divertenti), non generi musicali. */
+export const PLAYLIST_FAMILIES: ReadonlySet<GenreFamily> = new Set<GenreFamily>([
+  'playlist',
+  'divertenti',
+]);
+
+/** True per le playlist Solco (a tema e divertenti): gli elenchi «per genere» le lasciano fuori. */
+export function isPlaylistEntry(entry: Pick<GenreEntry, 'family'>) {
+  return PLAYLIST_FAMILIES.has(entry.family);
+}
+
+/** Le playlist divertenti, nell'ordine del catalogo (tutte con la copertina disegnata). */
+export const funPlaylists: readonly GenreEntry[] = genreCatalog.filter(
+  (entry) => entry.family === 'divertenti',
+);

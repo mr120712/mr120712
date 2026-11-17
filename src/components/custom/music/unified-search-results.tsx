@@ -76,7 +76,7 @@ import {
 } from '@/lib/contracts/unified-search';
 import { audioComQualifiedId, isAudioComPlayable } from '@/lib/music/audiocom-license';
 import { featuredArtistPath } from '@/lib/music/featured-artists';
-import { genreCatalog } from '@/lib/music/genre-catalog';
+import { genreCatalog, isPlaylistEntry } from '@/lib/music/genre-catalog';
 import discover from './discover.module.css';
 import styles from './unified-search-results.module.css';
 
@@ -536,7 +536,7 @@ export function UnifiedSearchResults({
           </header>
           <div className={discover.moodGrid}>
             {genreCatalog
-              .filter((entry) => entry.family !== 'playlist')
+              .filter((entry) => !isPlaylistEntry(entry))
               .slice(0, 16)
               .map((entry) => (
                 <Link key={entry.slug} href={`/generi/${entry.slug}`}>

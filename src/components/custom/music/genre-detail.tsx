@@ -1,4 +1,5 @@
 // @polsia:user-owned — pagina di un genere o di una playlist: brani YouTube, radio e catalogo Jamendo.
+// Le playlist divertenti mostrano la loro copertina disegnata nell'intestazione.
 'use client';
 
 import { Play, Shuffle } from 'lucide-react';
@@ -8,6 +9,7 @@ import { AudiusSection } from '@/components/custom/music/audius-section';
 import { JamendoSection } from '@/components/custom/music/jamendo-section';
 import { videoToTrack } from '@/components/custom/music/live-tracks';
 import { trackStreamPath, useMusicPlayer } from '@/components/custom/music/music-player';
+import { PlaylistCover } from '@/components/custom/music/playlist-cover';
 import { StationTile } from '@/components/custom/music/radio-station-tile';
 import { TikTokClips } from '@/components/custom/music/tiktok-clips';
 import {
@@ -28,6 +30,7 @@ import {
 } from '@/lib/contracts/youtube-search';
 import type { GenreEntry } from '@/lib/music/genre-catalog';
 import styles from './discover.module.css';
+import fun from './fun-playlists.module.css';
 
 export function GenreDetail({ genre }: { genre: GenreEntry }) {
   const player = useMusicPlayer();
@@ -88,31 +91,44 @@ export function GenreDetail({ genre }: { genre: GenreEntry }) {
     if (first && path) void player.playTrack(first, path, queue);
   };
 
+  const funPlaylist = genre.family === 'divertenti';
+
   return (
     <div className={styles.page}>
-      <header>
-        <p className={styles.eyebrow}>
-          <Link href="/generi">GENERI E PLAYLIST</Link>
-        </p>
-        <h1 className={styles.pageTitle}>{genre.name}</h1>
-        <p className={styles.lead}>{genre.description}</p>
-        <div className={styles.headerActions}>
-          <Button type="button" onClick={() => playAll(false)} disabled={list.length === 0}>
-            <Play aria-hidden="true" /> Riproduci tutto
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => playAll(true)}
-            disabled={list.length === 0}
-          >
-            <Shuffle aria-hidden="true" /> Casuale
-          </Button>
-          <ShareButton
-            title={`${genre.name} su Solco`}
-            text={`Ascolta ${genre.name}: brani, radio e playlist gratis su Solco.`}
-            path={`/generi/${genre.slug}`}
-          />
+      <header className={genre.cover ? fun.detailHeader : undefined}>
+        {genre.cover ? (
+          <div className={fun.detailCover}>
+            <PlaylistCover cover={genre.cover} />
+          </div>
+        ) : null}
+        <div>
+          <p className={styles.eyebrow}>
+            <Link href="/generi">{funPlaylist ? 'PLAYLIST DIVERTENTI' : 'GENERI E PLAYLIST'}</Link>
+          </p>
+          <h1 className={styles.pageTitle}>{genre.name}</h1>
+          <p className={styles.lead}>{genre.description}</p>
+          <div className={styles.headerActions}>
+            <Button type="button" onClick={() => playAll(false)} disabled={list.length === 0}>
+              <Play aria-hidden="true" /> Riproduci tutto
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => playAll(true)}
+              disabled={list.length === 0}
+            >
+              <Shuffle aria-hidden="true" /> Casuale
+            </Button>
+            <ShareButton
+              title={`${genre.name} su Solco`}
+              text={
+                funPlaylist
+                  ? `«${genre.name}», la playlist divertente di Solco: ascoltala gratis.`
+                  : `Ascolta ${genre.name}: brani, radio e playlist gratis su Solco.`
+              }
+              path={`/generi/${genre.slug}`}
+            />
+          </div>
         </div>
       </header>
 
@@ -178,7 +194,7 @@ export function GenreDetail({ genre }: { genre: GenreEntry }) {
       ) : null}
 
       <TikTokClips genre={genre.slug} />
-      <AudiusSection query={genre.query} />
+      <AudiusSection query={genre.audiusQuery ?? genre.query} />
       {genre.jamendoTag ? <JamendoSection tag={genre.jamendoTag} /> : null}
     </div>
   );

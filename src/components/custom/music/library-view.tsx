@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { AiOrganize } from '@/components/custom/music/ai-organize';
 import { FallbackArt } from '@/components/custom/music/fallback-art';
 import { useFeaturedOfflineSync } from '@/components/custom/music/featured-offline-sync';
+import { FunPlaylistsRow } from '@/components/custom/music/fun-playlist-tile';
 import { useLibrary } from '@/components/custom/music/library-context';
 import { savedStationToStation } from '@/components/custom/music/live-tracks';
 import { LocalMusicSection } from '@/components/custom/music/local-music-section';
@@ -249,6 +250,15 @@ function PlaylistsTab({ focusCollectionId }: { focusCollectionId: string | null 
         playlistActions={folders.length > 0 ? moveControl : undefined}
         reloadKey={reloadKey}
         focusCollectionId={focusCollectionId}
+      />
+
+      {/* Le playlist «di casa» di Solco, pronte nel server: dopo le tue, che vengono prima. */}
+      <FunPlaylistsRow
+        id="libreria-playlist-divertenti"
+        title="Playlist pronte di Solco"
+        eyebrow="DIVERTENTI"
+        note="Non si creano e non si cancellano: sono di Solco, una per ogni situazione."
+        headingLevel={3}
       />
     </div>
   );

@@ -8,6 +8,7 @@ import {
   Gift,
   Globe2,
   GraduationCap,
+  Laugh,
   Library,
   Mic,
   Radio,
@@ -22,6 +23,7 @@ import { InstallAppBanner } from '@/components/custom/install-app-banner';
 import { AiSearchShortcut } from '@/components/custom/music/ai-search-shortcut';
 import { AudioComFeaturedSections } from '@/components/custom/music/audiocom-featured-sections';
 import { AudiusSection } from '@/components/custom/music/audius-section';
+import { FunPlaylistsRow } from '@/components/custom/music/fun-playlist-tile';
 import { HomeTracksSection } from '@/components/custom/music/home-tracks-section';
 import { JamendoSection } from '@/components/custom/music/jamendo-section';
 import { LiveMusicSearch } from '@/components/custom/music/live-music-search';
@@ -58,6 +60,8 @@ export const metadata: Metadata = {
 const allShortcuts = [
   { href: '#tendenze', label: 'Classifiche', icon: TrendingUp },
   { href: '/generi', label: 'Generi', icon: Disc3 },
+  // Le playlist divertenti «di casa» (sezione del feed «Tutto»; con un mood attivo torna prima a Tutto).
+  { href: '#playlist-divertenti', label: 'Playlist divertenti', icon: Laugh },
   { href: '/radio', label: 'Radio', icon: Radio },
   { href: '/podcasts', label: 'Podcast', icon: Mic },
   { href: '/library', label: 'Libreria', icon: Library },
@@ -104,6 +108,9 @@ export default function HomePage() {
       {showPublicUploads ? <PublicUploadsHomeSection /> : null}
 
       <div className={styles.feed}>
+        {/* Playlist divertenti «di casa»: definite nel server (genre-catalog.ts), con la copertina
+            disegnata; stesse fonti lecite dei generi. In testa al feed, così si vedono subito. */}
+        <FunPlaylistsRow />
         <YouTubeCharts />
         <AudiusSection />
         <TikTokClips />

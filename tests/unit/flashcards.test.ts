@@ -30,6 +30,8 @@ describe('flashcard: mazzi', () => {
     expect(deck.length).toBeGreaterThan(20);
     expect(deck.every((card) => card.link?.href.startsWith('/generi/'))).toBe(true);
     expect(deck.some((card) => card.id === 'genre:natale')).toBe(false);
+    // Nemmeno le playlist divertenti: «Piede comodino» non è un genere da indovinare.
+    expect(deck.some((card) => card.id === 'genre:piede-comodino')).toBe(false);
     expect(new Set(deck.map((card) => card.id)).size).toBe(deck.length);
   });
 

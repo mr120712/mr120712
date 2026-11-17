@@ -3,7 +3,7 @@
 import { audiusTrackIdFromQualifiedId } from '@/lib/business/social-share';
 import type { HistoryEntry } from '@/lib/contracts/library';
 import { videoTitleSong } from '@/lib/music/background-match';
-import { genreCatalog, genreFamilies } from '@/lib/music/genre-catalog';
+import { genreCatalog, genreFamilies, isPlaylistEntry } from '@/lib/music/genre-catalog';
 
 export type Flashcard = {
   id: string;
@@ -22,7 +22,7 @@ export type Flashcard = {
 export function genreDeck(): Flashcard[] {
   const labels = new Map(genreFamilies.map((family) => [family.id, family.label]));
   return genreCatalog
-    .filter((genre) => genre.family !== 'playlist')
+    .filter((genre) => !isPlaylistEntry(genre))
     .map((genre) => ({
       id: `genre:${genre.slug}`,
       front: `Quale genere è questo? ${genre.description}`,

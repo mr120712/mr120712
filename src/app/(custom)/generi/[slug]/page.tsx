@@ -28,7 +28,11 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const genre = findGenre((await params).slug);
   if (!genre) return {};
-  const description = `${genre.description} Brani, radio e playlist ${genre.name} su Solco.`;
+  // Le playlist divertenti si presentano per quello che sono; i generi con la formula di sempre.
+  const description =
+    genre.family === 'divertenti'
+      ? `${genre.description} La playlist divertente di Solco, pronta da ascoltare: brani, radio e altro.`
+      : `${genre.description} Brani, radio e playlist ${genre.name} su Solco.`;
   const path = `/generi/${genre.slug}`;
   // Il link condiviso (ShareButton di genre-detail) mostra il genere anche nell'anteprima social.
   const socialTitle = `${genre.name} su Solco`;

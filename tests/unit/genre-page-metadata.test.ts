@@ -15,7 +15,7 @@ async function metadataFor(slug: string) {
 
 describe('metadati di /generi/<slug>', () => {
   it('anteprima social con il nome del genere, og:url canonico e la scheda di Solco', async () => {
-    const genre = genreCatalog[0];
+    const genre = genreCatalog.find((entry) => entry.family === 'playlist');
     expect(genre).toBeDefined();
     if (!genre) return;
     const metadata = await metadataFor(genre.slug);
@@ -47,6 +47,22 @@ describe('metadati di /generi/<slug>', () => {
       expect(og?.title, genre.slug).toBe(`${findGenre(genre.slug)?.name} su Solco`);
       expect(og?.url, genre.slug).toBe(`/generi/${genre.slug}`);
     }
+  });
+
+  it('una playlist divertente si presenta come tale, con la stessa scheda di Solco', async () => {
+    const playlist = findGenre('piede-comodino');
+    expect(playlist?.family).toBe('divertenti');
+    const metadata = await metadataFor('piede-comodino');
+    expect(metadata.title).toBe('Piede comodino');
+    expect(metadata.description).toBe(
+      `${playlist?.description} La playlist divertente di Solco, pronta da ascoltare: brani, radio e altro.`,
+    );
+    const og = metadata.openGraph as { title?: string; url?: string; images?: unknown[] };
+    expect(og.title).toBe('Piede comodino su Solco');
+    expect(og.url).toBe('/generi/piede-comodino');
+    expect(og.images).toEqual([
+      { url: '/opengraph-image', type: 'image/png', width: 1200, height: 630, alt: siteName },
+    ]);
   });
 
   it('un genere sconosciuto non ha metadati propri', async () => {

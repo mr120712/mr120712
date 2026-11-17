@@ -33,7 +33,8 @@ export const llmsConfig: LlmsConfig = {
   pageDescriptions: {
     '/': 'Home: classifiche, radio consigliate, podcast e nuove uscite.',
     '/search': 'Cerca brani, artisti, video, radio e podcast.',
-    '/generi': 'Generi musicali e playlist, compresi quelli underground.',
+    '/generi':
+      'Generi musicali (anche underground), playlist a tema e playlist divertenti di Solco come «Piede comodino».',
     '/radio': 'Migliaia di radio dal vivo, gratis per tutti.',
     '/podcasts': 'Podcast in italiano e da tutto il mondo.',
     '/piani': 'Piani Free e Premium, con prova gratuita di 10 giorni.',

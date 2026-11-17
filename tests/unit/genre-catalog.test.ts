@@ -18,7 +18,14 @@ vi.mock('@/lib/db', async () => ({
 }));
 
 import { GET } from '@/app/api/music/genres/[slug]/route';
-import { findGenre, genreCatalog, genreFamilies } from '@/lib/music/genre-catalog';
+import {
+  findGenre,
+  funPlaylists,
+  genreCatalog,
+  genreFamilies,
+  isPlaylistEntry,
+} from '@/lib/music/genre-catalog';
+import { isPlaylistCoverId, PLAYLIST_COVER_LABELS } from '@/lib/music/playlist-covers';
 import { youtubeQuotaDay, youtubeSearchPurposeCap } from '@/lib/music/youtube-budget.server';
 import { youtubeStoreKey } from '@/lib/music/youtube-search-store.server';
 import { sharedYouTubeDbFake } from './support/youtube-db-fake';
@@ -37,6 +44,45 @@ describe('generi e playlist', () => {
     for (const slug of ['drum-and-bass', 'post-punk', 'phonk', 'dark-techno', 'shoegaze']) {
       expect(findGenre(slug)).not.toBeNull();
     }
+  });
+
+  it('le playlist divertenti sono nel server, ognuna con la sua copertina disegnata', () => {
+    expect(funPlaylists.length).toBeGreaterThanOrEqual(12);
+    expect(genreFamilies[0]).toEqual({ id: 'divertenti', label: 'Playlist divertenti' });
+    const covers = funPlaylists.map((entry) => entry.cover);
+    // Una copertina diversa per ogni playlist, sempre con la descrizione del disegno.
+    expect(new Set(covers).size).toBe(covers.length);
+    for (const entry of funPlaylists) {
+      expect(entry.family, entry.slug).toBe('divertenti');
+      expect(isPlaylistCoverId(entry.cover), entry.slug).toBe(true);
+      if (entry.cover) expect(PLAYLIST_COVER_LABELS[entry.cover], entry.slug).toMatch(/\S/);
+      expect(entry.description.length, entry.slug).toBeGreaterThan(30);
+      expect(entry.description.length, entry.slug).toBeLessThanOrEqual(120);
+      expect(entry.query, entry.slug).toMatch(/\S/);
+      // La ricerca Audius è breve (genere o mood): il catalogo YouTube in italiano lì non rende.
+      expect(entry.audiusQuery, entry.slug).toMatch(/^[a-z0-9 ]{3,20}$/);
+      expect(isPlaylistEntry(entry), entry.slug).toBe(true);
+    }
+    // «Piede comodino» con il comodino, come chiesto.
+    const comodino = findGenre('piede-comodino');
+    expect(comodino?.cover).toBe('comodino');
+    expect(comodino?.name).toBe('Piede comodino');
+    // I generi veri non hanno copertina e non sono playlist; le playlist a tema restano playlist.
+    for (const entry of genreCatalog) {
+      if (entry.family === 'divertenti') continue;
+      expect(entry.cover, entry.slug).toBeUndefined();
+      expect(isPlaylistEntry(entry), entry.slug).toBe(entry.family === 'playlist');
+    }
+  });
+
+  it('una playlist divertente si cerca su YouTube con la sua ricerca fissa, come un genere', async () => {
+    db.reset();
+    mocks.search.mockClear();
+    const response = await GET(new Request('https://solco.test/api/music/genres/piede-comodino'), {
+      params: Promise.resolve({ slug: 'piede-comodino' }),
+    });
+    expect(response.status).toBe(200);
+    expect(mocks.search).toHaveBeenCalledWith('screamo', 'key', fetch, 25);
   });
 
   it('cerca il genere con una query fissa e mette in cache al CDN', async () => {

@@ -22,7 +22,7 @@ import {
   type YouTubeMusicSearchResponse,
   YouTubeMusicSearchResponseSchema,
 } from '@/lib/contracts/youtube-search';
-import { genreCatalog } from '@/lib/music/genre-catalog';
+import { genreCatalog, isPlaylistEntry } from '@/lib/music/genre-catalog';
 import styles from './discover.module.css';
 
 type SearchError = { text: string; retryAfterMs: number };
@@ -146,7 +146,7 @@ export function YouTubeSearchPage({
           </header>
           <div className={styles.moodGrid}>
             {genreCatalog
-              .filter((entry) => entry.family !== 'playlist')
+              .filter((entry) => !isPlaylistEntry(entry))
               .slice(0, 16)
               .map((entry) => (
                 <Link key={entry.slug} href={`/generi/${entry.slug}`}>
