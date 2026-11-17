@@ -12,12 +12,15 @@ import { createServer, type Server } from 'node:tls';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   type CaaRecord,
+  caaDomainForIssuer,
   checkTls,
   cipherLabel,
   createDeps,
   evaluateTls,
   lookupCaa,
   probeTls,
+  runCheck,
+  TLS_DETAIL_MAX,
   TLS_FAIL_DAYS,
   TLS_WARN_DAYS,
   type TlsInspection,
@@ -71,9 +74,52 @@ describe('evaluateTls', () => {
     expect(outcome.status).toBe('ok');
     expect(outcome.detail).toBe(
       "TLS 1.3, AES-256-GCM, scambio X25519; certificato ECDSA P-256 di Let's Encrypt E6, " +
-        'scade tra 74 gg; TLS 1.0/1.1 rifiutati; TLS 1.3 offre AES-256 e ChaCha20; anche TLS 1.2; ' +
-        'nessun record CAA',
+        'scade tra 74 gg; TLS 1.0/1.1 rifiutati; nessun record CAA; ' +
+        '1.3 offre anche AES-256 e ChaCha20; TLS 1.2 attivo',
     );
+  });
+
+  it('il caso reale di Vercel entra nel dettaglio lungo del controllo TLS, CAA compresi', () => {
+    const outcome = evaluateTls(
+      inspection({
+        main: handshake({
+          cipher: 'TLS_AES_128_GCM_SHA256',
+          group: 'X25519MLKEM768',
+          certificate: {
+            keyType: 'RSA',
+            keyBits: 2048,
+            curve: null,
+            issuer: "Let's Encrypt YR1",
+            validTo: new Date(NOW.getTime() + 85 * DAY + 3600_000).toISOString(),
+          },
+        }),
+        caa: ['letsencrypt.org', 'globalsign.com', 'sectigo.com'],
+      }),
+      NOW,
+    );
+    expect(outcome.status).toBe('ok');
+    expect(outcome.maxDetail).toBe(TLS_DETAIL_MAX);
+    expect(outcome.detail.length).toBeGreaterThan(200);
+    expect(outcome.detail.length).toBeLessThanOrEqual(TLS_DETAIL_MAX);
+    expect(outcome.detail).toMatch(/; 1\.3 offre anche AES-256 e ChaCha20; TLS 1\.2 attivo$/);
+    expect(outcome.detail).toMatch(
+      /^TLS 1\.3, AES-128-GCM, scambio X25519MLKEM768; certificato RSA 2048 bit di Let's Encrypt YR1, scade tra 85 gg; TLS 1\.0\/1\.1 rifiutati; CAA: letsencrypt\.org, globalsign\.com, sectigo\.com/,
+    );
+  });
+
+  it('CAA che non autorizzano chi ha emesso il certificato: avviso prima del rinnovo', () => {
+    const outcome = evaluateTls(inspection({ caa: ['globalsign.com'] }), NOW);
+    expect(outcome.status).toBe('warn');
+    expect(outcome.detail).toMatch(
+      /^i record CAA non autorizzano letsencrypt\.org: il prossimo rinnovo può fallire \|/,
+    );
+    // Solo un record wildcard o iodef non limita i certificati normali.
+    expect(
+      evaluateTls(inspection({ caa: ['globalsign.com (wildcard)', 'iodef'] }), NOW).status,
+    ).toBe('ok');
+    expect(
+      evaluateTls(inspection({ caa: ['letsencrypt.org', 'globalsign.com'] }), NOW).status,
+    ).toBe('ok');
   });
 
   it('una chiave RSA da 2048 bit va bene, una da 1024 no', () => {
@@ -166,8 +212,8 @@ describe('evaluateTls', () => {
   });
 
   it('CAA: elencati quando ci sono, «non letto» quando il DNS non risponde', () => {
-    expect(evaluateTls(inspection({ caa: ['issue letsencrypt.org'] }), NOW).detail).toContain(
-      'CAA: issue letsencrypt.org',
+    expect(evaluateTls(inspection({ caa: ['letsencrypt.org'] }), NOW).detail).toContain(
+      'CAA: letsencrypt.org',
     );
     expect(evaluateTls(inspection({ caa: null }), NOW).detail).toContain('CAA non letto');
   });
@@ -177,6 +223,25 @@ describe('evaluateTls', () => {
       status: 'fail',
       detail: 'Connessione HTTPS non riuscita (ECONNRESET)',
     });
+  });
+});
+
+describe('runCheck con il dettaglio lungo del TLS', () => {
+  it('tiene fino a 300 caratteri solo quando il controllo lo chiede', async () => {
+    const deps = createDeps('https://www.solcomusic.online', { sleep: async () => {} });
+    const long = 'x'.repeat(260);
+    const tls = await runCheck(deps, 'tls', false, async () => ({
+      status: 'ok',
+      detail: long,
+      maxDetail: TLS_DETAIL_MAX,
+    }));
+    expect(tls.detail).toBe(long);
+    expect(tls.label).toBe('Crittografia HTTPS (TLS e certificato)');
+    const other = await runCheck(deps, 'seo_files', false, async () => ({
+      status: 'ok',
+      detail: long,
+    }));
+    expect(other.detail.length).toBe(200);
   });
 });
 
@@ -212,7 +277,7 @@ describe('checkTls', () => {
     });
     const outcome = await checkTls(deps);
     expect(outcome.status).toBe('ok');
-    expect(outcome.detail).toContain('CAA: issue letsencrypt.org');
+    expect(outcome.detail).toContain('CAA: letsencrypt.org');
     expect(requests.every((r) => r.host === 'www.solcomusic.online' && r.port === 443)).toBe(true);
     expect(requests.map(({ host: _h, port: _p, ...rest }) => rest)).toEqual([
       {},
@@ -257,7 +322,34 @@ describe('checkTls', () => {
   });
 });
 
+describe('caaDomainForIssuer', () => {
+  it('riconosce le autorità più comuni, null per le altre', () => {
+    expect(caaDomainForIssuer("Let's Encrypt YR1")).toBe('letsencrypt.org');
+    expect(caaDomainForIssuer('GlobalSign nv-sa GlobalSign Atlas R3 DV TLS CA 2025 Q4')).toBe(
+      'globalsign.com',
+    );
+    expect(caaDomainForIssuer('Google Trust Services WR1')).toBe('pki.goog');
+    expect(caaDomainForIssuer('Sectigo Limited Sectigo RSA DV')).toBe('sectigo.com');
+    expect(caaDomainForIssuer('Solco Test localhost')).toBeNull();
+    expect(caaDomainForIssuer(null)).toBeNull();
+  });
+});
+
 describe('lookupCaa', () => {
+  it('toglie i parametri e i doppioni: «letsencrypt.org; validationmethods=…» → letsencrypt.org', async () => {
+    const caa = await lookupCaa(
+      {
+        resolveCaa: async () => [
+          { critical: 0, issue: 'letsencrypt.org; validationmethods=dns-01' },
+          { critical: 0, issue: 'letsencrypt.org' },
+          { critical: 0, issue: 'GlobalSign.com' },
+        ],
+      },
+      'solcomusic.online',
+    );
+    expect(caa).toEqual(['letsencrypt.org', 'globalsign.com']);
+  });
+
   it('nessun record a nessun livello: elenco vuoto; DNS in errore: null', async () => {
     expect(await lookupCaa({ resolveCaa: async () => [] }, 'www.solcomusic.online')).toEqual([]);
     expect(
@@ -287,7 +379,7 @@ describe('lookupCaa', () => {
       },
       'www.solcomusic.online',
     );
-    expect(caa).toEqual(['issue letsencrypt.org', 'issuewild ;', 'iodef']);
+    expect(caa).toEqual(['letsencrypt.org', 'nessuna CA (wildcard)', 'iodef']);
     expect(seen).toEqual(['www.solcomusic.online']);
   });
 });

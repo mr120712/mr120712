@@ -91,6 +91,8 @@ export type CheckOutcome = {
   detail: string;
   critical?: boolean;
   firewallChallenged?: true;
+  /** Lunghezza massima del dettaglio, se serve più di MAX_DETAIL (oggi solo il controllo TLS). */
+  maxDetail?: number;
 };
 
 export type MonitorDeps = {
@@ -464,7 +466,7 @@ export async function runCheck(
     label: labelForId(id),
     critical: outcome.critical ?? critical,
     status: outcome.status,
-    detail: clip(outcome.detail),
+    detail: clip(outcome.detail, outcome.maxDetail ?? MAX_DETAIL),
     ms,
     ...(outcome.firewallChallenged ? { firewallChallenged: true as const } : {}),
   };
@@ -581,6 +583,8 @@ export const TLS_FAIL_DAYS = 7;
 export const TLS_MIN_RSA_BITS = 2048;
 export const TLS_MIN_EC_BITS = 256;
 const TLS_PROBE_TIMEOUT_MS = 10_000;
+/** Il dettaglio TLS riporta più fatti degli altri controlli: stessa misura della cella del riepilogo. */
+export const TLS_DETAIL_MAX = 300;
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Errori del nostro client, non del server: quel tentativo non dice nulla sul sito. */
 const LOCAL_TLS_LIMITS = new Set([
@@ -679,7 +683,16 @@ export function probeTls(
   });
 }
 
-/** Record CAA validi per il sito: quelli del nome stesso o, se mancano, del primo genitore che li ha. */
+/** Dominio CA di un valore CAA («letsencrypt.org; validationmethods=dns-01» → letsencrypt.org). */
+function caaDomain(value: string): string {
+  return value.split(';')[0]?.trim().toLowerCase() ?? '';
+}
+
+/**
+ * Record CAA validi per il sito: quelli del nome stesso o, se mancano, del primo genitore che li ha.
+ * Elenco breve: «letsencrypt.org» (issue), «letsencrypt.org (wildcard)» (issuewild), «nessuna CA»
+ * (issue vuoto), «iodef»; null se il DNS non risponde.
+ */
 export async function lookupCaa(
   deps: Pick<MonitorDeps, 'resolveCaa'>,
   host: string,
@@ -690,21 +703,34 @@ export async function lookupCaa(
     for (let index = 0; index <= labels.length - 2; index += 1) {
       const records = await deps.resolveCaa(labels.slice(index).join('.'));
       if (records.length > 0) {
-        return records.map((record) =>
-          record.issue !== undefined
-            ? `issue ${record.issue || ';'}`
-            : record.issuewild !== undefined
-              ? `issuewild ${record.issuewild || ';'}`
-              : record.iodef !== undefined
-                ? 'iodef'
-                : 'altro',
-        );
+        const entries = records.map((record) => {
+          if (record.issue !== undefined) return caaDomain(record.issue) || 'nessuna CA';
+          if (record.issuewild !== undefined) {
+            return `${caaDomain(record.issuewild) || 'nessuna CA'} (wildcard)`;
+          }
+          return record.iodef !== undefined ? 'iodef' : 'altro';
+        });
+        return [...new Set(entries)];
       }
     }
     return [];
   } catch {
     return null;
   }
+}
+
+/** Dominio CAA dell'autorità che ha emesso il certificato, dal nome dell'emittente (se noto). */
+export function caaDomainForIssuer(issuer: string | null): string | null {
+  if (!issuer) return null;
+  const known: Array<[RegExp, string]> = [
+    [/let'?s encrypt/i, 'letsencrypt.org'],
+    [/globalsign/i, 'globalsign.com'],
+    [/sectigo|zerossl/i, 'sectigo.com'],
+    [/digicert/i, 'digicert.com'],
+    [/google trust services/i, 'pki.goog'],
+    [/amazon/i, 'amazon.com'],
+  ];
+  return known.find(([pattern]) => pattern.test(issuer))?.[1] ?? null;
 }
 
 export type TlsInspection = {
@@ -806,31 +832,49 @@ export function evaluateTls(report: TlsInspection, now: Date): CheckOutcome {
   if (accepted.length > 0) warnings.push(`accetta ancora ${accepted.join(' e ')}`);
   else if (Object.values(legacy).includes('?')) facts.push('TLS 1.0/1.1 non verificabili');
   else facts.push('TLS 1.0/1.1 rifiutati');
+  if (verdict(report.cbc) === 'sì') facts.push('accetta CBC per vecchi client');
+  if (verdict(report.noForwardSecrecy) === 'sì') facts.push('accetta scambio RSA senza PFS');
+
+  // CAA: chi può emettere certificati per il dominio. Se ci sono record ma non autorizzano chi ha
+  // emesso il certificato attuale, il prossimo rinnovo automatico verrebbe rifiutato.
+  if (report.caa === null) {
+    facts.push('CAA non letto');
+  } else if (report.caa.length === 0) {
+    facts.push('nessun record CAA');
+  } else {
+    facts.push(`CAA: ${report.caa.join(', ')}`);
+    const issuerDomain = caaDomainForIssuer(cert?.issuer ?? null);
+    const allowed = report.caa.filter(
+      (entry) => !entry.endsWith('(wildcard)') && entry !== 'iodef',
+    );
+    if (issuerDomain && allowed.length > 0 && !allowed.includes(issuerDomain)) {
+      warnings.push(
+        `i record CAA non autorizzano ${issuerDomain}: il prossimo rinnovo può fallire`,
+      );
+    }
+  }
 
   const strong = [
     verdict(report.aes256) === 'sì' ? 'AES-256' : null,
     verdict(report.chacha) === 'sì' ? 'ChaCha20' : null,
   ].filter(Boolean);
-  if (strong.length > 0) facts.push(`TLS 1.3 offre ${strong.join(' e ')}`);
-  if (verdict(report.tls12) === 'sì') facts.push('anche TLS 1.2');
-  if (verdict(report.cbc) === 'sì') facts.push('accetta CBC per vecchi client');
-  if (verdict(report.noForwardSecrecy) === 'sì') facts.push('accetta scambio RSA senza PFS');
-  facts.push(
-    report.caa === null
-      ? 'CAA non letto'
-      : report.caa.length > 0
-        ? `CAA: ${report.caa.join(', ')}`
-        : 'nessun record CAA',
-  );
+  if (strong.length > 0) facts.push(`1.3 offre anche ${strong.join(' e ')}`);
+  if (verdict(report.tls12) === 'sì') facts.push('TLS 1.2 attivo');
 
+  // I fatti vanno dal più importante al meno importante: se il testo è troppo lungo si perde la coda.
+  const long = { maxDetail: TLS_DETAIL_MAX };
   if (problems.length > 0) {
-    return fail(
-      `${[...problems, ...warnings].join('; ')} | ${facts.join('; ')}`,
-      critical || undefined,
-    );
+    return {
+      ...fail(
+        `${[...problems, ...warnings].join('; ')} | ${facts.join('; ')}`,
+        critical || undefined,
+      ),
+      ...long,
+    };
   }
-  if (warnings.length > 0) return warn(`${warnings.join('; ')} | ${facts.join('; ')}`);
-  return ok(facts.join('; '));
+  if (warnings.length > 0)
+    return { ...warn(`${warnings.join('; ')} | ${facts.join('; ')}`), ...long };
+  return { ...ok(facts.join('; ')), ...long };
 }
 
 /**
