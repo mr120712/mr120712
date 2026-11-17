@@ -69,6 +69,10 @@ export function HeadContent({ nonce }: { nonce?: string }) {
     <>
       {google ? <meta name="google-site-verification" content={google} /> : null}
       {bing ? <meta name="msvalidate.01" content={bing} /> : null}
+      {/* «Skynet»: riserva dei diritti di text and data mining (art. 4 direttiva UE 2019/790,
+          protocollo TDMRep): niente uso dei contenuti per addestrare AI. Anche nell'intestazione
+          HTTP (vercel.json) e in /.well-known/tdmrep.json. */}
+      <meta name="tdm-reservation" content="1" />
       {/* Prima del primo disegno: segna <html> se questo dispositivo ha una sessione (indizio di
           require-login.tsx), così la landing di "/" non lampeggia a chi ha già fatto l'accesso. */}
       <script

@@ -427,12 +427,16 @@ export async function verifyClearance(
 // Who and what is gated
 // ---------------------------------------------------------------------------
 
+// «Skynet»: niente crawler né agenti AI in questa lista (GPTBot, ChatGPT-User, ClaudeBot,
+// PerplexityBot, GoogleOther…): devono risolvere la verifica come chiunque, e al bordo il firewall
+// di Vercel li respinge già (ruleset «AI Bots» e regola sullo User-Agent). Restano i motori di
+// ricerca, il verificatore di Search Console (il meta tag sta in ogni pagina) e le anteprime.
 const ALLOWLISTED_BOT =
-  /googlebot|google-inspectiontool|googleother|storebot-google|adsbot-google|bingbot|bingpreview|duckduckbot|yandexbot|baiduspider|applebot|facebookexternalhit|facebot|twitterbot|telegrambot|whatsapp|linkedinbot|slackbot|discordbot|pinterestbot|redditbot|skypeuripreview|embedly|gptbot|oai-searchbot|chatgpt-user|claudebot|claude-user|perplexitybot/i;
+  /googlebot|google-inspectiontool|google-site-verification|storebot-google|adsbot-google|bingbot|bingpreview|duckduckbot|yandexbot|baiduspider|applebot|facebookexternalhit|facebot|twitterbot|telegrambot|whatsapp|linkedinbot|slackbot|discordbot|pinterestbot|redditbot|skypeuripreview|embedly/i;
 
 /**
- * Search crawlers and link-preview bots (first-visit mode only). The UA is
- * self-declared, so attack mode ignores this list.
+ * Search crawlers, the Search Console verifier and link-preview bots (first-visit mode only).
+ * No AI crawler or agent. The UA is self-declared, so attack mode ignores this list.
  */
 export function isAllowlistedBot(userAgent: string | null | undefined): boolean {
   if (!userAgent) return false;

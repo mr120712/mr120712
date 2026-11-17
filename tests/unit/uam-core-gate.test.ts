@@ -460,6 +460,25 @@ describe('uamGate — bot delle anteprime in modalità attacco', () => {
     expect(await uamGate(request('/search?t=Brano', { ua: WHATSAPP }))).toBeNull();
   });
 
+  it.each([
+    'Mozilla/5.0 (compatible; GPTBot/1.2; +https://openai.com/gptbot)',
+    'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot',
+    'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ClaudeBot/1.0; +claudebot@anthropic.com)',
+    'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; PerplexityBot/1.0)',
+  ])('«Skynet», first-visit: l’agente AI %s riceve la verifica, mai la pagina', async (ua) => {
+    enable('first-visit');
+    const response = await uamGate(request('/', { ua }));
+    expect(response?.status).toBe(200);
+    expect(response?.headers.get('x-solco-gate')).toBe('challenge');
+  });
+
+  it('«Skynet», first-visit: il verificatore di Search Console legge la pagina vera', async () => {
+    enable('first-visit');
+    expect(
+      await uamGate(request('/', { ua: 'Mozilla/5.0 (compatible; Google-Site-Verification/1.0)' })),
+    ).toBeNull();
+  });
+
   it('se la paginetta fallisce lascia passare (fail open)', async () => {
     enable('attack');
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});

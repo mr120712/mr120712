@@ -7,6 +7,7 @@
 //
 // Esito: exit 1 se in questo giro parte almeno un avviso (GitHub manda un'email), 0 altrimenti,
 // 2 se lo script stesso si interrompe. Lo stato tra un giro e l'altro vive in STATE_FILE.
+import { createHash } from 'node:crypto';
 import { promises as dnsPromises } from 'node:dns';
 import { realpathSync } from 'node:fs';
 import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
@@ -372,6 +373,143 @@ function firewallChallenged(): CheckOutcome {
   return { status: 'warn', detail: FIREWALL_CHALLENGE_DETAIL, firewallChallenged: true };
 }
 
+// ---------- Cancello anti-bot del sito (UAM) ----------
+
+/** Cookie del via libera del cancello anti-bot (UAM_COOKIE in src/lib/security/uam.ts). */
+export const UAM_COOKIE_NAME = 'solco_uam';
+/** Tetto della prova di lavoro: 2^24 tentativi coprono con margine la difficoltà massima (20 bit). */
+export const UAM_MAX_ITERATIONS = 1 << 24;
+
+/** Via libera di un giro: uno solo, condiviso dai controlli in parallelo (WeakMap: MonitorDeps resta com'è). */
+type UamJar = { cookie: string | null; pending: Promise<boolean> | null };
+const uamJars = new WeakMap<MonitorDeps, UamJar>();
+
+function uamJar(deps: MonitorDeps): UamJar {
+  let jar = uamJars.get(deps);
+  if (!jar) {
+    jar = { cookie: null, pending: null };
+    uamJars.set(deps, jar);
+  }
+  return jar;
+}
+
+/** La sfida della schermata anti-bot: il blocco JSON `#uam-data` della pagina (uam-page.ts). */
+export function extractUamChallenge(
+  html: string,
+): { challenge: string; difficulty: number } | null {
+  const match = /<script type="application\/json" id="uam-data">([\s\S]*?)<\/script>/.exec(html);
+  if (!match) return null;
+  try {
+    const data: unknown = JSON.parse(match[1] ?? '');
+    if (
+      !isRecord(data) ||
+      typeof data.challenge !== 'string' ||
+      typeof data.difficulty !== 'number'
+    ) {
+      return null;
+    }
+    if (data.challenge.length > 200 || !Number.isInteger(data.difficulty)) return null;
+    if (data.difficulty < 1 || data.difficulty > 24) return null;
+    return { challenge: data.challenge, difficulty: data.difficulty };
+  } catch {
+    return null;
+  }
+}
+
+function leadingZeroBits(bytes: Uint8Array): number {
+  let bits = 0;
+  for (const byte of bytes) {
+    if (byte === 0) {
+      bits += 8;
+      continue;
+    }
+    return bits + Math.clz32(byte) - 24;
+  }
+  return bits;
+}
+
+/**
+ * La prova di lavoro, come il risolutore della pagina: il primo n per cui SHA-256 di
+ * `sfida:n` comincia con `difficulty` bit a zero. null se non si trova entro il tetto.
+ */
+export function solveUamChallenge(
+  challenge: string,
+  difficulty: number,
+  maxIterations = UAM_MAX_ITERATIONS,
+): string | null {
+  for (let n = 0; n < maxIterations; n += 1) {
+    const digest = createHash('sha256').update(`${challenge}:${n}`).digest();
+    if (leadingZeroBits(digest) >= difficulty) return String(n);
+  }
+  return null;
+}
+
+/** Il valore di `solco_uam` dalla risposta di /api/uam/verify. */
+function uamCookieFrom(response: Response): string | null {
+  const headers = response.headers as Headers & { getSetCookie?: () => string[] };
+  const lines = headers.getSetCookie?.() ?? [response.headers.get('set-cookie') ?? ''];
+  for (const line of lines) {
+    const match = /(?:^|[,;]\s*)solco_uam=([^;,\s]+)/.exec(line);
+    if (match?.[1]) return match[1];
+  }
+  return null;
+}
+
+async function obtainUamClearance(deps: MonitorDeps, html: string): Promise<boolean> {
+  const parsed = extractUamChallenge(html);
+  if (!parsed) return false;
+  const solution = solveUamChallenge(parsed.challenge, parsed.difficulty);
+  if (solution === null) return false;
+  try {
+    const response = await request(deps, '/api/uam/verify', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Origin: deps.baseUrl,
+      },
+      body: JSON.stringify({ challenge: parsed.challenge, solution }),
+    });
+    const cookie = response.ok ? uamCookieFrom(response) : null;
+    await discard(response);
+    if (!cookie) return false;
+    uamJar(deps).cookie = cookie;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Supera la schermata anti-bot del sito come un browser: legge la sfida, risolve la prova di
+ * lavoro e chiede il via libera, una volta per giro (i controlli in parallelo aspettano lo
+ * stesso tentativo). Vero se il monitor ora ha il cookie; se non riesce, la pagina resta un avviso.
+ */
+async function passUamGate(deps: MonitorDeps, html: string): Promise<boolean> {
+  const jar = uamJar(deps);
+  if (jar.cookie) return true;
+  if (!jar.pending) jar.pending = obtainUamClearance(deps, html);
+  return jar.pending;
+}
+
+function isUamChallenge(headers: Headers): boolean {
+  return (headers.get('x-solco-gate') ?? '').trim().toLowerCase() === 'challenge';
+}
+
+/** GET di una pagina; se risponde la schermata anti-bot, la supera e la chiede di nuovo. */
+async function requestPage(deps: MonitorDeps, path: string): Promise<Response> {
+  const response = await request(deps, path, { headers: { Accept: 'text/html' } });
+  if (!isUamChallenge(response.headers)) return response;
+  let html = '';
+  try {
+    html = await response.text();
+  } catch {
+    return response;
+  }
+  if (!(await passUamGate(deps, html))) return response;
+  return request(deps, path, { headers: { Accept: 'text/html' } });
+}
+
 async function fetchUrl(
   deps: MonitorDeps,
   url: string | URL,
@@ -379,6 +517,11 @@ async function fetchUrl(
 ): Promise<Response> {
   const headers = new Headers(init.headers);
   headers.set('User-Agent', USER_AGENT);
+  // Il via libera del cancello anti-bot solo verso il sito, mai verso altri domini (es. Google).
+  const cookie = uamJars.get(deps)?.cookie;
+  if (cookie && !headers.has('Cookie') && sameSiteOrigin(url, deps.baseUrl)) {
+    headers.set('Cookie', `${UAM_COOKIE_NAME}=${cookie}`);
+  }
   const response = await deps.fetch(url, {
     redirect: 'manual',
     ...init,
@@ -390,6 +533,14 @@ async function fetchUrl(
     throw new FirewallChallengeError(FIREWALL_CHALLENGE_DETAIL);
   }
   return response;
+}
+
+function sameSiteOrigin(url: string | URL, baseUrl: string): boolean {
+  try {
+    return new URL(url).origin === new URL(baseUrl).origin;
+  } catch {
+    return false;
+  }
 }
 
 function request(deps: MonitorDeps, path: string, init: RequestInit = {}): Promise<Response> {
@@ -504,7 +655,7 @@ export async function checkSiteHealth(deps: MonitorDeps): Promise<CheckOutcome> 
 }
 
 export async function checkPage(deps: MonitorDeps, path: string): Promise<CheckOutcome> {
-  const response = await request(deps, path, { headers: { Accept: 'text/html' } });
+  const response = await requestPage(deps, path);
   const gated = gateOutcome(response.headers);
   if (gated) {
     await discard(response);
@@ -562,7 +713,7 @@ export function evaluateSecurityHeaders(headers: Headers): CheckOutcome {
 }
 
 export async function checkSecurityHeaders(deps: MonitorDeps): Promise<CheckOutcome> {
-  const response = await request(deps, '/', { headers: { Accept: 'text/html' } });
+  const response = await requestPage(deps, '/');
   await discard(response);
   const gated = gateOutcome(response.headers);
   if (gated) return gated;

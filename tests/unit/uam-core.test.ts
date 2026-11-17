@@ -462,7 +462,7 @@ describe('isAllowlistedBot', () => {
   it.each([
     'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
     'Mozilla/5.0 (Linux; Android 6.0.1) Chrome/120 Mobile Safari/537.36 (compatible; Google-InspectionTool/1.0;)',
-    'GoogleOther',
+    'Mozilla/5.0 (compatible; Google-Site-Verification/1.0)',
     'Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)',
     'DuckDuckBot/1.1; (+http://duckduckgo.com/duckduckbot.html)',
     'Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.1 Safari/605.1.15 (Applebot/0.1)',
@@ -473,11 +473,23 @@ describe('isAllowlistedBot', () => {
     'LinkedInBot/1.0 (compatible; Mozilla/5.0; Apache-HttpClient +http://www.linkedin.com)',
     'Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)',
     'Mozilla/5.0 (compatible; Discordbot/2.0; +https://discordapp.com)',
-    'Mozilla/5.0 (compatible; GPTBot/1.2; +https://openai.com/gptbot)',
-    'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ClaudeBot/1.0; +claudebot@anthropic.com)',
-    'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; PerplexityBot/1.0)',
   ])('allows %s', (ua) => {
     expect(isAllowlistedBot(ua)).toBe(true);
+  });
+
+  // «Skynet»: crawler e agenti AI risolvono la verifica come chiunque (e al bordo li ferma Vercel).
+  it.each([
+    'Mozilla/5.0 (compatible; GPTBot/1.2; +https://openai.com/gptbot)',
+    'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot',
+    'Mozilla/5.0 (compatible; OAI-SearchBot/1.0; +https://openai.com/searchbot)',
+    'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ClaudeBot/1.0; +claudebot@anthropic.com)',
+    'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-User/1.0; +Claude-User@anthropic.com)',
+    'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; PerplexityBot/1.0)',
+    'GoogleOther',
+    'CCBot/2.0 (https://commoncrawl.org/faq/)',
+    'Mozilla/5.0 (Linux; Android 5.0) AppleWebKit/537.36 (KHTML, like Gecko) Mobile Safari/537.36 (compatible; Bytespider; spider-feedback@bytedance.com)',
+  ])('does not let the AI crawler or agent %s skip the check', (ua) => {
+    expect(isAllowlistedBot(ua)).toBe(false);
   });
 
   it.each([

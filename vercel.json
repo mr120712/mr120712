@@ -23,6 +23,15 @@
           "value": "same-origin-allow-popups"
         }
       ]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "tdm-reservation",
+          "value": "1"
+        }
+      ]
     }
   ],
   "crons": [
