@@ -306,6 +306,13 @@ export const ACTION_RATE_LIMITS = {
     { requests: 20, windowMs: 600_000 },
     { requests: 100, windowMs: 86_400_000 },
   ],
+  // «Rifinisci con Solco AI» (una chiamata al modello Anthropic a consumo per bozza), per admin,
+  // più un tetto giornaliero per l'intera app.
+  'lyrics.refine': [
+    { requests: 20, windowMs: 3_600_000 },
+    { requests: 60, windowMs: 86_400_000 },
+  ],
+  'lyrics.refine.global': [{ requests: 100, windowMs: 86_400_000 }],
   // Ricerca su audio.com: l'API ammette 60 ricerche al minuto PER UTENTE audio.com e Solco usa UN
   // solo account (collegato dall'admin) per tutti gli ascoltatori. Tetto globale ben sotto (40 al
   // minuto, identità 'global'), contato solo quando una ricerca arriva davvero ad audio.com: la
@@ -633,6 +640,8 @@ const actionLabels: Record<RateLimitAction, string> = {
   'lyrics.transcribe.global': 'le trascrizioni dei testi con l’IA di oggi',
   'lyrics.transcribe.check': 'le verifiche di Solco AI',
   'lyrics.transcribe.save': 'i salvataggi dei testi',
+  'lyrics.refine': 'le rifiniture dei testi con Solco AI',
+  'lyrics.refine.global': 'le rifiniture dei testi con Solco AI di oggi',
   'audiocom.search.global': 'le ricerche su audio.com di questo minuto',
   'audiocom.search': 'le tue ricerche su audio.com',
   'audiocom.connect.admin': 'i collegamenti ad audio.com',

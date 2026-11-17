@@ -24,6 +24,12 @@
 // cifrato». «Verifica Solco AI» (in testa alla pagina) prova il motore del server con un secondo
 // di silenzio e riferisce con un avviso, senza toccare i brani; la scheda dice a quale motore va
 // l'audio (`transcriptionEngine` della diagnosi).
+// «Rifinisci con Solco AI» (nell'editor) manda il testo dell'editor a …/transcribe/refine: il
+// modello di Solco AI lo ripulisce (punteggiatura, maiuscole, versi, errori evidenti, senza inventare
+// né togliere) e il server lo rimette sui tempi della bozza; l'editor si riapre con la bozza nuova,
+// la copertura e le righe senza riscontro, e «Ripristina la bozza di prima» torna indietro. Un
+// rifiuto del server (chiave assente, modello occupato, testo cambiato troppo) lascia la bozza
+// com'era e lo dice.
 'use client';
 
 import {
@@ -37,6 +43,8 @@ import {
   RotateCw,
   Sparkles,
   TriangleAlert,
+  Undo2,
+  WandSparkles,
 } from 'lucide-react';
 import {
   createContext,
@@ -95,12 +103,15 @@ import {
 } from '@/lib/contracts/admin-featured-rights';
 import {
   ALIGN_LYRICS_MAX_CHARS,
+  type RefineLyricsResponse,
+  RefineLyricsResponseSchema,
   SaveLyricsResponseSchema,
   SOLCO_AI_NAME,
   TRANSCRIPTION_ALIGNED_HINT,
   TRANSCRIPTION_LANGUAGES,
   TRANSCRIPTION_LRC_MAX_BYTES,
   TRANSCRIPTION_NOT_CONFIGURED_MESSAGE,
+  TRANSCRIPTION_REFINED_HINT,
   TRANSCRIPTION_WORD_TAG_HINT,
   type TranscribeResponse,
   TranscribeResponseSchema,
@@ -1102,6 +1113,7 @@ function copyTitlesManifest(tracks: readonly FeaturedRightsTrack[], truncated: b
 
 const TRANSCRIBE_ENDPOINT = '/api/admin/featured-rights/transcribe';
 const ALIGN_LYRICS_ENDPOINT = '/api/admin/featured-rights/transcribe/align';
+const REFINE_LYRICS_ENDPOINT = '/api/admin/featured-rights/transcribe/refine';
 const SAVE_LYRICS_ENDPOINT = '/api/admin/featured-rights/transcribe/save';
 const LYRICS_EMPTY_MESSAGE = 'Incolla il testo del brano, una riga per verso.';
 const FORMAT_LIST = `${WHISPER_EXTENSIONS.slice(0, -1).join(', ')} o ${WHISPER_EXTENSIONS.at(-1)}`;
@@ -1295,11 +1307,13 @@ type TranscriptionSession = {
   /** Lingua scelta nel menu ('' = automatica). */
   language: TranscriptionLanguage | '';
   phase: 'idle' | 'running' | 'error';
-  /** Che cosa fa la richiesta in corso: trascrizione, o allineamento del testo fornito. */
-  task: 'transcribe' | 'align';
+  /** Che cosa fa la richiesta in corso: trascrizione, allineamento del testo fornito o rifinitura. */
+  task: 'transcribe' | 'align' | 'refine';
   errorMessage: string | null;
   /** Ultima bozza ricevuta (null = nessuna, o già salvata). */
   draft: TranscribeResponse | null;
+  /** La bozza (e il testo dell'editor) di prima dell'ultima rifinitura, per «Ripristina». */
+  previous: { text: string; draft: TranscribeResponse } | null;
   /** Lingua chiesta per quella bozza: «Rigenera con l'IA» rifà la stessa trascrizione. */
   draftLanguage: TranscriptionLanguage | '';
   /** Cresce a ogni bozza nuova: l'editor riparte dal testo della bozza. */
@@ -1325,6 +1339,7 @@ const IDLE_SESSION: TranscriptionSession = {
   task: 'transcribe',
   errorMessage: null,
   draft: null,
+  previous: null,
   draftLanguage: '',
   draftVersion: 0,
   editorOpen: false,
@@ -1499,15 +1514,18 @@ async function runTranscription(
   }
 }
 
-/** Il messaggio del server sul campo `lyrics` (400 dell'allineamento), o null. */
-function lyricsFieldError(error: unknown): string | null {
+/**
+ * Il messaggio del server su un campo (il 400 dell'allineamento sul campo `lyrics`, quello della
+ * rifinitura sul campo `lrc`), o null.
+ */
+function fieldErrorMessage(error: unknown, field: 'lyrics' | 'lrc'): string | null {
   const cause =
     error instanceof Error && typeof error.cause === 'object' && error.cause !== null
       ? (error.cause as { errors?: unknown })
       : null;
   const errors = cause?.errors;
   if (typeof errors !== 'object' || errors === null) return null;
-  const message = (errors as { lyrics?: unknown }).lyrics;
+  const message = (errors as Record<string, unknown>)[field];
   return typeof message === 'string' && message.trim()
     ? message.trim().slice(0, ERROR_TEXT_MAX)
     : null;
@@ -1569,7 +1587,7 @@ async function runAlignment(
       toast('Allineamento annullato.');
       return;
     }
-    const fieldError = lyricsFieldError(error);
+    const fieldError = fieldErrorMessage(error, 'lyrics');
     if (fieldError) {
       sessions.update(pathname, {
         phase: 'idle',
@@ -1581,6 +1599,105 @@ async function runAlignment(
       return;
     }
     const message = actionErrorMessage(error, 'L’allineamento non è riuscito. Riprova.');
+    sessions.update(pathname, { phase: 'error', errorMessage: message, controller: null });
+    toast.error(message);
+  }
+}
+
+/**
+ * La bozza dopo la rifinitura: testo, righe e tempi nuovi; lingua, durata, origine (cache o nuova)
+ * e motore restano quelli della trascrizione. Le righe incerte e l'allineamento al testo ufficiale
+ * riguardavano il testo di prima: via.
+ */
+function refinedDraft(
+  before: TranscribeResponse,
+  result: RefineLyricsResponse,
+): TranscribeResponse {
+  return {
+    draft: result.draft,
+    lineCount: result.lineCount,
+    language: before.language,
+    durationSeconds: before.durationSeconds,
+    droppedSegments: before.droppedSegments,
+    uncertainLines: [],
+    wordTimed: result.wordTimed,
+    fromCache: before.fromCache,
+    cachedAt: before.cachedAt,
+    ...(before.engine ? { engine: before.engine } : {}),
+    refined: result.refined,
+  };
+}
+
+/**
+ * «Rifinisci con Solco AI»: il testo dell'editor (la bozza con le correzioni già fatte) va a
+ * …/transcribe/refine e torna ripulito dal modello, rimesso sui tempi della bozza. Stesso stato della
+ * trascrizione (avanzamento, «Annulla», bozza nell'editor anche se la scheda è nascosta); la bozza
+ * di prima resta in `previous` per «Ripristina la bozza di prima». Un rifiuto del server (bozza
+ * senza tempi, chiave assente, modello occupato, testo cambiato troppo) lascia la bozza com'era.
+ */
+async function runRefinement(
+  sessions: TranscriptionSessions,
+  pathname: string,
+  name: string,
+  language: TranscriptionLanguage | '',
+) {
+  const text = sessions.text(pathname);
+  const before = sessions.get(pathname).draft;
+  if (!before || !parseLyrics(text)) {
+    toast.error('La bozza è vuota: non c’è nulla da rifinire.');
+    return;
+  }
+  const controller = new AbortController();
+  sessions.update(pathname, {
+    phase: 'running',
+    task: 'refine',
+    errorMessage: null,
+    savedNote: null,
+    confirmReplace: false,
+    alignError: null,
+    editorOpen: false,
+    controller,
+  });
+  try {
+    const result = await apiFetch(REFINE_LYRICS_ENDPOINT, {
+      method: 'POST',
+      body: JSON.stringify({
+        pathname,
+        lrc: text,
+        ...(language ? { language } : {}),
+        ...(before.durationSeconds !== null ? { durationSeconds: before.durationSeconds } : {}),
+      }),
+      schema: RefineLyricsResponseSchema,
+      signal: controller.signal,
+    });
+    if (sessions.get(pathname).controller !== controller) return;
+    const visible = sessions.isMounted(pathname);
+    sessions.setText(pathname, result.draft);
+    sessions.update(pathname, {
+      phase: 'idle',
+      controller: null,
+      draft: refinedDraft(before, result),
+      previous: { text, draft: before },
+      draftVersion: sessions.get(pathname).draftVersion + 1,
+      editorOpen: visible,
+    });
+    const percent = Math.round(result.refined.coverage * 100);
+    const summary = `${linesText(result.lineCount)}, ${percent}% delle parole con un tempo preso dalla bozza di prima`;
+    toast.success(
+      visible
+        ? `Bozza rifinita: ${summary}.`
+        : `Bozza rifinita per ${name}: ${summary}. La trovi con «Riapri la bozza» nella sua scheda.`,
+    );
+  } catch (error) {
+    if (sessions.get(pathname).controller !== controller) return;
+    if (isAbort(error, controller.signal)) {
+      sessions.update(pathname, { phase: 'idle', controller: null });
+      toast('Rifinitura annullata: la bozza è rimasta com’era.');
+      return;
+    }
+    const message =
+      fieldErrorMessage(error, 'lrc') ??
+      actionErrorMessage(error, 'La rifinitura non è riuscita: la bozza è rimasta com’era.');
     sessions.update(pathname, { phase: 'error', errorMessage: message, controller: null });
     toast.error(message);
   }
@@ -1685,6 +1802,32 @@ function LyricsTranscription({
     void runTranscription(sessions, pathname, name, current.draftLanguage, true);
   };
 
+  // «Rifinisci con Solco AI» dall'editor: l'editor si chiude durante la richiesta (avanzamento e
+  // «Annulla» nella scheda) e si riapre con la bozza rifinita. La lingua è quella riconosciuta nella
+  // bozza se è fra quelle della pagina, altrimenti quella chiesta per la bozza.
+  const refine = () => {
+    const current = sessions.get(pathname);
+    if (current.phase === 'running' || !current.draft) return;
+    const detectedCode = whisperLanguageCode(current.draft.language);
+    const language = TRANSCRIPTION_LANGUAGES.some((option) => option.code === detectedCode)
+      ? (detectedCode as TranscriptionLanguage)
+      : current.draftLanguage;
+    void runRefinement(sessions, pathname, name, language);
+  };
+
+  // «Ripristina la bozza di prima»: testo e bozza di prima dell'ultima rifinitura tornano nell'editor.
+  const restore = () => {
+    const current = sessions.get(pathname);
+    if (current.phase === 'running' || !current.previous) return;
+    sessions.setText(pathname, current.previous.text);
+    sessions.update(pathname, {
+      draft: current.previous.draft,
+      previous: null,
+      draftVersion: current.draftVersion + 1,
+    });
+    toast('Bozza di prima ripristinata.');
+  };
+
   const cancel = () => sessions.get(pathname).controller?.abort();
   const setEditorOpen = (open: boolean) => sessions.update(pathname, { editorOpen: open });
 
@@ -1710,7 +1853,9 @@ function LyricsTranscription({
             <LoaderCircle aria-hidden="true" className="motion-safe:animate-spin" />
             {session.task === 'align'
               ? 'Allineamento in corso… può richiedere fino a un minuto'
-              : 'Trascrizione in corso… può richiedere fino a un minuto'}
+              : session.task === 'refine'
+                ? 'Rifinitura in corso… può richiedere fino a un minuto'
+                : 'Trascrizione in corso… può richiedere fino a un minuto'}
           </output>
           <Button ref={cancelRef} type="button" size="sm" variant="outline" onClick={cancel}>
             Annulla
@@ -1876,7 +2021,11 @@ function LyricsTranscription({
           {blockedReason}
         </p>
       ) : (
-        <p className={styles.muted}>L'audio viene inviato a {engine} solo per la trascrizione.</p>
+        <p className={styles.muted}>
+          L'audio viene inviato a {engine} solo per la trascrizione. Con «Rifinisci con{' '}
+          {SOLCO_AI_NAME}» (nell'editor) il testo della bozza va al modello di {SOLCO_AI_NAME} solo
+          per essere ripulito: i tempi restano quelli della bozza.
+        </p>
       )}
       {session.phase === 'error' && session.errorMessage ? (
         <p role="alert" className={styles.inlineError}>
@@ -1899,13 +2048,24 @@ function LyricsTranscription({
             <DialogHeader>
               <DialogTitle>Testo di {name}</DialogTitle>
               <DialogDescription>
-                {draft.aligned
-                  ? `Il tuo testo con i tempi di ${SOLCO_AI_NAME}: controlla i tempi prima di salvare.`
-                  : 'Bozza automatica: controlla parole e tempi prima di salvare.'}
+                {draft.refined
+                  ? `Bozza rifinita da ${SOLCO_AI_NAME}: controlla parole e tempi prima di salvare.`
+                  : draft.aligned
+                    ? `Il tuo testo con i tempi di ${SOLCO_AI_NAME}: controlla i tempi prima di salvare.`
+                    : 'Bozza automatica: controlla parole e tempi prima di salvare.'}
               </DialogDescription>
             </DialogHeader>
             <div className={styles.origin}>
               <DraftOrigin draft={draft} />
+              {draft.refined ? (
+                <StatusBadge tone="info">Rifinita da {SOLCO_AI_NAME}</StatusBadge>
+              ) : null}
+              {session.previous ? (
+                <Button type="button" size="sm" variant="outline" onClick={restore}>
+                  <Undo2 aria-hidden="true" />
+                  Ripristina la bozza di prima
+                </Button>
+              ) : null}
             </div>
             {draft.fromCache && !blockedReason ? (
               <RegenerateDraft
@@ -1956,6 +2116,22 @@ function LyricsTranscription({
                 </li>
               ) : null}
               {draft.aligned ? <li>{TRANSCRIPTION_ALIGNED_HINT}</li> : null}
+              {draft.refined ? (
+                <li>
+                  Rifinita da {SOLCO_AI_NAME}: {Math.round(draft.refined.coverage * 100)}% delle
+                  parole ({formatCount(draft.refined.matchedWords)} su{' '}
+                  {formatCount(draft.refined.totalWords)}) ha un tempo preso dalla bozza di prima;
+                  le altre sono interpolate. Righe: da {formatCount(draft.refined.linesBefore)} a{' '}
+                  {formatCount(draft.refined.linesAfter)}.
+                </li>
+              ) : null}
+              {draft.refined && draft.refined.unmatchedLines.length > 0 ? (
+                <li>
+                  Righe senza riscontro nella bozza di prima:{' '}
+                  {draft.refined.unmatchedLines.join(', ')} (controlla parole e tempi).
+                </li>
+              ) : null}
+              {draft.refined ? <li>{TRANSCRIPTION_REFINED_HINT}</li> : null}
               {draft.wordTimed ? <li>{TRANSCRIPTION_WORD_TAG_HINT}</li> : null}
             </ul>
             <LyricsEditor
@@ -1964,6 +2140,7 @@ function LyricsTranscription({
               track={track}
               lrcPathname={lrcPathname}
               onClose={() => setEditorOpen(false)}
+              onRefine={refine}
             />
           </DialogContent>
         </Dialog>
@@ -1982,11 +2159,14 @@ function LyricsEditor({
   track,
   lrcPathname,
   onClose,
+  onRefine,
 }: {
   sessions: TranscriptionSessions;
   track: FeaturedRightsTrack;
   lrcPathname: string;
   onClose: () => void;
+  /** «Rifinisci con Solco AI»: il testo dell'editor va al modello (la scheda mostra l'avanzamento). */
+  onRefine: () => void;
 }) {
   const pathname = track.pathname;
   const [confirmOverwrite, setConfirmOverwrite] = useState(false);
@@ -2088,6 +2268,10 @@ function LyricsEditor({
           </p>
         ) : null}
         <DialogFooter className={styles.editorActions}>
+          <Button type="button" variant="secondary" disabled={submitting} onClick={onRefine}>
+            <WandSparkles aria-hidden="true" />
+            Rifinisci con {SOLCO_AI_NAME}
+          </Button>
           <Button
             type="button"
             variant="outline"

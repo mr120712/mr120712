@@ -102,6 +102,7 @@ import {
   engineLabelForModel,
   type TranscriptionProvider,
   transcriptionEngineLabel,
+  transcriptionHedgeMs,
 } from '@/lib/music/transcription-provider.server';
 import {
   WHISPER_TIMEOUT_MS,
@@ -537,7 +538,17 @@ export type TranscriptionRefusal =
   /** Allineamento del testo ufficiale: il testo fornito non va (vuoto, troppo lungo): messaggio sul campo. */
   | { kind: 'align_invalid'; message: string }
   /** Allineamento: il testo trova troppo poco riscontro fra le parole riconosciute nell'audio. */
-  | { kind: 'align_no_match'; coverage: number };
+  | { kind: 'align_no_match'; coverage: number }
+  /** Rifinitura: la bozza inviata non va (vuota, senza tempi, troppo lunga): messaggio sul campo `lrc`. */
+  | { kind: 'refine_invalid'; message: string }
+  /**
+   * Rifinitura: il modello di Solco AI non ha potuto o voluto rifinire (chiave Anthropic assente o
+   * rifiutata, servizio occupato, rifiuto, testo cambiato troppo, risposta non valida).
+   */
+  | { kind: 'refine'; error: RefineErrorCode; message: string };
+
+/** Perché «Rifinisci con Solco AI» non ha dato una bozza nuova (lyrics-refine.server.ts). */
+export type RefineErrorCode = 'not_configured' | 'busy' | 'refused' | 'rejected' | 'failed';
 
 /** Messaggio sul campo del testo quando l'allineamento non trova riscontro (`coverage` 0-1). */
 export function alignNoMatchMessage(coverage: number): string {
@@ -562,6 +573,15 @@ const WHISPER_STATUS: Partial<Record<WhisperErrorCode, number>> = {
   rate_limited: 429,
   // Crediti del servizio finiti o fatturazione non attiva: "pagamento richiesto", non un limite.
   no_credit: 402,
+};
+
+/** Chiave assente o modello occupato: 503 (riprova); rifiuto, testo cambiato troppo o risposta non valida: 502. */
+const REFINE_STATUS: Record<RefineErrorCode, number> = {
+  not_configured: 503,
+  busy: 503,
+  refused: 502,
+  rejected: 502,
+  failed: 502,
 };
 
 /** La risposta HTTP (privata, mai in cache) di un rifiuto: messaggi italiani, nessun dettaglio. */
@@ -638,6 +658,14 @@ export function transcriptionRefusalResponse(refusal: TranscriptionRefusal): Res
         error: 'align_no_match',
         errors: { lyrics: alignNoMatchMessage(refusal.coverage) },
       });
+    case 'refine_invalid':
+      return json(400, { error: 'refine_invalid', errors: { lrc: refusal.message } });
+    case 'refine':
+      return json(
+        REFINE_STATUS[refusal.error],
+        { error: `refine_${refusal.error}`, message: refusal.message },
+        refusal.error === 'busy' ? { 'Retry-After': '30' } : {},
+      );
     default:
       return json(502, {
         error: 'save_failed',
@@ -971,7 +999,8 @@ async function transcribeNow({
     return { ok: false, refusal: { kind: 'store_unavailable' } };
   }
   // Il primo motore che riesce, nell'ordine configurato: chi rifiuta la chiave, non ha crediti,
-  // limita o non risponde lascia il posto al successivo (transcription-engines.server.ts).
+  // limita o non risponde lascia il posto al successivo (transcription-engines.server.ts); chi tace
+  // da LYRICS_AI_HEDGE_MS vede partire il successivo in parallelo, e vince il primo che riesce.
   const whisper = await transcribeWithFailover(
     providers,
     {
@@ -985,7 +1014,7 @@ async function transcribeNow({
       timeoutMs: Math.min(WHISPER_TIMEOUT_MS, remaining),
       signal,
     },
-    { deadline: startedAt + TRANSCRIBE_BUDGET_MS },
+    { deadline: startedAt + TRANSCRIBE_BUDGET_MS, hedgeAfterMs: transcriptionHedgeMs() },
   );
   if (!whisper.ok) {
     // Nessuna richiesta è arrivata a un motore (annullata prima dell'invio, DNS, connessione

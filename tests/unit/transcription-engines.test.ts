@@ -6,10 +6,12 @@
 // segmenti, 400 di autenticazione → chiave), le righe dalle sole parole (segmentsFromWords), la prova
 // di qualunque motore (probeProvider) e il PASSAGGIO AUTOMATICO (transcribeWithFailover: ordine,
 // stop sull'audio rifiutato o troppo grande, notSent solo se nessuna richiesta è partita, messaggio
-// con tutti i motivi, scadenza, annullamento). Mistral: niente tempi delle parole nella richiesta.
-// Mai la chiave nei risultati.
+// con tutti i motivi, scadenza, annullamento) anche IN PARALLELO (hedgeAfterMs: il motore dopo parte
+// quando quello in corso tace da troppo, vince il primo che riesce, gli altri si annullano; la soglia
+// da LYRICS_AI_HEDGE_MS). Mistral: niente tempi delle parole nella richiesta. Mai la chiave nei
+// risultati.
 // @vitest-environment node
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 vi.mock('@/lib/db', () => ({ prisma: {} }));
@@ -46,8 +48,12 @@ import {
   transcribeWithProvider,
 } from '@/lib/music/transcription-engines.server';
 import {
+  DEFAULT_HEDGE_MS,
+  MAX_HEDGE_MS,
+  MIN_HEDGE_MS,
   type TranscriptionProvider,
   type TranscriptionProviderId,
+  transcriptionHedgeMs,
   transcriptionProviderFor,
 } from '@/lib/music/transcription-provider.server';
 import { segmentsFromWords, type WhisperFailure } from '@/lib/music/whisper.server';
@@ -725,5 +731,209 @@ describe('transcribeWithFailover', () => {
     expect(first.calls).toHaveLength(1);
     const failure: WhisperFailure = { ok: false, error: 'unavailable', message: 'x' };
     expect(combinedFailure([{ provider: provider('groq'), failure, elapsedMs: 1 }])).toBe(failure);
+  });
+});
+
+describe('transcribeWithFailover con hedging (motori in parallelo)', () => {
+  const whisperOk = { text: 'ciao', language: 'italian', duration: 3, segments: [], words: [] };
+  const GROQ = 'https://api.groq.com';
+
+  /** Una risposta che arriva dopo `ms` (timer finti) o salta se la richiesta viene annullata. */
+  function respondAfter(ms: number, make: () => Response) {
+    return (init: RequestInit) =>
+      new Promise<Response>((resolve, reject) => {
+        const timer = setTimeout(() => resolve(make()), ms);
+        init.signal?.addEventListener('abort', () => {
+          clearTimeout(timer);
+          reject(new DOMException('The operation was aborted.', 'AbortError'));
+        });
+      });
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('il motore dopo parte quando il primo tace da hedgeAfterMs; vince il primo che riesce, l’altro si annulla', async () => {
+    const { fetcher, calls } = fetcherOf((url, init) =>
+      url.startsWith(GROQ)
+        ? respondAfter(30_000, () => json(whisperOk))(init)
+        : respondAfter(2_000, () => json(DEEPGRAM_BODY))(init),
+    );
+    const pending = transcribeWithFailover(
+      [provider('groq'), provider('deepgram')],
+      { audio: AUDIO, extension: 'mp3', fetcher },
+      { hedgeAfterMs: 5_000 },
+    );
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(calls).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.[0].startsWith('https://api.deepgram.com')).toBe(true);
+    await vi.advanceTimersByTimeAsync(2_000);
+    const result = await pending;
+    expect(result).toMatchObject({ ok: true, provider: { id: 'deepgram' }, attempts: [] });
+    // Groq, scartato, è stato annullato: niente risposta inutile da aspettare.
+    expect(calls[0]?.[1].signal?.aborted).toBe(true);
+    expect(calls[1]?.[1].signal?.aborted).toBe(false);
+  });
+
+  it('senza hedgeAfterMs si aspetta il primo motore fino in fondo (una richiesta sola)', async () => {
+    const { fetcher, calls } = fetcherOf((url, init) =>
+      url.startsWith(GROQ)
+        ? respondAfter(30_000, () => json(whisperOk))(init)
+        : respondAfter(2_000, () => json(DEEPGRAM_BODY))(init),
+    );
+    const pending = transcribeWithFailover([provider('groq'), provider('deepgram')], {
+      audio: AUDIO,
+      extension: 'mp3',
+      fetcher,
+    });
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(calls).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(await pending).toMatchObject({ ok: true, provider: { id: 'groq' }, attempts: [] });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('il primo risponde prima della soglia: il secondo non parte', async () => {
+    const { fetcher, calls } = fetcherOf((_url, init) =>
+      respondAfter(3_000, () => json(whisperOk))(init),
+    );
+    const pending = transcribeWithFailover(
+      [provider('groq'), provider('deepgram')],
+      { audio: AUDIO, extension: 'mp3', fetcher },
+      { hedgeAfterMs: 5_000 },
+    );
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(await pending).toMatchObject({ ok: true, provider: { id: 'groq' } });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('un errore rapido del primo fa partire subito il secondo, senza aspettare la soglia', async () => {
+    const { fetcher, calls } = fetcherOf((url, init) =>
+      url.startsWith(GROQ)
+        ? respondAfter(1_000, () => json({ error: 'giù' }, 500))(init)
+        : respondAfter(2_000, () => json(DEEPGRAM_BODY))(init),
+    );
+    const pending = transcribeWithFailover(
+      [provider('groq'), provider('deepgram')],
+      { audio: AUDIO, extension: 'mp3', fetcher },
+      { hedgeAfterMs: 20_000 },
+    );
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(calls).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(2_000);
+    const result = await pending;
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.provider.id).toBe('deepgram');
+    expect(result.attempts.map((attempt) => [attempt.provider.id, attempt.failure.error])).toEqual([
+      ['groq', 'unavailable'],
+    ]);
+  });
+
+  it('senza tempo per un altro tentativo la soglia non fa partire nessuno', async () => {
+    const { fetcher, calls } = fetcherOf((_url, init) =>
+      respondAfter(10_000, () => json(whisperOk))(init),
+    );
+    const pending = transcribeWithFailover(
+      [provider('groq'), provider('deepgram')],
+      { audio: AUDIO, extension: 'mp3', fetcher },
+      { hedgeAfterMs: 5_000, deadline: Date.now() + 5_000 + FAILOVER_MIN_ATTEMPT_MS - 1 },
+    );
+    await vi.advanceTimersByTimeAsync(9_000);
+    expect(calls).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(await pending).toMatchObject({ ok: true, provider: { id: 'groq' } });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('falliscono entrambi: motivi nell’ordine dei motori, codice del primo', async () => {
+    const { fetcher, calls } = fetcherOf((url, init) =>
+      url.startsWith(GROQ)
+        ? respondAfter(8_000, () => json({ error: 'giù' }, 500))(init)
+        : respondAfter(7_000, () => json({ err_msg: 'Insufficient credits' }, 402))(init),
+    );
+    const pending = transcribeWithFailover(
+      [provider('groq'), provider('deepgram')],
+      { audio: AUDIO, extension: 'mp3', fetcher },
+      { hedgeAfterMs: 5_000 },
+    );
+    await vi.advanceTimersByTimeAsync(12_000);
+    const result = await pending;
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.attempts.map((attempt) => [attempt.provider.id, attempt.failure.error])).toEqual([
+      ['groq', 'unavailable'],
+      ['deepgram', 'no_credit'],
+    ]);
+    expect(result.failure.error).toBe('unavailable');
+    expect(result.failure.message).toContain('Groq:');
+    expect(result.failure.message).toContain('Deepgram:');
+    expect(calls).toHaveLength(2);
+    expectNoSecrets(result);
+  });
+
+  it('se il motore in parallelo dice che il problema è l’audio, ci si ferma e il primo si annulla', async () => {
+    const { fetcher, calls } = fetcherOf((url, init) =>
+      url.startsWith(GROQ)
+        ? respondAfter(30_000, () => json(whisperOk))(init)
+        : respondAfter(1_000, () => json({}, 413))(init),
+    );
+    const pending = transcribeWithFailover(
+      [provider('groq'), provider('deepgram')],
+      { audio: AUDIO, extension: 'mp3', fetcher },
+      { hedgeAfterMs: 5_000 },
+    );
+    await vi.advanceTimersByTimeAsync(6_000);
+    const result = await pending;
+    expect(result).toMatchObject({ ok: false, failure: { error: 'too_large' } });
+    if (result.ok) return;
+    // Groq non ha risposto: non è un tentativo fallito, è stato scartato.
+    expect(result.attempts.map((attempt) => attempt.provider.id)).toEqual(['deepgram']);
+    expect(calls[0]?.[1].signal?.aborted).toBe(true);
+  });
+
+  it('con tre motori la soglia vale dall’ultimo partito: il terzo parte dopo altri hedgeAfterMs', async () => {
+    const { fetcher, calls } = fetcherOf((url, init) =>
+      url.startsWith('https://api.elevenlabs.io')
+        ? respondAfter(1_000, () => json(ELEVENLABS_BODY))(init)
+        : respondAfter(60_000, () => json(whisperOk))(init),
+    );
+    const pending = transcribeWithFailover(
+      [provider('groq'), provider('deepgram'), provider('elevenlabs')],
+      { audio: AUDIO, extension: 'mp3', fetcher },
+      { hedgeAfterMs: 5_000 },
+    );
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(calls).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(calls).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(calls).toHaveLength(3);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(await pending).toMatchObject({ ok: true, provider: { id: 'elevenlabs' }, attempts: [] });
+    expect(calls[0]?.[1].signal?.aborted).toBe(true);
+    expect(calls[1]?.[1].signal?.aborted).toBe(true);
+  });
+});
+
+describe('transcriptionHedgeMs (LYRICS_AI_HEDGE_MS)', () => {
+  it('predefinito 20 s; "0"/"off" spengono; i numeri si tengono fra 3 e 90 s; il resto → predefinito', () => {
+    expect(transcriptionHedgeMs({})).toBe(DEFAULT_HEDGE_MS);
+    expect(DEFAULT_HEDGE_MS).toBe(20_000);
+    expect(transcriptionHedgeMs({ LYRICS_AI_HEDGE_MS: '0' })).toBeUndefined();
+    expect(transcriptionHedgeMs({ LYRICS_AI_HEDGE_MS: ' OFF ' })).toBeUndefined();
+    expect(transcriptionHedgeMs({ LYRICS_AI_HEDGE_MS: 'no' })).toBeUndefined();
+    expect(transcriptionHedgeMs({ LYRICS_AI_HEDGE_MS: '45000' })).toBe(45_000);
+    expect(transcriptionHedgeMs({ LYRICS_AI_HEDGE_MS: '100' })).toBe(MIN_HEDGE_MS);
+    expect(transcriptionHedgeMs({ LYRICS_AI_HEDGE_MS: '999999' })).toBe(MAX_HEDGE_MS);
+    expect(transcriptionHedgeMs({ LYRICS_AI_HEDGE_MS: 'boh' })).toBe(DEFAULT_HEDGE_MS);
   });
 });

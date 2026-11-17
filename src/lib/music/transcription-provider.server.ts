@@ -18,6 +18,8 @@
 // Ordine: LYRICS_AI_ENGINES ("deepgram,groq,openai": SOLO quelli elencati, in quell'ordine),
 // altrimenti DEFAULT_ENGINE_ORDER; LYRICS_AI_PROVIDER=openai (variabile storica) mette OpenAI per
 // primo. Senza nessuna chiave la trascrizione è spenta e la pagina admin lo dice.
+// Hedging: LYRICS_AI_HEDGE_MS (predefinito 20000) è il tempo dopo il quale, se il motore in corso non
+// ha ancora risposto, parte anche il successivo; vince il primo che riesce ("0"/"off" = uno alla volta).
 // Nessuna dipendenza pesante: lo importano anche il monitoraggio e la diagnosi admin. Mai loggare né
 // restituire `apiKey`.
 import 'server-only';
@@ -88,6 +90,28 @@ export const CLOUDFLARE_ACCOUNT_ENV = 'CLOUDFLARE_ACCOUNT_ID';
 export const TRANSCRIPTION_PROVIDER_ENV = 'LYRICS_AI_PROVIDER';
 /** Elenco dei motori da usare, in ordine (es. "deepgram,groq"): solo quelli elencati. */
 export const TRANSCRIPTION_ENGINES_ENV = 'LYRICS_AI_ENGINES';
+/**
+ * Passaggio «in parallelo» (hedging): dopo quanti millisecondi senza risposta dal motore in corso
+ * parte anche il successivo ("0" oppure "off" = uno alla volta, solo dopo un errore).
+ */
+export const TRANSCRIPTION_HEDGE_ENV = 'LYRICS_AI_HEDGE_MS';
+/** Soglia predefinita dell'hedging: un motore che tace da 20 s è quasi sempre in difficoltà. */
+export const DEFAULT_HEDGE_MS = 20_000;
+export const MIN_HEDGE_MS = 3_000;
+export const MAX_HEDGE_MS = 90_000;
+
+/**
+ * La soglia dell'hedging da LYRICS_AI_HEDGE_MS (3-90 s), DEFAULT_HEDGE_MS se la variabile manca o
+ * non è un numero; undefined ("0", "off", "no", "false") = un motore alla volta.
+ */
+export function transcriptionHedgeMs(env: EnvLike = process.env): number | undefined {
+  const raw = env[TRANSCRIPTION_HEDGE_ENV]?.trim().toLowerCase() ?? '';
+  if (raw === '') return DEFAULT_HEDGE_MS;
+  if (raw === '0' || raw === 'off' || raw === 'no' || raw === 'false') return undefined;
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isFinite(value)) return DEFAULT_HEDGE_MS;
+  return Math.min(MAX_HEDGE_MS, Math.max(MIN_HEDGE_MS, value));
+}
 
 /** L'endpoint di Workers AI per l'account indicato. */
 export function cloudflareEndpoint(accountId: string): string {

@@ -1,6 +1,7 @@
 // @polsia:user-owned — contratto della trascrizione IA dei testi (Whisper) nella pagina admin
 // «Diritti e testi»: POST /api/admin/featured-rights/transcribe (bozza LRC), POST
-// …/transcribe/align (testo ufficiale allineato ai tempi dell'audio) e POST
+// …/transcribe/align (testo ufficiale allineato ai tempi dell'audio), POST …/transcribe/refine (la
+// bozza ripulita dal modello di Solco AI e rimessa sui tempi della bozza) e POST
 // /api/admin/featured-rights/transcribe/save (salvataggio del .lrc accanto al brano). Vale SOLO per
 // i brani in evidenza dichiarati in diritti.json con "testo": true: per ogni altro brano la
 // funzione non esiste (nessun pulsante, il server risponde 404 sempre uguale). La bozza torna solo
@@ -93,6 +94,18 @@ export const AlignmentStatsSchema = z
   .strict();
 export type AlignmentStats = z.infer<typeof AlignmentStatsSchema>;
 
+/**
+ * Esito di «Rifinisci con Solco AI» (…/transcribe/refine): il testo ripulito dal modello, rimesso
+ * sui tempi delle parole della bozza con lo stesso allineamento del testo ufficiale.
+ */
+export const RefinementStatsSchema = AlignmentStatsSchema.extend({
+  /** Righe (non vuote) della bozza prima della rifinitura. */
+  linesBefore: z.number().int().nonnegative(),
+  /** Righe del testo rifinito. */
+  linesAfter: z.number().int().nonnegative(),
+}).strict();
+export type RefinementStats = z.infer<typeof RefinementStatsSchema>;
+
 export const TranscribeResponseSchema = z
   .object({
     /** Bozza LRC: una riga "[mm:ss.xx] testo" per segmento riconosciuto. */
@@ -132,9 +145,59 @@ export const TranscribeResponseSchema = z
      * presi dall'audio (allineamento), con la copertura e le righe senza riscontro.
      */
     aligned: AlignmentStatsSchema.optional(),
+    /**
+     * Solo dopo «Rifinisci con Solco AI» (la pagina lo aggiunge alla bozza): parole e versi ripuliti
+     * dal modello, tempi presi dalla bozza di prima, con la copertura e le righe senza riscontro.
+     */
+    refined: RefinementStatsSchema.optional(),
   })
   .strict();
 export type TranscribeResponse = z.infer<typeof TranscribeResponseSchema>;
+
+/** La bozza da rifinire: al massimo come il .lrc salvato. */
+export const REFINE_LRC_MAX_CHARS = TRANSCRIPTION_LRC_MAX_BYTES;
+
+/**
+ * POST /api/admin/featured-rights/transcribe/refine («Rifinisci con Solco AI»): la bozza
+ * dell'editor (LRC con i tempi, anche parola per parola) ripulita dal modello di Solco AI —
+ * punteggiatura, maiuscole, versi ricomposti, errori evidenti di riconoscimento — SENZA inventare
+ * né togliere parole, e rimessa sui tempi della bozza. Stesso cancello della trascrizione (solo
+ * brani dichiarati con "testo": true: 404 uguale per gli altri). La bozza inviata non si conserva.
+ * Errori sul campo `lrc` (400: bozza vuota, senza tempi o troppo lunga); 503 se la chiave Anthropic
+ * manca o il modello è occupato; 502 se il modello rifiuta o cambia troppo il testo (la bozza resta
+ * com'era).
+ */
+export const RefineLyricsRequestSchema = z
+  .object({
+    pathname: PathnameSchema,
+    /** La bozza dell'editor: LRC sincronizzato (tempi delle righe o delle parole). */
+    lrc: z.string().min(1).max(REFINE_LRC_MAX_CHARS),
+    /** Lingua del brano scelta nella pagina (assente = quella del testo). */
+    language: TranscriptionLanguageSchema.optional(),
+    /** Durata del brano (dalla bozza): i tempi interpolati in coda non la superano. */
+    durationSeconds: z.number().nonnegative().max(36_000).optional(),
+  })
+  .strict();
+export type RefineLyricsRequest = z.infer<typeof RefineLyricsRequestSchema>;
+
+export const RefineLyricsResponseSchema = z
+  .object({
+    /** La bozza rifinita (Enhanced LRC se la bozza aveva i tempi delle parole). */
+    draft: z.string().max(TRANSCRIPTION_LRC_MAX_BYTES),
+    lineCount: z.number().int().nonnegative(),
+    wordTimed: z.boolean(),
+    refined: RefinementStatsSchema,
+  })
+  .strict();
+export type RefineLyricsResponse = z.infer<typeof RefineLyricsResponseSchema>;
+
+/** Nota nell'editor per una bozza rifinita dal modello. */
+export const TRANSCRIPTION_REFINED_HINT =
+  'Parole e versi ripuliti da Solco AI, tempi della bozza di prima: controlla per prime le righe senza riscontro e, se qualcosa non ti torna, «Ripristina la bozza di prima».';
+
+/** Senza la chiave Anthropic la rifinitura è spenta (503 e nota nella pagina). */
+export const REFINE_NOT_CONFIGURED_MESSAGE =
+  'Aggiungi su Vercel la chiave ANTHROPIC_API_KEY per «Rifinisci con Solco AI»: la trascrizione funziona lo stesso.';
 
 /** Il testo ufficiale da allineare: al massimo come il .lrc salvato. */
 export const ALIGN_LYRICS_MAX_CHARS = TRANSCRIPTION_LRC_MAX_BYTES;

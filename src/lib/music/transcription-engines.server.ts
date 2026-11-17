@@ -127,6 +127,13 @@ export type FailoverResult =
 export type FailoverOptions = {
   /** Istante (ms, Date.now) entro cui la trascrizione deve finire; senza, nessun tetto. */
   deadline?: number;
+  /**
+   * Passaggio «in parallelo» (hedging): se il motore in corso non ha ancora risposto dopo questi ms,
+   * parte ANCHE il motore successivo (se c'è e se restano almeno FAILOVER_MIN_ATTEMPT_MS); vince il
+   * primo che riesce e gli altri si annullano. Un motore lento non fa più aspettare tutta la
+   * richiesta. Assente = uno alla volta, solo dopo un errore.
+   */
+  hedgeAfterMs?: number;
 };
 
 function lowerFirst(text: string): string {
@@ -160,30 +167,139 @@ export function combinedFailure(attempts: readonly FailoverAttempt[]): WhisperFa
   return result;
 }
 
+/** Un tentativo in corso: il motore, il suo interruttore (per scartarlo) e l'esito atteso. */
+type RunningAttempt = {
+  index: number;
+  provider: TranscriptionProvider;
+  controller: AbortController;
+  startedAt: number;
+  settled: Promise<{ attempt: RunningAttempt; result: WhisperResult }>;
+};
+
+/** Il segnale del chiamante (l'admin annulla) unito a quello del singolo tentativo (scartato). */
+function joinedSignal(own: AbortSignal, caller?: AbortSignal): AbortSignal {
+  if (!caller) return own;
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any([caller, own]);
+  if (caller.aborted) return caller;
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  caller.addEventListener('abort', abort, { once: true });
+  own.addEventListener('abort', abort, { once: true });
+  return controller.signal;
+}
+
+/** Una promessa che si risolve con 'hedge' dopo `ms`; `cancel` la spegne senza risolverla. */
+function hedgeTimer(ms: number): { fired: Promise<'hedge'>; cancel: () => void } {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const fired = new Promise<'hedge'>((resolve) => {
+    timer = setTimeout(() => resolve('hedge'), ms);
+  });
+  return { fired, cancel: () => clearTimeout(timer) };
+}
+
 /**
  * Trascrive con il primo motore che riesce, nell'ordine dato. Ogni tentativo ha al massimo il tempo
  * residuo prima della scadenza; dopo un errore che non dipende dall'audio si passa al motore dopo,
- * se c'è e se resta tempo. Mai throw.
+ * se c'è e se resta tempo. Con `hedgeAfterMs` il motore dopo parte anche mentre quello in corso
+ * tace da troppo: vince il primo che riesce, gli altri si annullano. I tentativi falliti tornano
+ * nell'ordine dei motori. Mai throw.
  */
 export async function transcribeWithFailover(
   providers: readonly TranscriptionProvider[],
   request: EngineRequest,
-  { deadline }: FailoverOptions = {},
+  { deadline, hedgeAfterMs }: FailoverOptions = {},
 ): Promise<FailoverResult> {
-  const attempts: FailoverAttempt[] = [];
-  for (const [index, provider] of providers.entries()) {
-    const remaining = deadline === undefined ? Number.POSITIVE_INFINITY : deadline - Date.now();
-    if (index > 0 && remaining < FAILOVER_MIN_ATTEMPT_MS) break;
+  const failed: Array<{ index: number; attempt: FailoverAttempt }> = [];
+  const running = new Set<RunningAttempt>();
+  let nextIndex = 0;
+
+  const remainingMs = () =>
+    deadline === undefined ? Number.POSITIVE_INFINITY : deadline - Date.now();
+  const attempts = () =>
+    [...failed].sort((a, b) => a.index - b.index).map((entry) => entry.attempt);
+  const discardRunning = () => {
+    for (const attempt of running) attempt.controller.abort();
+    running.clear();
+  };
+
+  /** Avvia il motore successivo, se c'è e se resta tempo per un tentativo. */
+  const startNext = (): boolean => {
+    const provider = providers[nextIndex];
+    if (!provider) return false;
+    const remaining = remainingMs();
+    if (nextIndex > 0 && remaining < FAILOVER_MIN_ATTEMPT_MS) return false;
+    const index = nextIndex;
+    nextIndex += 1;
+    const controller = new AbortController();
     const timeoutMs = Math.max(1_000, Math.min(request.timeoutMs ?? WHISPER_TIMEOUT_MS, remaining));
-    const startedAt = Date.now();
-    const result = await transcribeWithProvider(provider, { ...request, timeoutMs });
-    if (result.ok) return { ok: true, transcript: result.transcript, provider, attempts };
-    attempts.push({
-      provider: attemptedProvider(provider),
-      failure: result,
-      elapsedMs: Math.max(0, Date.now() - startedAt),
+    const attempt: RunningAttempt = {
+      index,
+      provider,
+      controller,
+      startedAt: Date.now(),
+      settled: transcribeWithProvider(provider, {
+        ...request,
+        timeoutMs,
+        signal: joinedSignal(controller.signal, request.signal),
+      }).then((result) => ({ attempt, result })),
+    };
+    running.add(attempt);
+    return true;
+  };
+
+  startNext();
+  while (running.size > 0) {
+    // Con l'hedging, quando l'ultimo motore partito tace da hedgeAfterMs e ne resta un altro con
+    // tempo a sufficienza, si aspetta al massimo fino a quel momento; poi parte anche il successivo.
+    let timer: ReturnType<typeof hedgeTimer> | null = null;
+    if (
+      hedgeAfterMs !== undefined &&
+      nextIndex < providers.length &&
+      remainingMs() >= FAILOVER_MIN_ATTEMPT_MS
+    ) {
+      const latest = Math.max(...[...running].map((attempt) => attempt.startedAt));
+      const wait = latest + hedgeAfterMs - Date.now();
+      if (wait <= 0) {
+        startNext();
+        continue;
+      }
+      timer = hedgeTimer(wait);
+    }
+    const settled = await Promise.race([
+      ...[...running].map((attempt) => attempt.settled),
+      ...(timer ? [timer.fired] : []),
+    ]);
+    timer?.cancel();
+    if (settled === 'hedge') {
+      startNext();
+      continue;
+    }
+
+    const { attempt, result } = settled;
+    running.delete(attempt);
+    if (result.ok) {
+      discardRunning();
+      return {
+        ok: true,
+        transcript: result.transcript,
+        provider: attempt.provider,
+        attempts: attempts(),
+      };
+    }
+    failed.push({
+      index: attempt.index,
+      attempt: {
+        provider: attemptedProvider(attempt.provider),
+        failure: result,
+        elapsedMs: Math.max(0, Date.now() - attempt.startedAt),
+      },
     });
-    if (request.signal?.aborted || !failsOver(result.error)) break;
+    if (request.signal?.aborted || !failsOver(result.error)) {
+      discardRunning();
+      break;
+    }
+    if (running.size === 0) startNext();
   }
-  return { ok: false, failure: combinedFailure(attempts), attempts };
+  const all = attempts();
+  return { ok: false, failure: combinedFailure(all), attempts: all };
 }
