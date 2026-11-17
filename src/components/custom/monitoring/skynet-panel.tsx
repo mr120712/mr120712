@@ -1,7 +1,7 @@
 'use client';
 // @polsia:user-owned — pannello «Skynet» in Amministrazione → Monitoraggio: stato della sentinella
 // che guarda il sito ogni minuto (src/lib/skynet/), ultimi segnali, configurazione e diario degli
-// avvisi. Si aggiorna da solo ogni minuto. Solo lettura: Skynet avvisa, non cambia nulla.
+// avvisi, con il motore post-quantistico. Si aggiorna da solo ogni minuto. Solo lettura.
 
 import { ShieldAlert, ShieldCheck, ShieldQuestion } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
@@ -31,6 +31,7 @@ const KIND_LABELS: Record<SkynetOverview['events'][number]['kind'], string> = {
   resolved: 'Risolto',
   change: 'Modifica al firewall',
   hunt: 'Hacker in verifica',
+  quantum: 'Motore post-quantistico',
 };
 
 const INTERNAL_LABELS: Record<string, string> = {
@@ -75,6 +76,29 @@ function huntedText(data: SkynetOverview): string {
   return hunted === 1 ? '1 indirizzo' : `${hunted} indirizzi`;
 }
 
+function hostsText(hosts: string[]): string {
+  return hosts.length > 1
+    ? `${hosts.slice(0, -1).join(', ')} e ${hosts[hosts.length - 1]}`
+    : (hosts[0] ?? '');
+}
+
+export function quantumText(data: SkynetOverview, now: number): string {
+  const quantum = data.signals?.quantum;
+  if (!quantum) return 'In attesa del primo controllo';
+  const when = `controllato ${agoText(quantum.checkedAt, now)}`;
+  if (quantum.pq === true) {
+    return `Attivo · ${quantum.group} su ${hostsText(quantum.hosts.map((h) => h.host))} · ${when}`;
+  }
+  if (quantum.pq === false) {
+    const refused = quantum.hosts.filter((h) => h.result === 'classic-only').map((h) => h.host);
+    return `Assente su ${hostsText(refused)}: solo scambio di chiavi classico · ${when}`;
+  }
+  if (quantum.hosts.some((h) => h.result === 'unsupported')) {
+    return `Non verificabile: il server non conosce ancora ML-KEM · ${when}`;
+  }
+  return `Non verificabile in questo momento (dominio irraggiungibile) · ${when}`;
+}
+
 function healthText(data: SkynetOverview): string {
   const site = data.signals?.site;
   if (!site) return '—';
@@ -106,7 +130,7 @@ export function SkynetPanel() {
   return (
     <Panel
       title="Skynet · sentinella"
-      description="Guarda il sito ogni minuto e avvisa gli amministratori su Telegram. Sugli incidenti avvisa soltanto; chi il firewall ferma due volte in 24 ore deve superare la verifica del browser per 24 ore."
+      description="Guarda il sito ogni minuto e avvisa gli amministratori su Telegram. Sugli incidenti avvisa soltanto; chi il firewall ferma due volte in 24 ore deve superare la verifica del browser per 24 ore; il motore post-quantistico controlla ogni ora che le connessioni resistano anche ai futuri computer quantistici."
     >
       {error ? (
         <p role="alert" className={styles.muted}>
@@ -158,6 +182,8 @@ function SkynetBody({ data, now }: { data: SkynetOverview; now: number }) {
         <dd>{firewallText(data)}</dd>
         <dt>Recidivi in verifica (24 ore)</dt>
         <dd>{huntedText(data)}</dd>
+        <dt>Motore post-quantistico</dt>
+        <dd>{quantumText(data, now)}</dd>
         <dt>Protezione anti-attacco</dt>
         <dd>
           {data.signals?.vercel.attackMode === null || !data.signals
@@ -183,6 +209,27 @@ function SkynetBody({ data, now }: { data: SkynetOverview; now: number }) {
             : 'Testo fisso (chiave Anthropic non disponibile)'}
         </dd>
       </dl>
+
+      <details className={styles.quantum}>
+        <summary>Cosa resiste ai computer quantistici</summary>
+        <ul>
+          <li>
+            Connessioni HTTPS dei browser recenti: X25519MLKEM768 (ML-KEM, NIST FIPS 203) dalla rete
+            di Vercel. Skynet lo verifica ogni ora.
+          </li>
+          <li>
+            Sessioni, link firmati e cancello anti-bot: HMAC-SHA-256 e SHA-256, già resistenti.
+          </li>
+          <li>
+            Token dei servizi collegati e cache delle trascrizioni: AES-256-GCM, già resistente.
+          </li>
+          <li>Password: scrypt, già resistente.</li>
+          <li>
+            Accesso alle API di Apple e Google: firme ES256 e RS256 scelte da loro; passeranno al
+            post-quantistico quando lo faranno Apple e Google.
+          </li>
+        </ul>
+      </details>
 
       {!data.configured.vercel ? (
         <div className={styles.hint}>

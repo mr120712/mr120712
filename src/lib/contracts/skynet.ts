@@ -1,6 +1,17 @@
 // @polsia:user-owned — contratto condiviso (route + pannello) di «Skynet», la sentinella che ogni
 // minuto guarda Solco (src/lib/skynet/). Mai segreti: del token Vercel si sa solo se c'è.
 import { z } from 'zod';
+import { PQ_RESULTS } from '@/lib/skynet/quantum';
+
+/** Motore post-quantistico: i domini accettano lo scambio di chiavi X25519MLKEM768? */
+export const SkynetQuantumSchema = z.object({
+  checkedAt: z.string(),
+  pq: z.boolean().nullable(),
+  group: z.string(),
+  hosts: z.array(z.object({ host: z.string(), result: z.enum(PQ_RESULTS) })),
+  refused: z.number().int().nonnegative(),
+  announced: z.enum(['on', 'off']).nullable(),
+});
 
 export const SkynetSignalsSchema = z.object({
   at: z.string(),
@@ -24,12 +35,14 @@ export const SkynetSignalsSchema = z.object({
     internal: z.enum(['ok', 'degraded', 'down', 'unknown']),
     internalFailing: z.array(z.string()),
   }),
+  // I segnali salvati prima del motore post-quantistico non hanno il campo.
+  quantum: SkynetQuantumSchema.nullable().optional(),
 });
 
 export const SkynetEventSchema = z.object({
   id: z.string(),
   at: z.string(),
-  kind: z.enum(['incident', 'update', 'reminder', 'resolved', 'change', 'hunt']),
+  kind: z.enum(['incident', 'update', 'reminder', 'resolved', 'change', 'hunt', 'quantum']),
   severity: z.enum(['critical', 'warning', 'info']),
   title: z.string(),
   report: z.string(),

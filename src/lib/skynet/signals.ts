@@ -5,6 +5,7 @@
 // Skynet avvisa soltanto: non cambia mai firewall, codice, impostazioni o dati del sito. Per non
 // mandare falsi allarmi un problema conta solo quando è confermato (CONFIRM_AFTER giri di fila) e
 // un incidente si chiude solo dopo CALM_TO_RESOLVE giri tranquilli.
+import type { QuantumSignals } from './quantum';
 
 /** Le regole del firewall create per Skynet si riconoscono dal nome. */
 export const SKYNET_RULE_PREFIX = 'Skynet ·';
@@ -43,6 +44,11 @@ export type SkynetSignals = {
     internal: InternalState;
     internalFailing: string[];
   };
+  /**
+   * Motore post-quantistico (quantum.ts): i domini accettano X25519MLKEM768? Controllato ogni ora,
+   * riportato negli altri giri; manca nei segnali salvati prima del motore.
+   */
+  quantum?: QuantumSignals | null;
 };
 
 export const PROBLEM_KEYS = [

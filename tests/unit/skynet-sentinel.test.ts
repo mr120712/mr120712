@@ -3,7 +3,8 @@
 //
 // «Skynet», un giro completo (src/lib/skynet/sentinel.server.ts) con database, Vercel, /health,
 // Telegram e Claude finti: legge solo (GET), avvisa solo gli admin verificati collegati a Telegram,
-// non manda mai il token Vercel fuori da api.vercel.com, un giro alla volta.
+// non manda mai il token Vercel fuori da api.vercel.com, un giro alla volta; il cacciatore e il
+// motore post-quantistico (strette di mano finte).
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
@@ -15,6 +16,7 @@ vi.mock('@/lib/monitoring/monitor.server', () => ({
   STALE_AFTER_MS: 2 * 60 * 60 * 1000,
 }));
 
+import type { PqResult } from '@/lib/skynet/quantum';
 import {
   type ReportInput,
   runSentinel,
@@ -200,6 +202,8 @@ function deps(overrides: Partial<SentinelDeps> = {}): Partial<SentinelDeps> {
       reports.push(input);
       return 'Rapporto di Claude: traffico anomalo, valuti la protezione anti-attacco.';
     },
+    // Runtime senza ML-KEM: il motore post-quantistico resta muto dove non è lui il soggetto.
+    probeQuantum: async () => 'unsupported',
     ...overrides,
   };
 }
@@ -240,6 +244,7 @@ describe('Skynet, un giro', () => {
       notified: 0,
       vercel: 'ok',
       hunted: 0,
+      quantum: null,
     });
     expect(sent).toEqual([]);
     expect(fake.events).toEqual([]);
@@ -430,6 +435,129 @@ describe('Skynet, il cacciatore', () => {
     const result = await tick({ env: { NEXT_PUBLIC_APP_URL: ENV.NEXT_PUBLIC_APP_URL } });
     expect(result.hunted).toBe(0);
     expect(site.patches).toEqual([]);
+  });
+});
+
+describe('Skynet, il motore post-quantistico', () => {
+  const WWW = 'www.solcomusic.online';
+  const APEX = 'solcomusic.online';
+
+  function probeWith(results: Record<string, PqResult>, probed: string[] = []) {
+    return async (host: string) => {
+      probed.push(host);
+      return results[host] ?? 'unreachable';
+    };
+  }
+
+  it('domini protetti: «acceso» una volta sola, poi un controllo all’ora senza doppioni', async () => {
+    const probed: string[] = [];
+    const probeQuantum = probeWith({ [WWW]: 'pq', [APEX]: 'pq' }, probed);
+    const first = await tick({ probeQuantum });
+    expect(first.quantum).toBe(true);
+    expect(probed).toEqual([WWW, APEX]);
+    expect(fake.events).toMatchObject([
+      {
+        kind: 'quantum',
+        severity: 'info',
+        title: 'Motore post-quantistico acceso: connessioni protette con X25519MLKEM768',
+        notified: 1,
+      },
+    ]);
+    expect(sent.map((m) => m.chat)).toEqual(['111111']);
+    expect(sent[0]?.html).toContain('<b>⚛️ Skynet · motore post-quantistico</b>');
+    expect(sent[0]?.html).toContain('NIST FIPS 203');
+    expect(heartbeats[0]).toContain('post-quantistico ✓');
+    expect(fake.state.get('main')?.lastSignals).toMatchObject({
+      quantum: { pq: true, announced: 'on', hosts: [{ host: WWW, result: 'pq' }, { host: APEX }] },
+    });
+    // Nessuna richiesta HTTP verso i domini oltre a /health: il motore usa solo strette di mano.
+    expect(
+      calls.filter((c) => !c.url.startsWith('https://api.vercel.com/')).map((c) => c.url),
+    ).toEqual(['https://www.solcomusic.online/health']);
+
+    const second = await tick({ probeQuantum });
+    expect(second.quantum).toBe(true);
+    expect(probed).toHaveLength(2);
+
+    minute += 60;
+    await tick({ probeQuantum });
+    expect(probed).toHaveLength(4);
+    expect(fake.events).toHaveLength(1);
+  });
+
+  it('post-quantistico rifiutato: avviso dopo 3 controlli di fila, poi «di nuovo attiva», mai un incidente', async () => {
+    const results: Record<string, PqResult> = { [WWW]: 'pq', [APEX]: 'classic-only' };
+    const probeQuantum = probeWith(results);
+    await tick({ probeQuantum });
+    await tick({ probeQuantum });
+    expect(fake.events).toEqual([]);
+    const third = await tick({ probeQuantum });
+    expect(third.quantum).toBe(false);
+    expect(fake.events).toMatchObject([
+      {
+        kind: 'quantum',
+        severity: 'warning',
+        title: `Connessioni senza protezione post-quantistica: ${APEX}`,
+      },
+    ]);
+    expect(sent[0]?.html).toContain('Settings → Domains');
+    expect(heartbeats[2]).toContain('post-quantistico ✗');
+    await tick({ probeQuantum });
+    expect(fake.events).toHaveLength(1);
+
+    results[APEX] = 'pq';
+    minute += 60;
+    const back = await tick({ probeQuantum });
+    expect(back.quantum).toBe(true);
+    expect(fake.events.map((e) => e.title)).toEqual([
+      `Connessioni senza protezione post-quantistica: ${APEX}`,
+      'Protezione post-quantistica di nuovo attiva',
+    ]);
+    // Il motore avvisa e basta: nessun incidente aperto, nessuna modifica al firewall.
+    expect(fake.state.get('main')?.incidentSince).toBeNull();
+    expect(site.patches).toEqual([]);
+  });
+
+  it('rete, errori o runtime senza ML-KEM: nessun allarme e il giro va avanti', async () => {
+    const failing = await tick({
+      probeQuantum: async () => {
+        throw new Error('rete');
+      },
+    });
+    expect(failing).toMatchObject({ ran: true, quantum: null, status: 'calm' });
+    minute += 10;
+    const unsupported = await tick({ probeQuantum: async () => 'unsupported' });
+    expect(unsupported).toMatchObject({ ran: true, quantum: null });
+    expect(fake.events).toEqual([]);
+    expect(sent).toEqual([]);
+    expect(heartbeats.join('\n')).not.toContain('post-quantistico');
+  });
+
+  it('un errore imprevisto del controllo tiene lo stato di prima: nessun «acceso» ripetuto', async () => {
+    const probeQuantum = probeWith({ [WWW]: 'pq', [APEX]: 'pq' });
+    await tick({ probeQuantum });
+    minute += 60;
+    const broken = await tick({
+      probeQuantum: (() => {
+        throw new Error('rotto');
+      }) as SentinelDeps['probeQuantum'],
+    });
+    expect(broken).toMatchObject({ ran: true, quantum: true });
+    minute += 60;
+    await tick({ probeQuantum });
+    expect(fake.events.map((e) => e.kind)).toEqual(['quantum']);
+  });
+
+  it('turno preso da un altro giro: nessuna stretta di mano', async () => {
+    await fake.db.skynetState.createMany({
+      data: [{ id: 'main', updatedAt: new Date(), streaks: {} }],
+    });
+    const row = fake.state.get('main');
+    if (row) row.lockedUntil = new Date(Date.UTC(2026, 10, 17, 22, 0));
+    const probed: string[] = [];
+    const result = await tick({ probeQuantum: probeWith({ [WWW]: 'pq' }, probed) });
+    expect(result).toMatchObject({ ran: false, quantum: null });
+    expect(probed).toEqual([]);
   });
 });
 

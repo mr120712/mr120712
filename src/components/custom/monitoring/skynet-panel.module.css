@@ -87,6 +87,20 @@
 .hint code {
   font-size: 0.8125rem;
 }
+.quantum {
+  font-size: 0.875rem;
+}
+.quantum summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.quantum ul {
+  display: grid;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+  padding-left: 1.25rem;
+  list-style: disc;
+}
 .eventsTitle {
   margin-bottom: 0.5rem;
   font-size: 0.9375rem;

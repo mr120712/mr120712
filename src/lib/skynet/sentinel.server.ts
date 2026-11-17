@@ -12,6 +12,9 @@
 // «Skynet · …», tolta alla scadenza). Mai blocchi totali, mai le regole messe a mano, mai indirizzi
 // IP nel database. Il token Vercel (SKYNET_VERCEL_TOKEN) resta qui: mai nei log, nel database, nei
 // messaggi o a Claude.
+//
+// Il motore post-quantistico (quantum.ts, quantum.server.ts) controlla ogni ora che i domini del
+// sito accettino lo scambio di chiavi X25519MLKEM768 e avvisa una volta sola a ogni cambio.
 import 'server-only';
 import { resolveAdminAccess } from '@/lib/business/admin-account-policy';
 import {
@@ -38,6 +41,17 @@ import {
   planHunt,
   skynetNote,
 } from './hunter';
+import {
+  type PqResult,
+  parseQuantum,
+  type QuantumSignals,
+  type QuantumStep,
+  quantumDue,
+  quantumEventText,
+  quantumHosts,
+  quantumStep,
+} from './quantum';
+import { probePostQuantum } from './quantum.server';
 import {
   decide,
   detectProblems,
@@ -70,7 +84,7 @@ const TELEGRAM_MAX_CHARS = 3_900;
 
 type EnvLike = Record<string, string | undefined>;
 
-export type EventKind = SkynetDecision['kind'] | 'change' | 'hunt';
+export type EventKind = SkynetDecision['kind'] | 'change' | 'hunt' | 'quantum';
 
 export type ReportInput = {
   kind: SkynetDecision['kind'] | 'change';
@@ -90,6 +104,8 @@ export type SentinelDeps = {
   heartbeat: (detail: string) => Promise<unknown>;
   sendTelegram: (chatId: string, html: string) => Promise<boolean>;
   writeReport: (input: ReportInput) => Promise<string | null>;
+  /** Il dominio accetta lo scambio di chiavi post-quantistico? (solo strette di mano TLS) */
+  probeQuantum: (host: string) => Promise<PqResult>;
 };
 
 export type SentinelResult = {
@@ -101,6 +117,8 @@ export type SentinelResult = {
   vercel: 'off' | 'ok' | 'blind';
   /** Recidivi rimandati alla verifica in questo giro. */
   hunted: number;
+  /** Protezione post-quantistica dei domini (ultimo controllo); null se non verificata. */
+  quantum: boolean | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -295,6 +313,26 @@ export async function gatherSignals(
   };
 }
 
+// ------------------------------------------------------------------ motore post-quantistico
+
+/** Controlla i domini quando tocca (quantumDue); negli altri giri riporta l'ultimo stato. */
+export async function checkQuantum(
+  deps: SentinelDeps,
+  previous: QuantumSignals | null,
+  now: Date,
+): Promise<QuantumStep> {
+  if (!quantumDue(previous, now)) return { signals: previous, event: null };
+  const hosts = quantumHosts(siteOrigin(deps.env));
+  if (hosts.length === 0) return { signals: previous, event: null };
+  const results = await Promise.all(
+    hosts.map(async (host) => ({
+      host,
+      result: await deps.probeQuantum(host).catch((): PqResult => 'unreachable'),
+    })),
+  );
+  return quantumStep(previous, results, now);
+}
+
 // ------------------------------------------------------------------ cacciatore
 
 async function patchFirewall(
@@ -484,6 +522,7 @@ const HEADLINES: Record<EventKind, (severity: string) => string> = {
   resolved: () => '✅ Skynet · tutto tornato normale',
   change: () => '⚙️ Skynet · firewall modificato',
   hunt: () => '🛡️ Skynet · hacker rimandati alla verifica',
+  quantum: () => '⚛️ Skynet · motore post-quantistico',
   none: () => 'Skynet',
 };
 
@@ -581,6 +620,8 @@ function heartbeatLine(signals: SkynetSignals, memory: SkynetMemory): string {
     parts.push(`Vercel: ${v.anomalies ?? '?'} anomalie, firewall v${v.firewallVersion ?? '?'}`);
     if (v.hunted) parts.push(`${v.hunted} in verifica`);
   }
+  if (signals.quantum?.pq === true) parts.push('post-quantistico ✓');
+  else if (signals.quantum?.pq === false) parts.push('post-quantistico ✗');
   const s = signals.site;
   parts.push(
     s.healthOk
@@ -672,12 +713,14 @@ export function defaultSentinelDeps(): SentinelDeps {
     sendTelegram: (chatId, html) =>
       sendTelegramMessage(chatId, html, { parseMode: 'HTML', disableWebPagePreview: true }),
     writeReport: writeReportWithClaude,
+    probeQuantum: (host) => probePostQuantum(host),
   };
 }
 
 /**
- * Un giro: segnali → problemi → decisione → cacciatore → diario e avvisi. Sugli incidenti avvisa e
- * basta; l'unica modifica a Vercel è la verifica di 24 ore per i recidivi (huntOffenders).
+ * Un giro: segnali (con il motore post-quantistico) → problemi → decisione → cacciatore → diario e
+ * avvisi. Sugli incidenti avvisa e basta; l'unica modifica a Vercel è la verifica di 24 ore per i
+ * recidivi (huntOffenders).
  */
 export async function runSentinel(options: Partial<SentinelDeps> = {}): Promise<SentinelResult> {
   const deps: SentinelDeps = { ...defaultSentinelDeps(), ...options };
@@ -691,11 +734,21 @@ export async function runSentinel(options: Partial<SentinelDeps> = {}): Promise<
       notified: 0,
       vercel: 'off',
       hunted: 0,
+      quantum: null,
     };
   }
   try {
-    const { signals, ipRules } = await gatherSignals(deps);
     const row = await deps.db.skynetState.findUnique({ where: { id: SKYNET_STATE_ID } });
+    const saved = isRecord(row?.lastSignals) ? row.lastSignals : null;
+    const previousQuantum = parseQuantum(saved?.quantum);
+    const [{ signals, ipRules }, quantum] = await Promise.all([
+      gatherSignals(deps),
+      // Un errore del controllo lascia lo stato di prima: nessun «acceso» ripetuto al giro dopo.
+      checkQuantum(deps, previousQuantum, now).catch(
+        (): QuantumStep => ({ signals: previousQuantum, event: null }),
+      ),
+    ]);
+    signals.quantum = quantum.signals;
     const memory = memoryFromRow(row);
     const problems = detectProblems(signals);
     const step = decide(memory, problems, signals, now);
@@ -756,6 +809,14 @@ export async function runSentinel(options: Partial<SentinelDeps> = {}): Promise<
       );
     }
 
+    if (quantum.event && quantum.signals) {
+      notified += await announce(
+        deps,
+        { kind: 'quantum', keys: [], ...quantumEventText(quantum.event, quantum.signals) },
+        [],
+      );
+    }
+
     const decision = step.decision;
     if (decision.kind !== 'none') {
       const shown = decision.kind === 'resolved' ? [] : decision.problems;
@@ -799,6 +860,7 @@ export async function runSentinel(options: Partial<SentinelDeps> = {}): Promise<
           ? 'blind'
           : 'ok',
       hunted: hunt?.challenged.length ?? 0,
+      quantum: signals.quantum?.pq ?? null,
     };
   } finally {
     await deps.db.skynetState

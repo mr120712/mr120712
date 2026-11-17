@@ -1,5 +1,6 @@
 // @polsia:user-owned — pannello «Skynet» in /admin/monitoraggio: stato tranquillo, incidente e
-// primo giro; come collegare Vercel e Telegram quando mancano; diario con i rapporti; errore.
+// primo giro; come collegare Vercel e Telegram quando mancano; diario con i rapporti; errore;
+// motore post-quantistico (riga, spiegazione, contratto con e senza il campo).
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -7,8 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ apiFetch: vi.fn() }));
 vi.mock('@/lib/api-client', () => ({ apiFetch: mocks.apiFetch }));
 
-import { agoText, SkynetPanel } from '@/components/custom/monitoring/skynet-panel';
-import type { SkynetOverview } from '@/lib/contracts/skynet';
+import { agoText, quantumText, SkynetPanel } from '@/components/custom/monitoring/skynet-panel';
+import { type SkynetOverview, SkynetOverviewSchema } from '@/lib/contracts/skynet';
 
 const NOW = new Date('2026-11-17T21:30:00.000Z');
 const roots: Array<{ root: Root; container: HTMLElement }> = [];
@@ -114,7 +115,7 @@ describe('pannello Skynet', () => {
     expect(status?.textContent).toContain('Incidente aperto da 10 minuti');
     expect(status?.textContent).toContain('possibile attacco DDoS, sito irraggiungibile');
     expect(view.textContent).toContain('Incidente · 10 minuti fa · inviato su Telegram');
-    expect(view.querySelector('details')?.textContent).toContain('Traffico anomalo');
+    expect(view.querySelector('li details')?.textContent).toContain('Traffico anomalo');
   });
 
   it('senza token né Telegram: spiega come collegarli, senza mostrare segreti', async () => {
@@ -140,6 +141,79 @@ describe('pannello Skynet', () => {
     const view = await mount();
     expect(view.querySelector('[role="alert"]')?.textContent).toBe(
       'Lo stato di Skynet non è disponibile in questo momento.',
+    );
+  });
+
+  it('motore post-quantistico: riga nel pannello, spiegazione e contratto', async () => {
+    const base = overview();
+    const signals = base.signals;
+    if (!signals) throw new Error('segnali mancanti');
+    const withQuantum: SkynetOverview = {
+      ...base,
+      signals: {
+        ...signals,
+        quantum: {
+          checkedAt: '2026-11-17T21:00:00.000Z',
+          pq: true,
+          group: 'X25519MLKEM768',
+          hosts: [
+            { host: 'www.solcomusic.online', result: 'pq' },
+            { host: 'solcomusic.online', result: 'pq' },
+          ],
+          refused: 0,
+          announced: 'on',
+        },
+      },
+    };
+    // Il contratto accetta i segnali nuovi e quelli salvati prima del motore (senza il campo).
+    expect(SkynetOverviewSchema.parse(withQuantum)).toEqual(withQuantum);
+    expect(SkynetOverviewSchema.parse(base).signals?.quantum).toBeUndefined();
+
+    mocks.apiFetch.mockResolvedValue(withQuantum);
+    const view = await mount();
+    const text = view.textContent ?? '';
+    expect(text).toContain('Motore post-quantistico');
+    expect(text).toContain(
+      'Attivo · X25519MLKEM768 su www.solcomusic.online e solcomusic.online · controllato 30 minuti fa',
+    );
+    expect(text).toContain('Cosa resiste ai computer quantistici');
+    expect(text).toContain('AES-256-GCM');
+  });
+
+  it('testi del motore post-quantistico', () => {
+    const now = NOW.getTime();
+    const base = overview();
+    const signals = base.signals;
+    if (!signals) throw new Error('segnali mancanti');
+    const at = (
+      pq: boolean | null,
+      results: Array<'pq' | 'classic-only' | 'unreachable' | 'unsupported'>,
+    ): SkynetOverview => ({
+      ...base,
+      signals: {
+        ...signals,
+        quantum: {
+          checkedAt: '2026-11-17T21:00:00.000Z',
+          pq,
+          group: 'X25519MLKEM768',
+          hosts: results.map((result, i) => ({
+            host: i === 0 ? 'www.solcomusic.online' : 'solcomusic.online',
+            result,
+          })),
+          refused: pq === false ? 3 : 0,
+          announced: pq === false ? 'off' : null,
+        },
+      },
+    });
+    expect(quantumText(base, now)).toBe('In attesa del primo controllo');
+    expect(quantumText(at(false, ['pq', 'classic-only']), now)).toBe(
+      'Assente su solcomusic.online: solo scambio di chiavi classico · controllato 30 minuti fa',
+    );
+    expect(quantumText(at(null, ['unsupported', 'unsupported']), now)).toBe(
+      'Non verificabile: il server non conosce ancora ML-KEM · controllato 30 minuti fa',
+    );
+    expect(quantumText(at(null, ['pq', 'unreachable']), now)).toBe(
+      'Non verificabile in questo momento (dominio irraggiungibile) · controllato 30 minuti fa',
     );
   });
 
