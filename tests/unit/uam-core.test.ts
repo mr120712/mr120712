@@ -587,6 +587,7 @@ describe('isGateablePath', () => {
     '/opengraph-image-1a2b3c',
     '/twitter-image',
     '/solco.apk',
+    '/solco.ipa',
     '/ios/solco.mobileconfig',
     '/fonts/inter/inter-latin-400.woff2',
     '/music-captions.vtt',

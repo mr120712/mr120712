@@ -13,6 +13,14 @@ import {
   ANDROID_APP_PACKAGE,
   ANDROID_APP_VERSION,
 } from '@/lib/android-app';
+import {
+  altStoreInstallUrl,
+  IOS_APP_BUNDLE_ID,
+  IOS_APP_VERSION,
+  IOS_IPA_DOWNLOAD_NAME,
+  IOS_IPA_PUBLIC_PATH,
+  sideStoreInstallUrl,
+} from '@/lib/ios-app';
 import { siteUrl } from '@/lib/site';
 import styles from './app.module.css';
 
@@ -26,6 +34,14 @@ const androidSteps = [
   'Tocca “Scarica l’APK” dal telefono Android.',
   'Apri il file scaricato. Se Android lo chiede, consenti al browser di installare app sconosciute.',
   'Tocca “Installa” e apri Solco dalla schermata Home.',
+];
+
+const ipaUrl = `${siteUrl}${IOS_IPA_PUBLIC_PATH}`;
+
+const iosIpaSteps = [
+  'Installa AltStore sull’iPhone da altstore.io: serve un computer solo la prima volta, poi entri con il tuo Apple ID.',
+  'Torna su questa pagina da Safari e tocca “Installa con AltStore”: AltStore firma Solco con il tuo Apple ID e la installa.',
+  'Con un Apple ID gratuito la firma dura 7 giorni: AltStore la rinnova da solo quando l’iPhone è sulla stessa rete del computer con AltServer.',
 ];
 
 const iosSteps = [
@@ -84,6 +100,33 @@ export default function InstallAppPage() {
         </div>
         <h2 id="iphone-heading">iPhone e iPad</h2>
         <IosAppInstall />
+        <h3 className={styles.subheading}>Scarica l’app (IPA)</h3>
+        <div className={styles.buttons}>
+          <Button asChild size="lg">
+            <a href={IOS_IPA_PUBLIC_PATH} download={IOS_IPA_DOWNLOAD_NAME}>
+              <Download aria-hidden="true" />
+              Scarica l’IPA
+            </a>
+          </Button>
+          <Button asChild size="lg" variant="outline">
+            <a href={altStoreInstallUrl(ipaUrl)}>Installa con AltStore</a>
+          </Button>
+        </div>
+        <p className={styles.meta}>
+          Versione {IOS_APP_VERSION} · iOS 17 o successivo · identificativo {IOS_APP_BUNDLE_ID}
+        </p>
+        <ol className={styles.steps}>
+          {iosIpaSteps.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ol>
+        <p className={styles.meta}>
+          Fuori dall’App Store iOS esegue solo app firmate: l’IPA pubblicato qui non è firmato e lo
+          firma AltStore con il tuo Apple ID (fino a 3 app per account gratuito). Funziona anche{' '}
+          <a href={sideStoreInstallUrl(ipaUrl)}>SideStore</a>; chi ha un Mac può installarlo con
+          Xcode. Quando Solco pubblica una versione firmata per i dispositivi registrati, qui sopra
+          compare «Installa l’app firmata da Solco».
+        </p>
         <h3 className={styles.subheading}>Oppure senza installare nulla</h3>
         <IosProfileDownload pageUrl={`${siteUrl}/app`} />
         <p className={styles.meta}>iOS 15 o successivo · funziona solo con Safari</p>

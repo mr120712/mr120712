@@ -11,6 +11,8 @@ import {
   ANDROID_APP_PACKAGE,
   ANDROID_APP_VERSION,
 } from '@/lib/android-app';
+import { IOS_APP_VERSION, IOS_IPA_DOWNLOAD_NAME, IOS_IPA_PUBLIC_PATH } from '@/lib/ios-app';
+import { siteUrl } from '@/lib/site';
 
 function render(element: React.ReactElement): HTMLElement {
   const container = document.createElement('div');
@@ -36,12 +38,21 @@ describe('pagina /app', () => {
     expect(download?.getAttribute('download')).toBe('solco.apk');
   });
 
-  it("iPhone: prima l'app nativa (stato chiesto al server), poi il profilo senza installare nulla", () => {
+  it('iPhone: IPA pubblico da firmare con AltStore, poi il profilo senza installare nulla', () => {
     const root = render(<InstallAppPage />);
     const iphone = root.querySelector('#iphone');
-    // Lato server il componente non ha ancora chiesto lo stato: mostra l'attesa, mai un link finto.
-    expect(iphone?.textContent).toContain('Controllo se l’app per iPhone è disponibile');
+    // Lato server l'app firmata da Solco non è ancora stata chiesta al server: nessun link finto.
     expect(iphone?.querySelector('a[href^="itms-services:"]')).toBeNull();
+    const ipa = iphone?.querySelector(`a[href="${IOS_IPA_PUBLIC_PATH}"]`);
+    expect(ipa?.getAttribute('download')).toBe(IOS_IPA_DOWNLOAD_NAME);
+    const ipaUrl = encodeURIComponent(`${siteUrl}${IOS_IPA_PUBLIC_PATH}`);
+    expect(iphone?.querySelector('a[href^="altstore://install?url="]')?.getAttribute('href')).toBe(
+      `altstore://install?url=${ipaUrl}`,
+    );
+    expect(iphone?.querySelector('a[href^="sidestore://install?url="]')?.getAttribute('href')).toBe(
+      `sidestore://install?url=${ipaUrl}`,
+    );
+    expect(iphone?.textContent).toContain(`Versione ${IOS_APP_VERSION}`);
     expect(iphone?.textContent).toContain('Oppure senza installare nulla');
     expect(iphone?.querySelector('a[href="/ios/solco.mobileconfig"]')).not.toBeNull();
   });

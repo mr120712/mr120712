@@ -22,6 +22,10 @@ Il repository è pubblico, quindi i runner macOS di GitHub Actions sono gratuiti
 
 Lo stesso script gira su un Mac: `bash ios/build.sh check|ipa-unsigned|ipa`, e `bash ios/build.sh sign <ipa> "<identità>" <profilo.mobileprovision>` firma un IPA non firmato con un'identità del portachiavi.
 
+## IPA pubblico (sideload con AltStore)
+
+`public/solco.ipa` è l'ultimo build **non firmato** del workflow (`Solco-unsigned.ipa`), scaricabile da `/app` come l'APK. iOS non lo installa da solo: lo firmano AltStore o SideStore con l'Apple ID di chi installa (pulsanti «Installa con AltStore» e il link SideStore in `/app`, schemi `altstore://install?url=` e `sidestore://install?url=`), oppure Xcode. Con un Apple ID gratuito la firma dura 7 giorni e AltStore la rinnova da solo. Per aggiornarlo: scarica l'artefatto del workflow in modalità `ipa-unsigned` e copialo in `public/solco.ipa`; il test `tests/unit/ios-public-ipa.test.ts` controlla che sia Solco nella versione dichiarata da `src/lib/android-app.ts`.
+
 ## Installazione dal sito (Ad Hoc)
 
 Un IPA firmato **Ad Hoc** si installa da Safari con un link `itms-services://`, senza App Store, ma solo sugli iPhone e iPad il cui identificativo (UDID) è registrato nell'account Apple Developer (fino a 100 dispositivi l'anno). Solco lo distribuisce dalla pagina `/app` dietro un cancello: serve un account, e il link contiene un token firmato (HMAC, 15 minuti) perché l'installatore di iOS scarica manifest e file senza i cookie del browser.

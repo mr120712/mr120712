@@ -1,8 +1,14 @@
-/* @polsia:user-owned — «Installa l'app» (iPhone) nella pagina /app. */
+/* @polsia:user-owned — «Installa l'app firmata da Solco» (iPhone) nella pagina /app. */
 .block {
   display: grid;
   justify-items: start;
   gap: 10px;
+}
+
+.heading {
+  margin: 6px 0 0;
+  font-size: 15px;
+  font-weight: 600;
 }
 
 .note {

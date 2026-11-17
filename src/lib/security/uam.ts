@@ -496,6 +496,7 @@ export const UAM_PUBLIC_ROOT_FILES: ReadonlySet<string> = new Set([
   '/solco-android-icon.svg',
   '/solco-icon-512.png',
   '/solco.apk',
+  '/solco.ipa',
   '/sw.js',
 ]);
 const STATIC_ROUTE_FILES = new Set(['/ios/solco.mobileconfig']);

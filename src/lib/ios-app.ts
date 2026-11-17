@@ -92,3 +92,23 @@ export function appleAppSiteAssociation(teamId: string, bundleId: string = IOS_A
 export function itmsServicesUrl(manifestUrl: string): string {
   return `itms-services://?action=download-manifest&url=${encodeURIComponent(manifestUrl)}`;
 }
+
+/**
+ * L'IPA pubblico del sito (public/solco.ipa): l'ultimo build non firmato del workflow «iOS (IPA)».
+ * Non si installa da solo (iOS esegue solo app firmate): lo firmano AltStore o SideStore con l'Apple
+ * ID di chi installa, oppure Xcode. Si aggiorna copiando l'artefatto `Solco-unsigned.ipa` qui.
+ */
+export const IOS_IPA_PUBLIC_PATH = '/solco.ipa';
+
+/** Nome del file scaricato dal pulsante «Scarica l'IPA». */
+export const IOS_IPA_DOWNLOAD_NAME = `Solco-${IOS_APP_VERSION}.ipa`;
+
+/** Apre AltStore sull'iPhone con l'IPA da firmare e installare (schema altstore://install). */
+export function altStoreInstallUrl(ipaUrl: string): string {
+  return `altstore://install?url=${encodeURIComponent(ipaUrl)}`;
+}
+
+/** Lo stesso per SideStore (schema sidestore://install). */
+export function sideStoreInstallUrl(ipaUrl: string): string {
+  return `sidestore://install?url=${encodeURIComponent(ipaUrl)}`;
+}

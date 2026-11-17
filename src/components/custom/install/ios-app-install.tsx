@@ -1,7 +1,8 @@
 // @polsia:user-owned — «Installa l'app» della pagina /app (sezione iPhone e iPad): chiede al server
-// se c'è un IPA installabile (GET /api/ios/install, solo con sessione) e mostra il link itms-services
-// con il token dell'utente. Se non c'è, una riga rimanda al profilo (Web Clip) qui sotto. Il link
-// funziona solo da Safari e solo sugli iPhone registrati nel profilo Ad Hoc dell'app.
+// se c'è un IPA firmato Ad Hoc attivo (GET /api/ios/install, solo con sessione) e, se c'è, mostra il
+// link itms-services con il token dell'utente. Senza IPA attivo non mostra nulla: la pagina offre
+// comunque l'IPA pubblico da firmare con AltStore e il profilo. Il link funziona solo da Safari e
+// solo sugli iPhone registrati nel profilo Ad Hoc dell'app.
 'use client';
 
 import { Download } from 'lucide-react';
@@ -12,11 +13,8 @@ import { type IosInstallStatus, IosInstallStatusSchema } from '@/lib/contracts/i
 import { IOS_INSTALL_ENDPOINT } from '@/lib/ios-app';
 import styles from './ios-app-install.module.css';
 
-export const IOS_APP_UNAVAILABLE_TEXT =
-  'L’app nativa per iPhone non è ancora disponibile da qui: intanto usa il profilo qui sotto, che apre Solco a schermo intero.';
-
 const METHOD_LABEL: Record<NonNullable<IosInstallStatus['method']>, string> = {
-  'ad-hoc': 'versione di prova per dispositivi registrati',
+  'ad-hoc': 'versione firmata per dispositivi registrati',
   development: 'versione di sviluppo per dispositivi registrati',
   enterprise: 'distribuzione interna',
   'app-store': 'versione App Store',
@@ -42,17 +40,13 @@ export function IosAppInstall() {
     };
   }, []);
 
-  if (state.kind === 'loading') {
-    return <p className={styles.note}>Controllo se l’app per iPhone è disponibile…</p>;
-  }
   const installUrl =
     state.kind === 'ready' && state.status.available ? state.status.installUrl : null;
-  if (state.kind !== 'ready' || !installUrl) {
-    return <p className={styles.note}>{IOS_APP_UNAVAILABLE_TEXT}</p>;
-  }
+  if (state.kind !== 'ready' || !installUrl) return null;
   const { status } = state;
   return (
     <div className={styles.block}>
+      <h3 className={styles.heading}>Installa l’app firmata da Solco</h3>
       <Button asChild size="lg">
         <a href={installUrl}>
           <Download aria-hidden="true" />
