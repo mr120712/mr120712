@@ -123,6 +123,19 @@ describe('LyricsPanel: testo sincronizzato', () => {
     expect(lines()[2]?.getAttribute('aria-label')).toBe('Pausa strumentale, vai a 0:08');
   });
 
+  it('Premium: il pulsante «Condividi testo» appare solo per i Premium, a testo pronto', async () => {
+    await render({ premium: true, trackTitle: 'Brano', trackArtist: 'Artista' });
+    const button = [...container.querySelectorAll('button')].find((b) =>
+      b.textContent?.includes('Condividi testo'),
+    );
+    expect(button).toBeTruthy();
+
+    // Senza Premium: nessun pulsante di condivisione (il testo resta visibile).
+    await render({ premium: false });
+    expect(container.textContent).not.toContain('Condividi testo');
+    expect(container.textContent).toContain('Prima riga');
+  });
+
   it('la riga corrente (aria-current) segue il tempo dell’audio', async () => {
     await render();
     expect(current()).toBeNull();

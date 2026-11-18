@@ -56,6 +56,43 @@
   text-transform: uppercase;
 }
 
+/* Riga del titolo con il pulsante Premium «Condividi testo». */
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.share {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--foreground);
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.share svg {
+  width: 15px;
+  height: 15px;
+}
+
+.share:hover {
+  border-color: var(--primary);
+}
+
+.share:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
 /* Contenitore che scorre: position relative, così offsetTop delle righe è relativo a lui. */
 .scroller {
   position: relative;

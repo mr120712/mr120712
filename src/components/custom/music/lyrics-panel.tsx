@@ -12,11 +12,12 @@
 // aria-current (nessuna regione live che annuncia ogni riga). Testo semplice: righe leggibili.
 'use client';
 
-import { Loader2, RotateCcw } from 'lucide-react';
+import { Loader2, RotateCcw, Share2 } from 'lucide-react';
 import { type KeyboardEvent, memo, useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/api-client';
 import { LYRICS_API_PATH, type Lyrics, LyricsResponseSchema } from '@/lib/contracts/lyrics';
 import { activeLyricsLine, activeLyricsWord, LYRICS_INSTRUMENTAL } from '@/lib/music/lyrics';
+import { LyricShare } from './lyric-share';
 import styles from './lyrics-panel.module.css';
 import type { LyricsTarget } from './lyrics-target';
 
@@ -83,11 +84,27 @@ export type LyricsPanelProps = {
    * cambio di brano). Il pannello sta sotto i controlli: allora si porta in vista.
    */
   consumeReveal?: () => boolean;
+  /** Account Premium: abilita «Condividi una parte del testo». */
+  premium?: boolean;
+  /** Brano e artista, per la scheda da condividere (funzione Premium). */
+  trackTitle?: string;
+  trackArtist?: string;
 };
 
-function LyricsPanelView({ source, id, getTime, onSeek, consumeReveal }: LyricsPanelProps) {
+function LyricsPanelView({
+  source,
+  id,
+  getTime,
+  onSeek,
+  consumeReveal,
+  premium,
+  trackTitle,
+  trackArtist,
+}: LyricsPanelProps) {
   const [state, setState] = useState<PanelState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
+  // Compositore «Condividi una parte del testo» aperto (solo Premium).
+  const [composing, setComposing] = useState(false);
   const [active, setActive] = useState(-1);
   // Parola corrente della riga corrente (-1 = nessuna, o riga senza tempi delle parole).
   const [activeWord, setActiveWord] = useState(-1);
@@ -129,6 +146,7 @@ function LyricsPanelView({ source, id, getTime, onSeek, consumeReveal }: LyricsP
     setActive(-1);
     setActiveWord(-1);
     setFocusIndex(null);
+    setComposing(false);
     pausedUntilRef.current = 0;
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
     fetchLyrics({ source, id } as LyricsTarget, controller.signal).then(
@@ -254,7 +272,14 @@ function LyricsPanelView({ source, id, getTime, onSeek, consumeReveal }: LyricsP
 
   return (
     <div ref={panelRef} className={styles.panel} data-lyrics-panel>
-      <h2 className={styles.title}>Testo</h2>
+      <div className={styles.head}>
+        <h2 className={styles.title}>Testo</h2>
+        {premium && state.status === 'ready' ? (
+          <button type="button" className={styles.share} onClick={() => setComposing(true)}>
+            <Share2 aria-hidden="true" /> Condividi testo
+          </button>
+        ) : null}
+      </div>
       {/* Area che scorre: raggiungibile da tastiera anche col testo semplice (frecce, pagina giù),
           come chiede WCAG per le regioni scorrevoli. I gestori riconoscono solo lo scorrimento
           manuale (rotella, dito, barra, tasti), non sono azioni. */}
@@ -340,6 +365,14 @@ function LyricsPanelView({ source, id, getTime, onSeek, consumeReveal }: LyricsP
         ) : null}
         {credit ? <p className={styles.credit}>{credit}</p> : null}
       </section>
+      {composing && state.status === 'ready' ? (
+        <LyricShare
+          lyrics={state.lyrics}
+          title={trackTitle ?? ''}
+          artist={trackArtist ?? ''}
+          onClose={() => setComposing(false)}
+        />
+      ) : null}
     </div>
   );
 }

@@ -4641,6 +4641,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                   getTime={getLyricsTime}
                   onSeek={seekTo}
                   consumeReveal={consumeLyricsReveal}
+                  premium={premium === true}
+                  trackTitle={currentTrack?.title}
+                  trackArtist={currentTrack?.artistName}
                 />
               ) : null}
 
