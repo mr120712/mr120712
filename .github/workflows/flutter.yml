@@ -42,11 +42,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: JDK 17 (per Gradle/Android)
+      - name: JDK 21 (per Gradle/Android)
+        # AGP 9 (usato da Flutter 3.50) impacchetta un Android Lint che chiama
+        # java.util.List.removeLast() — un metodo introdotto in Java 21 (Sequenced
+        # Collections, JEP 431). Con JDK 17 il task `lintVitalAnalyzeRelease` va in crash
+        # (NoSuchMethodError, bug AGP #522845800) e fa fallire tutta la build di release.
+        # JDK 21 risolve: Gradle 9.x di Flutter 3.50 è pienamente compatibile con Java 21.
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       - name: Flutter SDK
         uses: subosito/flutter-action@v2
