@@ -1,7 +1,9 @@
 import 'dart:ui' show ImageFilter;
 
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:flutter/material.dart';
+// Flutter 3.47+ definisce un enum `RepeatMode` in Material che collide con il nostro
+// (player_controller.dart): nascondiamo quello di Material, qui non serve.
+import 'package:flutter/material.dart' hide RepeatMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
 

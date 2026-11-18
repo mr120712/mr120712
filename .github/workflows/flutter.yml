@@ -51,7 +51,9 @@ jobs:
       - name: Flutter SDK
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.5'
+          # 3.50: target/compileSdk 36 di default (richiesto da Play) e Kotlin DSL + AGP 9;
+          # con questo Flutter `in_app_purchase` risolve Play Billing 8/9 (richiesto da Play).
+          flutter-version: '3.50.0'
           channel: stable
           cache: true
 
@@ -82,15 +84,18 @@ jobs:
           # Rete (INTERNET) + audio in background (just_audio_background) + nome app «Solco».
           # Dopo flutter_launcher_icons, così il nostro manifest vince.
           cp android-config/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
-          # Play Protect richiede minSdk >= 24; il template di Flutter genera 21
-          # (minSdk = flutter.minSdkVersion). Lo forziamo a 24 nel build.gradle generato,
-          # sempre (anche per la build di debug), e interrompiamo se non è andato a buon fine.
-          sed -i 's/flutter\.minSdkVersion/24/g' android/app/build.gradle
-          echo "minSdk nel build.gradle dopo la patch:"
-          grep -nE "minSdk" android/app/build.gradle || true
-          if grep -q "flutter\.minSdkVersion" android/app/build.gradle \
-            || ! grep -qE "minSdk(Version)?[[:space:]]*=?[[:space:]]*24" android/app/build.gradle; then
-            echo "ERRORE: minSdk non risulta 24 nel build.gradle; interrompo." >&2
+          # Flutter >= 3.29 genera il Gradle dell'app in Kotlin DSL (build.gradle.kts);
+          # individuiamo il file giusto (kts o Groovy) per le patch successive.
+          if [ -f android/app/build.gradle.kts ]; then GRADLE_APP=android/app/build.gradle.kts; else GRADLE_APP=android/app/build.gradle; fi
+          echo "File Gradle dell'app: $GRADLE_APP"
+          # Livelli SDK espliciti: minSdk 24 (Play Protect) + target/compileSdk 36 (richiesto da Play).
+          # Flutter 3.50 usa già questi default; forziamo i valori letterali, e interrompiamo se non combaciano.
+          sed -i 's/flutter\.minSdkVersion/24/g; s/flutter\.targetSdkVersion/36/g; s/flutter\.compileSdkVersion/36/g' "$GRADLE_APP"
+          echo "Livelli SDK dopo la patch:"; grep -nE "minSdk|targetSdk|compileSdk" "$GRADLE_APP" || true
+          if ! grep -qE "minSdk[[:space:]]*=?[[:space:]]*24" "$GRADLE_APP" \
+            || ! grep -qE "targetSdk[[:space:]]*=?[[:space:]]*36" "$GRADLE_APP" \
+            || ! grep -qE "compileSdk[[:space:]]*=?[[:space:]]*36" "$GRADLE_APP"; then
+            echo "ERRORE: minSdk 24 / targetSdk 36 / compileSdk 36 non applicati; interrompo." >&2
             exit 1
           fi
           # Firma di release SOLO se il keystore è nei GitHub Secrets; altrimenti build di debug.
@@ -102,7 +107,7 @@ jobs:
               echo "keyAlias=${ANDROID_KEY_ALIAS:-solco}"
               echo "keyPassword=${ANDROID_KEY_PASSWORD:-$ANDROID_KEYSTORE_PASSWORD}"
             } > android/key.properties
-            python3 android-config/patch-signing.py android/app/build.gradle
+            python3 android-config/patch-signing.py "$GRADLE_APP"
             echo "Firma di release configurata (AAB pronto per Play)."
           else
             echo "Nessun keystore nei Secrets: build di DEBUG (dimostra la compilazione, non per Play)."
@@ -134,6 +139,11 @@ jobs:
           keytool -printcert -jarfile "$AAB" | grep -iE "SHA256:" || echo "(nessuna firma: build di debug)"
           echo "== package e versione (dal manifest) =="
           unzip -p "$AAB" base/manifest/AndroidManifest.xml | strings | grep -iE "online.solcomusic.solco|0\.7\.1" | head -3 || true
+          echo "== livelli SDK (attesi minSdk 24, target/compile 36 — richiesti da Play) =="
+          if [ -f android/app/build.gradle.kts ]; then GRADLE_APP=android/app/build.gradle.kts; else GRADLE_APP=android/app/build.gradle; fi
+          grep -nE "minSdk|targetSdk|compileSdk" "$GRADLE_APP" || true
+          echo "== Play Billing Library (via in_app_purchase_android; 0.5.x = Billing >= 8.0.0) =="
+          grep -A3 -E "^  in_app_purchase_android:" pubspec.lock | grep -E "version:" || true
           echo "== minSdk (atteso 24, richiesto da Play Protect) =="
           grep -nE "minSdk" android/app/build.gradle || true
 
