@@ -13,8 +13,10 @@ import {
   hasShareableExcerpt,
   LYRIC_SHARE_MAX_CHARS,
   LYRIC_SHARE_MAX_LINES,
+  type LyricSelection,
   shareCaption,
   slugify,
+  tapSelection,
   wrapText,
 } from '@/lib/music/lyric-card';
 
@@ -29,6 +31,31 @@ describe('intervallo contiguo di righe', () => {
       end: LYRIC_SHARE_MAX_LINES - 1,
     });
     expect(clampLineRange(3, 3, 4)).toEqual({ start: 3, end: 3 });
+  });
+});
+
+describe('scelta a due tocchi', () => {
+  const EMPTY: LyricSelection = { anchor: null, range: null };
+
+  it('primo tocco apre una riga; il secondo completa l’intervallo; il terzo ricomincia', () => {
+    const first = tapSelection(EMPTY, 2);
+    expect(first).toEqual({ anchor: 2, range: { start: 2, end: 2 } });
+    // Il secondo tocco DEVE estendere l'intervallo (bug storico: restava di una riga sola).
+    const second = tapSelection(first, 5);
+    expect(second).toEqual({ anchor: null, range: { start: 2, end: 5 } });
+    // Áncora azzerata: il tocco dopo ricomincia da capo.
+    expect(tapSelection(second, 7)).toEqual({ anchor: 7, range: { start: 7, end: 7 } });
+  });
+
+  it('completa anche verso l’alto e taglia a LYRIC_SHARE_MAX_LINES', () => {
+    expect(tapSelection(tapSelection(EMPTY, 9), 4)).toEqual({
+      anchor: null,
+      range: { start: 4, end: 9 },
+    });
+    expect(tapSelection(tapSelection(EMPTY, 0), 100)).toEqual({
+      anchor: null,
+      range: { start: 0, end: LYRIC_SHARE_MAX_LINES - 1 },
+    });
   });
 });
 

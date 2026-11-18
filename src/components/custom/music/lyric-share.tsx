@@ -7,16 +7,24 @@
 'use client';
 
 import { Download, Share2, X } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import type { Lyrics } from '@/lib/contracts/lyrics';
 import {
   cardFileName,
-  clampLineRange,
   fitExcerpt,
   LYRIC_SHARE_MAX_LINES,
+  type LyricSelection,
   shareCaption,
+  tapSelection,
 } from '@/lib/music/lyric-card';
 import { renderLyricCard } from '@/lib/music/lyric-card-draw';
 import styles from './lyric-share.module.css';
@@ -28,52 +36,45 @@ export type LyricShareProps = {
   onClose: () => void;
 };
 
-type Picked = { start: number; end: number } | null;
-
 export function LyricShare({ lyrics, title, artist, onClose }: LyricShareProps) {
-  const lineTexts = useMemo(() => lyrics.lines.map((line) => line.text), [lyrics]);
-  // Indici (sull'array originale) delle righe con testo: solo queste si possono toccare.
+  // Solo le righe con testo si possono toccare; la scelta lavora sulla loro POSIZIONE fra queste,
+  // così le righe vuote (pause strumentali) non falsano il conteggio dell'estratto.
   const pickable = useMemo(
-    () => lineTexts.map((text, index) => ({ text, index })).filter((row) => row.text.trim() !== ''),
-    [lineTexts],
+    () =>
+      lyrics.lines
+        .map((line, index) => ({ text: line.text, index }))
+        .filter((row) => row.text.trim() !== ''),
+    [lyrics],
   );
 
-  const [anchor, setAnchor] = useState<number | null>(null);
-  const [picked, setPicked] = useState<Picked>(null);
+  const [selection, setSelection] = useState<LyricSelection>({ anchor: null, range: null });
   const [preview, setPreview] = useState<string | null>(null);
   const [rendering, setRendering] = useState(false);
   const fileRef = useRef<File | null>(null);
   const previewRef = useRef<string | null>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
 
   const excerpt = useMemo(() => {
-    if (!picked) return null;
-    return fitExcerpt(lineTexts.slice(picked.start, picked.end + 1));
-  }, [picked, lineTexts]);
+    const range = selection.range;
+    if (!range) return null;
+    return fitExcerpt(pickable.slice(range.start, range.end + 1).map((row) => row.text));
+  }, [selection, pickable]);
 
   const onLineTap = useCallback(
-    (index: number) => {
-      // Primo tocco (o dopo un intervallo completo): comincia un nuovo intervallo da questa riga.
-      if (anchor === null || picked) {
-        setAnchor(index);
-        setPicked({ start: index, end: index });
-        return;
-      }
-      // Secondo tocco: completa l'intervallo contiguo, al massimo LYRIC_SHARE_MAX_LINES righe.
-      const range = clampLineRange(anchor, index);
-      const reach = Math.abs(index - anchor) + 1;
-      if (reach > LYRIC_SHARE_MAX_LINES) {
+    (pos: number) => {
+      // Secondo tocco troppo lontano: avvisa prima di tagliare a LYRIC_SHARE_MAX_LINES righe.
+      if (
+        selection.anchor !== null &&
+        Math.abs(pos - selection.anchor) + 1 > LYRIC_SHARE_MAX_LINES
+      ) {
         toast(`Puoi condividere al massimo ${LYRIC_SHARE_MAX_LINES} righe.`);
       }
-      setPicked(range);
-      setAnchor(null);
+      setSelection((prev) => tapSelection(prev, pos));
     },
-    [anchor, picked],
+    [selection.anchor],
   );
 
-  const reset = useCallback(() => {
-    setAnchor(null);
-    setPicked(null);
-  }, []);
+  const reset = useCallback(() => setSelection({ anchor: null, range: null }), []);
 
   // Disegna l'immagine quando cambia l'estratto; il file è pronto PRIMA del tocco su «Condividi»
   // (su iPhone navigator.share va chiamato subito, senza attese di rete in mezzo).
@@ -130,19 +131,59 @@ export function LyricShare({ lyrics, title, artist, onClose }: LyricShareProps) 
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // Finestra modale: porta il fuoco dentro il pannello all'apertura e lo riporta sul pulsante che
+  // l'ha aperto alla chiusura (contratto aria-modal).
+  useEffect(() => {
+    const opener = (
+      typeof document !== 'undefined' ? document.activeElement : null
+    ) as HTMLElement | null;
+    sheetRef.current?.focus();
+    return () => opener?.focus?.();
+  }, []);
+
+  // Trappola del fuoco: con Tab il giro resta dentro il pannello.
+  const onTrapKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Tab') return;
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+    const focusables = [
+      ...sheet.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ),
+    ];
+    if (focusables.length === 0) return;
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey && active === first) {
+      event.preventDefault();
+      last?.focus();
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first?.focus();
+    }
+  }, []);
+
   const shareImage = useCallback(async () => {
     const file = fileRef.current;
     if (!file) return;
-    const data: ShareData = { title: `«${title}»`, text: shareCaption(title, artist) };
-    const withFile: ShareData = { ...data, files: [file] };
+    const withFile: ShareData = {
+      title: `«${title}»`,
+      text: shareCaption(title, artist),
+      files: [file],
+    };
+    // Senza condivisione di FILE, condividere la sola didascalia non ha senso (il testo sta
+    // nell'immagine): meglio indicare «Scarica».
+    const canShareFile =
+      typeof navigator.share === 'function' &&
+      typeof navigator.canShare === 'function' &&
+      navigator.canShare(withFile);
+    if (!canShareFile) {
+      toast('Su questo dispositivo usa «Scarica» per salvare l’immagine.');
+      return;
+    }
     try {
-      if (typeof navigator.share !== 'function') {
-        toast('La condivisione diretta non è disponibile: usa «Scarica».');
-        return;
-      }
-      const canShareFile =
-        typeof navigator.canShare === 'function' ? navigator.canShare(withFile) : true;
-      await navigator.share(canShareFile ? withFile : data);
+      await navigator.share(withFile);
     } catch (error) {
       if ((error as { name?: unknown } | null)?.name !== 'AbortError') {
         toast.error('Condivisione non riuscita. Usa «Scarica» e carica l’immagine a mano.');
@@ -160,11 +201,12 @@ export function LyricShare({ lyrics, title, artist, onClose }: LyricShareProps) 
     link.remove();
   }, [preview, title]);
 
-  const count = picked ? picked.end - picked.start + 1 : 0;
+  const range = selection.range;
+  const count = range ? range.end - range.start + 1 : 0;
   const hint =
-    anchor !== null && !picked
+    selection.anchor !== null
       ? 'Tocca l’ultima riga dell’estratto.'
-      : picked
+      : range
         ? `${count === 1 ? '1 riga scelta' : `${count} righe scelte`}. Tocca una riga per ricominciare.`
         : 'Tocca la prima riga del pezzo che vuoi condividere.';
 
@@ -174,10 +216,12 @@ export function LyricShare({ lyrics, title, artist, onClose }: LyricShareProps) 
       role="dialog"
       aria-modal="true"
       aria-label="Condividi una parte del testo"
+      onKeyDown={onTrapKeyDown}
     >
       {/* Sfondo decorativo: chiude al tocco; la tastiera usa Esc e il pulsante «Chiudi». */}
       <div className={styles.scrim} onClick={onClose} aria-hidden="true" />
-      <div className={styles.sheet}>
+      {/* tabIndex -1: non entra nel giro dei Tab, ma riceve il fuoco all'apertura (finestra modale). */}
+      <div className={styles.sheet} ref={sheetRef} tabIndex={-1}>
         <header className={styles.header}>
           <div>
             <h2 className={styles.title}>Condividi una parte del testo</h2>
@@ -193,9 +237,8 @@ export function LyricShare({ lyrics, title, artist, onClose }: LyricShareProps) 
 
         <div className={styles.body}>
           <ol className={styles.lines} aria-label="Righe del testo">
-            {pickable.map((row) => {
-              const selected =
-                picked !== null && row.index >= picked.start && row.index <= picked.end;
+            {pickable.map((row, pos) => {
+              const selected = range !== null && pos >= range.start && pos <= range.end;
               return (
                 <li key={row.index}>
                   <button
@@ -203,7 +246,7 @@ export function LyricShare({ lyrics, title, artist, onClose }: LyricShareProps) 
                     className={styles.line}
                     data-selected={selected ? 'true' : undefined}
                     aria-pressed={selected}
-                    onClick={() => onLineTap(row.index)}
+                    onClick={() => onLineTap(pos)}
                   >
                     {row.text}
                   </button>
@@ -247,7 +290,7 @@ export function LyricShare({ lyrics, title, artist, onClose }: LyricShareProps) 
               >
                 <Download aria-hidden="true" /> Scarica
               </Button>
-              {picked ? (
+              {range ? (
                 <Button type="button" variant="ghost" onClick={reset}>
                   Ricomincia
                 </Button>

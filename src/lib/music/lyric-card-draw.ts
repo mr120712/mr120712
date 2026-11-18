@@ -66,16 +66,21 @@ export async function renderLyricCard(data: LyricCardData): Promise<Blob | null>
   const blockBottom = HEIGHT - 360;
   const maxBlockHeight = blockBottom - blockTop;
 
-  // Riduce la dimensione del testo finché le righe (mandate a capo) entrano nello spazio.
-  let fontSize = 62;
-  let wrapped: string[] = [];
+  // Riduce la dimensione del testo finché le righe (mandate a capo) entrano nello spazio. `wrapped`
+  // resta sempre misurato a `fontSize`, anche quando si arriva al minimo senza farlo entrare.
+  const MIN_FONT = 32;
   const lineRatio = 1.32;
-  for (; fontSize >= 32; fontSize -= 2) {
-    ctx.font = `600 ${fontSize}px ${SANS}`;
-    wrapped = data.lines.flatMap((line) =>
+  const wrapAt = (size: number): string[] => {
+    ctx.font = `600 ${size}px ${SANS}`;
+    return data.lines.flatMap((line) =>
       wrapText(line, textWidth, (text) => ctx.measureText(text).width),
     );
-    if (wrapped.length * fontSize * lineRatio <= maxBlockHeight) break;
+  };
+  let fontSize = 62;
+  let wrapped = wrapAt(fontSize);
+  while (fontSize > MIN_FONT && wrapped.length * fontSize * lineRatio > maxBlockHeight) {
+    fontSize -= 2;
+    wrapped = wrapAt(fontSize);
   }
 
   ctx.fillStyle = fg;

@@ -35,6 +35,28 @@ export function clampLineRange(
   return { start: lo, end: Math.min(hi, lo + limit - 1) };
 }
 
+/** Stato della scelta a due tocchi. `anchor`: posizione in attesa del secondo tocco (null = ferma). */
+export type LyricSelection = {
+  anchor: number | null;
+  range: { start: number; end: number } | null;
+};
+
+/**
+ * Un tocco sulla riga in posizione `pos` (fra le righe mostrate). Primo tocco (nessuna áncora):
+ * comincia un intervallo da quella riga e aspetta il secondo. Secondo tocco: completa l'intervallo
+ * contiguo (al massimo `maxLines` righe) e azzera l'áncora, così il tocco dopo ricomincia.
+ */
+export function tapSelection(
+  state: LyricSelection,
+  pos: number,
+  maxLines: number = LYRIC_SHARE_MAX_LINES,
+): LyricSelection {
+  if (state.anchor === null) {
+    return { anchor: pos, range: { start: pos, end: pos } };
+  }
+  return { anchor: null, range: clampLineRange(state.anchor, pos, maxLines) };
+}
+
 /** Lunghezza dell'estratto in caratteri (righe unite da un a capo), per il limite. */
 export function excerptCharCount(lines: string[]): number {
   return lines.join('\n').length;
