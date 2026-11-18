@@ -69,7 +69,9 @@ jobs:
             if [ -z "${!v}" ]; then echo "Segreto mancante per $v: vedi l'intestazione di .github/workflows/ios.yml" >&2; exit 1; fi
           done
           mkdir -p "$HOME/private_keys"
-          printf '%s' "$APP_STORE_CONNECT_PRIVATE_KEY" | base64 --decode > "$HOME/private_keys/AuthKey_$APP_STORE_CONNECT_KEY_ID.p8"
+          # `-D` è il flag di decodifica di base64 su macOS (il runner è macos-15); `--decode` non è
+          # affidabile lì. Decodifica il contenuto .p8 messo in base64 nel segreto.
+          printf '%s' "$APP_STORE_CONNECT_PRIVATE_KEY" | base64 -D > "$HOME/private_keys/AuthKey_$APP_STORE_CONNECT_KEY_ID.p8"
           export APP_STORE_CONNECT_KEY_PATH="$HOME/private_keys/AuthKey_$APP_STORE_CONNECT_KEY_ID.p8"
           bash ios/build.sh ipa
 

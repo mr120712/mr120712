@@ -59,6 +59,14 @@ lerna-debug.log*
 /ios/build/
 /solco.aab
 
+# Materiale di firma Apple: MAI nel repo. Con App Store Connect API key la chiave .p8
+# va nei GitHub Secrets (in base64), non in un file. Rete di sicurezza contro drop accidentali.
+*.p8
+*.p12
+*.cer
+*.mobileprovision
+*.certSigningRequest
+
 # Python bytecode cache (dagli script locali in scripts/)
 __pycache__/
 *.pyc
