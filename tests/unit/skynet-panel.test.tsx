@@ -8,7 +8,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ apiFetch: vi.fn() }));
 vi.mock('@/lib/api-client', () => ({ apiFetch: mocks.apiFetch }));
 
-import { agoText, quantumText, SkynetPanel } from '@/components/custom/monitoring/skynet-panel';
+import {
+  agoText,
+  huntedText,
+  quantumText,
+  SkynetPanel,
+} from '@/components/custom/monitoring/skynet-panel';
 import { type SkynetOverview, SkynetOverviewSchema } from '@/lib/contracts/skynet';
 
 const NOW = new Date('2026-11-17T21:30:00.000Z');
@@ -84,6 +89,8 @@ describe('pannello Skynet', () => {
     expect(text).toContain('Ultimo giro 1 minuto fa');
     expect(text).toContain('Attivo · versione 14 · regole Skynet 3/3 · blocco AI attivo');
     expect(text).toContain('Risponde in 140 ms');
+    expect(text).toContain('Hacker in verifica');
+    expect(text).toContain('2 indirizzi (24 ore)');
     expect(text).toContain('1 chat collegata');
     expect(text).toContain('Scritti da Claude');
     expect(text).not.toContain('SKYNET_VERCEL_TOKEN');
@@ -215,6 +222,21 @@ describe('pannello Skynet', () => {
     expect(quantumText(at(null, ['pq', 'unreachable']), now)).toBe(
       'Non verificabile in questo momento (dominio irraggiungibile) · controllato 30 minuti fa',
     );
+  });
+
+  it('hacker in verifica: nessuno, solo 24 ore, con prolungati', () => {
+    const base = overview();
+    const signals = base.signals;
+    if (!signals) throw new Error('segnali mancanti');
+    const at = (hunted: number | null, huntedLong?: number | null): SkynetOverview => ({
+      ...base,
+      signals: { ...signals, vercel: { ...signals.vercel, hunted, huntedLong } },
+    });
+    expect(huntedText(at(null))).toBe('—');
+    expect(huntedText(at(0))).toBe('Nessuno');
+    expect(huntedText(at(1))).toBe('1 indirizzo (24 ore)');
+    expect(huntedText(at(5, 1))).toBe('5 indirizzi, di cui 1 prolungato (7 o 30 giorni)');
+    expect(huntedText(at(5, 2))).toBe('5 indirizzi, di cui 2 prolungati (7 o 30 giorni)');
   });
 
   it('tempi relativi in italiano', () => {

@@ -69,11 +69,14 @@ function firewallText(data: SkynetOverview): string {
   return `Attivo · versione ${vercel.firewallVersion ?? '?'} · regole Skynet ${rules}/3 · ${ai}`;
 }
 
-function huntedText(data: SkynetOverview): string {
+export function huntedText(data: SkynetOverview): string {
   const hunted = data.signals?.vercel.hunted;
   if (hunted === null || hunted === undefined) return '—';
   if (hunted === 0) return 'Nessuno';
-  return hunted === 1 ? '1 indirizzo' : `${hunted} indirizzi`;
+  const base = hunted === 1 ? '1 indirizzo' : `${hunted} indirizzi`;
+  const long = data.signals?.vercel.huntedLong ?? 0;
+  if (long <= 0) return `${base} (24 ore)`;
+  return `${base}, di cui ${long === 1 ? '1 prolungato' : `${long} prolungati`} (7 o 30 giorni)`;
 }
 
 function hostsText(hosts: string[]): string {
@@ -130,7 +133,7 @@ export function SkynetPanel() {
   return (
     <Panel
       title="Skynet · sentinella"
-      description="Guarda il sito ogni minuto e avvisa gli amministratori su Telegram. Sugli incidenti avvisa soltanto; chi il firewall ferma due volte in 24 ore deve superare la verifica del browser per 24 ore; il motore post-quantistico controlla ogni ora che le connessioni resistano anche ai futuri computer quantistici."
+      description="Guarda il sito ogni minuto e avvisa gli amministratori su Telegram. Sugli incidenti avvisa soltanto. Il cacciatore manda alla verifica del browser chi cerca file da hacker (al primo tentativo) o insiste sugli accessi: 24 ore, 7 o 30 giorni per chi attacca anche durante la verifica. Il motore post-quantistico controlla ogni ora che le connessioni resistano anche ai futuri computer quantistici."
     >
       {error ? (
         <p role="alert" className={styles.muted}>
@@ -180,7 +183,7 @@ function SkynetBody({ data, now }: { data: SkynetOverview; now: number }) {
         <dd>{data.signals?.vercel.anomalies ?? '—'}</dd>
         <dt>Firewall</dt>
         <dd>{firewallText(data)}</dd>
-        <dt>Recidivi in verifica (24 ore)</dt>
+        <dt>Hacker in verifica</dt>
         <dd>{huntedText(data)}</dd>
         <dt>Motore post-quantistico</dt>
         <dd>{quantumText(data, now)}</dd>
@@ -244,7 +247,7 @@ function SkynetBody({ data, now }: { data: SkynetOverview; now: number }) {
               Progetto → Settings → Environment Variables: <code>SKYNET_VERCEL_TOKEN</code>, solo
               Production, segnata come Sensitive.
             </li>
-            <li>Nuovo deploy: dal giro successivo Skynet legge Vercel e caccia i recidivi.</li>
+            <li>Nuovo deploy: dal giro successivo Skynet legge Vercel e caccia gli hacker.</li>
           </ol>
         </div>
       ) : null}

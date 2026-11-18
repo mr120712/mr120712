@@ -34,8 +34,10 @@ export type SkynetSignals = {
     aiBotsActive: boolean | null;
     skynetRulesActive: number | null;
     attackMode: boolean | null;
-    /** Recidivi che devono superare la verifica (regole IP «Skynet ·» attive). */
+    /** Hacker che devono superare la verifica (regole IP «Skynet ·» attive). */
     hunted: number | null;
+    /** Di questi, quelli con la verifica prolungata (7 o 30 giorni); manca nei segnali vecchi. */
+    huntedLong?: number | null;
   };
   site: {
     healthOk: boolean;

@@ -7,10 +7,11 @@
 //
 // Sugli incidenti Skynet AVVISA SOLTANTO (scelta del proprietario): non accende né spegne
 // protezioni. L'unica modifica che fa da sola è quella del cacciatore (src/lib/skynet/hunter.ts,
-// scelta del proprietario): chi il firewall ha già fermato due volte in 24 ore per sonde o tentativi
-// a raffica deve superare la verifica del browser per 24 ore (regola IP «challenge» con nota
-// «Skynet · …», tolta alla scadenza). Mai blocchi totali, mai le regole messe a mano, mai indirizzi
-// IP nel database. Il token Vercel (SKYNET_VERCEL_TOKEN) resta qui: mai nei log, nel database, nei
+// scelta del proprietario): chi il firewall ferma per sonde da scanner (al primo blocco) o per
+// tentativi a raffica (2 in 24 ore) deve superare la verifica del browser (regola IP «challenge»
+// con nota «Skynet · …», tolta alla scadenza): 24 ore, poi 7 e 30 giorni per chi attacca anche
+// durante la verifica; per IPv6 tutta la rete /64. Mai blocchi totali, mai le regole messe a mano,
+// mai indirizzi IP nel database. Il token Vercel (SKYNET_VERCEL_TOKEN) resta qui: mai nei log, nel database, nei
 // messaggi o a Claude.
 //
 // Il motore post-quantistico (quantum.ts, quantum.server.ts) controlla ogni ora che i domini del
@@ -30,16 +31,18 @@ import type { MonitorRun } from '@/lib/contracts/monitoring';
 import { prisma } from '@/lib/db';
 import { latestRun, recordHeartbeat, STALE_AFTER_MS } from '@/lib/monitoring/monitor.server';
 import {
-  CHALLENGE_HOURS,
+  type Escalation,
   huntReport,
+  huntTitle,
   type IpRule,
   LOOKBACK_MS,
-  noteExpiry,
+  levelDurationMs,
   type Offender,
   parseFirewallBlocks,
   parseIpRules,
   planHunt,
   skynetNote,
+  skynetRuleInfo,
 } from './hunter';
 import {
   type PqResult,
@@ -81,6 +84,8 @@ const REPORT_MAX_CHARS = 1_500;
 /** Un giro dura al massimo così: chi lo prende lo tiene, gli altri saltano. */
 const LOCK_MS = 50_000;
 const TELEGRAM_MAX_CHARS = 3_900;
+/** Pagine (da 100) del registro dei blocchi lette a ogni giro. */
+const FIREWALL_PAGES = 5;
 
 type EnvLike = Record<string, string | undefined>;
 
@@ -180,6 +185,7 @@ const NO_VERCEL: SkynetSignals['vercel'] = {
   skynetRulesActive: null,
   attackMode: null,
   hunted: null,
+  huntedLong: null,
 };
 
 function vercelQuery(access: VercelAccess): string {
@@ -232,6 +238,10 @@ export async function readVercel(deps: SentinelDeps): Promise<VercelReading> {
   }
   const security = isRecord(project) && isRecord(project.security) ? project.security : null;
   const attackMode = security ? security.attackModeEnabled === true : null;
+  const skynetNotes = ipRules?.flatMap((rule) => {
+    const note = skynetRuleInfo(rule);
+    return note ? [note] : [];
+  });
   return {
     signals: {
       configured: true,
@@ -242,7 +252,8 @@ export async function readVercel(deps: SentinelDeps): Promise<VercelReading> {
       aiBotsActive,
       skynetRulesActive,
       attackMode,
-      hunted: ipRules ? ipRules.filter((rule) => noteExpiry(rule.notes) !== null).length : null,
+      hunted: skynetNotes ? skynetNotes.length : null,
+      huntedLong: skynetNotes ? skynetNotes.filter((note) => note.level > 1).length : null,
     },
     ipRules,
   };
@@ -362,13 +373,17 @@ async function patchFirewall(
   }
 }
 
-/** I blocchi persistenti delle ultime 24 ore dal registro del firewall (fino a 3 pagine). */
+/**
+ * I blocchi persistenti delle ultime 24 ore dal registro del firewall (fino a 5 pagine). Senza
+ * endTimestamp Vercel restituisce solo i blocchi ancora in corso (i 10 minuti della regola).
+ */
 async function readFirewallBlocks(deps: SentinelDeps, access: VercelAccess, now: Date) {
-  const since = now.getTime() - LOOKBACK_MS;
+  const until = now.getTime();
+  const since = until - LOOKBACK_MS;
   const blocks = [];
   let cursor: string | null = null;
-  for (let page = 0; page < 3; page += 1) {
-    const url = `${VERCEL_API}/v1/security/firewall/events?${vercelQuery(access)}&startTimestamp=${since}&limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+  for (let page = 0; page < FIREWALL_PAGES; page += 1) {
+    const url = `${VERCEL_API}/v1/security/firewall/events?${vercelQuery(access)}&startTimestamp=${since}&endTimestamp=${until}&limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
     const raw = await getJson(deps, url, access.token);
     if (raw === null) return page === 0 ? null : blocks;
     blocks.push(...parseFirewallBlocks(raw));
@@ -382,16 +397,24 @@ async function readFirewallBlocks(deps: SentinelDeps, access: VercelAccess, now:
 
 export type HuntResult = {
   challenged: Offender[];
+  /** Verifiche prolungate: attaccavano anche durante la verifica. */
+  escalated: Escalation[];
   released: number;
   failed: number;
+  queued: number;
   capped: number;
   /** Regole Skynet attive dopo il giro; null se il cacciatore non ha potuto guardare. */
   active: number | null;
+  /** Di queste, quelle prolungate (7 o 30 giorni). */
+  long: number | null;
   /** Versione del firewall dopo le modifiche di Skynet (per non scambiarle per manomissioni). */
   version: number | null;
 };
 
-/** Rimanda alla verifica i recidivi e toglie le regole Skynet scadute. Mai le regole manuali. */
+/**
+ * Prolunga la verifica di chi attacca anche durante la verifica, toglie le regole Skynet scadute e
+ * rimanda alla verifica i nuovi hacker. Mai le regole manuali.
+ */
 export async function huntOffenders(
   deps: SentinelDeps,
   ipRules: IpRule[] | null,
@@ -402,15 +425,31 @@ export async function huntOffenders(
   const blocks = await readFirewallBlocks(deps, access, now);
   if (blocks === null) return null;
   const plan = planHunt(blocks, ipRules, now);
-  let released = 0;
+  const escalated: Escalation[] = [];
+  let failed = 0;
+  for (const step of plan.escalate) {
+    const until = new Date(now.getTime() + levelDurationMs(step.level));
+    const ok = await patchFirewall(deps, access, {
+      action: 'ip.update',
+      id: step.rule.id,
+      value: {
+        ip: step.rule.ip,
+        hostname: step.rule.hostname,
+        action: 'challenge',
+        notes: skynetNote(until, step.level),
+      },
+    });
+    if (ok) escalated.push(step);
+    else failed += 1;
+  }
+  const removed: IpRule[] = [];
   for (const rule of plan.release) {
     if (await patchFirewall(deps, access, { action: 'ip.remove', id: rule.id, value: null })) {
-      released += 1;
+      removed.push(rule);
     }
   }
-  const expiresAt = new Date(now.getTime() + CHALLENGE_HOURS * 60 * 60 * 1000);
+  const expiresAt = new Date(now.getTime() + levelDurationMs(1));
   const challenged: Offender[] = [];
-  let failed = 0;
   for (const offender of plan.challenge) {
     const ok = await patchFirewall(deps, access, {
       action: 'ip.insert',
@@ -421,7 +460,7 @@ export async function huntOffenders(
     else failed += 1;
   }
   let version: number | null = null;
-  if (released > 0 || challenged.length > 0) {
+  if (removed.length > 0 || challenged.length > 0 || escalated.length > 0) {
     const firewall = await getJson(
       deps,
       `${VERCEL_API}/v1/security/firewall/config/active?${vercelQuery(access)}`,
@@ -429,13 +468,23 @@ export async function huntOffenders(
     );
     if (isRecord(firewall) && typeof firewall.version === 'number') version = firewall.version;
   }
-  const before = ipRules.filter((rule) => noteExpiry(rule.notes) !== null).length;
+  // Regole Skynet in vigore dopo il giro, con il loro livello (le nuove sono al livello 1).
+  const levels = new Map<string, number>();
+  for (const rule of ipRules) {
+    const note = skynetRuleInfo(rule);
+    if (note) levels.set(rule.id, note.level);
+  }
+  for (const step of escalated) levels.set(step.rule.id, step.level);
+  for (const rule of removed) levels.delete(rule.id);
   return {
     challenged,
-    released,
+    escalated,
+    released: removed.length,
     failed,
+    queued: plan.queued,
     capped: plan.capped,
-    active: before - released + challenged.length,
+    active: levels.size + challenged.length,
+    long: [...levels.values()].filter((level) => level > 1).length,
     version,
   };
 }
@@ -757,6 +806,7 @@ export async function runSentinel(options: Partial<SentinelDeps> = {}): Promise<
     const hunt = await huntOffenders(deps, ipRules, now).catch(() => null);
     if (hunt) {
       signals.vercel.hunted = hunt.active;
+      signals.vercel.huntedLong = hunt.long;
       if (hunt.version !== null) step.memory.firewallVersion = hunt.version;
     }
 
@@ -791,18 +841,20 @@ export async function runSentinel(options: Partial<SentinelDeps> = {}): Promise<
       );
     }
 
-    if (hunt && (hunt.challenged.length > 0 || hunt.failed > 0)) {
-      const count = hunt.challenged.length;
+    if (hunt && (hunt.challenged.length > 0 || hunt.escalated.length > 0 || hunt.failed > 0)) {
       notified += await announce(
         deps,
         {
           kind: 'hunt',
           severity: 'warning',
-          title:
-            count === 1
-              ? `1 indirizzo rimandato alla verifica per ${CHALLENGE_HOURS} ore`
-              : `${count} indirizzi rimandati alla verifica per ${CHALLENGE_HOURS} ore`,
-          report: huntReport(hunt.challenged, hunt.failed, hunt.capped),
+          title: huntTitle(hunt.challenged.length, hunt.escalated.length, hunt.failed),
+          report: huntReport({
+            challenged: hunt.challenged,
+            escalated: hunt.escalated,
+            failed: hunt.failed,
+            queued: hunt.queued,
+            capped: hunt.capped,
+          }),
           keys: [],
         },
         [],

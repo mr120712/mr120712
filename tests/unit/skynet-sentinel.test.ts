@@ -115,8 +115,8 @@ type Site = {
   version: number;
   health: number;
   attackMode: boolean;
-  /** Registro dei blocchi persistenti (come lo restituisce Vercel: public_ip). */
-  blocks: Array<{ public_ip: string; ruleName: string; count: number }>;
+  /** Registro dei blocchi persistenti (come lo restituisce Vercel: public_ip, istante UTC). */
+  blocks: Array<{ public_ip: string; ruleName: string; count: number; startTime?: string }>;
   ips: Array<{ id: string; ip: string; hostname: string; action: string; notes?: string }>;
   patches: Array<Record<string, unknown>>;
 };
@@ -157,6 +157,9 @@ function fakeFetch(site: Site, calls: Array<{ url: string; auth: string | null; 
         const value = body.value as Record<string, string> | null;
         if (body.action === 'ip.insert' && value) {
           site.ips.push({ id: `ip_${site.ips.length + 1}`, ...value } as Site['ips'][number]);
+        }
+        if (body.action === 'ip.update' && value) {
+          site.ips = site.ips.map((r) => (r.id === body.id ? { ...r, ...value } : r));
         }
         if (body.action === 'ip.remove') site.ips = site.ips.filter((r) => r.id !== body.id);
         site.version += 1;
@@ -357,12 +360,15 @@ describe('Skynet, un giro', () => {
 
 describe('Skynet, il cacciatore', () => {
   const SCANNER = 'Skynet · sonde e scanner';
+  const LOGIN = 'Accesso: limite tentativi';
+  /** Istante nel formato del registro di Vercel, `minutes` minuti dopo le 21:00 del giro 0. */
+  const at = (minutes: number) =>
+    new Date(Date.UTC(2026, 10, 17, 21, minutes)).toISOString().replace('T', ' ').replace('Z', '');
 
-  it('recidivo (2 blocchi in 24 ore): verifica del browser per 24 ore su tutti gli host, avviso mascherato', async () => {
+  it('sonda da scanner: verifica al primo blocco su tutti gli host; un tentativo d’accesso da solo no', async () => {
     site.blocks = [
-      { public_ip: '203.0.113.77', ruleName: SCANNER, count: 1 },
-      { public_ip: '203.0.113.77', ruleName: 'Accesso: limite tentativi', count: 1 },
-      { public_ip: '198.51.100.5', ruleName: SCANNER, count: 1 },
+      { public_ip: '203.0.113.77', ruleName: SCANNER, count: 1, startTime: at(-30) },
+      { public_ip: '198.51.100.5', ruleName: LOGIN, count: 1, startTime: at(-20) },
     ];
     const result = await tick();
     expect(result.hunted).toBe(1);
@@ -379,25 +385,95 @@ describe('Skynet, il cacciatore', () => {
       },
     ]);
     expect(sent[0]?.html).toContain('🛡️ Skynet · hacker rimandati alla verifica');
-    expect(sent[0]?.html).toContain(
-      '203.0.x.x: sonde da scanner ×1, tentativi di accesso a raffica ×1',
-    );
+    expect(sent[0]?.html).toContain('203.0.x.x: sonde da scanner ×1 → verifica per 24 ore');
     // Mai l'indirizzo intero nel diario o nei messaggi.
     expect(JSON.stringify(fake.events)).not.toContain('203.0.113.77');
     expect(sent[0]?.html).not.toContain('203.0.113.77');
-    expect(fake.events).toMatchObject([{ kind: 'hunt', severity: 'warning' }]);
-    expect(fake.state.get('main')?.lastSignals).toMatchObject({ vercel: { hunted: 1 } });
+    expect(fake.events).toMatchObject([
+      {
+        kind: 'hunt',
+        severity: 'warning',
+        title: '1 indirizzo rimandato alla verifica per 24 ore',
+      },
+    ]);
+    expect(fake.state.get('main')?.lastSignals).toMatchObject({
+      vercel: { hunted: 1, huntedLong: 0 },
+    });
+    // Il registro si legge per intero: 24 ore con inizio E fine (senza fine Vercel dà solo i
+    // blocchi ancora in corso).
+    const events = calls.find((c) => c.url.includes('/v1/security/firewall/events'));
+    expect(events?.url).toMatch(/startTimestamp=\d+&endTimestamp=\d+/);
+  });
+
+  it('due tentativi d’accesso a raffica in 24 ore: verifica', async () => {
+    site.blocks = [
+      { public_ip: '198.51.100.5', ruleName: LOGIN, count: 1, startTime: at(-600) },
+      { public_ip: '198.51.100.5', ruleName: LOGIN, count: 1, startTime: at(-20) },
+    ];
+    await tick();
+    expect(site.patches).toMatchObject([{ action: 'ip.insert', value: { ip: '198.51.100.5' } }]);
+  });
+
+  it('chi attacca durante la verifica: prolungata a 7 giorni, una volta sola e senza «manomissione»', async () => {
+    site.ips = [
+      {
+        id: 'ip_skynet',
+        ip: '203.0.113.77',
+        hostname: '*',
+        action: 'challenge',
+        // Cominciata alle 20:00, un'ora prima del giro.
+        notes: 'Skynet · verifica fino al 2026-11-18T20:00:00.000Z',
+      },
+    ];
+    site.blocks = [{ public_ip: '203.0.113.77', ruleName: SCANNER, count: 2, startTime: at(-10) }];
+    await tick();
+    expect(site.patches).toEqual([
+      {
+        action: 'ip.update',
+        id: 'ip_skynet',
+        value: {
+          ip: '203.0.113.77',
+          hostname: '*',
+          action: 'challenge',
+          notes: 'Skynet · verifica fino al 2026-11-24T21:00:00.000Z · livello 2',
+        },
+      },
+    ]);
+    expect(sent[0]?.html).toContain('1 verifica prolungata: attaccavano anche durante la verifica');
+    expect(sent[0]?.html).toContain(
+      '203.0.x.x: ancora all’attacco durante la verifica (sonde da scanner ×2) → prolungata a 7 giorni',
+    );
+    expect(fake.state.get('main')?.lastSignals).toMatchObject({
+      vercel: { hunted: 1, huntedLong: 1 },
+    });
+    // Al giro dopo lo stesso blocco è di prima del prolungamento: niente doppioni, niente avviso
+    // di firewall modificato per le modifiche di Skynet.
+    await tick();
+    expect(site.patches).toHaveLength(1);
+    expect(fake.events.map((e) => e.kind)).toEqual(['hunt']);
+  });
+
+  it('IPv6: la verifica va a tutta la rete /64', async () => {
+    site.blocks = [
+      { public_ip: '2001:db8:85a3:7::1', ruleName: SCANNER, count: 1, startTime: at(-5) },
+    ];
+    await tick();
+    expect(site.patches).toMatchObject([
+      { action: 'ip.insert', value: { ip: '2001:db8:85a3:7::/64', action: 'challenge' } },
+    ]);
+    expect(sent[0]?.html).toContain('2001:db8:…/64');
+    expect(sent[0]?.html).not.toContain('85a3:7::');
   });
 
   it('le modifiche di Skynet non sembrano manomissioni al giro dopo', async () => {
-    site.blocks = [{ public_ip: '203.0.113.77', ruleName: SCANNER, count: 2 }];
+    site.blocks = [{ public_ip: '203.0.113.77', ruleName: SCANNER, count: 2, startTime: at(-5) }];
     await tick();
     await tick();
     expect(fake.events.map((e) => e.kind)).toEqual(['hunt']);
     expect(site.patches).toHaveLength(1);
   });
 
-  it('alla scadenza toglie solo le regole Skynet, mai quelle messe a mano', async () => {
+  it('alla scadenza toglie solo le regole Skynet tranquille, mai quelle messe a mano', async () => {
     site.ips = [
       {
         id: 'ip_skynet',
@@ -420,10 +496,15 @@ describe('Skynet, il cacciatore', () => {
     expect(sent).toEqual([]);
   });
 
-  it('un solo blocco o regole di solo traffico: nessuna azione', async () => {
+  it('un solo tentativo d’accesso o regole di solo traffico: nessuna azione', async () => {
     site.blocks = [
-      { public_ip: '203.0.113.1', ruleName: SCANNER, count: 1 },
-      { public_ip: '203.0.113.2', ruleName: 'Limite richieste API per IP', count: 7 },
+      { public_ip: '203.0.113.1', ruleName: LOGIN, count: 1, startTime: at(-5) },
+      {
+        public_ip: '203.0.113.2',
+        ruleName: 'Limite richieste API per IP',
+        count: 7,
+        startTime: at(-5),
+      },
     ];
     const result = await tick();
     expect(result.hunted).toBe(0);
@@ -431,7 +512,7 @@ describe('Skynet, il cacciatore', () => {
   });
 
   it('senza token il cacciatore non fa nulla', async () => {
-    site.blocks = [{ public_ip: '203.0.113.77', ruleName: SCANNER, count: 5 }];
+    site.blocks = [{ public_ip: '203.0.113.77', ruleName: SCANNER, count: 5, startTime: at(-5) }];
     const result = await tick({ env: { NEXT_PUBLIC_APP_URL: ENV.NEXT_PUBLIC_APP_URL } });
     expect(result.hunted).toBe(0);
     expect(site.patches).toEqual([]);

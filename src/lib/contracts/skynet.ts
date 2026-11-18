@@ -27,6 +27,8 @@ export const SkynetSignalsSchema = z.object({
     /** Recidivi rimandati alla verifica del browser (regole IP create da Skynet). */
     // I segnali salvati prima del cacciatore non hanno il campo: valgono null.
     hunted: z.number().int().nonnegative().nullable().optional(),
+    /** Di questi, quelli con la verifica prolungata (7 o 30 giorni). */
+    huntedLong: z.number().int().nonnegative().nullable().optional(),
   }),
   site: z.object({
     healthOk: z.boolean(),
