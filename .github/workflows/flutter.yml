@@ -66,6 +66,12 @@ jobs:
             echo "android/ già presente: salto."
           fi
 
+      - name: Dipendenze (flutter pub get)
+        run: flutter pub get
+
+      - name: Icona dell'app (flutter_launcher_icons)
+        run: dart run flutter_launcher_icons
+
       - name: Configura Android (manifest audio/rete + firma di release se i segreti ci sono)
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -74,6 +80,7 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           # Rete (INTERNET) + audio in background (just_audio_background) + nome app «Solco».
+          # Dopo flutter_launcher_icons, così il nostro manifest vince.
           cp android-config/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
           # Firma di release SOLO se il keystore è nei GitHub Secrets; altrimenti build di debug.
           if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
@@ -89,9 +96,6 @@ jobs:
           else
             echo "Nessun keystore nei Secrets: build di DEBUG (dimostra la compilazione, non per Play)."
           fi
-
-      - name: Dipendenze (flutter pub get)
-        run: flutter pub get
 
       - name: Analisi statica (non blocca la build)
         continue-on-error: true

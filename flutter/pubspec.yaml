@@ -33,6 +33,18 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+  # Genera le icone di lancio (mipmap + icona adattiva) dall'immagine di Solco.
+  flutter_launcher_icons: ^0.14.1
 
 flutter:
   uses-material-design: true
+
+# Icona dell'app: onda lime di Solco su sfondo scuro. L'icona adattiva (Android 8+) usa il
+# foreground trasparente centrato su sfondo scuro; quella legacy usa l'icona completa.
+flutter_launcher_icons:
+  android: "ic_launcher"
+  ios: false
+  image_path: "assets/icon/solco-icon.png"
+  adaptive_icon_background: "#08151F"
+  adaptive_icon_foreground: "assets/icon/solco-icon-foreground.png"
+  min_sdk_android: 24
