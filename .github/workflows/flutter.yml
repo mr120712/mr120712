@@ -3,10 +3,12 @@
 # quindi il workflow le GENERA con `flutter create` e poi analizza, prova e impacchetta.
 # Si avvia a mano da Actions → «Flutter (Android)» → Run workflow, scegliendo la modalità:
 #   check  genera android/, `flutter pub get`, `flutter analyze` e `flutter test` (se ci sono test).
-#   aab    come check, poi `flutter build appbundle`. Alla prima riuscita l'AAB è firmato con la
-#          chiave di DEBUG (dimostra solo che compila): NON si carica su Play. Per Play servirà la
-#          firma di release con la chiave di upload nei GitHub Secrets (passo successivo).
-# `analyze` e `test` non bloccano la build: così un primo run mostra TUTTO (analisi + compilazione).
+#   aab    come check, poi `flutter build appbundle`. Con i GitHub Secrets del keystore impostati
+#          (ANDROID_KEYSTORE_BASE64 = il .jks di upload in base64, ANDROID_KEYSTORE_PASSWORD,
+#          ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD) l'AAB è firmato di RELEASE e pronto per Play;
+#          senza quei segreti è firmato di debug (dimostra solo che compila, non si carica su Play).
+# Il manifest Android (rete INTERNET + audio in background + nome «Solco») è in flutter/android-config/
+# e viene applicato dopo `flutter create`. `analyze` e `test` non bloccano la build.
 # Il repository è pubblico: i minuti Linux non costano. Nessun avvio automatico.
 name: Flutter (Android)
 
@@ -62,6 +64,30 @@ jobs:
             flutter create --platforms=android --org online.solcomusic --project-name solco .
           else
             echo "android/ già presente: salto."
+          fi
+
+      - name: Configura Android (manifest audio/rete + firma di release se i segreti ci sono)
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          # Rete (INTERNET) + audio in background (just_audio_background) + nome app «Solco».
+          cp android-config/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          # Firma di release SOLO se il keystore è nei GitHub Secrets; altrimenti build di debug.
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+            {
+              echo "storeFile=$RUNNER_TEMP/upload.jks"
+              echo "storePassword=$ANDROID_KEYSTORE_PASSWORD"
+              echo "keyAlias=${ANDROID_KEY_ALIAS:-solco}"
+              echo "keyPassword=${ANDROID_KEY_PASSWORD:-$ANDROID_KEYSTORE_PASSWORD}"
+            } > android/key.properties
+            python3 android-config/patch-signing.py android/app/build.gradle
+            echo "Firma di release configurata (AAB pronto per Play)."
+          else
+            echo "Nessun keystore nei Secrets: build di DEBUG (dimostra la compilazione, non per Play)."
           fi
 
       - name: Dipendenze (flutter pub get)
