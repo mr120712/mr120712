@@ -19,7 +19,7 @@ class DownloadResult {
 
 /// Origine del backend di Solco. L'app NON reimplementa il backend: chiama le
 /// stesse API del sito. Per provare contro un backend locale cambia qui.
-const String kSolcoBaseUrl = 'https://solcomusic.vercel.app';
+const String kSolcoBaseUrl = 'https://www.solcomusic.online';
 
 class SolcoApiException implements Exception {
   SolcoApiException(this.message, {this.statusCode});

@@ -1,7 +1,7 @@
 # Solco — app mobile nativa (Flutter)
 
 Primo scheletro di un'app nativa (iOS + Android da un solo codice) che **riusa il
-backend di Solco** (`https://solcomusic.vercel.app`). Il sito web resta invariato:
+backend di Solco** (`https://www.solcomusic.online`). Il sito web resta invariato:
 questa è una cartella separata, accanto a `android/` (la TWA attuale) e `ios/`
 (l'app SwiftUI).
 

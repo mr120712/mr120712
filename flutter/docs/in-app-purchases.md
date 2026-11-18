@@ -34,7 +34,7 @@ crea il prodotto corrispondente.
    `APPLE_IAP_ROOT_CA`.
 4. **Notifiche** (opzionale ma consigliato): *App Information → App Store Server Notifications*,
    versione **V2**, URL di produzione e sandbox →
-   `https://solcomusic.vercel.app/api/solco-pro/iap/apple/notifications`.
+   `https://www.solcomusic.online/api/solco-pro/iap/apple/notifications`.
 
 Variabili d'ambiente del backend (Vercel):
 
@@ -58,7 +58,7 @@ APPLE_IAP_ROOT_CA   = -----BEGIN CERTIFICATE-----\n...AppleRootCA-G3...\n-----EN
    API** nel progetto Cloud.
 3. **Notifiche in tempo reale (RTDN)**: *Monetization setup → Real-time developer notifications*,
    crea un topic Pub/Sub e imposta l'endpoint push →
-   `https://solcomusic.vercel.app/api/solco-pro/iap/google/notifications?secret=<SEGRETO>`.
+   `https://www.solcomusic.online/api/solco-pro/iap/google/notifications?secret=<SEGRETO>`.
 
 Variabili d'ambiente del backend (Vercel):
 

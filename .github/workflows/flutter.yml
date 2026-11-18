@@ -1,0 +1,94 @@
+# @polsia:user-owned — compila e prova l'app Flutter di Solco (cartella flutter/) su un runner Linux
+# di GitHub: qui l'SDK Flutter non c'è, e le cartelle di piattaforma (android/) non sono versionate,
+# quindi il workflow le GENERA con `flutter create` e poi analizza, prova e impacchetta.
+# Si avvia a mano da Actions → «Flutter (Android)» → Run workflow, scegliendo la modalità:
+#   check  genera android/, `flutter pub get`, `flutter analyze` e `flutter test` (se ci sono test).
+#   aab    come check, poi `flutter build appbundle`. Alla prima riuscita l'AAB è firmato con la
+#          chiave di DEBUG (dimostra solo che compila): NON si carica su Play. Per Play servirà la
+#          firma di release con la chiave di upload nei GitHub Secrets (passo successivo).
+# `analyze` e `test` non bloccano la build: così un primo run mostra TUTTO (analisi + compilazione).
+# Il repository è pubblico: i minuti Linux non costano. Nessun avvio automatico.
+name: Flutter (Android)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'check = analizza e prova; aab = compila anche il bundle Android'
+        type: choice
+        required: true
+        default: aab
+        options:
+          - check
+          - aab
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flutter-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Flutter (${{ inputs.mode }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: flutter
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JDK 17 (per Gradle/Android)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: stable
+          cache: true
+
+      - name: Versioni
+        run: flutter --version
+
+      - name: Genera le piattaforme (android/) se mancano
+        run: |
+          if [ ! -d android ]; then
+            flutter create --platforms=android --org online.solcomusic --project-name solco .
+          else
+            echo "android/ già presente: salto."
+          fi
+
+      - name: Dipendenze (flutter pub get)
+        run: flutter pub get
+
+      - name: Analisi statica (non blocca la build)
+        continue-on-error: true
+        run: flutter analyze
+
+      - name: Test Flutter, se presenti (non blocca la build)
+        continue-on-error: true
+        run: |
+          if [ -d test ]; then
+            flutter test
+          else
+            echo "Nessuna cartella test/: niente test Flutter da eseguire."
+          fi
+
+      - name: Compila il bundle Android (AAB)
+        if: inputs.mode == 'aab'
+        run: flutter build appbundle --release
+
+      - name: Pubblica l'AAB come artefatto
+        if: always() && inputs.mode == 'aab'
+        uses: actions/upload-artifact@v4
+        with:
+          name: solco-flutter-aab
+          path: flutter/build/app/outputs/bundle/release/*.aab
+          if-no-files-found: warn
+          retention-days: 14
