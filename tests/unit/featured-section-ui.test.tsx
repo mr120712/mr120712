@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   togglePlayback: vi.fn(),
   currentTrack: null as { qualifiedId: string } | null,
   status: 'idle' as string,
+  premium: false,
   notFound: vi.fn(() => {
     throw new Error('NEXT_NOT_FOUND');
   }),
@@ -37,6 +38,7 @@ vi.mock('@/components/custom/music/music-player', () => ({
     status: mocks.status,
     playTrack: mocks.playTrack,
     togglePlayback: mocks.togglePlayback,
+    premium: mocks.premium,
   }),
 }));
 vi.mock('@/components/custom/music/fallback-art', () => ({
@@ -341,6 +343,14 @@ describe('Home: «Mostra tutti (N)»', () => {
   const VERSION = 'c'.repeat(16);
   const OTHER_ID = 'ZyXwVuTsRqPoNmLkJiHg-_';
 
+  // Il link alla cartella con TUTTI i brani dichiarati è riservato ai Premium.
+  beforeEach(() => {
+    mocks.premium = true;
+  });
+  afterEach(() => {
+    mocks.premium = false;
+  });
+
   function homeItem(id: string, title: string) {
     return {
       id,
@@ -417,6 +427,24 @@ describe('Home: «Mostra tutti (N)»', () => {
     expect(link?.getAttribute('aria-label')).toBe('Mostra tutti (3): Ascolta ora');
     // La sezione in Home resta com'è (un brano a schermo, anche se N è più grande).
     expect(sections[0]?.querySelectorAll('ul li')).toHaveLength(1);
+  });
+
+  it('per gli account Free il link «Mostra tutti» non compare', async () => {
+    mocks.premium = false;
+    serveHome([
+      {
+        id: '',
+        title: 'In evidenza',
+        items: [homeItem('a.mp3', 'A')],
+        sectionId: SECTION_ID,
+        declaredCount: 3,
+      },
+    ]);
+    const container = await mountHome();
+    const links = [...container.querySelectorAll<HTMLAnchorElement>('a')].filter((a) =>
+      a.textContent?.startsWith('Mostra tutti'),
+    );
+    expect(links).toHaveLength(0);
   });
 
   it('sectionShowAll: id valido e N > 0, altrimenti nessun link', () => {

@@ -138,6 +138,10 @@ function listedTime(iso: string | undefined): number | null {
 
 export function HomeTracksSection() {
   const player = useMusicPlayer();
+  // «Mostra tutti» porta alla cartella con TUTTI i brani dichiarati: lo mostriamo solo ai Premium.
+  // Gli account Free restano ai brani già visibili nella sezione (al massimo 30), senza il link
+  // alla cartella intera.
+  const premium = player.premium === true;
   const { signedIn } = useLibrary();
   const [sections, setSections] = useState<HomeTrackSection[]>([]);
   const [genres, setGenres] = useState<HomeFeaturedGenre[]>([]);
@@ -324,7 +328,7 @@ export function HomeTracksSection() {
         // La radice dello store (id ''), non un titolo: una cartella chiamata "In evidenza" resta sé.
         const isDefault = section.id === '';
         const heading = isDefault ? FEATURED_ROOT_SECTION_HEADING : section.title;
-        const showAll = sectionShowAll(section);
+        const showAll = premium ? sectionShowAll(section) : null;
         return (
           <section
             key={section.id || '__root'}
