@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../api/solco_api.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import 'premium_screen.dart';
@@ -48,7 +49,7 @@ class ProfileScreen extends ConsumerWidget {
         ],
         _premiumCard(context, isPremium),
         const SizedBox(height: 24),
-        if (session != null)
+        if (session != null) ...[
           OutlinedButton.icon(
             icon: const Icon(Icons.logout),
             label: const Text('Esci'),
@@ -59,8 +60,78 @@ class ProfileScreen extends ConsumerWidget {
               ref.invalidate(proStatusProvider);
             },
           ),
+          const SizedBox(height: 28),
+          const Divider(color: Colors.white12),
+          const SizedBox(height: 8),
+          Text('Account',
+              style: TextStyle(
+                  color: Colors.white.withOpacity(0.6), fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.redAccent,
+                padding: EdgeInsets.zero,
+              ),
+              icon: const Icon(Icons.delete_forever),
+              label: const Text('Elimina account'),
+              onPressed: () => _confirmDeleteAccount(context, ref),
+            ),
+          ),
+          const Text(
+            "Elimini in modo definitivo il profilo, l'email, le playlist, i "
+            'preferiti, la cronologia e tutti i dati collegati al tuo account Solco.',
+            style: TextStyle(color: Colors.white38, fontSize: 12),
+          ),
+        ],
       ],
     );
+  }
+
+  /// Conferma e, se accettato, elimina definitivamente l'account (norme di
+  /// Google Play / App Store: la cancellazione deve essere avviabile dall'app).
+  Future<void> _confirmDeleteAccount(BuildContext context, WidgetRef ref) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text("Eliminare l'account?"),
+        content: const Text(
+          'Questa azione è definitiva e non si può annullare.\n\n'
+          "Verranno eliminati il tuo profilo, l'email, le playlist, i preferiti, "
+          'la cronologia di ascolto e tutti i dati collegati al tuo account Solco.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Annulla'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Elimina definitivamente'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      final api = await ref.read(apiProvider.future);
+      await api.deleteAccount();
+      ref.invalidate(sessionProvider);
+      ref.invalidate(proStatusProvider);
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Account eliminato.')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+              e is SolcoApiException ? e.message : 'Eliminazione non riuscita. Riprova.'),
+        ),
+      );
+    }
   }
 
   Widget _premiumCard(BuildContext context, bool isPremium) {

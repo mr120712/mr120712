@@ -120,6 +120,35 @@ class SolcoApi {
     }
   }
 
+  /// Elimina DEFINITIVAMENTE l'account e tutti i dati collegati sul server
+  /// (DELETE /api/account con la frase di conferma «ELIMINA ACCOUNT»). È
+  /// richiesto dalle norme di Google Play e App Store: dall'app si deve poter
+  /// chiedere la cancellazione del proprio account. A buon fine svuota il
+  /// cookie di sessione, come il logout. L'interceptor imposta già Origin sulle
+  /// richieste non-GET, quindi la DELETE passa il controllo same-origin.
+  Future<void> deleteAccount() async {
+    try {
+      final res = await _dio.delete<dynamic>(
+        '/api/account',
+        data: {'confirmation': 'ELIMINA ACCOUNT'},
+      );
+      final status = res.statusCode ?? 0;
+      if (status == 200) {
+        await _jar.deleteAll();
+        return;
+      }
+      if (status == 401) {
+        throw SolcoApiException("Accedi di nuovo per eliminare l'account.", statusCode: 401);
+      }
+      throw SolcoApiException('Eliminazione non riuscita. Riprova.', statusCode: status);
+    } on DioException catch (e) {
+      throw SolcoApiException(
+        'Eliminazione non riuscita. Riprova.',
+        statusCode: e.response?.statusCode,
+      );
+    }
+  }
+
   String _authError(Response<dynamic> res) {
     final data = res.data;
     if (data is Map<String, dynamic>) {

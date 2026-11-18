@@ -1,7 +1,7 @@
 name: solco
 description: Solco — app mobile nativa (Flutter) che riusa il backend di www.solcomusic.online.
 publish_to: "none"
-version: 0.7.1+10
+version: 0.7.2+11
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
