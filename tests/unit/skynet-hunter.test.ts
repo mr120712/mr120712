@@ -7,6 +7,7 @@
 // del registro di Vercel in UTC; indirizzi sempre mascherati nei testi.
 import { describe, expect, it } from 'vitest';
 import {
+  ADVANCED_OFFENSES,
   apiTimestamp,
   type FirewallBlock,
   HUNT_WAVE,
@@ -145,8 +146,13 @@ describe('chi va in verifica', () => {
       NOW,
     );
     expect(plan.challenge).toEqual([
-      { ip: '198.51.100.2', offenses: 2, reasons: { 'tentativi di accesso a raffica': 2 } },
-      { ip: '203.0.113.7', offenses: 1, reasons: { 'sonde da scanner': 1 } },
+      {
+        ip: '198.51.100.2',
+        offenses: 2,
+        reasons: { 'tentativi di accesso a raffica': 2 },
+        advanced: false,
+      },
+      { ip: '203.0.113.7', offenses: 1, reasons: { 'sonde da scanner': 1 }, advanced: false },
     ]);
     expect(plan.escalate).toEqual([]);
     expect(plan.release).toEqual([]);
@@ -155,11 +161,16 @@ describe('chi va in verifica', () => {
   it('un browser automatico (agente AI o robot) basta al primo blocco', () => {
     const plan = planHunt([block('203.0.113.50', 'Skynet · browser automatici')], [], NOW);
     expect(plan.challenge).toEqual([
-      { ip: '203.0.113.50', offenses: 1, reasons: { 'browser automatici (agenti AI o robot)': 1 } },
+      {
+        ip: '203.0.113.50',
+        offenses: 1,
+        reasons: { 'browser automatici (agenti AI o robot)': 1 },
+        advanced: false,
+      },
     ]);
   });
 
-  it('regole diverse si sommano; i limiti di traffico generici non contano mai', () => {
+  it('regole diverse si sommano (e più tecniche insieme = sospetto aggiramento); i limiti di traffico generici non contano mai', () => {
     const plan = planHunt(
       [
         block('203.0.113.9', SMS),
@@ -177,8 +188,11 @@ describe('chi va in verifica', () => {
           'abuso di SMS, registrazioni o recupero password': 1,
           'tentativi di accesso a raffica': 1,
         },
+        // Due tecniche d'attacco diverse dallo stesso indirizzo: verifica lunga subito.
+        advanced: true,
       },
     ]);
+    expect(plan.long).toBe(1);
   });
 
   it('IPv6: tutta la rete /64, sommando i blocchi dei suoi indirizzi', () => {
@@ -196,6 +210,7 @@ describe('chi va in verifica', () => {
         ip: '2001:db8:85a3:7::/64',
         offenses: 2,
         reasons: { 'tentativi di accesso a raffica': 2 },
+        advanced: false,
       },
     ]);
     expect(huntSubject('2001:0db8:0000:0007:0000:0000:0000:0001')).toBe('2001:db8:0:7::/64');
@@ -243,6 +258,32 @@ describe('chi va in verifica', () => {
     expect(plan.challenge).toEqual([]);
     expect(plan.escalate).toEqual([]);
     expect(plan.active).toBe(1);
+  });
+});
+
+describe('sospetto aggiramento (hacker esperto)', () => {
+  it('più tecniche d’attacco insieme: verifica diretta a 7 giorni, non le 24 ore', () => {
+    const plan = planHunt([block('203.0.113.7', SCANNER), block('203.0.113.7', LOGIN)], [], NOW);
+    expect(plan.challenge).toEqual([
+      {
+        ip: '203.0.113.7',
+        offenses: 2,
+        reasons: { 'sonde da scanner': 1, 'tentativi di accesso a raffica': 1 },
+        advanced: true,
+      },
+    ]);
+    // La verifica lunga occupa comunque un posto fra le regole prolungate.
+    expect(plan.long).toBe(1);
+  });
+
+  it(`a raffica da un solo indirizzo (da ${ADVANCED_OFFENSES} blocchi in su), anche con una sola tecnica`, () => {
+    expect(
+      planHunt([block('198.51.100.7', LOGIN, ADVANCED_OFFENSES)], [], NOW).challenge[0],
+    ).toMatchObject({ advanced: true });
+    // Poco traffico e una tecnica sola: verifica breve, non è un aggiramento.
+    expect(planHunt([block('198.51.100.8', LOGIN, 2)], [], NOW).challenge[0]).toMatchObject({
+      advanced: false,
+    });
   });
 });
 
@@ -360,6 +401,8 @@ describe('testi', () => {
     expect(huntIsNotable({ ...quiet, escalated: 1 })).toBe(true);
     expect(huntIsNotable({ ...quiet, failed: 1 })).toBe(true);
     expect(huntIsNotable({ ...quiet, capped: 1 })).toBe(true);
+    // Un sospetto aggiramento, anche uno solo, avvisa sempre.
+    expect(huntIsNotable({ ...quiet, advanced: 1 })).toBe(true);
   });
 
   it('titoli dell’avviso', () => {
@@ -370,16 +413,24 @@ describe('testi', () => {
       '2 indirizzi rimandati alla verifica per 24 ore; 2 verifiche prolungate',
     );
     expect(huntTitle(0, 0, 1)).toBe('Il cacciatore non è riuscito ad applicare 1 regola');
+    // Sospetti aggiramenti: tutti o in parte.
+    expect(huntTitle(1, 0, 0, 1)).toBe(
+      '1 indirizzo rimandato subito alla verifica per 7 giorni (sospetto aggiramento)',
+    );
+    expect(huntTitle(3, 0, 0, 1)).toBe(
+      '3 indirizzi rimandati alla verifica (1 subito per 7 giorni: sospetto aggiramento)',
+    );
   });
 
   it('il rapporto dice chi, perché, per quanto e come togliere una regola prima', () => {
     const text = huntReport({
       challenged: [
-        { ip: '203.0.113.77', offenses: 1, reasons: { 'sonde da scanner': 1 } },
+        { ip: '203.0.113.77', offenses: 1, reasons: { 'sonde da scanner': 1 }, advanced: false },
         {
           ip: '2001:db8:85a3:7::/64',
           offenses: 2,
           reasons: { 'tentativi di accesso a raffica': 2 },
+          advanced: false,
         },
       ],
       escalated: [
@@ -411,5 +462,25 @@ describe('testi', () => {
     expect(text).not.toContain('203.0.113.77');
     expect(text).not.toContain('198.51.100.23');
     expect(text).not.toContain('85a3:7::');
+  });
+
+  it('il rapporto segnala i sospetti aggiramenti (verifica diretta a 7 giorni)', () => {
+    const text = huntReport({
+      challenged: [
+        {
+          ip: '203.0.113.9',
+          offenses: 2,
+          reasons: { 'sonde da scanner': 1, 'tentativi di accesso a raffica': 1 },
+          advanced: true,
+        },
+      ],
+      escalated: [],
+      failed: 0,
+      capped: 0,
+    });
+    expect(text).toContain(
+      '- 203.0.x.x: sonde da scanner ×1, tentativi di accesso a raffica ×1 → sospetto aggiramento, verifica diretta per 7 giorni',
+    );
+    expect(text).toContain('un tentativo di aggiramento');
   });
 });

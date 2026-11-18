@@ -434,6 +434,33 @@ describe('Skynet, il cacciatore', () => {
     expect(site.patches).toMatchObject([{ action: 'ip.insert', value: { ip: '198.51.100.5' } }]);
   });
 
+  it('sospetto aggiramento (più tecniche insieme): verifica diretta a 7 giorni e avviso su Telegram', async () => {
+    site.blocks = [
+      { public_ip: '203.0.113.90', ruleName: SCANNER, count: 1, startTime: at(-8) },
+      { public_ip: '203.0.113.90', ruleName: LOGIN, count: 1, startTime: at(-6) },
+    ];
+    await tick();
+    // Parte subito dalla verifica lunga (livello 2 = 7 giorni), non dalle 24 ore.
+    expect(site.patches).toEqual([
+      {
+        action: 'ip.insert',
+        id: null,
+        value: {
+          ip: '203.0.113.90',
+          hostname: '*',
+          action: 'challenge',
+          notes: 'Skynet · verifica fino al 2026-11-24T21:00:00.000Z · livello 2',
+        },
+      },
+    ]);
+    // Un sospetto aggiramento avvisa sempre, anche da solo.
+    expect(sent[0]?.html).toContain('subito alla verifica per 7 giorni (sospetto aggiramento)');
+    expect(sent[0]?.html).toContain('sospetto aggiramento, verifica diretta per 7 giorni');
+    expect(fake.state.get('main')?.lastSignals).toMatchObject({
+      vercel: { hunted: 1, huntedLong: 1 },
+    });
+  });
+
   it('chi attacca durante la verifica: prolungata a 7 giorni, una volta sola e senza «manomissione»', async () => {
     site.ips = [
       {

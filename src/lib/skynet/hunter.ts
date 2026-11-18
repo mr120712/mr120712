@@ -35,6 +35,14 @@ const DAY_MS = 24 * HOUR_MS;
 export const CHALLENGE_LEVELS_MS: readonly number[] = [DAY_MS, 7 * DAY_MS, 30 * DAY_MS];
 export const MAX_LEVEL = CHALLENGE_LEVELS_MS.length;
 export const CHALLENGE_HOURS = 24;
+/**
+ * Segni di un operatore esperto che prova ad aggirare il cacciatore, letti nei blocchi di 24 ore:
+ * più tecniche d'attacco insieme (almeno 2 regole diverse) o a raffica (da ADVANCED_OFFENSES blocchi
+ * in su). Non è un contrattacco: chi li mostra salta la verifica breve e parte subito dal livello
+ * ADVANCED_START_LEVEL (7 giorni). Resta sempre una verifica del browser, che una persona vera supera.
+ */
+export const ADVANCED_OFFENSES = 6;
+export const ADVANCED_START_LEVEL = 2;
 /** Il registro di Vercel conserva 24 ore di blocchi (fuori dal piano Enterprise). */
 export const LOOKBACK_MS = DAY_MS;
 /** Tetti di sicurezza: Vercel Pro ammette 100 regole IP; 20 restano per quelle messe a mano. */
@@ -60,7 +68,13 @@ export type IpRule = {
   notes: string | null;
 };
 /** ip è un indirizzo IPv4 o una rete IPv6 /64. */
-export type Offender = { ip: string; offenses: number; reasons: Record<string, number> };
+export type Offender = {
+  ip: string;
+  offenses: number;
+  reasons: Record<string, number>;
+  /** Segni di un tentativo di aggiramento (più tecniche insieme o a raffica): verifica diretta a 7 giorni. */
+  advanced: boolean;
+};
 /** Regola Skynet di chi ha attaccato durante la verifica: nuovo livello. */
 export type Escalation = {
   rule: IpRule;
@@ -264,6 +278,11 @@ export function levelLabel(level: number): string {
   return ms < 2 * DAY_MS ? `${Math.round(ms / HOUR_MS)} ore` : `${Math.round(ms / DAY_MS)} giorni`;
 }
 
+/** Livello di partenza di una nuova verifica: ADVANCED_START_LEVEL per i sospetti aggiramenti, sennò 1. */
+export function startLevel(advanced: boolean): number {
+  return advanced ? ADVANCED_START_LEVEL : 1;
+}
+
 export function skynetNote(expiresAt: Date, level = 1): string {
   const base = `${NOTE_PREFIX}${expiresAt.toISOString()}`;
   return level > 1 ? `${base}${LEVEL_MARK}${Math.min(level, MAX_LEVEL)}` : base;
@@ -374,16 +393,26 @@ export function planHunt(blocks: FirewallBlock[], rules: IpRule[], now: Date): H
     const net = parseNet(subject);
     if (!net || inForce.some((rule) => netContains(rule, net))) continue;
     const { offenses, reasons, enough } = tally(list);
-    if (enough) candidates.push({ ip: subject, offenses, reasons });
+    if (!enough) continue;
+    // Più tecniche d'attacco insieme o un attacco a raffica: operatore esperto, verifica lunga subito.
+    const advanced = Object.keys(reasons).length >= 2 || offenses >= ADVANCED_OFFENSES;
+    candidates.push({ ip: subject, offenses, reasons, advanced });
   }
-  candidates.sort((a, b) => b.offenses - a.offenses || a.ip.localeCompare(b.ip));
+  // Prima i sospetti aggiramenti: se il giro è al tetto, un esperto non resta indietro a uno scanner.
+  candidates.sort(
+    (a, b) =>
+      Number(b.advanced) - Number(a.advanced) ||
+      b.offenses - a.offenses ||
+      a.ip.localeCompare(b.ip),
+  );
 
   const stillActive = skynet.length - release.length;
   const totalRoom = Math.max(0, MAX_SKYNET_IP_RULES - stillActive);
   const challenge = candidates.slice(0, Math.min(MAX_NEW_PER_RUN, totalRoom));
-  const long = skynet.filter(
-    (entry) => !released.has(entry.rule.id) && (escalated.get(entry.rule.id) ?? entry.level) > 1,
-  ).length;
+  const long =
+    skynet.filter(
+      (entry) => !released.has(entry.rule.id) && (escalated.get(entry.rule.id) ?? entry.level) > 1,
+    ).length + challenge.filter((offender) => offender.advanced).length;
   return {
     challenge,
     escalate,
@@ -422,23 +451,35 @@ export function huntIsNotable(result: {
   escalated: number;
   failed: number;
   capped: number;
+  /** Sospetti aggiramenti in questo giro: sempre degni di un avviso. */
+  advanced?: number;
 }): boolean {
   return (
-    result.escalated > 0 || result.failed > 0 || result.capped > 0 || result.challenged >= HUNT_WAVE
+    result.escalated > 0 ||
+    result.failed > 0 ||
+    result.capped > 0 ||
+    (result.advanced ?? 0) > 0 ||
+    result.challenged >= HUNT_WAVE
   );
 }
 
-/** Titolo dell'avviso del cacciatore. */
-export function huntTitle(challenged: number, escalated: number, failed = 0): string {
+/** Titolo dell'avviso del cacciatore. `advanced`: quanti dei nuovi sono sospetti aggiramenti. */
+export function huntTitle(challenged: number, escalated: number, failed = 0, advanced = 0): string {
   if (challenged === 0 && escalated === 0) {
     return failed === 1
       ? 'Il cacciatore non è riuscito ad applicare 1 regola'
       : `Il cacciatore non è riuscito ad applicare ${failed} regole`;
   }
-  const fresh =
-    challenged === 1
-      ? `1 indirizzo rimandato alla verifica per ${CHALLENGE_HOURS} ore`
-      : `${challenged} indirizzi rimandati alla verifica per ${CHALLENGE_HOURS} ore`;
+  const subjects = (n: number) => (n === 1 ? 'indirizzo rimandato' : 'indirizzi rimandati');
+  const longDirect = levelLabel(ADVANCED_START_LEVEL);
+  let fresh = '';
+  if (advanced >= challenged && challenged > 0) {
+    fresh = `${challenged} ${subjects(challenged)} subito alla verifica per ${longDirect} (sospetto aggiramento)`;
+  } else if (advanced > 0) {
+    fresh = `${challenged} ${subjects(challenged)} alla verifica (${advanced} subito per ${longDirect}: sospetto aggiramento)`;
+  } else if (challenged > 0) {
+    fresh = `${challenged} ${subjects(challenged)} alla verifica per ${CHALLENGE_HOURS} ore`;
+  }
   const longer = escalated === 1 ? '1 verifica prolungata' : `${escalated} verifiche prolungate`;
   if (challenged > 0 && escalated > 0) return `${fresh}; ${longer}`;
   if (escalated > 0) return `${longer}: attaccavano anche durante la verifica`;
@@ -453,10 +494,13 @@ export function huntReport(input: {
   queued?: number;
   capped: number;
 }): string {
-  const lines = input.challenged.map(
-    (offender) =>
-      `- ${maskIp(offender.ip)}: ${reasonsText(offender.reasons)} → verifica per ${CHALLENGE_HOURS} ore${offender.ip.endsWith('/64') ? ' (tutta la rete IPv6 /64)' : ''}`,
-  );
+  const lines = input.challenged.map((offender) => {
+    const net = offender.ip.endsWith('/64') ? ' (tutta la rete IPv6 /64)' : '';
+    const outcome = offender.advanced
+      ? `sospetto aggiramento, verifica diretta per ${levelLabel(ADVANCED_START_LEVEL)}`
+      : `verifica per ${CHALLENGE_HOURS} ore`;
+    return `- ${maskIp(offender.ip)}: ${reasonsText(offender.reasons)} → ${outcome}${net}`;
+  });
   for (const step of input.escalated) {
     lines.push(
       `- ${maskIp(step.rule.ip)}: ancora all’attacco durante la verifica (${reasonsText(step.reasons)}) → prolungata a ${levelLabel(step.level)}`,
@@ -476,7 +520,7 @@ export function huntReport(input: {
   }
   lines.push(
     '',
-    `La verifica del browser vale su tutto il sito: gli strumenti automatici restano fuori, una persona vera passa. Chi attacca anche durante la verifica resta fuori più a lungo (${levelLabel(2)}, poi ${levelLabel(3)}). Le regole si tolgono da sole alla scadenza; per toglierne una prima: Vercel → progetto → Firewall → IP Blocking.`,
+    `La verifica del browser vale su tutto il sito: gli strumenti automatici restano fuori, una persona vera passa. Chi mostra i segni di un tentativo di aggiramento (più tecniche d'attacco insieme o a raffica) salta la verifica breve e parte subito da ${levelLabel(ADVANCED_START_LEVEL)}. Chi attacca anche durante la verifica resta fuori più a lungo (${levelLabel(2)}, poi ${levelLabel(3)}). Le regole si tolgono da sole alla scadenza; per toglierne una prima: Vercel → progetto → Firewall → IP Blocking.`,
   );
   return lines.join('\n');
 }

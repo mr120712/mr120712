@@ -44,6 +44,7 @@ import {
   planHunt,
   skynetNote,
   skynetRuleInfo,
+  startLevel,
 } from './hunter';
 import {
   type PqResult,
@@ -449,13 +450,20 @@ export async function huntOffenders(
       removed.push(rule);
     }
   }
-  const expiresAt = new Date(now.getTime() + levelDurationMs(1));
   const challenged: Offender[] = [];
   for (const offender of plan.challenge) {
+    // Sospetto aggiramento (più tecniche o a raffica): parte subito dalla verifica lunga, non dalle 24 ore.
+    const level = startLevel(offender.advanced);
+    const until = new Date(now.getTime() + levelDurationMs(level));
     const ok = await patchFirewall(deps, access, {
       action: 'ip.insert',
       id: null,
-      value: { ip: offender.ip, hostname: '*', action: 'challenge', notes: skynetNote(expiresAt) },
+      value: {
+        ip: offender.ip,
+        hostname: '*',
+        action: 'challenge',
+        notes: skynetNote(until, level),
+      },
     });
     if (ok) challenged.push(offender);
     else failed += 1;
@@ -469,7 +477,8 @@ export async function huntOffenders(
     );
     if (isRecord(firewall) && typeof firewall.version === 'number') version = firewall.version;
   }
-  // Regole Skynet in vigore dopo il giro, con il loro livello (le nuove sono al livello 1).
+  // Regole Skynet già in vigore, con il loro livello. Le nuove verifiche si contano a parte, sotto
+  // (24 ore, o 7 giorni per i sospetti aggiramenti).
   const levels = new Map<string, number>();
   for (const rule of ipRules) {
     const note = skynetRuleInfo(rule);
@@ -485,7 +494,9 @@ export async function huntOffenders(
     queued: plan.queued,
     capped: plan.capped,
     active: levels.size + challenged.length,
-    long: [...levels.values()].filter((level) => level > 1).length,
+    long:
+      [...levels.values()].filter((level) => level > 1).length +
+      challenged.filter((offender) => offender.advanced).length,
     version,
   };
 }
@@ -846,12 +857,13 @@ export async function runSentinel(options: Partial<SentinelDeps> = {}): Promise<
     }
 
     if (hunt && (hunt.challenged.length > 0 || hunt.escalated.length > 0 || hunt.failed > 0)) {
+      const advanced = hunt.challenged.filter((offender) => offender.advanced).length;
       notified += await announce(
         deps,
         {
           kind: 'hunt',
           severity: 'warning',
-          title: huntTitle(hunt.challenged.length, hunt.escalated.length, hunt.failed),
+          title: huntTitle(hunt.challenged.length, hunt.escalated.length, hunt.failed, advanced),
           report: huntReport({
             challenged: hunt.challenged,
             escalated: hunt.escalated,
@@ -867,6 +879,7 @@ export async function runSentinel(options: Partial<SentinelDeps> = {}): Promise<
           escalated: hunt.escalated.length,
           failed: hunt.failed,
           capped: hunt.capped,
+          advanced,
         }),
       );
     }
