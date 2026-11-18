@@ -167,6 +167,7 @@ import lyricsStyles from './lyrics-panel.module.css';
 import { lyricsTargetFor } from './lyrics-target';
 import styles from './music-player.module.css';
 import { RemoveVideoButton } from './remove-video-button';
+import { YouTubePremiumButton } from './youtube-premium-button';
 import { loadYouTubeIframeApi } from './youtube-queue-player';
 
 export type MusicPlaybackMode =
@@ -4469,6 +4470,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                       contentClassName={FULL_PLAYER_MENU}
                     />
                   ) : null}
+                  <YouTubePremiumButton videoId={songSearchVideoId} />
                   {currentTrack.sourceUrl ? (
                     <a href={currentTrack.sourceUrl} target="_blank" rel="noreferrer">
                       {currentTrack.sourceUrlLabel ?? `Apri la fonte ${currentTrack.sourceLabel}`}{' '}

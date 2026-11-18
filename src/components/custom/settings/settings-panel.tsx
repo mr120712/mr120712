@@ -3,7 +3,7 @@
 // aggiorna da sola tramite gli store (useSyncExternalStore).
 'use client';
 
-import { Infinity as InfinityIcon, Sparkles, Wifi } from 'lucide-react';
+import { Infinity as InfinityIcon, Sparkles, Wifi, Youtube } from 'lucide-react';
 import { type ReactNode, useId } from 'react';
 import { Switch } from '@/components/ui/switch';
 import { setAutoplay, useAutoplay } from '@/lib/music/autoplay';
@@ -12,6 +12,7 @@ import {
   setPersonalRecommendations,
   usePersonalRecommendations,
 } from '@/lib/music/recommendations-pref';
+import { setYouTubePremium, useYouTubePremium } from '@/lib/music/youtube-premium';
 
 function ToggleRow({
   icon,
@@ -56,6 +57,7 @@ export function SettingsPanel() {
   const autoplay = useAutoplay();
   const dataSaver = useDataSaver();
   const personalRecommendations = usePersonalRecommendations();
+  const youtubePremium = useYouTubePremium();
 
   return (
     <div className="divide-y divide-border rounded-xl border border-border bg-card px-5 text-card-foreground">
@@ -79,6 +81,13 @@ export function SettingsPanel() {
         description="«Potrebbe piacerti» nella Home usa i tuoi ascolti, i Preferiti e il diario, solo per te. Spenti, vedi solo i brani popolari su Solco. Vale per questo dispositivo."
         checked={personalRecommendations}
         onChange={setPersonalRecommendations}
+      />
+      <ToggleRow
+        icon={<Youtube aria-hidden="true" className="size-5" />}
+        title="Ho YouTube Premium"
+        description="Sui brani di YouTube aggiunge il tasto «Apri in YouTube»: lì il tuo abbonamento vale (niente pubblicità, ascolto in background). Solco non può usare il Premium nel suo player: lo consente solo YouTube. Vale per questo dispositivo."
+        checked={youtubePremium}
+        onChange={setYouTubePremium}
       />
     </div>
   );

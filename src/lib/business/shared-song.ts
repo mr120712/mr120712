@@ -96,6 +96,19 @@ export function youtubeMusicUrl(title: string, artist: string | null, videoId?: 
   return `https://music.youtube.com/search?q=${encodeURIComponent(query)}`;
 }
 
+/**
+ * YouTube (app/sito) sul video esatto, per chi possiede YouTube Premium: lì l'abbonamento vale
+ * (niente pubblicità, ascolto in background). Solo con un id valido, altrimenti null: niente ricerca
+ * di ripiego, così il tasto «Premium» apre sempre il brano giusto o non compare. È solo un link:
+ * nessuna API, e Solco non può usare il Premium dentro il proprio player.
+ */
+export function youtubeWatchUrl(videoId: string | null | undefined): string | null {
+  if (videoId && YOUTUBE_VIDEO_ID.test(videoId)) {
+    return `https://www.youtube.com/watch?v=${videoId}`;
+  }
+  return null;
+}
+
 export type ListenElsewhereLink = { id: string; label: string; href: string };
 
 /** The "Ascolta altrove" menu: plain links to the same song on other services. */

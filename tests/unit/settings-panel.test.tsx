@@ -7,6 +7,7 @@ import { SettingsPanel } from '@/components/custom/settings/settings-panel';
 import { getAutoplay } from '@/lib/music/autoplay';
 import { getDataSaver } from '@/lib/music/data-saver';
 import { getPersonalRecommendations } from '@/lib/music/recommendations-pref';
+import { getYouTubePremium } from '@/lib/music/youtube-premium';
 
 const roots: Array<ReturnType<typeof createRoot>> = [];
 
@@ -34,14 +35,16 @@ afterEach(async () => {
 });
 
 describe('SettingsPanel', () => {
-  it('mostra tre interruttori: Autoplay e Risparmio dati spenti, Consigli personalizzati acceso', async () => {
+  it('mostra quattro interruttori: Autoplay, Risparmio dati e «Ho YouTube Premium» spenti, Consigli personalizzati acceso', async () => {
     const container = await mount();
     const list = switches(container);
-    expect(list).toHaveLength(3);
+    expect(list).toHaveLength(4);
     expect(list[0]?.getAttribute('aria-checked')).toBe('false');
     expect(list[1]?.getAttribute('aria-checked')).toBe('false');
     expect(list[2]?.getAttribute('aria-checked')).toBe('true');
+    expect(list[3]?.getAttribute('aria-checked')).toBe('false');
     expect(container.textContent).toContain('Consigli personalizzati');
+    expect(container.textContent).toContain('Ho YouTube Premium');
   });
 
   it('spegne i Consigli personalizzati: lo store per dispositivo è aggiornato', async () => {
@@ -84,5 +87,16 @@ describe('SettingsPanel', () => {
     window.localStorage.setItem('solco:autoplay', '1');
     const container = await mount();
     expect(switches(container)[0]?.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('accende «Ho YouTube Premium»: lo store per dispositivo è aggiornato', async () => {
+    const container = await mount();
+    await act(async () => {
+      switches(container)[3]?.click();
+    });
+    expect(getYouTubePremium()).toBe(true);
+    expect(window.localStorage.getItem('solco:youtube-premium')).toBe('1');
+    expect(switches(container)[3]?.getAttribute('aria-checked')).toBe('true');
+    expect(getAutoplay()).toBe(false);
   });
 });
