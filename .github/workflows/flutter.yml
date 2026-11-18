@@ -140,6 +140,8 @@ jobs:
         run: |
           AAB=$(ls build/app/outputs/bundle/release/*.aab | head -1)
           echo "AAB: $AAB ($(du -h "$AAB" | cut -f1))"
+          echo "== versione dell'app (da pubspec: versionName+versionCode, atteso 0.7.1+10) =="
+          grep -nE "^version:" pubspec.yaml || true
           echo "== impronta del certificato di firma (atteso 02:28:46:FD:...:F2:52) =="
           keytool -printcert -jarfile "$AAB" | grep -iE "SHA256:" || echo "(nessuna firma: build di debug)"
           echo "== package e versione (dal manifest) =="
@@ -148,9 +150,7 @@ jobs:
           if [ -f android/app/build.gradle.kts ]; then GRADLE_APP=android/app/build.gradle.kts; else GRADLE_APP=android/app/build.gradle; fi
           grep -nE "minSdk|targetSdk|compileSdk" "$GRADLE_APP" || true
           echo "== Play Billing Library (via in_app_purchase_android; 0.5.x = Billing >= 8.0.0) =="
-          grep -A3 -E "^  in_app_purchase_android:" pubspec.lock | grep -E "version:" || true
-          echo "== minSdk (atteso 24, richiesto da Play Protect) =="
-          grep -nE "minSdk" android/app/build.gradle || true
+          awk '/^  in_app_purchase_android:/{f=1} f&&/version:/{print; f=0}' pubspec.lock || true
 
       - name: Pubblica l'AAB come artefatto
         if: always() && inputs.mode == 'aab'
