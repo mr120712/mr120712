@@ -11,6 +11,7 @@ vi.mock('@/lib/api-client', () => ({ apiFetch: mocks.apiFetch }));
 import {
   agoText,
   huntedText,
+  learningText,
   quantumText,
   SkynetPanel,
 } from '@/components/custom/monitoring/skynet-panel';
@@ -237,6 +238,61 @@ describe('pannello Skynet', () => {
     expect(huntedText(at(1))).toBe('1 indirizzo (24 ore)');
     expect(huntedText(at(5, 1))).toBe('5 indirizzi, di cui 1 prolungato (7 o 30 giorni)');
     expect(huntedText(at(5, 2))).toBe('5 indirizzi, di cui 2 prolungati (7 o 30 giorni)');
+  });
+
+  it('apprendimento: riga, spiegazione e contratto (accetta i segnali senza il campo)', async () => {
+    const base = overview();
+    // I segnali salvati prima dell'apprendimento non hanno il campo.
+    expect(SkynetOverviewSchema.parse(base).learning).toBeUndefined();
+    expect(learningText(base)).toBe('—');
+
+    const learned: SkynetOverview = {
+      ...base,
+      learning: {
+        learned: true,
+        runs: 120,
+        pressurePerRun: 3.2,
+        anomalyPerRun: 0,
+        advancedOffenses: 4,
+        waveThreshold: 12,
+        topReasons: [{ reason: 'sonde da scanner', share: 70 }],
+        busiestHours: [2, 3],
+        note: 'Negli ultimi giri gli attacchi insistono: soglia abbassata a 4 blocchi.',
+      },
+    };
+    expect(SkynetOverviewSchema.parse(learned)).toEqual(learned);
+    expect(learningText(learned)).toBe(
+      'Soglia «aggiramento» a 4 blocchi · ondata a 12 · imparato da 120 giri',
+    );
+
+    mocks.apiFetch.mockResolvedValue(learned);
+    const view = await mount();
+    const text = view.textContent ?? '';
+    expect(text).toContain('Apprendimento');
+    expect(text).toContain('Soglia «aggiramento» a 4 blocchi · ondata a 12');
+    expect(text).toContain('Cosa ha imparato Skynet');
+    expect(text).toContain('sonde da scanner 70%');
+    expect(text).toContain('Ore con più attacchi (UTC): 2, 3');
+  });
+
+  it('apprendimento: finché non è maturo mostra le soglie di partenza', () => {
+    const young: SkynetOverview = {
+      ...overview(),
+      learning: {
+        learned: false,
+        runs: 12,
+        pressurePerRun: 0.4,
+        anomalyPerRun: 0,
+        advancedOffenses: 6,
+        waveThreshold: 5,
+        topReasons: [],
+        busiestHours: [],
+        note: 'Skynet sta imparando dal traffico (12 giri).',
+      },
+    };
+    expect(learningText(young)).toBe(
+      'Sta imparando dal traffico (12 giri): soglie di sicurezza di partenza',
+    );
   });
 
   it('tempi relativi in italiano', () => {

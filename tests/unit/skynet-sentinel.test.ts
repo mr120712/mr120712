@@ -461,6 +461,23 @@ describe('Skynet, il cacciatore', () => {
     });
   });
 
+  it('impara dagli attacchi a ogni giro, e nello stato appreso non finisce mai un indirizzo', async () => {
+    site.blocks = [
+      { public_ip: '203.0.113.5', ruleName: SCANNER, count: 1, startTime: at(-5) },
+      { public_ip: '203.0.113.5', ruleName: LOGIN, count: 1, startTime: at(-4) },
+    ];
+    await tick();
+    const learned = fake.state.get('main')?.learning as
+      | { version: number; runs: number; advancedRate: number; reasonShare: Record<string, number> }
+      | undefined;
+    expect(learned?.runs).toBe(1);
+    // Ha visto un sospetto aggiramento (scanner + accesso insieme) e la tecnica scanner.
+    expect(learned?.advancedRate).toBeGreaterThan(0);
+    expect(Object.keys(learned?.reasonShare ?? {})).toContain('sonde da scanner');
+    // Mai un indirizzo IP nello stato appreso.
+    expect(JSON.stringify(learned)).not.toContain('203.0.113.5');
+  });
+
   it('chi attacca durante la verifica: prolungata a 7 giorni, una volta sola e senza «manomissione»', async () => {
     site.ips = [
       {

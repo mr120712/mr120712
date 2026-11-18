@@ -335,7 +335,12 @@ function tally(blocks: FirewallBlock[]): Tally {
  * Cosa fare in questo giro: chi rimandare alla verifica, chi ha attaccato durante la verifica (e
  * sale di livello), quali regole Skynet scadute togliere. Le regole manuali non si toccano mai.
  */
-export function planHunt(blocks: FirewallBlock[], rules: IpRule[], now: Date): HuntPlan {
+export function planHunt(
+  blocks: FirewallBlock[],
+  rules: IpRule[],
+  now: Date,
+  advancedOffenses: number = ADVANCED_OFFENSES,
+): HuntPlan {
   const offending = blocks.filter((block) => OFFENDER_RULES[block.ruleName] !== undefined);
   const skynet = rules.flatMap((rule) => {
     const note = skynetRuleInfo(rule);
@@ -395,7 +400,8 @@ export function planHunt(blocks: FirewallBlock[], rules: IpRule[], now: Date): H
     const { offenses, reasons, enough } = tally(list);
     if (!enough) continue;
     // Più tecniche d'attacco insieme o un attacco a raffica: operatore esperto, verifica lunga subito.
-    const advanced = Object.keys(reasons).length >= 2 || offenses >= ADVANCED_OFFENSES;
+    // La soglia «a raffica» può essere adattata da ciò che Skynet ha imparato (learning.ts), dentro limiti fissi.
+    const advanced = Object.keys(reasons).length >= 2 || offenses >= advancedOffenses;
     candidates.push({ ip: subject, offenses, reasons, advanced });
   }
   // Prima i sospetti aggiramenti: se il giro è al tetto, un esperto non resta indietro a uno scanner.
@@ -453,13 +459,15 @@ export function huntIsNotable(result: {
   capped: number;
   /** Sospetti aggiramenti in questo giro: sempre degni di un avviso. */
   advanced?: number;
+  /** Soglia dell'ondata, eventualmente adattata da learning.ts; sennò HUNT_WAVE. */
+  waveThreshold?: number;
 }): boolean {
   return (
     result.escalated > 0 ||
     result.failed > 0 ||
     result.capped > 0 ||
     (result.advanced ?? 0) > 0 ||
-    result.challenged >= HUNT_WAVE
+    result.challenged >= (result.waveThreshold ?? HUNT_WAVE)
   );
 }
 

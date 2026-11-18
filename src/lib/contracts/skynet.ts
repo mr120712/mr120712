@@ -41,6 +41,24 @@ export const SkynetSignalsSchema = z.object({
   quantum: SkynetQuantumSchema.nullable().optional(),
 });
 
+/** Cosa «Skynet» ha imparato dagli attacchi e come ha regolato le difese (apprendimento in linea). */
+export const SkynetLearningSchema = z.object({
+  /** L'apprendimento è maturo e sta guidando le soglie (sennò: soglie di partenza). */
+  learned: z.boolean(),
+  runs: z.number().int().nonnegative(),
+  /** Attacchi tipici per giro. */
+  pressurePerRun: z.number().nonnegative(),
+  /** Anomalie di traffico tipiche per giro. */
+  anomalyPerRun: z.number().nonnegative(),
+  /** Soglia attuale del «sospetto aggiramento» (dentro limiti fissi). */
+  advancedOffenses: z.number().int(),
+  /** Soglia attuale dell'ondata per gli avvisi Telegram. */
+  waveThreshold: z.number().int(),
+  topReasons: z.array(z.object({ reason: z.string(), share: z.number().int() })),
+  busiestHours: z.array(z.number().int()),
+  note: z.string(),
+});
+
 export const SkynetEventSchema = z.object({
   id: z.string(),
   at: z.string(),
@@ -65,7 +83,10 @@ export const SkynetOverviewSchema = z.object({
     ai: z.boolean(),
   }),
   events: z.array(SkynetEventSchema),
+  // I segnali salvati prima dell'apprendimento non hanno il campo.
+  learning: SkynetLearningSchema.nullable().optional(),
 });
 
 export type SkynetOverview = z.infer<typeof SkynetOverviewSchema>;
+export type SkynetLearningView = z.infer<typeof SkynetLearningSchema>;
 export type SkynetEventView = z.infer<typeof SkynetEventSchema>;

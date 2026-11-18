@@ -80,6 +80,15 @@ export function huntedText(data: SkynetOverview): string {
   return `${base}, di cui ${long === 1 ? '1 prolungato' : `${long} prolungati`} (7 o 30 giorni)`;
 }
 
+export function learningText(data: SkynetOverview): string {
+  const learning = data.learning;
+  if (!learning) return '—';
+  if (!learning.learned) {
+    return `Sta imparando dal traffico (${learning.runs} ${learning.runs === 1 ? 'giro' : 'giri'}): soglie di sicurezza di partenza`;
+  }
+  return `Soglia «aggiramento» a ${learning.advancedOffenses} blocchi · ondata a ${learning.waveThreshold} · imparato da ${learning.runs} giri`;
+}
+
 function hostsText(hosts: string[]): string {
   return hosts.length > 1
     ? `${hosts.slice(0, -1).join(', ')} e ${hosts[hosts.length - 1]}`
@@ -134,7 +143,7 @@ export function SkynetPanel() {
   return (
     <Panel
       title="Skynet · sentinella"
-      description="Guarda il sito ogni minuto e avvisa gli amministratori su Telegram. Sugli incidenti avvisa soltanto. Il cacciatore manda alla verifica del browser chi cerca file da hacker (al primo tentativo) o insiste sugli accessi: 24 ore, 7 o 30 giorni per chi attacca anche durante la verifica (su Telegram solo prolungamenti e ondate, il resto nel diario). Il motore post-quantistico controlla ogni ora che le connessioni resistano anche ai futuri computer quantistici."
+      description="Guarda il sito ogni minuto e avvisa gli amministratori su Telegram. Sugli incidenti avvisa soltanto. Il cacciatore manda alla verifica del browser chi cerca file da hacker (al primo tentativo) o insiste sugli accessi: 24 ore, 7 o 30 giorni per chi attacca anche durante la verifica (su Telegram solo prolungamenti e ondate, il resto nel diario). Impara dagli attacchi (statistiche aggregate, nessun indirizzo IP) e regola da solo alcune soglie di difesa, sempre dentro limiti fissi. Il motore post-quantistico controlla ogni ora che le connessioni resistano anche ai futuri computer quantistici."
     >
       {error ? (
         <p role="alert" className={styles.muted}>
@@ -186,6 +195,8 @@ function SkynetBody({ data, now }: { data: SkynetOverview; now: number }) {
         <dd>{firewallText(data)}</dd>
         <dt>Hacker in verifica</dt>
         <dd>{huntedText(data)}</dd>
+        <dt>Apprendimento</dt>
+        <dd>{learningText(data)}</dd>
         <dt>Motore post-quantistico</dt>
         <dd>{quantumText(data, now)}</dd>
         <dt>Protezione anti-attacco</dt>
@@ -234,6 +245,36 @@ function SkynetBody({ data, now }: { data: SkynetOverview; now: number }) {
           </li>
         </ul>
       </details>
+
+      {data.learning ? (
+        <details className={styles.quantum}>
+          <summary>Cosa ha imparato Skynet</summary>
+          <p className={styles.muted}>{data.learning.note}</p>
+          <ul>
+            <li>
+              Attacchi tipici: {data.learning.pressurePerRun} per giro
+              {data.learning.anomalyPerRun > 0
+                ? `, ${data.learning.anomalyPerRun} anomalie di traffico per giro`
+                : ''}
+              .
+            </li>
+            {data.learning.topReasons.length > 0 ? (
+              <li>
+                Tecniche più viste:{' '}
+                {data.learning.topReasons.map((r) => `${r.reason} ${r.share}%`).join(', ')}.
+              </li>
+            ) : null}
+            {data.learning.busiestHours.length > 0 ? (
+              <li>Ore con più attacchi (UTC): {data.learning.busiestHours.join(', ')}.</li>
+            ) : null}
+            <li>
+              Regola da solo la soglia del «sospetto aggiramento» e quella dell'ondata, sempre
+              dentro limiti fissi: non può spegnere una protezione, creare un blocco totale o
+              salvare un indirizzo.
+            </li>
+          </ul>
+        </details>
+      ) : null}
 
       {!data.configured.vercel ? (
         <div className={styles.hint}>

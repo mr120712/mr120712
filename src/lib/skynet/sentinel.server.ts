@@ -47,6 +47,14 @@ import {
   startLevel,
 } from './hunter';
 import {
+  adaptedThresholds,
+  DEFAULT_ADVANCED_OFFENSES,
+  defenseSummary,
+  type LearnedDefense,
+  learn,
+  parseLearned,
+} from './learning';
+import {
   type PqResult,
   parseQuantum,
   type QuantumSignals,
@@ -421,12 +429,13 @@ export async function huntOffenders(
   deps: SentinelDeps,
   ipRules: IpRule[] | null,
   now: Date,
+  advancedOffenses: number = DEFAULT_ADVANCED_OFFENSES,
 ): Promise<HuntResult | null> {
   const access = vercelAccess(deps.env);
   if (!access || ipRules === null) return null;
   const blocks = await readFirewallBlocks(deps, access, now);
   if (blocks === null) return null;
-  const plan = planHunt(blocks, ipRules, now);
+  const plan = planHunt(blocks, ipRules, now, advancedOffenses);
   const escalated: Escalation[] = [];
   let failed = 0;
   for (const step of plan.escalate) {
@@ -817,12 +826,43 @@ export async function runSentinel(options: Partial<SentinelDeps> = {}): Promise<
     const problems = detectProblems(signals);
     const step = decide(memory, problems, signals, now);
 
+    // Ciò che Skynet ha imparato finora guida (dentro limiti fissi) le soglie del cacciatore.
+    const learnedPrev = parseLearned(row?.learning);
+    const adapted = adaptedThresholds(learnedPrev);
+
     // Il cacciatore lavora dopo la decisione: le sue modifiche al firewall non sono «manomissioni».
-    const hunt = await huntOffenders(deps, ipRules, now).catch(() => null);
+    const hunt = await huntOffenders(deps, ipRules, now, adapted.advancedOffenses).catch(
+      () => null,
+    );
+    let learnedNext: LearnedDefense | null = learnedPrev;
     if (hunt) {
       signals.vercel.hunted = hunt.active;
       signals.vercel.huntedLong = hunt.long;
       if (hunt.version !== null) step.memory.firewallVersion = hunt.version;
+      // Impara da questo giro (aggregato, senza indirizzi) per difendersi meglio nei prossimi.
+      const reasons: Record<string, number> = {};
+      for (const offender of hunt.challenged) {
+        for (const [reason, count] of Object.entries(offender.reasons)) {
+          reasons[reason] = (reasons[reason] ?? 0) + count;
+        }
+      }
+      for (const esc of hunt.escalated) {
+        for (const [reason, count] of Object.entries(esc.reasons)) {
+          reasons[reason] = (reasons[reason] ?? 0) + count;
+        }
+      }
+      learnedNext = learn(
+        learnedPrev,
+        {
+          challenged: hunt.challenged.length,
+          escalated: hunt.escalated.length,
+          advanced: hunt.challenged.filter((offender) => offender.advanced).length,
+          anomalies: signals.vercel.anomalies ?? 0,
+          reasons,
+          hour: now.getUTCHours(),
+        },
+        now,
+      );
     }
 
     await deps.db.skynetState.update({
@@ -836,6 +876,7 @@ export async function runSentinel(options: Partial<SentinelDeps> = {}): Promise<
         lastNotifiedAt: step.memory.lastNotifiedAt ? new Date(step.memory.lastNotifiedAt) : null,
         firewallVersion: step.memory.firewallVersion,
         lastSignals: signals,
+        ...(learnedNext ? { learning: learnedNext } : {}),
       },
     });
 
@@ -880,6 +921,7 @@ export async function runSentinel(options: Partial<SentinelDeps> = {}): Promise<
           failed: hunt.failed,
           capped: hunt.capped,
           advanced,
+          waveThreshold: adapted.waveThreshold,
         }),
       );
     }
@@ -979,5 +1021,7 @@ export async function skynetOverview(options: Partial<Pick<SentinelDeps, 'db' | 
       keys: event.keys,
       notified: event.notified,
     })),
+    // Cosa Skynet ha imparato e come ha regolato le difese (apprendimento in linea, learning.ts).
+    learning: defenseSummary(parseLearned(row?.learning)),
   };
 }
