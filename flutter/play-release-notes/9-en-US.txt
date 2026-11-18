@@ -1,0 +1,10 @@
+Welcome to the new Solco app — now native: faster, smoother and lighter.
+
+What's new:
+• Background playback with lock-screen controls
+• Radio and podcasts
+• Your library and playlists always at hand
+• Synced lyrics on supported tracks
+• One search for songs, artists, radio and podcasts
+
+Thanks for listening with Solco 🎵
