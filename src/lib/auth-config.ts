@@ -144,10 +144,19 @@ export const authConfig: BetterAuthOptions = {
   // Apple posts back from https://appleid.apple.com: that origin is listed in
   // BETTER_AUTH_TRUSTED_ORIGINS (the framework owns trustedOrigins).
   ...(appleCredentials ? { socialProviders: { apple: appleCredentials } } : {}),
-  // Google verifies the email it returns: an existing Solco account with the same email
-  // is linked instead of failing with account_not_linked.
+  // Google verifies the email it returns, so an existing Solco account with the same email is
+  // LINKED instead of failing with account_not_linked. `trustedProviders` trusts the INCOMING
+  // Google email; `requireLocalEmailVerified: false` also drops better-auth's default check that
+  // the EXISTING account's email be verified — without it, accounts whose email was never
+  // confirmed (e.g. created via the old Polsia-broker Google sign-in, which did not mark it
+  // verified) stay locked out with account_not_linked. Safe here: Google verifies the email, and
+  // Solco gates sensitive actions on user.emailVerified.
   account: {
-    accountLinking: { enabled: true, trustedProviders: ['google'] },
+    accountLinking: {
+      enabled: true,
+      trustedProviders: ['google'],
+      requireLocalEmailVerified: false,
+    },
     // Token di accesso e di aggiornamento di Google/Apple cifrati nel database (XChaCha20-Poly1305,
     // chiave derivata da BETTER_AUTH_SECRET): una copia rubata del database non basta per usarli.
     // Compatibile con le righe già salvate: un token in chiaro (non esadecimale) si legge così com'è
