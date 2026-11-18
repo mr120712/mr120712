@@ -82,6 +82,17 @@ jobs:
           # Rete (INTERNET) + audio in background (just_audio_background) + nome app «Solco».
           # Dopo flutter_launcher_icons, così il nostro manifest vince.
           cp android-config/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          # Play Protect richiede minSdk >= 24; il template di Flutter genera 21
+          # (minSdk = flutter.minSdkVersion). Lo forziamo a 24 nel build.gradle generato,
+          # sempre (anche per la build di debug), e interrompiamo se non è andato a buon fine.
+          sed -i 's/flutter\.minSdkVersion/24/g' android/app/build.gradle
+          echo "minSdk nel build.gradle dopo la patch:"
+          grep -nE "minSdk" android/app/build.gradle || true
+          if grep -q "flutter\.minSdkVersion" android/app/build.gradle \
+            || ! grep -qE "minSdk(Version)?[[:space:]]*=?[[:space:]]*24" android/app/build.gradle; then
+            echo "ERRORE: minSdk non risulta 24 nel build.gradle; interrompo." >&2
+            exit 1
+          fi
           # Firma di release SOLO se il keystore è nei GitHub Secrets; altrimenti build di debug.
           if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
             echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
@@ -123,6 +134,8 @@ jobs:
           keytool -printcert -jarfile "$AAB" | grep -iE "SHA256:" || echo "(nessuna firma: build di debug)"
           echo "== package e versione (dal manifest) =="
           unzip -p "$AAB" base/manifest/AndroidManifest.xml | strings | grep -iE "online.solcomusic.solco|0\.7\.1" | head -3 || true
+          echo "== minSdk (atteso 24, richiesto da Play Protect) =="
+          grep -nE "minSdk" android/app/build.gradle || true
 
       - name: Pubblica l'AAB come artefatto
         if: always() && inputs.mode == 'aab'
