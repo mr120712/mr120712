@@ -365,7 +365,7 @@ describe('Skynet, il cacciatore', () => {
   const at = (minutes: number) =>
     new Date(Date.UTC(2026, 10, 17, 21, minutes)).toISOString().replace('T', ' ').replace('Z', '');
 
-  it('sonda da scanner: verifica al primo blocco su tutti gli host; un tentativo d’accesso da solo no', async () => {
+  it('sonda da scanner: verifica al primo blocco su tutti gli host, nel diario; un tentativo d’accesso da solo no', async () => {
     site.blocks = [
       { public_ip: '203.0.113.77', ruleName: SCANNER, count: 1, startTime: at(-30) },
       { public_ip: '198.51.100.5', ruleName: LOGIN, count: 1, startTime: at(-20) },
@@ -384,18 +384,21 @@ describe('Skynet, il cacciatore', () => {
         },
       },
     ]);
-    expect(sent[0]?.html).toContain('🛡️ Skynet · hacker rimandati alla verifica');
-    expect(sent[0]?.html).toContain('203.0.x.x: sonde da scanner ×1 → verifica per 24 ore');
-    // Mai l'indirizzo intero nel diario o nei messaggi.
-    expect(JSON.stringify(fake.events)).not.toContain('203.0.113.77');
-    expect(sent[0]?.html).not.toContain('203.0.113.77');
+    // Una verifica di routine resta nel diario del pannello: niente Telegram.
+    expect(sent).toEqual([]);
     expect(fake.events).toMatchObject([
       {
         kind: 'hunt',
         severity: 'warning',
         title: '1 indirizzo rimandato alla verifica per 24 ore',
+        notified: 0,
       },
     ]);
+    expect(fake.events[0]?.report).toContain(
+      '203.0.x.x: sonde da scanner ×1 → verifica per 24 ore',
+    );
+    // Mai l'indirizzo intero nel diario.
+    expect(JSON.stringify(fake.events)).not.toContain('203.0.113.77');
     expect(fake.state.get('main')?.lastSignals).toMatchObject({
       vercel: { hunted: 1, huntedLong: 0 },
     });
@@ -403,6 +406,22 @@ describe('Skynet, il cacciatore', () => {
     // blocchi ancora in corso).
     const events = calls.find((c) => c.url.includes('/v1/security/firewall/events'));
     expect(events?.url).toMatch(/startTimestamp=\d+&endTimestamp=\d+/);
+  });
+
+  it('ondata (5 nuovi in un giro): avviso su Telegram, indirizzi mascherati', async () => {
+    site.blocks = [1, 2, 3, 4, 5].map((n) => ({
+      public_ip: `203.0.113.${n}`,
+      ruleName: SCANNER,
+      count: 1,
+      startTime: at(-n),
+    }));
+    await tick();
+    expect(site.patches).toHaveLength(5);
+    expect(sent.map((m) => m.chat)).toEqual(['111111']);
+    expect(sent[0]?.html).toContain('🛡️ Skynet · hacker rimandati alla verifica');
+    expect(sent[0]?.html).toContain('5 indirizzi rimandati alla verifica per 24 ore');
+    expect(sent[0]?.html).toContain('203.0.x.x: sonde da scanner ×1 → verifica per 24 ore');
+    expect(sent[0]?.html).not.toContain('203.0.113.');
   });
 
   it('due tentativi d’accesso a raffica in 24 ore: verifica', async () => {
@@ -461,8 +480,8 @@ describe('Skynet, il cacciatore', () => {
     expect(site.patches).toMatchObject([
       { action: 'ip.insert', value: { ip: '2001:db8:85a3:7::/64', action: 'challenge' } },
     ]);
-    expect(sent[0]?.html).toContain('2001:db8:…/64');
-    expect(sent[0]?.html).not.toContain('85a3:7::');
+    expect(fake.events[0]?.report).toContain('2001:db8:…/64');
+    expect(JSON.stringify(fake.events)).not.toContain('85a3:7::');
   });
 
   it('le modifiche di Skynet non sembrano manomissioni al giro dopo', async () => {

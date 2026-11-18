@@ -38,6 +38,8 @@ export const LOOKBACK_MS = DAY_MS;
 /** Tetti di sicurezza: Vercel Pro ammette 100 regole IP; 20 restano per quelle messe a mano. */
 export const MAX_SKYNET_IP_RULES = 80;
 export const MAX_NEW_PER_RUN = 10;
+/** Da quanti nuovi hacker in un giro si avvisa su Telegram (sotto, solo il diario del pannello). */
+export const HUNT_WAVE = 5;
 export const NOTE_PREFIX = 'Skynet · verifica fino al ';
 const LEVEL_MARK = ' · livello ';
 
@@ -407,6 +409,21 @@ function reasonsText(reasons: Record<string, number>): string {
   return Object.entries(reasons)
     .map(([reason, count]) => `${reason} ×${count}`)
     .join(', ');
+}
+
+/**
+ * Su Telegram solo i fatti importanti: prolungamenti, errori, ondate (HUNT_WAVE nuovi in un giro) o
+ * tetto raggiunto. Le verifiche di routine (una sonda ogni tanto) restano nel diario del pannello.
+ */
+export function huntIsNotable(result: {
+  challenged: number;
+  escalated: number;
+  failed: number;
+  capped: number;
+}): boolean {
+  return (
+    result.escalated > 0 || result.failed > 0 || result.capped > 0 || result.challenged >= HUNT_WAVE
+  );
 }
 
 /** Titolo dell'avviso del cacciatore. */

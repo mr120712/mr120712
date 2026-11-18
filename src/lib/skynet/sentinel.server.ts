@@ -32,6 +32,7 @@ import { prisma } from '@/lib/db';
 import { latestRun, recordHeartbeat, STALE_AFTER_MS } from '@/lib/monitoring/monitor.server';
 import {
   type Escalation,
+  huntIsNotable,
   huntReport,
   huntTitle,
   type IpRule,
@@ -612,6 +613,8 @@ async function announce(
     keys: ProblemKey[];
   },
   problems: Problem[],
+  /** false: solo nel diario del pannello, niente Telegram. */
+  telegram = true,
 ): Promise<number> {
   const row = await deps.db.skynetEvent.create({
     data: {
@@ -625,6 +628,7 @@ async function announce(
     select: { id: true },
   });
   let delivered = 0;
+  if (!telegram) return delivered;
   try {
     const chats = await telegramRecipients(deps);
     const html = telegramText(event, problems, event.report, siteOrigin(deps.env));
@@ -858,6 +862,12 @@ export async function runSentinel(options: Partial<SentinelDeps> = {}): Promise<
           keys: [],
         },
         [],
+        huntIsNotable({
+          challenged: hunt.challenged.length,
+          escalated: hunt.escalated.length,
+          failed: hunt.failed,
+          capped: hunt.capped,
+        }),
       );
     }
 

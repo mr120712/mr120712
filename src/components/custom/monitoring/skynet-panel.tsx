@@ -133,7 +133,7 @@ export function SkynetPanel() {
   return (
     <Panel
       title="Skynet · sentinella"
-      description="Guarda il sito ogni minuto e avvisa gli amministratori su Telegram. Sugli incidenti avvisa soltanto. Il cacciatore manda alla verifica del browser chi cerca file da hacker (al primo tentativo) o insiste sugli accessi: 24 ore, 7 o 30 giorni per chi attacca anche durante la verifica. Il motore post-quantistico controlla ogni ora che le connessioni resistano anche ai futuri computer quantistici."
+      description="Guarda il sito ogni minuto e avvisa gli amministratori su Telegram. Sugli incidenti avvisa soltanto. Il cacciatore manda alla verifica del browser chi cerca file da hacker (al primo tentativo) o insiste sugli accessi: 24 ore, 7 o 30 giorni per chi attacca anche durante la verifica (su Telegram solo prolungamenti e ondate, il resto nel diario). Il motore post-quantistico controlla ogni ora che le connessioni resistano anche ai futuri computer quantistici."
     >
       {error ? (
         <p role="alert" className={styles.muted}>

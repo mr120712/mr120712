@@ -9,6 +9,8 @@ import { describe, expect, it } from 'vitest';
 import {
   apiTimestamp,
   type FirewallBlock,
+  HUNT_WAVE,
+  huntIsNotable,
   huntReport,
   huntSubject,
   huntTitle,
@@ -342,6 +344,15 @@ describe('testi', () => {
     expect(maskIp('203.0.113.77')).toBe('203.0.x.x');
     expect(maskIp('2001:db8:85a3::8a2e:370:7334')).toBe('2001:db8:…');
     expect(maskIp('2001:db8:85a3:7::/64')).toBe('2001:db8:…/64');
+  });
+
+  it('su Telegram solo prolungamenti, errori, ondate e tetto; la routine resta nel diario', () => {
+    const quiet = { challenged: 1, escalated: 0, failed: 0, capped: 0 };
+    expect(huntIsNotable(quiet)).toBe(false);
+    expect(huntIsNotable({ ...quiet, challenged: HUNT_WAVE })).toBe(true);
+    expect(huntIsNotable({ ...quiet, escalated: 1 })).toBe(true);
+    expect(huntIsNotable({ ...quiet, failed: 1 })).toBe(true);
+    expect(huntIsNotable({ ...quiet, capped: 1 })).toBe(true);
   });
 
   it('titoli dell’avviso', () => {
