@@ -114,6 +114,16 @@ jobs:
         if: inputs.mode == 'aab'
         run: flutter build appbundle --release
 
+      - name: Verifica l'AAB (firma, package, versione)
+        if: inputs.mode == 'aab'
+        run: |
+          AAB=$(ls build/app/outputs/bundle/release/*.aab | head -1)
+          echo "AAB: $AAB ($(du -h "$AAB" | cut -f1))"
+          echo "== impronta del certificato di firma (atteso 02:28:46:FD:...:F2:52) =="
+          keytool -printcert -jarfile "$AAB" | grep -iE "SHA256:" || echo "(nessuna firma: build di debug)"
+          echo "== package e versione (dal manifest) =="
+          unzip -p "$AAB" base/manifest/AndroidManifest.xml | strings | grep -iE "online.solcomusic.solco|0\.7\.1" | head -3 || true
+
       - name: Pubblica l'AAB come artefatto
         if: always() && inputs.mode == 'aab'
         uses: actions/upload-artifact@v4
