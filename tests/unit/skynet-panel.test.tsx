@@ -34,7 +34,7 @@ function overview(overrides: Partial<SkynetOverview> = {}): SkynetOverview {
         firewallEnabled: true,
         firewallVersion: 14,
         aiBotsActive: true,
-        skynetRulesActive: 3,
+        skynetRulesActive: 4,
         attackMode: false,
         hunted: 2,
       },
@@ -87,7 +87,7 @@ describe('pannello Skynet', () => {
     const text = view.textContent ?? '';
     expect(view.querySelector('output')?.textContent).toContain('Tutto tranquillo');
     expect(text).toContain('Ultimo giro 1 minuto fa');
-    expect(text).toContain('Attivo · versione 14 · regole Skynet 3/3 · blocco AI attivo');
+    expect(text).toContain('Attivo · versione 14 · regole Skynet 4/4 · blocco AI attivo');
     expect(text).toContain('Risponde in 140 ms');
     expect(text).toContain('Hacker in verifica');
     expect(text).toContain('2 indirizzi (24 ore)');

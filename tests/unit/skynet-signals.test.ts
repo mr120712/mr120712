@@ -35,7 +35,7 @@ function signals(
       firewallEnabled: true,
       firewallVersion: 14,
       aiBotsActive: true,
-      skynetRulesActive: 3,
+      skynetRulesActive: 4,
       attackMode: false,
       hunted: 0,
       ...overrides.vercel,

@@ -27,6 +27,10 @@ vi.mock('@/lib/security/uam-preview', async (importOriginal) => {
   return { ...actual, renderLinkPreviewPage: vi.fn(actual.renderLinkPreviewPage) };
 });
 
+// «Skynet»: la prova DNS dei motori di ricerca (crawler-verify.ts) è finta: nessuna rete nei test.
+const crawler = vi.hoisted(() => ({ verifySearchCrawler: vi.fn(async () => false) }));
+vi.mock('@/lib/security/crawler-verify', () => crawler);
+
 import { uamGate } from '@/lib/security/uam-gate';
 import * as uamPage from '@/lib/security/uam-page';
 import * as uamPreview from '@/lib/security/uam-preview';
@@ -82,6 +86,8 @@ async function clientCtx(ip = IP, ua = UA): Promise<UamContext> {
 }
 
 beforeEach(() => {
+  crawler.verifySearchCrawler.mockReset();
+  crawler.verifySearchCrawler.mockResolvedValue(false);
   vi.stubEnv('UAM_MODE', '');
   vi.stubEnv('UAM_SECRET', '');
   vi.stubEnv('UAM_DIFFICULTY', '');
@@ -198,9 +204,20 @@ describe('uamGate — pass-through', () => {
     expect(response).toBeNull();
   });
 
-  it('lets Googlebot through in first-visit mode', async () => {
+  it('lets Googlebot through in first-visit mode only when DNS confirms it is Google', async () => {
     enable('first-visit');
+    crawler.verifySearchCrawler.mockResolvedValueOnce(true);
     expect(await uamGate(request('/', { ua: GOOGLEBOT }))).toBeNull();
+    // La prova riceve l'indirizzo scritto da Vercel (x-real-ip) e lo User-Agent.
+    expect(crawler.verifySearchCrawler).toHaveBeenLastCalledWith(IP, GOOGLEBOT);
+  });
+
+  it('«Skynet»: a fake Googlebot (DNS does not confirm) gets the challenge like everyone', async () => {
+    enable('first-visit');
+    crawler.verifySearchCrawler.mockResolvedValueOnce(false);
+    const response = await uamGate(request('/', { ua: GOOGLEBOT }));
+    expect(response?.status).toBe(200);
+    expect(response?.headers.get('x-solco-gate')).toBe('challenge');
   });
 });
 
@@ -455,9 +472,18 @@ describe('uamGate — bot delle anteprime in modalità attacco', () => {
     expect(response?.headers.get('x-solco-gate')).toBe('challenge');
   });
 
-  it('in modalità first-visit i bot delle anteprime passano come prima', async () => {
+  it('«Skynet», first-visit: i bot delle anteprime ricevono la paginetta, mai l’app', async () => {
     enable('first-visit');
-    expect(await uamGate(request('/search?t=Brano', { ua: WHATSAPP }))).toBeNull();
+    for (const ua of [WHATSAPP, FACEBOOK, TELEGRAM]) {
+      const response = await uamGate(request('/search?t=Brano', { ua }));
+      expect(response?.status).toBe(200);
+      expect(response?.headers.get('x-solco-gate')).toBe('preview');
+      expect(await response?.text()).not.toContain('<script');
+    }
+    // Niente prova DNS per loro, e niente scrittura: solo GET e HEAD.
+    expect(crawler.verifySearchCrawler).not.toHaveBeenCalled();
+    const post = await uamGate(request('/search', { ua: WHATSAPP, method: 'POST' }));
+    expect(post?.status).toBe(405);
   });
 
   it.each([
@@ -472,11 +498,25 @@ describe('uamGate — bot delle anteprime in modalità attacco', () => {
     expect(response?.headers.get('x-solco-gate')).toBe('challenge');
   });
 
-  it('«Skynet», first-visit: il verificatore di Search Console legge la pagina vera', async () => {
+  it('«Skynet», first-visit: il verificatore di Search Console legge la pagina vera se è Google, sennò trova il meta nella verifica', async () => {
     enable('first-visit');
-    expect(
-      await uamGate(request('/', { ua: 'Mozilla/5.0 (compatible; Google-Site-Verification/1.0)' })),
-    ).toBeNull();
+    vi.stubEnv('GOOGLE_SITE_VERIFICATION', 'token-search-console');
+    const verifier = 'Mozilla/5.0 (compatible; Google-Site-Verification/1.0)';
+    crawler.verifySearchCrawler.mockResolvedValueOnce(true);
+    expect(await uamGate(request('/', { ua: verifier }))).toBeNull();
+    crawler.verifySearchCrawler.mockResolvedValueOnce(false);
+    const response = await uamGate(request('/', { ua: verifier }));
+    expect(response?.headers.get('x-solco-gate')).toBe('challenge');
+    expect(await response?.text()).toContain(
+      '<meta name="google-site-verification" content="token-search-console">',
+    );
+  });
+
+  it('«Skynet», modalità attacco: nessuna prova DNS, i motori ricevono il 503 e ripassano', async () => {
+    enable('attack');
+    const response = await uamGate(request('/', { ua: GOOGLEBOT }));
+    expect(response?.status).toBe(503);
+    expect(crawler.verifySearchCrawler).not.toHaveBeenCalled();
   });
 
   it('se la paginetta fallisce lascia passare (fail open)', async () => {

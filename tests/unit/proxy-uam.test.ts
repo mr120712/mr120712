@@ -243,11 +243,12 @@ describe('proxy: bot delle anteprime in modalità attacco', () => {
     expect(response.headers.get('x-solco-gate')).toBe('challenge');
   });
 
-  it('in modalità first-visit i bot passano come prima (pagina vera, con la CSP)', async () => {
+  it('«Skynet»: anche in modalità first-visit i bot delle anteprime ricevono solo la paginetta', async () => {
     enable('first-visit');
     const response = await proxy(request('/', 'GET', { ua: WHATSAPP }));
-    expect(response.headers.get('x-solco-gate')).toBeNull();
-    expect(response.headers.get('content-security-policy')).toContain("'strict-dynamic'");
+    expect(response.status).toBe(200);
+    expect(response.headers.get('x-solco-gate')).toBe('preview');
+    expect(response.headers.get('content-security-policy')).toContain("default-src 'none'");
   });
 });
 

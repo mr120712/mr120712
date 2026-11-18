@@ -216,6 +216,30 @@ describe('POST /api/uam/verify — refusals', () => {
   });
 });
 
+describe('POST /api/uam/verify — «Skynet», browser automatici', () => {
+  it('answers 403 automation and sets no cookie when the page reports automation', async () => {
+    enable('first-visit');
+    const response = await POST(post({ ...(await solvedBody()), automation: true }));
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: 'automation' });
+    expect(response.headers.get('set-cookie')).toBeNull();
+  });
+
+  it('a human browser (automation false) and older pages (no field) still get the cookie', async () => {
+    enable('first-visit');
+    const human = await POST(post({ ...(await solvedBody()), automation: false }));
+    expect(human.status).toBe(200);
+    const legacy = await POST(post(await solvedBody()));
+    expect(legacy.status).toBe(200);
+  });
+
+  it('answers 400 bad_request for a non-boolean automation field', async () => {
+    enable('first-visit');
+    const response = await POST(post({ ...(await solvedBody()), automation: 'no' }));
+    expect(response.status).toBe(400);
+  });
+});
+
 describe('POST /api/uam/verify — success', () => {
   it('answers 200 and sets an HttpOnly, Lax, Secure clearance cookie for 30 days', async () => {
     enable('first-visit');

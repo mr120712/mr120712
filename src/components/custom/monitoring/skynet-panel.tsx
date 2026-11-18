@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Panel } from '@/components/custom/app-ui/panel';
 import { apiFetch } from '@/lib/api-client';
 import { type SkynetOverview, SkynetOverviewSchema } from '@/lib/contracts/skynet';
+import { EXPECTED_SKYNET_RULES } from '@/lib/skynet/signals';
 import styles from './skynet-panel.module.css';
 
 const ENDPOINT = '/api/admin/skynet';
@@ -66,7 +67,7 @@ function firewallText(data: SkynetOverview): string {
   if (!vercel.firewallEnabled) return 'Spento';
   const rules = vercel.skynetRulesActive === null ? '?' : String(vercel.skynetRulesActive);
   const ai = vercel.aiBotsActive ? 'blocco AI attivo' : 'blocco AI spento';
-  return `Attivo · versione ${vercel.firewallVersion ?? '?'} · regole Skynet ${rules}/3 · ${ai}`;
+  return `Attivo · versione ${vercel.firewallVersion ?? '?'} · regole Skynet ${rules}/${EXPECTED_SKYNET_RULES} · ${ai}`;
 }
 
 export function huntedText(data: SkynetOverview): string {

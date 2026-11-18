@@ -275,7 +275,67 @@ const MSG_SLOW = 'Il controllo sta richiedendo troppo tempo su questo dispositiv
 
 const statusText = (doc: Document) => doc.getElementById('uam-status')?.textContent;
 
+describe('«Skynet»: meta di proprietà del sito', () => {
+  it('Search Console e Bing nella testata, scappati; assenti se non configurati', () => {
+    const html = renderUamPage({
+      nonce: 'abc123',
+      challenge: CHALLENGE,
+      difficulty: 8,
+      mode: 'first-visit',
+      siteVerification: { google: 'tok"<g>', bing: 'bing-token' },
+    });
+    expect(html).toContain('<meta name="google-site-verification" content="tok&quot;&lt;g&gt;">');
+    expect(html).toContain('<meta name="msvalidate.01" content="bing-token">');
+    const plain = renderUamPage({
+      nonce: 'abc123',
+      challenge: CHALLENGE,
+      difficulty: 8,
+      mode: 'first-visit',
+    });
+    expect(plain).not.toContain('google-site-verification');
+    expect(plain).not.toContain('msvalidate.01');
+  });
+});
+
 describe('inline solver', () => {
+  it.each([
+    [
+      'navigator.webdriver (Playwright, Puppeteer, Selenium)',
+      { cookieEnabled: true, webdriver: true },
+    ],
+    [
+      'Chrome headless',
+      {
+        cookieEnabled: true,
+        userAgent:
+          'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 HeadlessChrome/131.0 Safari/537.36',
+      },
+    ],
+    [
+      'marchio headless nei client hints',
+      {
+        cookieEnabled: true,
+        userAgentData: { brands: [{ brand: 'HeadlessChrome', version: '131' }] },
+      },
+    ],
+  ])(
+    '«Skynet»: %s → segnala l’automazione e mostra «Browser automatico» senza riprovare',
+    async (_label, navigator) => {
+      const { doc, fetchMock, location } = runSolver(render(), {
+        navigator,
+        response: { status: 403, body: { error: 'automation' } },
+      });
+      await vi.waitFor(
+        () => expect(doc.getElementById('uam-title')?.textContent).toBe('Browser automatico'),
+        { timeout: 5000 },
+      );
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      expect(JSON.parse(String(init.body)).automation).toBe(true);
+      expect(statusText(doc)).toContain('Solco è riservato alle persone');
+      expect(location.reload).not.toHaveBeenCalled();
+    },
+  );
+
   it('finds a valid proof of work at difficulty 8, posts it and reloads', async () => {
     const { doc, fetchMock, location, storage, startedAt } = runSolver(render());
     await vi.waitFor(() => expect(location.reload).toHaveBeenCalledTimes(1), { timeout: 5000 });
@@ -288,7 +348,9 @@ describe('inline solver', () => {
     expect(init.credentials).toBe('same-origin');
     expect((init.headers as Record<string, string>)['Content-Type']).toBe('application/json');
     const body = JSON.parse(String(init.body));
-    expect(Object.keys(body).sort()).toEqual(['challenge', 'solution']);
+    expect(Object.keys(body).sort()).toEqual(['automation', 'challenge', 'solution']);
+    // Un browser usato da una persona non porta segni di automazione.
+    expect(body.automation).toBe(false);
     expect(body.challenge).toBe(CHALLENGE);
     expect(body.solution).toMatch(/^\d{1,12}$/);
     expect(leadingZeroBits(await sha256(`${CHALLENGE}:${body.solution}`))).toBeGreaterThanOrEqual(

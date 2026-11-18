@@ -23,10 +23,10 @@
 // Firewall "Attack Challenge Mode" (all plans), which challenges at the edge
 // before any function runs. UAM attack mode complements it, it does not replace it.
 import { type NextRequest, NextResponse } from 'next/server';
+import { verifySearchCrawler } from './crawler-verify';
 import {
   canonicalAppOrigin,
   ipPrefix,
-  isAllowlistedBot,
   isClientNavigationRequest,
   isGateablePath,
   isLinkPreviewBot,
@@ -165,15 +165,20 @@ export async function uamGate(request: NextRequest): Promise<NextResponse | null
     ) {
       return null;
     }
-    if (config.allowlistBots && isAllowlistedBot(userAgent)) return null;
-
     if (!isReadMethod(request.method)) return methodNotAllowed();
 
-    // La modalità attacco ignora la lista dei bot (lo UA lo dichiara il client), ma un bot di
-    // anteprima non sa risolvere la verifica: riceve la paginetta di meta tag, mai l'app. I
-    // crawler dei motori di ricerca no: per loro resta il 503 + Retry-After qui sotto.
-    if (config.mode === 'attack' && isLinkPreviewBot(userAgent)) {
-      return linkPreviewResponse(request);
+    // «Skynet» contro le AI travestite (lo User-Agent lo scrive il client):
+    // - un bot di anteprima (WhatsApp, Telegram, X, …) riceve sempre e solo la paginetta di meta
+    //   tag, in ogni modalità: chi copia il suo User-Agent per leggere il sito non ottiene nulla;
+    // - un motore di ricerca passa (solo in prima visita) se il suo indirizzo è davvero suo: DNS
+    //   inverso e diretto (crawler-verify.ts). Un finto Googlebot fa la verifica come tutti; in
+    //   modalità attacco i motori ricevono il 503 + Retry-After qui sotto e ripassano.
+    if (isLinkPreviewBot(userAgent)) return linkPreviewResponse(request);
+    if (
+      config.allowlistBots &&
+      (await verifySearchCrawler(request.headers.get('x-real-ip'), userAgent))
+    ) {
+      return null;
     }
 
     const challenge = await issueChallenge(ctx, config.difficulty);
@@ -183,6 +188,12 @@ export async function uamGate(request: NextRequest): Promise<NextResponse | null
       challenge,
       difficulty: config.difficulty,
       mode: config.mode,
+      // Anche qui i meta di proprietà di Search Console e Bing: un verificatore che non supera la
+      // prova DNS li trova comunque.
+      siteVerification: {
+        google: process.env.GOOGLE_SITE_VERIFICATION,
+        bing: process.env.BING_SITE_VERIFICATION,
+      },
     });
 
     const headers = new Headers({

@@ -9,8 +9,8 @@ import type { QuantumSignals } from './quantum';
 
 /** Le regole del firewall create per Skynet si riconoscono dal nome. */
 export const SKYNET_RULE_PREFIX = 'Skynet ·';
-/** Sonde e scanner, AI dichiarate, SMS/registrazioni/recupero. */
-export const EXPECTED_SKYNET_RULES = 3;
+/** Sonde e scanner, AI dichiarate, browser automatici, SMS/registrazioni/recupero. */
+export const EXPECTED_SKYNET_RULES = 4;
 /** Oltre questo tempo di risposta di /health il sito è «lento». */
 export const SLOW_HEALTH_MS = 4_000;
 /** Giri tranquilli di fila (uno al minuto) prima di dichiarare risolto un incidente. */

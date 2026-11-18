@@ -19,6 +19,8 @@ export type OffenderRule = { reason: string; strikes: number };
 /** Le regole del firewall che fermano comportamenti da hacker (mai i limiti di traffico generici). */
 export const OFFENDER_RULES: Readonly<Record<string, OffenderRule>> = {
   'Skynet · sonde e scanner': { reason: 'sonde da scanner', strikes: 1 },
+  // Browser guidati da un programma (HeadlessChrome, PhantomJS…): agenti AI o robot, mai persone.
+  'Skynet · browser automatici': { reason: 'browser automatici (agenti AI o robot)', strikes: 1 },
   'Accesso: limite tentativi': { reason: 'tentativi di accesso a raffica', strikes: 2 },
   'Skynet · SMS, registrazioni e recupero': {
     reason: 'abuso di SMS, registrazioni o recupero password',

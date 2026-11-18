@@ -25,6 +25,8 @@ export interface UamPageInput {
   /** Proof-of-work difficulty in leading zero bits. */
   difficulty: number;
   mode: UamPageMode;
+  /** Meta di proprietà del sito (Search Console, Bing), come nelle pagine vere. */
+  siteVerification?: { google?: string | null; bing?: string | null };
 }
 
 /** sessionStorage key of the reload-loop guard (read by the inline solver). */
@@ -339,6 +341,8 @@ const SOLVER = `(function () {
   var MSG_SLOW = 'Il controllo sta richiedendo troppo tempo su questo dispositivo o rete. Riprova.';
   var MSG_BROWSER = 'Aggiorna il browser per entrare in Solco.';
   var MSG_GENERIC = 'Qualcosa non ha funzionato. Riprova tra un attimo.';
+  var TITLE_ROBOT = 'Browser automatico';
+  var MSG_ROBOT = 'Questo browser è guidato da un programma automatico (agente AI o robot): Solco è riservato alle persone. Aprilo dal tuo browser di sempre.';
   var startedAt = Date.now();
 
   var root = document.documentElement;
@@ -443,6 +447,28 @@ const SOLVER = `(function () {
     return null;
   }
 
+  // «Skynet»: segni lasciati dai browser guidati da un programma (Playwright, Puppeteer,
+  // Selenium, PhantomJS…), gli strumenti degli agenti AI. Nessun browser usato da una persona li ha.
+  function automated() {
+    try {
+      var nav = navigator;
+      if (nav.webdriver === true) return true;
+      if (/HeadlessChrome|HeadlessEdg|PhantomJS|SlimerJS|HtmlUnit/.test(String(nav.userAgent || ''))) return true;
+      var brands = nav.userAgentData && nav.userAgentData.brands;
+      if (brands && brands.length) {
+        for (var i = 0; i < brands.length; i++) {
+          if (/headless/i.test(String(brands[i] && brands[i].brand))) return true;
+        }
+      }
+      if (window.callPhantom || window._phantom || window.__nightmare ||
+          window.domAutomation || window.domAutomationController) return true;
+      for (var key in document) {
+        if (key.indexOf('$cdc_') === 0 || key.indexOf('$wdc_') === 0) return true;
+      }
+    } catch (e) { /* un browser vero non arriva qui */ }
+    return false;
+  }
+
   async function run() {
     var data = null;
     try {
@@ -498,7 +524,7 @@ const SOLVER = `(function () {
           credentials: 'same-origin',
           cache: 'no-store',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ challenge: data.challenge, solution: solution }),
+          body: JSON.stringify({ challenge: data.challenge, solution: solution, automation: automated() }),
           signal: ctrl ? ctrl.signal : undefined
         }),
         deadline
@@ -534,6 +560,8 @@ const SOLVER = `(function () {
       reload();
       return;
     }
+    // «Skynet»: browser guidato da un programma. Riprovare non serve.
+    if (response.status === 403 && code === 'automation') { fail(TITLE_ROBOT, MSG_ROBOT, false); return; }
     // The gate was switched off meanwhile: the page itself is reachable again.
     if (response.status === 503 && code === 'disabled') { reload(); return; }
     fail(TITLE_STUCK, MSG_GENERIC, true);
@@ -563,6 +591,12 @@ export function renderUamPage(input: UamPageInput): string {
   });
   const nonce = escapeHtml(input.nonce);
   const eyebrow = copy.eyebrow ? `<p class="eyebrow">${escapeHtml(copy.eyebrow)}</p>` : '';
+  const google = input.siteVerification?.google?.trim();
+  const bing = input.siteVerification?.bing?.trim();
+  const verification = [
+    google ? `<meta name="google-site-verification" content="${escapeHtml(google)}">\n` : '',
+    bing ? `<meta name="msvalidate.01" content="${escapeHtml(bing)}">\n` : '',
+  ].join('');
 
   return `<!doctype html>
 <html lang="it" data-state="idle" data-mode="${mode}">
@@ -570,7 +604,7 @@ export function renderUamPage(input: UamPageInput): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex,nofollow">
-<meta name="theme-color" content="#000000">
+${verification}<meta name="theme-color" content="#000000">
 <meta name="color-scheme" content="dark">
 <title>Solco</title>
 <link rel="icon" type="image/svg+xml" href="${FAVICON_HREF}">

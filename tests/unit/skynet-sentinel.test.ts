@@ -143,6 +143,7 @@ function fakeFetch(site: Site, calls: Array<{ url: string; auth: string | null; 
             { name: 'Skynet · sonde e scanner', active: true },
             { name: 'Skynet · AI dichiarate', active: true },
             { name: 'Skynet · SMS, registrazioni e recupero', active: true },
+            { name: 'Skynet · browser automatici', active: true },
             { name: 'Limite richieste API per IP', active: true },
           ],
           ips: site.ips,
@@ -258,7 +259,7 @@ describe('Skynet, un giro', () => {
     const row = fake.state.get('main');
     expect(row?.lockedUntil).toBeNull();
     expect(row?.lastSignals).toMatchObject({
-      vercel: { firewallVersion: 14, skynetRulesActive: 3 },
+      vercel: { firewallVersion: 14, skynetRulesActive: 4 },
     });
   });
 

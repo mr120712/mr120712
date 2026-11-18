@@ -4,6 +4,10 @@
 // A valid, fresh challenge bound to this client (ipPrefix + UA hash) plus a
 // correct solution earns the `solco_uam` clearance cookie. No DB and no rate
 // limit: the proof of work is the throttle.
+//
+// «Skynet»: la schermata segnala anche se il browser è guidato da un programma (navigator.webdriver,
+// browser headless: Playwright, Puppeteer, Selenium, gli strumenti degli agenti AI). In quel caso
+// niente cookie (403 automation): l'agente resta sulla schermata di verifica.
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -28,6 +32,7 @@ const MAX_BODY_BYTES = 1024;
 const VerifyBody = z.object({
   challenge: z.string().max(200),
   solution: z.string().regex(/^\d{1,12}$/),
+  automation: z.boolean().optional(),
 });
 
 function json(body: Record<string, unknown>, status: number): NextResponse {
@@ -74,7 +79,10 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return json({ error: 'bad_request' }, 400);
   }
-  const { challenge, solution } = parsed.data;
+  const { challenge, solution, automation } = parsed.data;
+  if (automation === true) {
+    return json({ error: 'automation' }, 403);
+  }
 
   const ctx: UamContext = {
     secret: config.secret,

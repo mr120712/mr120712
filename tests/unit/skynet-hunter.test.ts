@@ -152,6 +152,13 @@ describe('chi va in verifica', () => {
     expect(plan.release).toEqual([]);
   });
 
+  it('un browser automatico (agente AI o robot) basta al primo blocco', () => {
+    const plan = planHunt([block('203.0.113.50', 'Skynet · browser automatici')], [], NOW);
+    expect(plan.challenge).toEqual([
+      { ip: '203.0.113.50', offenses: 1, reasons: { 'browser automatici (agenti AI o robot)': 1 } },
+    ]);
+  });
+
   it('regole diverse si sommano; i limiti di traffico generici non contano mai', () => {
     const plan = planHunt(
       [
