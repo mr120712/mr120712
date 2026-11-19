@@ -62,7 +62,8 @@ const OLD_ENV = { ...process.env };
 
 beforeEach(() => {
   process.env.ANTHROPIC_API_KEY = ''; // Claude non configurato
-  process.env.FREELLMAPI_API_KEY = 'freellmapi-fake-key-0123456789';
+  process.env.FREELLMAPI_API_KEY = 'fla_FAKEKEY0123456789';
+  process.env.FREELLMAPI_BASE_URL = 'https://router.example/v1'; // router pubblico (obbligatorio)
   delete process.env.FREELLMAPI_MODEL;
 });
 
@@ -82,9 +83,9 @@ describe('Cerca con l’AI: riserva freellmapi.co', () => {
       expect(out.plan.intro).toContain('techno');
       expect(out.plan.youtubeQueries.length).toBeGreaterThan(0);
     }
-    // Ha chiamato l’endpoint OpenAI-compatibile della riserva.
+    // Ha chiamato l’endpoint OpenAI-compatibile del router configurato.
     const url = String((fetchMock.mock.calls[0] as unknown as [string])[0]);
-    expect(url).toBe('https://freellmapi.co/v1/chat/completions');
+    expect(url).toBe('https://router.example/v1/chat/completions');
   });
 
   it('senza Claude e senza riserva, resta not_configured', async () => {

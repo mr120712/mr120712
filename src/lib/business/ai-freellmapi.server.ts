@@ -1,23 +1,30 @@
-// @polsia:user-owned — freellmapi.co: proxy OpenAI-compatibile verso le free-tier di molti provider
-// LLM. In Solco è la RISERVA GRATUITA delle funzioni AI di testo: Claude resta primario e di qualità,
-// ma se la chiave Claude manca, è rifiutata, è sopra il tetto di spesa o il servizio è occupato, si
-// ripiega qui senza far pagare nulla al proprietario. Usa un modello APERTO (non OpenAI): il modello è
-// configurabile con FREELLMAPI_MODEL (elenco su freellmapi.co/models). La chiave è FREELLMAPI_API_KEY
-// (token «freellmapi-…» dalla dashboard), segreto server-side. Non logga mai la chiave, il prompt o la
-// risposta. Nota: freellmapi.co dichiara di non essere un substrato di inferenza stabile/garantito,
-// perciò è solo riserva best-effort, mai il motore primario.
+// @polsia:user-owned — freellmapi: proxy OpenAI-compatibile (SELF-HOSTED) verso le free-tier di molti
+// provider LLM. In Solco è la RISERVA GRATUITA delle funzioni AI di testo: Claude resta primario e di
+// qualità, ma se la chiave Claude manca, è rifiutata, è sopra il tetto di spesa o il servizio è occupato,
+// si ripiega qui senza far pagare nulla al proprietario. Usa un modello APERTO (non OpenAI), scelto con
+// FREELLMAPI_MODEL. Servono DUE variabili server-side: FREELLMAPI_API_KEY (il token del router, formato
+// «fla_…») e FREELLMAPI_BASE_URL (l'URL `/v1` PUBBLICO del router). NON c'è un endpoint ospitato:
+// `https://freellmapi.co/v1` è solo il sito (404), e un `localhost` non è raggiungibile da Vercel — quindi
+// il router va pubblicato su un URL pubblico. Non logga mai la chiave, il prompt o la risposta. freellmapi
+// non è un substrato di inferenza garantito: è solo riserva best-effort, mai il motore primario.
 import 'server-only';
 import { createHash } from 'node:crypto';
 
-/** Il token della dashboard freellmapi.co (formato «freellmapi-…»). */
+/** Il token del router freellmapi (formato «fla_…»), segreto server-side. */
 export function freellmapiApiKey(env: Record<string, string | undefined> = process.env) {
   return env.FREELLMAPI_API_KEY?.trim() || undefined;
 }
 
-/** Base URL OpenAI-compatibile (self-hosting: imposta FREELLMAPI_BASE_URL sul tuo router). */
-export function freellmapiBaseUrl(env: Record<string, string | undefined> = process.env) {
-  const raw = env.FREELLMAPI_BASE_URL?.trim() || 'https://freellmapi.co/v1';
-  return raw.replace(/\/+$/, '');
+/**
+ * Base URL OpenAI-compatibile del router freellmapi. OBBLIGATORIA e senza default: freellmapi è
+ * self-hosted e `https://freellmapi.co/v1` NON è un endpoint API (restituisce 404, è solo il sito).
+ * Va impostata a un URL `/v1` PUBBLICO (il server di Vercel non raggiunge un `localhost`). Null se assente.
+ */
+export function freellmapiBaseUrl(
+  env: Record<string, string | undefined> = process.env,
+): string | null {
+  const raw = env.FREELLMAPI_BASE_URL?.trim();
+  return raw ? raw.replace(/\/+$/, '') : null;
 }
 
 /**
@@ -55,7 +62,11 @@ function logKeyShape(message: string, extra: Record<string, unknown> = {}) {
   });
 }
 
-/** La chiave è presente e ben formata (non prova che il proxy la accetti: quello lo dice una chiamata). */
+/**
+ * La riserva è configurata quando ci sono SIA la chiave (ben formata) SIA l'URL del router
+ * (FREELLMAPI_BASE_URL): freellmapi è self-hosted, senza un endpoint pubblico esplicito non c'è nulla da
+ * chiamare. Non prova che il router accetti la chiave: quello lo dice una chiamata.
+ */
 export function freellmapiConfigured(env: Record<string, string | undefined> = process.env) {
   const key = freellmapiApiKey(env);
   if (!key) return false;
@@ -63,11 +74,11 @@ export function freellmapiConfigured(env: Record<string, string | undefined> = p
     const print = fingerprint(key);
     if (loggedShapeFor !== print) {
       loggedShapeFor = print;
-      logKeyShape('[solco] chiave freellmapi.co malformata; riserva AI spenta');
+      logKeyShape('[solco] chiave freellmapi malformata; riserva AI spenta');
     }
     return false;
   }
-  return true;
+  return freellmapiBaseUrl(env) !== null;
 }
 
 export type FreellmapiOutcome = 'not_configured' | 'busy' | 'failed';
@@ -111,6 +122,8 @@ export async function freellmapiChat(opts: FreellmapiChatOptions): Promise<strin
   const env = opts.env ?? process.env;
   const key = freellmapiApiKey(env);
   if (!key) throw new FreellmapiError('not_configured', null, 'FREELLMAPI_API_KEY mancante');
+  const base = freellmapiBaseUrl(env);
+  if (!base) throw new FreellmapiError('not_configured', null, 'FREELLMAPI_BASE_URL mancante');
 
   const body = JSON.stringify({
     model: opts.model ?? freellmapiModel(env),
@@ -126,7 +139,7 @@ export async function freellmapiChat(opts: FreellmapiChatOptions): Promise<strin
 
   let res: Response;
   try {
-    res = await fetch(`${freellmapiBaseUrl(env)}/chat/completions`, {
+    res = await fetch(`${base}/chat/completions`, {
       method: 'POST',
       headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
       body,
@@ -141,12 +154,12 @@ export async function freellmapiChat(opts: FreellmapiChatOptions): Promise<strin
   if (!res.ok) {
     await res.body?.cancel().catch(() => undefined);
     if (res.status === 401) {
-      logKeyShape('[solco] freellmapi.co ha rifiutato la chiave', { status: 401 });
+      logKeyShape('[solco] il router freellmapi ha rifiutato la chiave', { status: 401 });
     }
     throw new FreellmapiError(
       classifyFreellmapiStatus(res.status),
       res.status,
-      `freellmapi.co HTTP ${res.status}`,
+      `freellmapi HTTP ${res.status}`,
     );
   }
 
@@ -228,16 +241,26 @@ export async function verifyFreellmapi(
   if (!KEY_SHAPE.test(key)) {
     return { status: 'fail', detail: 'La chiave non ha un formato valido.', httpStatus: null };
   }
+  const base = freellmapiBaseUrl(env);
+  if (!base) {
+    return {
+      status: 'warn',
+      detail:
+        'Non configurata (FREELLMAPI_BASE_URL): manca l’URL pubblico del router freellmapi. ' +
+        'freellmapi è self-hosted; https://freellmapi.co/v1 non è un’API (404) e un localhost non è raggiungibile da Vercel.',
+      httpStatus: null,
+    };
+  }
   let res: Response;
   try {
-    res = await fetch(`${freellmapiBaseUrl(env)}/models`, {
+    res = await fetch(`${base}/models`, {
       method: 'GET',
       headers: { authorization: `Bearer ${key}`, accept: 'application/json' },
       cache: 'no-store',
       signal: AbortSignal.timeout(8_000),
     });
   } catch {
-    return { status: 'fail', detail: 'freellmapi.co non raggiungibile.', httpStatus: null };
+    return { status: 'fail', detail: 'Router freellmapi non raggiungibile.', httpStatus: null };
   }
   await res.body?.cancel().catch(() => undefined);
   if (res.status === 200) {
@@ -252,7 +275,10 @@ export async function verifyFreellmapi(
   }
   return {
     status: 'fail',
-    detail: `freellmapi.co ha risposto con un errore (HTTP ${res.status}).`,
+    detail:
+      res.status === 404
+        ? `Il router freellmapi non ha /v1 (HTTP 404): FREELLMAPI_BASE_URL non punta a un'API freellmapi valida.`
+        : `Il router freellmapi ha risposto con un errore (HTTP ${res.status}).`,
     httpStatus: res.status,
   };
 }

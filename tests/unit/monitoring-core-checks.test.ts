@@ -91,6 +91,8 @@ const ENV = {
   BETTER_AUTH_URL: 'https://solcomusic.vercel.app',
   NEXT_PUBLIC_APP_URL: 'https://solcomusic.vercel.app',
   EMAIL_FROM: 'Solco <noreply@solco.test>',
+  // URL pubblico del router freellmapi (non segreto): host 'freellmapi.co' nel mock fetch.
+  FREELLMAPI_BASE_URL: 'https://freellmapi.co/v1',
 };
 
 type FetchHandler = (url: string, init: RequestInit | undefined) => Response | Promise<Response>;

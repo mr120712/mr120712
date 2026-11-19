@@ -486,16 +486,27 @@ const checkAnthropic: Check = async (deps) => {
 const checkFreellmapi: Check = async (deps) => {
   const key = freellmapiApiKey(deps.env);
   if (!key) return warn('Non configurata (FREELLMAPI_API_KEY): la riserva AI gratuita è spenta');
-  const response = await request(deps, `${freellmapiBaseUrl(deps.env)}/models`, {
+  const base = freellmapiBaseUrl(deps.env);
+  if (!base) {
+    return warn(
+      'Non configurata (FREELLMAPI_BASE_URL): manca l’URL pubblico del router freellmapi (self-hosted; localhost non vale su Vercel)',
+    );
+  }
+  const response = await request(deps, `${base}/models`, {
     headers: { authorization: `Bearer ${key}`, accept: 'application/json' },
   });
-  if (!response) return fail('freellmapi.co non raggiungibile');
+  if (!response) return fail('Router freellmapi non raggiungibile');
   await discard(response);
   if (response.status === 200) return ok(`Riserva pronta (modello: ${freellmapiModel(deps.env)})`);
   if (response.status === 401 || response.status === 403) {
     return fail('Chiave non valida o revocata');
   }
-  return fail(`freellmapi.co ha risposto con un errore (HTTP ${response.status})`);
+  if (response.status === 404) {
+    return fail(
+      'Il router non ha /v1 (HTTP 404): FREELLMAPI_BASE_URL non è un’API freellmapi valida',
+    );
+  }
+  return fail(`Il router freellmapi ha risposto con un errore (HTTP ${response.status})`);
 };
 
 /**

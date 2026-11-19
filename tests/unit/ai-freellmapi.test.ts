@@ -14,9 +14,11 @@ import {
   verifyFreellmapi,
 } from '@/lib/business/ai-freellmapi.server';
 
-const KEY = 'freellmapi-fake-key-0123456789';
+const KEY = 'fla_FAKEKEY0123456789';
+const BASE = 'https://router.example/v1';
 const envWith = (over: Record<string, string | undefined> = {}) => ({
   FREELLMAPI_API_KEY: KEY,
+  FREELLMAPI_BASE_URL: BASE,
   ...over,
 });
 
@@ -33,15 +35,19 @@ afterEach(() => {
 });
 
 describe('freellmapi.co: configurazione', () => {
-  it('è configurata solo con una chiave ben formata', () => {
+  it('è configurata solo con chiave ben formata E URL del router', () => {
     expect(freellmapiConfigured(envWith())).toBe(true);
     expect(freellmapiConfigured({})).toBe(false);
-    expect(freellmapiConfigured({ FREELLMAPI_API_KEY: '   ' })).toBe(false);
-    expect(freellmapiConfigured({ FREELLMAPI_API_KEY: 'chiave con spazi' })).toBe(false);
+    // Chiave senza URL del router: non configurata (freellmapi è self-hosted, serve un endpoint).
+    expect(freellmapiConfigured({ FREELLMAPI_API_KEY: KEY })).toBe(false);
+    // URL senza chiave: non configurata.
+    expect(freellmapiConfigured({ FREELLMAPI_BASE_URL: BASE })).toBe(false);
+    expect(freellmapiConfigured(envWith({ FREELLMAPI_API_KEY: '   ' }))).toBe(false);
+    expect(freellmapiConfigured(envWith({ FREELLMAPI_API_KEY: 'chiave con spazi' }))).toBe(false);
   });
 
-  it('base URL: predefinito e override, senza slash finale', () => {
-    expect(freellmapiBaseUrl({})).toBe('https://freellmapi.co/v1');
+  it('base URL: nessun default (null se assente), override senza slash finale', () => {
+    expect(freellmapiBaseUrl({})).toBeNull();
     expect(freellmapiBaseUrl({ FREELLMAPI_BASE_URL: 'https://my.proxy/v1/' })).toBe(
       'https://my.proxy/v1',
     );
@@ -78,7 +84,7 @@ describe('freellmapi.co: chat', () => {
     });
     expect(text).toBe('Ciao!');
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe('https://freellmapi.co/v1/chat/completions');
+    expect(url).toBe(`${BASE}/chat/completions`);
     expect((init.headers as Record<string, string>).authorization).toBe(`Bearer ${KEY}`);
     const body = JSON.parse(init.body as string);
     expect(body.model).toBe('auto');
@@ -160,8 +166,10 @@ describe('freellmapi.co: JSON', () => {
 });
 
 describe('freellmapi.co: verifica', () => {
-  it('warn senza chiave, ok con 200, fail con 401, fail se irraggiungibile', async () => {
+  it('warn senza chiave o senza URL, ok con 200, fail con 401, fail se irraggiungibile', async () => {
     expect((await verifyFreellmapi({})).status).toBe('warn');
+    // Chiave presente ma senza URL del router: avviso (non configurata), non guasto.
+    expect((await verifyFreellmapi({ FREELLMAPI_API_KEY: KEY })).status).toBe('warn');
 
     vi.stubGlobal(
       'fetch',
