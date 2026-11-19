@@ -489,7 +489,7 @@ const checkFreellmapi: Check = async (deps) => {
   const base = freellmapiBaseUrl(deps.env);
   if (!base) {
     return warn(
-      'Non configurata (FREELLMAPI_BASE_URL): manca l’URL pubblico del router freellmapi (self-hosted; localhost non vale su Vercel)',
+      'Riserva non disponibile: manca NEXT_PUBLIC_APP_URL, il connettore interno (/api/ai-reserve/v1) non ha un URL pubblico',
     );
   }
   const response = await request(deps, `${base}/models`, {

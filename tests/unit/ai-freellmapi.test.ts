@@ -46,11 +46,44 @@ describe('freellmapi.co: configurazione', () => {
     expect(freellmapiConfigured(envWith({ FREELLMAPI_API_KEY: 'chiave con spazi' }))).toBe(false);
   });
 
-  it('base URL: nessun default (null se assente), override senza slash finale', () => {
+  it('base URL: null quando manca tutto; override esterno senza slash finale', () => {
     expect(freellmapiBaseUrl({})).toBeNull();
     expect(freellmapiBaseUrl({ FREELLMAPI_BASE_URL: 'https://my.proxy/v1/' })).toBe(
       'https://my.proxy/v1',
     );
+  });
+
+  it('base URL: default al connettore interno su NEXT_PUBLIC_APP_URL', () => {
+    // Senza override esplicito: si usa il connettore ospitato da Solco.
+    expect(freellmapiBaseUrl({ NEXT_PUBLIC_APP_URL: 'https://app.test/' })).toBe(
+      'https://app.test/api/ai-reserve/v1',
+    );
+    // 'freellmapi.co' non è un'API (404): ignorato → connettore interno.
+    expect(
+      freellmapiBaseUrl({
+        NEXT_PUBLIC_APP_URL: 'https://app.test',
+        FREELLMAPI_BASE_URL: 'https://freellmapi.co/v1',
+      }),
+    ).toBe('https://app.test/api/ai-reserve/v1');
+    // Un router ESTERNO valido resta un override e vince sul connettore.
+    expect(
+      freellmapiBaseUrl({
+        NEXT_PUBLIC_APP_URL: 'https://app.test',
+        FREELLMAPI_BASE_URL: 'https://router.example/v1',
+      }),
+    ).toBe('https://router.example/v1');
+    // Valore non-URL: ignorato → connettore interno.
+    expect(
+      freellmapiBaseUrl({ NEXT_PUBLIC_APP_URL: 'https://app.test', FREELLMAPI_BASE_URL: 'ciao' }),
+    ).toBe('https://app.test/api/ai-reserve/v1');
+  });
+
+  it('configurata con la sola chiave quando c’è il connettore interno (NEXT_PUBLIC_APP_URL)', () => {
+    expect(
+      freellmapiConfigured({ FREELLMAPI_API_KEY: KEY, NEXT_PUBLIC_APP_URL: 'https://app.test' }),
+    ).toBe(true);
+    // Chiave senza URL pubblico dell'app e senza router esterno: non configurata.
+    expect(freellmapiConfigured({ FREELLMAPI_API_KEY: KEY })).toBe(false);
   });
 
   it('modello: predefinito «auto» e override', () => {

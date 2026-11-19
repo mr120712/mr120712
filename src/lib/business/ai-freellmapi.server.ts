@@ -1,30 +1,55 @@
-// @polsia:user-owned — freellmapi: proxy OpenAI-compatibile (SELF-HOSTED) verso le free-tier di molti
-// provider LLM. In Solco è la RISERVA GRATUITA delle funzioni AI di testo: Claude resta primario e di
-// qualità, ma se la chiave Claude manca, è rifiutata, è sopra il tetto di spesa o il servizio è occupato,
-// si ripiega qui senza far pagare nulla al proprietario. Usa un modello APERTO (non OpenAI), scelto con
-// FREELLMAPI_MODEL. Servono DUE variabili server-side: FREELLMAPI_API_KEY (il token del router, formato
-// «fla_…») e FREELLMAPI_BASE_URL (l'URL `/v1` PUBBLICO del router). NON c'è un endpoint ospitato:
-// `https://freellmapi.co/v1` è solo il sito (404), e un `localhost` non è raggiungibile da Vercel — quindi
-// il router va pubblicato su un URL pubblico. Non logga mai la chiave, il prompt o la risposta. freellmapi
-// non è un substrato di inferenza garantito: è solo riserva best-effort, mai il motore primario.
+// @polsia:user-owned — freellmapi: RISERVA AI GRATUITA delle funzioni di testo (Claude resta primario e
+// di qualità; si ripiega qui senza costi solo se Claude manca, è rifiutato, è sopra il tetto di spesa o è
+// occupato). Protocollo OpenAI-compatibile, modello APERTO (FREELLMAPI_MODEL). Dall'aggiornamento
+// "connettore" la riserva è OSPITATA DENTRO SOLCO di default: il router è src/app/api/ai-reserve/v1, che
+// inoltra a Groq (free tier, GROQ_API_KEY), raggiungibile sull'URL pubblico dell'app — quindi basta
+// FREELLMAPI_API_KEY (segreto condiviso tra client riserva e connettore). FREELLMAPI_BASE_URL è un
+// OVERRIDE opzionale per un router esterno; un valore `freellmapi.co` (solo il sito, 404, non un'API) è
+// ignorato e si usa il connettore interno. Non logga mai la chiave, il prompt o la risposta. Best-effort.
 import 'server-only';
 import { createHash } from 'node:crypto';
 
-/** Il token del router freellmapi (formato «fla_…»), segreto server-side. */
+/** Il segreto condiviso con il connettore interno (o il token di un router esterno), server-side. */
 export function freellmapiApiKey(env: Record<string, string | undefined> = process.env) {
   return env.FREELLMAPI_API_KEY?.trim() || undefined;
 }
 
+/** Percorso del connettore interno (router ospitato da Solco) sull'URL pubblico dell'app. */
+export const RESERVE_CONNECTOR_PATH = '/api/ai-reserve/v1';
+
+/** `freellmapi.co` è solo il sito (404), mai un'API: un override che punta qui va ignorato. */
+function isNonApiFreellmapiHost(raw: string): boolean {
+  try {
+    const host = new URL(raw).hostname.toLowerCase();
+    return host === 'freellmapi.co' || host.endsWith('.freellmapi.co');
+  } catch {
+    return false;
+  }
+}
+
+/** Il connettore interno su NEXT_PUBLIC_APP_URL; null solo se l'URL pubblico dell'app manca. */
+export function builtInReserveBaseUrl(
+  env: Record<string, string | undefined> = process.env,
+): string | null {
+  const appUrl = env.NEXT_PUBLIC_APP_URL?.trim();
+  if (!appUrl) return null;
+  return `${appUrl.replace(/\/+$/, '')}${RESERVE_CONNECTOR_PATH}`;
+}
+
 /**
- * Base URL OpenAI-compatibile del router freellmapi. OBBLIGATORIA e senza default: freellmapi è
- * self-hosted e `https://freellmapi.co/v1` NON è un endpoint API (restituisce 404, è solo il sito).
- * Va impostata a un URL `/v1` PUBBLICO (il server di Vercel non raggiunge un `localhost`). Null se assente.
+ * Base URL OpenAI-compatibile della riserva. Di DEFAULT è il connettore interno di Solco
+ * (builtInReserveBaseUrl): nessun router esterno da pubblicare. FREELLMAPI_BASE_URL resta un OVERRIDE
+ * per un router esterno valido; se è assente, non è un URL http(s), o punta a `freellmapi.co` (solo il
+ * sito, non un'API), si usa il connettore interno. Null solo se manca anche NEXT_PUBLIC_APP_URL.
  */
 export function freellmapiBaseUrl(
   env: Record<string, string | undefined> = process.env,
 ): string | null {
   const raw = env.FREELLMAPI_BASE_URL?.trim();
-  return raw ? raw.replace(/\/+$/, '') : null;
+  if (raw && /^https?:\/\//i.test(raw) && !isNonApiFreellmapiHost(raw)) {
+    return raw.replace(/\/+$/, '');
+  }
+  return builtInReserveBaseUrl(env);
 }
 
 /**
@@ -246,8 +271,8 @@ export async function verifyFreellmapi(
     return {
       status: 'warn',
       detail:
-        'Non configurata (FREELLMAPI_BASE_URL): manca l’URL pubblico del router freellmapi. ' +
-        'freellmapi è self-hosted; https://freellmapi.co/v1 non è un’API (404) e un localhost non è raggiungibile da Vercel.',
+        'Riserva non disponibile: manca NEXT_PUBLIC_APP_URL, quindi il connettore interno ' +
+        '(/api/ai-reserve/v1) non ha un URL pubblico su cui essere chiamato.',
       httpStatus: null,
     };
   }

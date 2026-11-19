@@ -91,8 +91,9 @@ const ENV = {
   BETTER_AUTH_URL: 'https://solcomusic.vercel.app',
   NEXT_PUBLIC_APP_URL: 'https://solcomusic.vercel.app',
   EMAIL_FROM: 'Solco <noreply@solco.test>',
-  // URL pubblico del router freellmapi (non segreto): host 'freellmapi.co' nel mock fetch.
-  FREELLMAPI_BASE_URL: 'https://freellmapi.co/v1',
+  // Override con un router ESTERNO valido (host 'router.example' nel mock fetch); un valore
+  // 'freellmapi.co' verrebbe invece ignorato a favore del connettore interno (vedi ai-freellmapi.test).
+  FREELLMAPI_BASE_URL: 'https://router.example/v1',
 };
 
 type FetchHandler = (url: string, init: RequestInit | undefined) => Response | Promise<Response>;
@@ -106,7 +107,7 @@ const okRoutes: Record<string, FetchHandler> = {
     googleRedirect('https://accounts.google.com/v3/signin/identifier?dsh=S1&flowName=GeneralOAuth'),
   'www.googleapis.com': () => Response.json({ items: [{ id: 'video-1' }] }),
   'api.anthropic.com': () => Response.json({ data: [{ id: 'model' }] }),
-  'freellmapi.co': () => Response.json({ data: [{ id: 'model' }] }),
+  'router.example': () => Response.json({ data: [{ id: 'model' }] }),
   'api.stripe.com': () => Response.json({ available: [] }),
 };
 
@@ -930,7 +931,7 @@ describe('secrets never reach a detail', () => {
             ),
           'www.googleapis.com': echo(400),
           'api.anthropic.com': echo(401),
-          'freellmapi.co': echo(401),
+          'router.example': echo(401),
           'api.stripe.com': echo(401),
         }) as never,
         youtubeSearchHealth: thrower,
