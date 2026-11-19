@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Solco — rete dell'app Android. Il workflow (.github/workflows/flutter.yml) copia questo file in
+     android/app/src/main/res/xml/ prima della build, e AndroidManifest.xml lo referenzia con
+     android:networkSecurityConfig. Due difese:
+       1. cleartextTrafficPermitted="false": niente HTTP in chiaro, solo HTTPS. Tutto il traffico di
+          Solco (API, stream audio, YouTube, Vercel Blob) è già https, quindi non rompe nulla.
+       2. trust-anchors = solo "system": l'app NON si fida delle CA aggiunte dall'utente al dispositivo.
+          Blocca un intercettatore che installa una CA per leggere il traffico (proxy/MITM, es. Charles).
+     Nessun pinning del certificato foglia: il dominio è su Vercel con certificati che ruotano da soli;
+     bloccarli su un'impronta fissa romperebbe l'app a ogni rotazione. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+</network-security-config>

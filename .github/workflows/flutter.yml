@@ -94,6 +94,9 @@ jobs:
           # Rete (INTERNET) + audio in background (just_audio_background) + nome app «Solco».
           # Dopo flutter_launcher_icons, così il nostro manifest vince.
           cp android-config/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+          # Config di rete: solo HTTPS + fiducia alle sole CA di sistema (anti-MITM). Il manifest la referenzia.
+          mkdir -p android/app/src/main/res/xml
+          cp android-config/network_security_config.xml android/app/src/main/res/xml/network_security_config.xml
           # Flutter >= 3.29 genera il Gradle dell'app in Kotlin DSL (build.gradle.kts);
           # individuiamo il file giusto (kts o Groovy) per le patch successive.
           if [ -f android/app/build.gradle.kts ]; then GRADLE_APP=android/app/build.gradle.kts; else GRADLE_APP=android/app/build.gradle; fi
@@ -138,19 +141,21 @@ jobs:
 
       - name: Compila il bundle Android (AAB)
         if: inputs.mode == 'aab'
-        run: flutter build appbundle --release
+        # --obfuscate offusca il codice Dart (nomi dei simboli) e --split-debug-info estrae le mappe
+        # dei simboli per ricostruire gli stack trace; le mappe NON finiscono nell'app (si caricano a parte).
+        run: flutter build appbundle --release --obfuscate --split-debug-info=build/symbols
 
       - name: Verifica l'AAB (firma, package, versione)
         if: inputs.mode == 'aab'
         run: |
           AAB=$(ls build/app/outputs/bundle/release/*.aab | head -1)
           echo "AAB: $AAB ($(du -h "$AAB" | cut -f1))"
-          echo "== versione dell'app (da pubspec: versionName+versionCode, atteso 0.7.3+12) =="
+          echo "== versione dell'app (da pubspec: versionName+versionCode, atteso 0.7.4+13) =="
           grep -nE "^version:" pubspec.yaml || true
           echo "== impronta del certificato di firma (atteso 02:28:46:FD:...:F2:52) =="
           keytool -printcert -jarfile "$AAB" | grep -iE "SHA256:" || echo "(nessuna firma: build di debug)"
           echo "== package e versione (dal manifest) =="
-          unzip -p "$AAB" base/manifest/AndroidManifest.xml | strings | grep -iE "online.solcomusic.solco|0\.7\.3" | head -3 || true
+          unzip -p "$AAB" base/manifest/AndroidManifest.xml | strings | grep -iE "online.solcomusic.solco|0\.7\.4" | head -3 || true
           echo "== livelli SDK (attesi minSdk 24, target/compile 36 — richiesti da Play) =="
           if [ -f android/app/build.gradle.kts ]; then GRADLE_APP=android/app/build.gradle.kts; else GRADLE_APP=android/app/build.gradle; fi
           grep -nE "minSdk|targetSdk|compileSdk" "$GRADLE_APP" || true
@@ -166,21 +171,30 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+      - name: Pubblica i simboli di debug (per de-offuscare gli stack trace)
+        if: always() && (inputs.mode == 'aab' || inputs.mode == 'apk')
+        uses: actions/upload-artifact@v4
+        with:
+          name: solco-flutter-symbols
+          path: flutter/build/symbols
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Compila l'APK Android (universale, installabile dal sito)
         if: inputs.mode == 'apk'
-        run: flutter build apk --release
+        run: flutter build apk --release --obfuscate --split-debug-info=build/symbols
 
       - name: Verifica l'APK (firma, package, versione)
         if: inputs.mode == 'apk'
         run: |
           APK=$(ls build/app/outputs/flutter-apk/app-release.apk | head -1)
           echo "APK: $APK ($(du -h "$APK" | cut -f1))"
-          echo "== versione dell'app (da pubspec: versionName+versionCode, atteso 0.7.3+12) =="
+          echo "== versione dell'app (da pubspec: versionName+versionCode, atteso 0.7.4+13) =="
           grep -nE "^version:" pubspec.yaml || true
           echo "== impronta del certificato di firma (atteso 02:28:46:FD:...:F2:52) =="
           keytool -printcert -jarfile "$APK" | grep -iE "SHA256:" || echo "(nessuna firma: build di debug)"
           echo "== package e versione (dal manifest) =="
-          unzip -p "$APK" AndroidManifest.xml | strings | grep -iE "online.solcomusic.solco|0\.7\.3" | head -3 || true
+          unzip -p "$APK" AndroidManifest.xml | strings | grep -iE "online.solcomusic.solco|0\.7\.4" | head -3 || true
 
       - name: Pubblica l'APK come artefatto
         if: always() && inputs.mode == 'apk'

@@ -13,6 +13,8 @@ export const iapVerifyRequestSchema = z
     platform: iapPlatformSchema,
     productId: z.string().trim().min(1).max(191),
     token: z.string().trim().min(1).max(4096),
+    /** Google: token Play Integrity opzionale (l'app lo invia per attestare app+dispositivo). */
+    integrityToken: z.string().trim().min(1).max(8192).optional(),
   })
   .strict();
 export type IapVerifyRequest = z.infer<typeof iapVerifyRequestSchema>;
@@ -32,6 +34,7 @@ export const iapVerifyResponseSchema = z.discriminatedUnion('ok', [
       'not_found',
       'account_mismatch',
       'sandbox_not_allowed',
+      'integrity_failed',
       'store_error',
     ]),
   }),

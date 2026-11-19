@@ -92,6 +92,18 @@ export function iapAllowSandbox(env: Env = process.env): boolean {
   return clean(env.IAP_ALLOW_SANDBOX) === '1';
 }
 
+/**
+ * Pretendere un token Play Integrity valido per gli acquisti Android? Di norma NO (IAP_REQUIRE_INTEGRITY
+ * assente o diverso da 1): la verifica presso lo store + il legame con l'account bastano, e l'app deve
+ * prima iniziare a inviare il token (serve il numero del progetto Google Cloud). Spento, un verdetto
+ * negativo viene solo REGISTRATO e segnalato, senza mai bloccare chi compra. Con IAP_REQUIRE_INTEGRITY=1
+ * un verdetto genuinamente negativo — o un token del tutto assente — rifiuta l'acquisto; un guasto
+ * temporaneo dell'API Integrity resta fail-open (non blocca una vendita per un'indisponibilità di Google).
+ */
+export function iapRequireIntegrity(env: Env = process.env): boolean {
+  return clean(env.IAP_REQUIRE_INTEGRITY) === '1';
+}
+
 /** Segreto condiviso nella URL di push delle notifiche Google RTDN (verificato a tempo costante). */
 export function googleRtdnSecret(env: Env = process.env): string {
   return clean(env.GOOGLE_PLAY_RTDN_SECRET);

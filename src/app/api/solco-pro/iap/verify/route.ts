@@ -68,6 +68,7 @@ export async function POST(request: Request) {
       platform: parsed.data.platform,
       productId: parsed.data.productId,
       token: parsed.data.token,
+      integrityToken: parsed.data.integrityToken,
     });
 
     if (!result.confirmed) {

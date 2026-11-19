@@ -11,6 +11,9 @@ const mocks = vi.hoisted(() => ({
   appleIapConfig: vi.fn(),
   googlePlayConfig: vi.fn(),
   iapAllowSandbox: vi.fn(),
+  iapRequireIntegrity: vi.fn(),
+  verifyPlayIntegrityToken: vi.fn(),
+  reportIapFraudSignal: vi.fn(),
   findUnique: vi.fn(),
   findFirst: vi.fn(),
   findMany: vi.fn(),
@@ -30,6 +33,13 @@ vi.mock('@/lib/business/iap/config.server', () => ({
   appleIapConfig: mocks.appleIapConfig,
   googlePlayConfig: mocks.googlePlayConfig,
   iapAllowSandbox: mocks.iapAllowSandbox,
+  iapRequireIntegrity: mocks.iapRequireIntegrity,
+}));
+vi.mock('@/lib/business/iap/play-integrity.server', () => ({
+  verifyPlayIntegrityToken: mocks.verifyPlayIntegrityToken,
+}));
+vi.mock('@/lib/business/iap/fraud-alert.server', () => ({
+  reportIapFraudSignal: mocks.reportIapFraudSignal,
 }));
 vi.mock('@/lib/db', () => ({
   prisma: {
@@ -70,11 +80,38 @@ function appleSub(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function googleSub(overrides: Record<string, unknown> = {}) {
+  return {
+    platform: 'google' as const,
+    storeSubId: 'ptoken',
+    latestOrderId: 'GPA.1',
+    productId: 'solco_premium_monthly',
+    state: 'active',
+    autoRenew: true,
+    environment: 'production',
+    accountToken: iapAccountToken('user-1'),
+    expiresAt: future,
+    acknowledged: true,
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.appleIapConfig.mockReturnValue({ bundleId: 'com.solco.app', rootCas: 'x' });
   mocks.googlePlayConfig.mockReturnValue({ packageName: 'com.solco.app' });
   mocks.iapAllowSandbox.mockReturnValue(false);
+  mocks.iapRequireIntegrity.mockReturnValue(false);
+  mocks.verifyPlayIntegrityToken.mockResolvedValue({
+    ok: true,
+    verdict: {
+      appRecognized: true,
+      deviceIntegrity: true,
+      licensed: true,
+      packageName: 'com.solco.app',
+    },
+  });
+  mocks.reportIapFraudSignal.mockResolvedValue(undefined);
   mocks.findUnique.mockResolvedValue(null);
   mocks.findFirst.mockResolvedValue(null);
   mocks.upsert.mockResolvedValue({});
@@ -178,6 +215,77 @@ describe('verifyAndPersistIapPurchase', () => {
       expect.anything(),
       now,
     );
+  });
+
+  it('segnala la frode quando la ricevuta è di un altro account', async () => {
+    mocks.getAppleSubscription.mockResolvedValue(
+      appleSub({ accountToken: iapAccountToken('victim') }),
+    );
+    await verifyAndPersistIapPurchase(input);
+    expect(mocks.reportIapFraudSignal).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: 'account_mismatch', userId: 'user-1' }),
+    );
+  });
+
+  it('Google: con enforcement acceso e verdetto Integrity negativo rifiuta', async () => {
+    mocks.iapRequireIntegrity.mockReturnValue(true);
+    mocks.verifyPlayIntegrityToken.mockResolvedValue({
+      ok: false,
+      hard: true,
+      reason: 'device_untrusted',
+    });
+    mocks.getPlaySubscription.mockResolvedValue(googleSub());
+    const r = await verifyAndPersistIapPurchase({
+      ...input,
+      platform: 'google',
+      token: 'ptoken',
+      integrityToken: 'itok',
+    });
+    expect(r).toEqual({ confirmed: false, reason: 'integrity_failed' });
+    expect(mocks.reportIapFraudSignal).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: 'integrity_failed', platform: 'google' }),
+    );
+    expect(mocks.upsert).not.toHaveBeenCalled();
+  });
+
+  it('Google: con enforcement acceso e token Integrity assente rifiuta', async () => {
+    mocks.iapRequireIntegrity.mockReturnValue(true);
+    mocks.verifyPlayIntegrityToken.mockResolvedValue({ ok: false, hard: false, reason: 'absent' });
+    mocks.getPlaySubscription.mockResolvedValue(googleSub());
+    const r = await verifyAndPersistIapPurchase({ ...input, platform: 'google', token: 'ptoken' });
+    expect(r).toEqual({ confirmed: false, reason: 'integrity_failed' });
+  });
+
+  it('Google: enforcement SPENTO non blocca ma segnala un verdetto negativo', async () => {
+    mocks.iapRequireIntegrity.mockReturnValue(false);
+    mocks.verifyPlayIntegrityToken.mockResolvedValue({
+      ok: false,
+      hard: true,
+      reason: 'app_unrecognized',
+    });
+    mocks.getPlaySubscription.mockResolvedValue(googleSub());
+    const r = await verifyAndPersistIapPurchase({
+      ...input,
+      platform: 'google',
+      token: 'ptoken',
+      integrityToken: 'itok',
+    });
+    expect(r).toMatchObject({ confirmed: true, active: true });
+    expect(mocks.reportIapFraudSignal).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: 'integrity_failed' }),
+    );
+  });
+
+  it('Google: verdetto Integrity valido conferma normalmente', async () => {
+    mocks.getPlaySubscription.mockResolvedValue(googleSub());
+    const r = await verifyAndPersistIapPurchase({
+      ...input,
+      platform: 'google',
+      token: 'ptoken',
+      integrityToken: 'itok',
+    });
+    expect(r).toMatchObject({ confirmed: true, active: true });
+    expect(mocks.reportIapFraudSignal).not.toHaveBeenCalled();
   });
 });
 

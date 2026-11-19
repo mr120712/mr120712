@@ -9,11 +9,14 @@ import {
   appleIapConfig,
   googlePlayConfig,
   iapAllowSandbox,
+  iapRequireIntegrity,
 } from '@/lib/business/iap/config.server';
+import { reportIapFraudSignal } from '@/lib/business/iap/fraud-alert.server';
 import {
   acknowledgePlaySubscription,
   getPlaySubscription,
 } from '@/lib/business/iap/google-play.server';
+import { verifyPlayIntegrityToken } from '@/lib/business/iap/play-integrity.server';
 import {
   ACCESS_GRANTING_IAP_STATES,
   IapStoreError,
@@ -49,6 +52,8 @@ export type VerifyIapInput = {
   productId: string;
   /** Apple: il transactionId. Google: il purchaseToken. */
   token: string;
+  /** Google: token Play Integrity opzionale, per attestare app+dispositivo (difesa in più). */
+  integrityToken?: string;
   now?: Date;
 };
 
@@ -69,6 +74,7 @@ export type VerifyIapResult =
         | 'not_found'
         | 'account_mismatch'
         | 'sandbox_not_allowed'
+        | 'integrity_failed'
         | 'store_error';
     };
 
@@ -157,11 +163,24 @@ export async function verifyAndPersistIapPurchase(input: VerifyIapInput): Promis
     !isProductionEnvironment(subscription.platform, subscription.environment) &&
     !iapAllowSandbox()
   ) {
+    await reportIapFraudSignal({
+      reason: 'sandbox_in_production',
+      platform: subscription.platform,
+      userId: input.userId,
+      productId: input.productId,
+      detail: subscription.environment,
+    }).catch(() => undefined);
     return { confirmed: false, reason: 'sandbox_not_allowed' };
   }
 
   // Legame con l'account: il token dello store deve appartenere a QUESTO utente.
   if (!iapAccountTokenMatches(subscription.accountToken, input.userId)) {
+    await reportIapFraudSignal({
+      reason: 'account_mismatch',
+      platform: subscription.platform,
+      userId: input.userId,
+      productId: input.productId,
+    }).catch(() => undefined);
     return { confirmed: false, reason: 'account_mismatch' };
   }
 
@@ -175,7 +194,43 @@ export async function verifyAndPersistIapPurchase(input: VerifyIapInput): Promis
     },
   })) as IapRow | null;
   if (existing && existing.userId !== input.userId) {
+    await reportIapFraudSignal({
+      reason: 'duplicate_account',
+      platform: subscription.platform,
+      userId: input.userId,
+      productId: input.productId,
+    }).catch(() => undefined);
     return { confirmed: false, reason: 'account_mismatch' };
+  }
+
+  // Play Integrity (solo Google): l'acquisto arriva dall'app autentica di Solco su un dispositivo
+  // integro? Difesa in più; lo stato dell'abbonamento resta quello letto dallo store. Di norma spento
+  // (IAP_REQUIRE_INTEGRITY): un verdetto negativo si registra e si segnala, senza bloccare chi compra.
+  if (subscription.platform === 'google') {
+    const requireIntegrity = iapRequireIntegrity();
+    const googleConfig = googlePlayConfig();
+    if (googleConfig && (input.integrityToken || requireIntegrity)) {
+      const integrity = await verifyPlayIntegrityToken(
+        input.integrityToken ?? null,
+        googleConfig,
+      ).catch(() => ({ ok: false, hard: false, reason: 'error' }) as const);
+      if (!integrity.ok) {
+        if (integrity.hard) {
+          await reportIapFraudSignal({
+            reason: 'integrity_failed',
+            platform: 'google',
+            userId: input.userId,
+            productId: input.productId,
+            detail: integrity.reason,
+          }).catch(() => undefined);
+        }
+        // Blocca solo con enforcement acceso, e solo su verdetto negativo genuino o token del tutto
+        // assente — non per un guasto temporaneo dell'API Integrity (fail-open sull'infrastruttura).
+        if (requireIntegrity && (integrity.hard || !input.integrityToken)) {
+          return { confirmed: false, reason: 'integrity_failed' };
+        }
+      }
+    }
   }
 
   // Google: conferma l'acquisto (acknowledge) entro 3 giorni, se non già fatto.
