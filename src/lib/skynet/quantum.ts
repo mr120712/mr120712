@@ -12,6 +12,18 @@
 // (algoritmo di Grover) e 256 bit restano abbondanti.
 
 export const PQ_GROUP = 'X25519MLKEM768';
+/**
+ * Gruppo di scambio chiavi considerato «protetto»: lo standard NIST ML-KEM-768 (FIPS 203), da solo o
+ * nell'ibrido con X25519. Un gruppo post-quantistico pre-standard (bozza Kyber) o diverso NON conta:
+ * è più debole o non verificato, e accettarlo come protezione nasconderebbe un downgrade silenzioso.
+ * Tollerante sui nomi che il runtime può usare per lo standard, ma rifiuta esplicitamente le bozze.
+ */
+export function isStandardPqGroup(group: string | null | undefined): boolean {
+  if (typeof group !== 'string' || group.length === 0) return false;
+  const g = group.toUpperCase();
+  if (g.includes('KYBER') || g.includes('DRAFT')) return false;
+  return g === PQ_GROUP.toUpperCase() || g.includes('MLKEM768') || g.includes('ML-KEM-768');
+}
 /** Con lo stato già comunicato (protezione attiva, o assente e segnalata) si ricontrolla ogni ora. */
 export const QUANTUM_RECHECK_MS = 60 * 60 * 1000;
 /** Se la verifica non è riuscita (rete, runtime) si riprova dopo 10 minuti. */

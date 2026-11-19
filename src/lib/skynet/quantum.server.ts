@@ -6,9 +6,11 @@
 // Il certificato viene verificato come in un browser.
 import 'server-only';
 import { type ConnectionOptions, connect, createSecureContext, type TLSSocket } from 'node:tls';
-import { PQ_GROUP, type PqResult } from './quantum';
+import { isStandardPqGroup, PQ_GROUP, type PqResult } from './quantum';
 
 const HANDSHAKE_TIMEOUT_MS = 5_000;
+/** Tentativi per il gruppo post-quantistico: un intoppo di rete sul primo non deve sembrare un downgrade. */
+const PQ_PROBE_ATTEMPTS = 2;
 
 export type PqProbeOptions = {
   port?: number;
@@ -82,10 +84,16 @@ export async function probePostQuantum(
   options: PqProbeOptions = {},
 ): Promise<PqResult> {
   if (!runtimeSupportsPq()) return 'unsupported';
-  if ((await handshake(host, PQ_GROUP, options)).ok) return 'pq';
+  // Offrendo SOLO X25519MLKEM768, una stretta di mano riuscita È lo standard. Due tentativi: un
+  // intoppo di rete sul primo non deve sembrare un downgrade (un falso «rifiutato» che, ripetuto,
+  // farebbe scattare un allarme).
+  for (let attempt = 0; attempt < PQ_PROBE_ATTEMPTS; attempt += 1) {
+    if ((await handshake(host, PQ_GROUP, options)).ok) return 'pq';
+  }
   const classic = await handshake(host, null, options);
   if (!classic.ok) return 'unreachable';
-  // Il primo tentativo può essere caduto per un intoppo di rete: se il secondo, con i gruppi
-  // predefiniti, ha comunque negoziato ML-KEM, la protezione c'è.
-  return classic.group?.toUpperCase().includes('MLKEM') ? 'pq' : 'classic-only';
+  // Il primo tentativo può essere caduto per un intoppo: se il secondo, con i gruppi predefiniti, ha
+  // negoziato lo standard NIST ML-KEM-768, la protezione c'è. Un ibrido pre-standard (bozza Kyber) o
+  // più debole NON conta: sarebbe un downgrade silenzioso spacciato per protezione.
+  return isStandardPqGroup(classic.group) ? 'pq' : 'classic-only';
 }

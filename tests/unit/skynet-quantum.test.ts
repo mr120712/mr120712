@@ -16,6 +16,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 
 import {
+  isStandardPqGroup,
   PQ_GROUP,
   parseQuantum,
   QUANTUM_CONFIRM,
@@ -61,6 +62,22 @@ describe('domini e riepilogo', () => {
     expect(summarizeQuantum(both('pq', 'unreachable'))).toBeNull();
     expect(summarizeQuantum(both('unsupported'))).toBeNull();
     expect(summarizeQuantum([])).toBeNull();
+  });
+});
+
+describe('isStandardPqGroup: solo lo standard NIST ML-KEM-768, non le bozze', () => {
+  it('accetta lo standard (anche con nomi diversi del runtime), rifiuta bozze e classici', () => {
+    expect(isStandardPqGroup('X25519MLKEM768')).toBe(true);
+    expect(isStandardPqGroup('x25519mlkem768')).toBe(true);
+    expect(isStandardPqGroup('MLKEM768')).toBe(true);
+    expect(isStandardPqGroup('X25519ML-KEM-768')).toBe(true);
+    // Bozze pre-standard (Kyber) o gruppi classici: non sono la protezione che pretendiamo.
+    expect(isStandardPqGroup('X25519Kyber768Draft00')).toBe(false);
+    expect(isStandardPqGroup('X25519')).toBe(false);
+    expect(isStandardPqGroup('prime256v1')).toBe(false);
+    expect(isStandardPqGroup('')).toBe(false);
+    expect(isStandardPqGroup(null)).toBe(false);
+    expect(isStandardPqGroup(undefined)).toBe(false);
   });
 });
 
