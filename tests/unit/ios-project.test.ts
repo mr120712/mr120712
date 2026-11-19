@@ -1,17 +1,18 @@
-// @polsia:user-owned — il progetto iOS (ios/Solco.xcodeproj) deve restare allineato all'app Android e al
-// sito: stesso identificativo (online.solcomusic.solco), stesso dominio ufficiale come base delle API,
-// stessa versione; audio in background dichiarato. Lo script ios/build.sh e il workflow GitHub Actions
-// che lo esegue su macOS devono conoscere le stesse modalità e non contenere segreti: certificati e
-// chiavi li fornisce solo il proprietario, attraverso i segreti del repository.
+// @polsia:user-owned — il progetto iOS NATIVO (ios/Solco.xcodeproj) deve restare allineato al sito:
+// stesso identificativo (online.solcomusic.solco), stesso dominio ufficiale come base delle API; audio in
+// background dichiarato. Lo script ios/build.sh e il workflow GitHub Actions che lo esegue su macOS
+// devono conoscere le stesse modalità e non contenere segreti: certificati e chiavi li fornisce solo il
+// proprietario, attraverso i segreti del repository. Dal novembre 2026 il sito distribuisce l'app Flutter
+// (cartella flutter/); questo progetto nativo resta in repo come riferimento e conserva la sua versione
+// (1.3.0/4), indipendente dalla versione dell'app Flutter pubblicata in /app.
 // @vitest-environment node
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import {
-  ANDROID_APP_HOST,
-  ANDROID_APP_PACKAGE,
-  ANDROID_APP_VERSION,
-  ANDROID_APP_VERSION_CODE,
-} from '@/lib/android-app';
+import { ANDROID_APP_HOST, ANDROID_APP_PACKAGE } from '@/lib/android-app';
+
+// Versione propria del progetto iOS nativo legacy (non quella dell'app Flutter distribuita).
+const NATIVE_IOS_VERSION = '1.3.0';
+const NATIVE_IOS_BUILD = 4;
 
 const pbxproj = readFileSync('ios/Solco.xcodeproj/project.pbxproj', 'utf8');
 const infoPlist = readFileSync('ios/Solco/Info.plist', 'utf8');
@@ -23,7 +24,7 @@ const entitlements = readFileSync('ios/Solco/Solco.entitlements', 'utf8');
 const MODES = ['check', 'ipa-unsigned', 'ipa', 'sign'];
 
 describe('progetto iOS', () => {
-  it("usa l'identificativo, il dominio e la versione dell'app Android (Debug e Release)", () => {
+  it("usa l'identificativo e il dominio del sito e la propria versione (Debug e Release)", () => {
     expect(pbxproj.match(/PRODUCT_BUNDLE_IDENTIFIER = [^;]+;/g)).toEqual(
       Array(2).fill(`PRODUCT_BUNDLE_IDENTIFIER = ${ANDROID_APP_PACKAGE};`),
     );
@@ -31,13 +32,13 @@ describe('progetto iOS', () => {
       Array(2).fill(`SOLCO_API_BASE_URL = "https://${ANDROID_APP_HOST}";`),
     );
     expect(pbxproj.match(/CURRENT_PROJECT_VERSION = \d+;/g)).toEqual(
-      Array(2).fill(`CURRENT_PROJECT_VERSION = ${ANDROID_APP_VERSION_CODE};`),
+      Array(2).fill(`CURRENT_PROJECT_VERSION = ${NATIVE_IOS_BUILD};`),
     );
     expect(infoPlist).toContain(
-      `<key>CFBundleShortVersionString</key>\n\t<string>${ANDROID_APP_VERSION}</string>`,
+      `<key>CFBundleShortVersionString</key>\n\t<string>${NATIVE_IOS_VERSION}</string>`,
     );
     expect(infoPlist).toContain(
-      `<key>CFBundleVersion</key>\n\t<string>${ANDROID_APP_VERSION_CODE}</string>`,
+      `<key>CFBundleVersion</key>\n\t<string>${NATIVE_IOS_BUILD}</string>`,
     );
   });
 

@@ -56,8 +56,8 @@ export default function InstallAppPage() {
     <main className={styles.page}>
       <h1>Installa Solco</h1>
       <p className={styles.lead}>
-        Player, Libreria, radio e piani a schermo intero, senza passare dagli store. L’app si
-        aggiorna da sola insieme al sito.
+        Player, Libreria, radio e piani in un’app nativa, senza passare dagli store. Riusa il tuo
+        account e la tua Libreria di Solco.
       </p>
 
       <section className={styles.platform} id="android" aria-labelledby="android-heading">
@@ -87,9 +87,8 @@ export default function InstallAppPage() {
         </p>
         <p className={styles.meta}>
           Certificato che firma l’APK (impronta SHA-256), lo stesso che il sito pubblica in
-          /.well-known/assetlinks.json: per questo Android apre Solco a schermo intero, senza la
-          barra del browser. Puoi confrontarlo con quello mostrato da Android nelle informazioni
-          dell’app.
+          /.well-known/assetlinks.json: è l’associazione verificata tra l’app e il dominio ufficiale
+          di Solco. Puoi confrontarlo con quello mostrato da Android nelle informazioni dell’app.
           <code className={styles.fingerprint}>{ANDROID_APP_CERT_SHA256}</code>
         </p>
       </section>
@@ -113,7 +112,7 @@ export default function InstallAppPage() {
           </Button>
         </div>
         <p className={styles.meta}>
-          Versione {IOS_APP_VERSION} · iOS 17 o successivo · identificativo {IOS_APP_BUNDLE_ID}
+          Versione {IOS_APP_VERSION} · iOS 15 o successivo · identificativo {IOS_APP_BUNDLE_ID}
         </p>
         <ol className={styles.steps}>
           {iosIpaSteps.map((step) => (

@@ -21,12 +21,16 @@ describe('IPA pubblico', () => {
   it('è Solco nella versione dichiarata dalla pagina /app', () => {
     const entries = listZipEntries(ipa) ?? [];
     expect(entries.length).toBeGreaterThan(0);
-    const info = entries.find((entry) => entry.name === 'Payload/Solco.app/Info.plist');
+    // Il bundle dell'app Flutter si chiama Runner.app (eseguibile Runner): troviamo il .app in modo
+    // generico, senza fissare il nome, e controlliamo identificativo e versione nell'Info.plist.
+    const info = entries.find((entry) => /^Payload\/[^/]+\.app\/Info\.plist$/.test(entry.name));
     expect(info).toBeDefined();
+    const appDir = info ? info.name.slice('Payload/'.length, -'/Info.plist'.length) : '';
+    const appName = appDir.replace(/\.app$/, '');
     const plist = info ? readZipEntry(ipa, info) : null;
     expect(plist?.includes(Buffer.from(IOS_APP_BUNDLE_ID, 'utf8'))).toBe(true);
     expect(plist?.includes(Buffer.from(IOS_APP_VERSION, 'utf8'))).toBe(true);
-    expect(entries.some((entry) => entry.name === 'Payload/Solco.app/Solco')).toBe(true);
+    expect(entries.some((entry) => entry.name === `Payload/${appDir}/${appName}`)).toBe(true);
     expect(IOS_IPA_DOWNLOAD_NAME).toBe(`Solco-${IOS_APP_VERSION}.ipa`);
   });
 

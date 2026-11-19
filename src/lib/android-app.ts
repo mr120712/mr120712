@@ -1,9 +1,10 @@
-// @polsia:user-owned — dati pubblici dell'app Android (Trusted Web Activity) distribuita da /app:
-// versione, package, dominio verificato e impronta SHA-256 del certificato che firma l'APK, la stessa
-// pubblicata dal sito in public/.well-known/assetlinks.json (Digital Asset Links). È l'accordo che fa
-// aprire Solco a schermo intero, senza la barra del browser. Il test
-// tests/unit/android-apk-certificates.test.ts confronta questi valori con l'APK in public/solco.apk
-// e con il progetto android/, così la pagina /app e il file pubblicato non possono divergere dal binario.
+// @polsia:user-owned — dati pubblici dell'app Android distribuita da /app: versione, package, dominio
+// verificato e impronta SHA-256 del certificato che firma l'APK, la stessa pubblicata dal sito in
+// public/.well-known/assetlinks.json (Digital Asset Links). Dal novembre 2026 l'APK pubblicato è l'app
+// Flutter completa (cartella flutter/, stesso package e stesso certificato dell'APK nativo precedente,
+// così resta un aggiornamento in-place). Il test tests/unit/android-apk-certificates.test.ts confronta
+// questi valori con l'APK in public/solco.apk, così la pagina /app e il file pubblicato non divergono dal
+// binario. Il vecchio progetto nativo android/ (Trusted Web Activity) resta in repo come riferimento.
 
 /**
  * Package Android dell'app (applicationId in android/app/build.gradle, assetlinks.json). Dal 16 novembre
@@ -20,17 +21,18 @@ export const ANDROID_LEGACY_PACKAGE = 'app.solcomusic.solco';
 /** Dominio che l'app apre e verifica (host della TWA e sito degli asset statements). */
 export const ANDROID_APP_HOST = 'www.solcomusic.online';
 
-/** Versione e codice dell'APK in public/solco.apk. */
-export const ANDROID_APP_VERSION = '1.3.0';
-export const ANDROID_APP_VERSION_CODE = 4;
+/** Versione e codice dell'APK (Flutter) in public/solco.apk. */
+export const ANDROID_APP_VERSION = '0.7.3';
+export const ANDROID_APP_VERSION_CODE = 12;
 
 /** Requisito minimo (minSdk 24). */
 export const ANDROID_APP_MIN_VERSION = 'Android 7.0 o successivo';
 
 /**
- * Impronta SHA-256 del certificato che firma l'APK dall'11 novembre 2026 (versioni 1.1.0 e successive).
- * La chiave privata sta in android/.keys/, fuori da Git: senza quella chiave un nuovo APK non aggiorna
- * le installazioni esistenti.
+ * Impronta SHA-256 del certificato che firma l'APK dall'11 novembre 2026 (dalla versione 1.1.0): lo
+ * stesso certificato firma anche l'APK Flutter attuale, così l'aggiornamento resta in-place. La chiave
+ * privata è nei GitHub Secrets del repository (keystore), mai in Git: senza quella chiave un nuovo APK
+ * non aggiorna le installazioni esistenti.
  */
 export const ANDROID_APP_CERT_SHA256 =
   '02:28:46:FD:CF:D1:34:80:21:74:52:B9:01:A9:27:A2:10:74:94:8D:05:A7:23:1A:30:EF:AF:73:E3:66:F2:52';

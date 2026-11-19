@@ -1,9 +1,9 @@
-// @polsia:user-owned — l'APK distribuito da /app (public/solco.apk) deve essere firmato con un
-// certificato pubblicato dal sito in public/.well-known/assetlinks.json (Digital Asset Links) e
-// dichiarato nel progetto android/ (twa-manifest.json) e in src/lib/android-app.ts, da cui la pagina
-// /app prende versione e impronta: è l'accordo che fa aprire la Trusted Web Activity a schermo intero.
-// Il test legge il certificato dal blocco di firma dell'APK (schema v2/v3), senza strumenti Android,
-// e controlla che il binario apra il dominio ufficiale con la versione dichiarata.
+// @polsia:user-owned — l'APK distribuito da /app (public/solco.apk) è l'app Flutter di Solco (cartella
+// flutter/) e deve essere firmato con un certificato pubblicato dal sito in public/.well-known/
+// assetlinks.json (Digital Asset Links) e dichiarato in src/lib/android-app.ts, da cui la pagina /app
+// prende versione e impronta. Il test legge il certificato dal blocco di firma dell'APK (schema v2/v3),
+// senza strumenti Android, e controlla che il binario dichiari il package e la versione attesi. Il
+// certificato è lo stesso dell'APK nativo precedente, così l'aggiornamento resta in-place.
 // @vitest-environment node
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -11,10 +11,8 @@ import { inflateRawSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import {
   ANDROID_APP_CERT_SHA256,
-  ANDROID_APP_HOST,
   ANDROID_APP_PACKAGE,
   ANDROID_APP_VERSION,
-  ANDROID_APP_VERSION_CODE,
   ANDROID_LEGACY_CERT_SHA256,
   ANDROID_LEGACY_PACKAGE,
   SHA256_FINGERPRINT_PATTERN,
@@ -22,9 +20,7 @@ import {
 
 const APK_PATH = 'public/solco.apk';
 const ASSETLINKS_PATH = 'public/.well-known/assetlinks.json';
-const TWA_MANIFEST_PATH = 'android/twa-manifest.json';
-const BUILD_GRADLE_PATH = 'android/app/build.gradle';
-const STRINGS_PATH = 'android/app/src/main/res/values/strings.xml';
+const GITIGNORE_PATH = '.gitignore';
 
 // Firme zip e id dei blocchi di firma Android.
 const EOCD_SIGNATURE = 0x06054b50;
@@ -38,18 +34,6 @@ type ZipEntry = { method: number; compressedSize: number; localOffset: number };
 type AssetStatement = {
   relation: string[];
   target: { namespace: string; package_name: string; sha256_cert_fingerprints: string[] };
-};
-
-type TwaManifest = {
-  packageId: string;
-  host: string;
-  appVersionName: string;
-  appVersionCode: number;
-  appVersion: string;
-  fullScopeUrl: string;
-  iconUrl: string;
-  signingKey: { path: string; alias: string };
-  fingerprints: { name?: string; value: string }[];
 };
 
 function endOfCentralDirectory(zip: Buffer): number {
@@ -172,8 +156,6 @@ const publishedFingerprints =
   statementFor(ANDROID_APP_PACKAGE)?.target.sha256_cert_fingerprints ?? [];
 const legacyFingerprints =
   statementFor(ANDROID_LEGACY_PACKAGE)?.target.sha256_cert_fingerprints ?? [];
-const twaManifest = JSON.parse(readFileSync(TWA_MANIFEST_PATH, 'utf8')) as TwaManifest;
-const buildGradle = readFileSync(BUILD_GRADLE_PATH, 'utf8');
 
 describe('APK Android: certificati e Digital Asset Links', () => {
   it("l'APK distribuito è firmato con il certificato pubblicato in assetlinks.json", () => {
@@ -207,52 +189,16 @@ describe('APK Android: certificati e Digital Asset Links', () => {
     );
   });
 
-  it('twa-manifest.json porta gli stessi certificati, la stessa versione e il dominio ufficiale', () => {
-    expect(twaManifest.packageId).toBe(ANDROID_APP_PACKAGE);
-    expect(twaManifest.host).toBe(ANDROID_APP_HOST);
-    expect(twaManifest.appVersionName).toBe(ANDROID_APP_VERSION);
-    expect(twaManifest.appVersion).toBe(ANDROID_APP_VERSION);
-    expect(twaManifest.appVersionCode).toBe(ANDROID_APP_VERSION_CODE);
-    expect(twaManifest.fullScopeUrl).toBe(`https://${ANDROID_APP_HOST}/`);
-    expect(twaManifest.iconUrl.startsWith(`https://${ANDROID_APP_HOST}/`)).toBe(true);
-    const declared = twaManifest.fingerprints.map((entry) => entry.value);
-    expect(declared).toContain(ANDROID_APP_CERT_SHA256);
-    const published = new Set([...publishedFingerprints, ...legacyFingerprints]);
-    for (const value of declared) {
-      expect(published.has(value)).toBe(true);
-    }
-    for (const entry of twaManifest.fingerprints) {
-      expect((entry.name ?? '').length).toBeGreaterThan(10);
-    }
-  });
-
-  it('la chiave privata resta fuori da Git', () => {
-    expect(twaManifest.signingKey.path.startsWith('./.keys/')).toBe(true);
-    const ignored = readFileSync('.gitignore', 'utf8').split('\n');
-    expect(ignored).toContain('/android/.keys/');
-    expect(buildGradle).not.toMatch(/storePassword\s+["']/);
-  });
-
-  it('build.gradle e strings.xml dichiarano package, versione e dominio della pagina /app', () => {
-    expect(buildGradle).toContain(`applicationId "${ANDROID_APP_PACKAGE}"`);
-    expect(buildGradle).toContain(`applicationId: '${ANDROID_APP_PACKAGE}'`);
-    // Il namespace del codice Java resta quello originale: cambia solo il pacchetto visto da Android.
-    expect(buildGradle).toContain(`namespace "${ANDROID_LEGACY_PACKAGE}"`);
-    expect(buildGradle).toContain(`versionName "${ANDROID_APP_VERSION}"`);
-    expect(buildGradle).toContain(`hostName: '${ANDROID_APP_HOST}'`);
-    expect(buildGradle).toContain(`?: '${ANDROID_APP_VERSION_CODE}'`);
-    const strings = readFileSync(STRINGS_PATH, 'utf8');
-    expect(strings).toContain(`\\"site\\": \\"https://${ANDROID_APP_HOST}\\"`);
-  });
-
-  it("l'APK apre il dominio ufficiale e dichiara package e versione mostrati in /app", () => {
-    const resources = readZipEntry(apk, entries, 'resources.arsc');
-    expect(includesText(resources, `https://${ANDROID_APP_HOST}/`)).toBe(true);
-    expect(includesText(resources, `"site": "https://${ANDROID_APP_HOST}"`)).toBe(true);
-    expect(includesText(resources, 'solcomusic.vercel.app')).toBe(false);
-    expect(includesText(resources, '://solcomusic.app')).toBe(false);
+  it("l'APK dichiara il package e la versione mostrati in /app", () => {
     const manifest = readZipEntry(apk, entries, 'AndroidManifest.xml');
     expect(includesText(manifest, ANDROID_APP_PACKAGE)).toBe(true);
     expect(includesText(manifest, ANDROID_APP_VERSION)).toBe(true);
+  });
+
+  it('la chiave di firma resta fuori da Git', () => {
+    const ignored = readFileSync(GITIGNORE_PATH, 'utf8').split('\n');
+    // Il keystore dell'APK Flutter è nei GitHub Secrets; eventuali chiavi locali del progetto nativo
+    // restano ignorate da Git.
+    expect(ignored).toContain('/android/.keys/');
   });
 });
