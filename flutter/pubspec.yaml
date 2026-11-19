@@ -43,7 +43,10 @@ flutter:
 # foreground trasparente centrato su sfondo scuro; quella legacy usa l'icona completa.
 flutter_launcher_icons:
   android: "ic_launcher"
-  ios: false
+  # iOS: niente canale alfa (vietato nelle icone App Store); l'icona viene appiattita sul blu notte.
+  ios: true
+  remove_alpha_ios: true
+  background_color_ios: "#08151F"
   image_path: "assets/icon/solco-icon.png"
   adaptive_icon_background: "#08151F"
   adaptive_icon_foreground: "assets/icon/solco-icon-foreground.png"

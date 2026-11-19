@@ -1,0 +1,147 @@
+# @polsia:user-owned — compila l'app Flutter di Solco (cartella flutter/, la STESSA di Android, con
+# tutte le funzioni) per iOS, su un runner macOS di GitHub. Come per Android qui l'SDK Flutter non c'è
+# e le cartelle di piattaforma (ios/) non sono versionate: il workflow le GENERA con `flutter create`,
+# le configura (audio in background, nome «Solco») e poi compila e impacchetta.
+# Si avvia a mano da Actions → «Flutter (iOS)» → Run workflow, scegliendo la modalità:
+#   check         compila per il simulatore (nessun IPA): dimostra che il codice iOS sta in piedi.
+#   ipa-unsigned  archivia SENZA firma e pubblica Solco-unsigned.ipa tra gli artefatti: si installa
+#                 con AltStore/SideStore, che lo firma sul dispositivo con l'ID Apple dell'utente.
+#   ipa-signed    firma ed esporta con la chiave API di App Store Connect (segreti Apple richiesti:
+#                 APPLE_TEAM_ID, APP_STORE_CONNECT_KEY_ID, _ISSUER_ID, _PRIVATE_KEY). Senza segreti fallisce.
+# Il repository è pubblico: i minuti macOS sono gratuiti. Nessun avvio automatico.
+name: Flutter (iOS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'check = compila per simulatore; ipa-unsigned = IPA senza firma (AltStore); ipa-signed = IPA firmato (segreti Apple)'
+        type: choice
+        required: true
+        default: ipa-unsigned
+        options:
+          - check
+          - ipa-unsigned
+          - ipa-signed
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flutter-ios-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Flutter iOS (${{ inputs.mode }})
+    runs-on: macos-15
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: flutter
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.50.0'
+          channel: stable
+          cache: true
+
+      - name: Versioni
+        run: flutter --version
+
+      - name: Genera la piattaforma iOS (ios/) se manca
+        run: |
+          if [ ! -d ios ]; then
+            flutter create --platforms=ios --org online.solcomusic --project-name solco .
+          else
+            echo "ios/ già presente: salto."
+          fi
+
+      - name: Dipendenze (flutter pub get)
+        run: flutter pub get
+
+      - name: Icona dell'app (flutter_launcher_icons)
+        run: dart run flutter_launcher_icons
+
+      - name: Configura iOS (audio in background + nome «Solco»)
+        run: |
+          PLIST=ios/Runner/Info.plist
+          # Audio in background (just_audio_background): comandi dalla schermata di blocco e riproduzione
+          # a schermo spento. Richiede UIBackgroundModes = audio.
+          /usr/libexec/PlistBuddy -c "Delete :UIBackgroundModes" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string audio" "$PLIST"
+          # Nome visibile sotto l'icona.
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Solco" "$PLIST" 2>/dev/null \
+            || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string Solco" "$PLIST"
+          echo "== Info.plist dopo la patch =="
+          /usr/libexec/PlistBuddy -c "Print :UIBackgroundModes" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$PLIST"
+          echo "== versione (da pubspec: CFBundleShortVersionString + CFBundleVersion) =="
+          grep -nE "^version:" pubspec.yaml || true
+
+      - name: Analisi statica (non blocca la build)
+        continue-on-error: true
+        run: flutter analyze
+
+      - name: Compila per il simulatore (check)
+        if: inputs.mode == 'check'
+        run: flutter build ios --simulator --debug
+
+      - name: Compila l'IPA senza firma
+        if: inputs.mode == 'ipa-unsigned'
+        run: |
+          flutter build ios --release --no-codesign
+          cd build/ios/iphoneos
+          rm -rf Payload Solco-unsigned.ipa
+          mkdir Payload
+          cp -R Runner.app Payload/Runner.app
+          zip -qr Solco-unsigned.ipa Payload
+          echo "IPA: $(pwd)/Solco-unsigned.ipa ($(du -h Solco-unsigned.ipa | cut -f1))"
+          echo "== dentro l'IPA (atteso Payload/Runner.app) =="
+          unzip -l Solco-unsigned.ipa | grep -iE "Runner.app/Info.plist|Runner.app/Runner$|Frameworks/" | head
+
+      - name: Firma ed esporta con la chiave API di App Store Connect
+        if: inputs.mode == 'ipa-signed'
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          for v in APPLE_TEAM_ID APP_STORE_CONNECT_KEY_ID APP_STORE_CONNECT_ISSUER_ID APP_STORE_CONNECT_PRIVATE_KEY; do
+            if [ -z "${!v}" ]; then
+              echo "ERRORE: manca il segreto $v. Imposta i segreti Apple (repo → Settings → Secrets) per la build firmata." >&2
+              exit 1
+            fi
+          done
+          mkdir -p "$HOME/private_keys"
+          printf '%s' "$APP_STORE_CONNECT_PRIVATE_KEY" | base64 -D > "$HOME/private_keys/AuthKey_$APP_STORE_CONNECT_KEY_ID.p8"
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>ad-hoc</string>
+            <key>teamID</key><string>${APPLE_TEAM_ID}</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>destination</key><string>export</string>
+          </dict></plist>
+          PLIST
+          flutter build ipa --release \
+            --export-options-plist="$RUNNER_TEMP/ExportOptions.plist"
+          echo "== IPA firmato =="
+          ls -la build/ios/ipa/*.ipa || true
+
+      - name: Pubblica l'IPA (e i log) come artefatto
+        if: always() && inputs.mode != 'check'
+        uses: actions/upload-artifact@v4
+        with:
+          name: solco-flutter-ios-${{ inputs.mode }}
+          path: |
+            flutter/build/ios/iphoneos/Solco-unsigned.ipa
+            flutter/build/ios/ipa/*.ipa
+          if-no-files-found: warn
+          retention-days: 14
