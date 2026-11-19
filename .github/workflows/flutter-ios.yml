@@ -15,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'check = compila per simulatore; ipa-unsigned = IPA senza firma (AltStore); ipa-signed = IPA firmato (segreti Apple)'
+        description: 'check; ipa-unsigned (AltStore); ipa-signed (chiave API App Store Connect); ipa-manual (.p12 + profilo dai Secrets)'
         type: choice
         required: true
         default: ipa-unsigned
@@ -23,6 +23,7 @@ on:
           - check
           - ipa-unsigned
           - ipa-signed
+          - ipa-manual
 
 permissions:
   contents: read
@@ -137,6 +138,74 @@ jobs:
             --export-options-plist="$RUNNER_TEMP/ExportOptions.plist"
           echo "== IPA firmato =="
           ls -la build/ios/ipa/*.ipa || true
+
+      - name: Firma MANUALE (certificato .p12 + profilo dai GitHub Secrets)
+        if: inputs.mode == 'ipa-manual'
+        env:
+          IOS_SIGNING_CERT_P12_BASE64: ${{ secrets.IOS_SIGNING_CERT_P12_BASE64 }}
+          IOS_SIGNING_CERT_PASSWORD: ${{ secrets.IOS_SIGNING_CERT_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          for v in IOS_SIGNING_CERT_P12_BASE64 IOS_SIGNING_CERT_PASSWORD IOS_PROVISIONING_PROFILE_BASE64 APPLE_TEAM_ID; do
+            if [ -z "${!v}" ]; then
+              echo "ERRORE: manca il segreto $v (repo → Settings → Secrets → Actions)." >&2
+              exit 1
+            fi
+          done
+          BUNDLE_ID=online.solcomusic.solco
+          KEYCHAIN="$RUNNER_TEMP/solco-sign.keychain-db"
+          KEYCHAIN_PW="$(openssl rand -base64 24)"
+          # Decodifica certificato e profilo dai Secrets (mai stampati).
+          echo "$IOS_SIGNING_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/profile.mobileprovision"
+          # Portachiavi temporaneo, usato solo per questa build e poi eliminato.
+          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$IOS_SIGNING_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -k "$KEYCHAIN_PW" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN" | sed -n 's/.*"\(.*\)".*/\1/p' | head -1)
+          # Installa il profilo di provisioning con il suo UUID.
+          security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" > "$RUNNER_TEMP/profile.plist"
+          UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$RUNNER_TEMP/profile.plist")
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$RUNNER_TEMP/profile.plist")
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$RUNNER_TEMP/profile.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$UUID.mobileprovision"
+          echo "Identità: $IDENTITY"
+          echo "Profilo:  $PROFILE_NAME ($UUID)"
+          # Opzioni di esportazione Ad Hoc con firma manuale.
+          printf '%s\n' \
+            '<?xml version="1.0" encoding="UTF-8"?>' \
+            '<plist version="1.0"><dict>' \
+            '<key>method</key><string>ad-hoc</string>' \
+            "<key>teamID</key><string>${APPLE_TEAM_ID}</string>" \
+            '<key>signingStyle</key><string>manual</string>' \
+            "<key>signingCertificate</key><string>${IDENTITY}</string>" \
+            '<key>provisioningProfiles</key><dict>' \
+            "<key>${BUNDLE_ID}</key><string>${PROFILE_NAME}</string>" \
+            '</dict></dict></plist>' > "$RUNNER_TEMP/ExportOptions.plist"
+          # Prepara (pod install + artefatti) senza firma, poi archivia FIRMATO con xcodebuild.
+          flutter build ios --release --no-codesign
+          xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner -configuration Release -sdk iphoneos \
+            -archivePath "$RUNNER_TEMP/Runner.xcarchive" \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            CODE_SIGN_IDENTITY="$IDENTITY" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN" \
+            archive
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Runner.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath build/ios/ipa
+          echo "== IPA firmato (manuale, Ad Hoc) =="
+          ls -la build/ios/ipa/*.ipa
+
+      - name: Pulizia del portachiavi di firma
+        if: always() && inputs.mode == 'ipa-manual'
+        run: security delete-keychain "$RUNNER_TEMP/solco-sign.keychain-db" 2>/dev/null || true
 
       - name: Pubblica l'IPA (e i log) come artefatto
         if: always() && inputs.mode != 'check'
