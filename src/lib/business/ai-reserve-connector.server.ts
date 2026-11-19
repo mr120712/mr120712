@@ -161,9 +161,14 @@ const PROVIDER_DEFS: ProviderDef[] = [
     label: 'OpenRouter',
     baseUrl: 'https://openrouter.ai/api/v1',
     keyVar: 'OPENROUTER_API_KEY',
+    // Default: NVIDIA Nemotron 3 Ultra (gratis su OpenRouter, 550B MoE, contesto 1M). Attenzione:
+    // free tier basso (~50 richieste/giorno), disponibilità ~80% e NON supporta response_format
+    // (json_object); se rifiuta (400/404/429) il failover passa al modello di scorta — Llama 3.3 70B,
+    // che il JSON lo regge — e poi agli altri provider. Sovrascrivibili via OPENROUTER_MODEL /
+    // OPENROUTER_FALLBACK_MODEL.
     models: (env) => [
-      clean(env.OPENROUTER_MODEL) ?? 'meta-llama/llama-3.3-70b-instruct:free',
-      clean(env.OPENROUTER_FALLBACK_MODEL) ?? 'meta-llama/llama-3.1-8b-instruct:free',
+      clean(env.OPENROUTER_MODEL) ?? 'nvidia/nemotron-3-ultra-550b-a55b:free',
+      clean(env.OPENROUTER_FALLBACK_MODEL) ?? 'meta-llama/llama-3.3-70b-instruct:free',
     ],
     extraHeaders: { 'HTTP-Referer': 'https://www.solcomusic.online', 'X-Title': 'Solco' },
   },
