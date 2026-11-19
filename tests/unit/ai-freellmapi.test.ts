@@ -11,6 +11,7 @@ import {
   freellmapiConfigured,
   freellmapiJson,
   freellmapiModel,
+  usesBuiltInConnector,
   verifyFreellmapi,
 } from '@/lib/business/ai-freellmapi.server';
 
@@ -102,6 +103,69 @@ describe('freellmapi.co: classificazione errori', () => {
     expect(classifyFreellmapiStatus(null)).toBe('busy');
     expect(classifyFreellmapiStatus(400)).toBe('failed');
     expect(classifyFreellmapiStatus(422)).toBe('failed');
+  });
+});
+
+describe('riserva: override non usabili → connettore interno (in-process)', () => {
+  const BUILT_IN = 'https://app.test/api/ai-reserve/v1';
+  const envBuiltIn = (over: Record<string, string | undefined> = {}) => ({
+    FREELLMAPI_API_KEY: KEY,
+    GROQ_API_KEY: 'gsk_test_key',
+    NEXT_PUBLIC_APP_URL: 'https://app.test',
+    ...over,
+  });
+
+  it('ignora localhost/http/IP privati/host interni → usa il connettore interno', () => {
+    for (const bad of [
+      'http://127.0.0.1:31415/models', // il caso del proprietario
+      'http://localhost:3001/v1',
+      'https://localhost/v1',
+      'http://my.proxy/v1', // http, non https
+      'https://10.0.0.5/v1',
+      'https://api.internal/v1',
+      'https://box.local/v1',
+      'non-un-url',
+    ]) {
+      const env = envBuiltIn({ FREELLMAPI_BASE_URL: bad });
+      expect(freellmapiBaseUrl(env)).toBe(BUILT_IN);
+      expect(usesBuiltInConnector(env)).toBe(true);
+    }
+  });
+
+  it('un router HTTPS pubblico resta un override esterno', () => {
+    const env = envBuiltIn({ FREELLMAPI_BASE_URL: 'https://router.example/v1' });
+    expect(freellmapiBaseUrl(env)).toBe('https://router.example/v1');
+    expect(usesBuiltInConnector(env)).toBe(false);
+  });
+
+  it('chat: col connettore interno chiama Groq in-process, non l’app (nessun loopback)', async () => {
+    const fetchMock = vi.fn(async () =>
+      jsonResponse({ choices: [{ message: { content: 'ciao da groq' } }] }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const text = await freellmapiChat({
+      messages: [{ role: 'user', content: 'x' }],
+      env: envBuiltIn({ FREELLMAPI_BASE_URL: 'http://127.0.0.1:31415/models' }),
+    });
+    expect(text).toBe('ciao da groq');
+    const [url] = fetchMock.mock.calls[0] as unknown as [string];
+    expect(url).toBe('https://api.groq.com/openai/v1/chat/completions');
+    expect(url).not.toContain('app.test');
+  });
+
+  it('verifica: col connettore interno interroga Groq /models (200 → ok)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ data: [{ id: 'llama' }] })),
+    );
+    const r = await verifyFreellmapi(envBuiltIn());
+    expect(r.status).toBe('ok');
+    expect(r.httpStatus).toBe(200);
+  });
+
+  it('verifica: senza GROQ_API_KEY la riserva interna è spenta → warn', async () => {
+    const r = await verifyFreellmapi(envBuiltIn({ GROQ_API_KEY: undefined }));
+    expect(r.status).toBe('warn');
   });
 });
 

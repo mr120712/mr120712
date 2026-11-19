@@ -9,8 +9,10 @@ import {
   freellmapiApiKey,
   freellmapiBaseUrl,
   freellmapiModel,
+  usesBuiltInConnector,
 } from '@/lib/business/ai-freellmapi.server';
 import { anthropicApiKey } from '@/lib/business/ai-music-search.server';
+import { listModels } from '@/lib/business/ai-reserve-connector.server';
 import {
   MONITOR_CHECK_IDS,
   type MonitorCheckId,
@@ -492,10 +494,20 @@ const checkFreellmapi: Check = async (deps) => {
       'Riserva non disponibile: manca NEXT_PUBLIC_APP_URL, il connettore interno (/api/ai-reserve/v1) non ha un URL pubblico',
     );
   }
+  if (usesBuiltInConnector(deps.env)) {
+    // Connettore INTERNO: interroga Groq in-process (nessun loopback HTTP, nessun Bearer da perdere).
+    const probe = await listModels(deps.env);
+    await discard(probe);
+    if (probe.status === 200) return ok(`Riserva pronta (modello: ${freellmapiModel(deps.env)})`);
+    if (probe.status === 503) {
+      return warn('Riserva spenta: manca GROQ_API_KEY (il connettore interno non ha un upstream)');
+    }
+    return fail(`La riserva interna (Groq) ha risposto con un errore (HTTP ${probe.status})`);
+  }
   const response = await request(deps, `${base}/models`, {
     headers: { authorization: `Bearer ${key}`, accept: 'application/json' },
   });
-  if (!response) return fail('Router freellmapi non raggiungibile');
+  if (!response) return fail('Router esterno freellmapi non raggiungibile');
   await discard(response);
   if (response.status === 200) return ok(`Riserva pronta (modello: ${freellmapiModel(deps.env)})`);
   if (response.status === 401 || response.status === 403) {

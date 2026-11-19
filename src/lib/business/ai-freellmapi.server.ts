@@ -1,13 +1,14 @@
 // @polsia:user-owned — freellmapi: RISERVA AI GRATUITA delle funzioni di testo (Claude resta primario e
 // di qualità; si ripiega qui senza costi solo se Claude manca, è rifiutato, è sopra il tetto di spesa o è
 // occupato). Protocollo OpenAI-compatibile, modello APERTO (FREELLMAPI_MODEL). Dall'aggiornamento
-// "connettore" la riserva è OSPITATA DENTRO SOLCO di default: il router è src/app/api/ai-reserve/v1, che
-// inoltra a Groq (free tier, GROQ_API_KEY), raggiungibile sull'URL pubblico dell'app — quindi basta
-// FREELLMAPI_API_KEY (segreto condiviso tra client riserva e connettore). FREELLMAPI_BASE_URL è un
-// OVERRIDE opzionale per un router esterno; un valore `freellmapi.co` (solo il sito, 404, non un'API) è
-// ignorato e si usa il connettore interno. Non logga mai la chiave, il prompt o la risposta. Best-effort.
+// "connettore" la riserva è OSPITATA DENTRO SOLCO di default: chiama Groq (free tier, GROQ_API_KEY)
+// IN-PROCESS tramite la logica del connettore (src/lib/business/ai-reserve-connector.server), senza
+// alcun giro HTTP sull'app — quindi basta GROQ_API_KEY, nessun FREELLMAPI_BASE_URL. Quest'ultimo è un
+// OVERRIDE opzionale per un router esterno HTTPS pubblico; un valore non usabile (localhost, http, IP
+// privato, freellmapi.co) è ignorato e si usa il connettore interno. Non logga mai chiave/prompt/risposta.
 import 'server-only';
 import { createHash } from 'node:crypto';
+import { forwardChat, listModels } from '@/lib/business/ai-reserve-connector.server';
 
 /** Il segreto condiviso con il connettore interno (o il token di un router esterno), server-side. */
 export function freellmapiApiKey(env: Record<string, string | undefined> = process.env) {
@@ -17,14 +18,33 @@ export function freellmapiApiKey(env: Record<string, string | undefined> = proce
 /** Percorso del connettore interno (router ospitato da Solco) sull'URL pubblico dell'app. */
 export const RESERVE_CONNECTOR_PATH = '/api/ai-reserve/v1';
 
-/** `freellmapi.co` è solo il sito (404), mai un'API: un override che punta qui va ignorato. */
-function isNonApiFreellmapiHost(raw: string): boolean {
+/**
+ * Un override FREELLMAPI_BASE_URL conta come router esterno USABILE solo se è un URL HTTPS PUBBLICO.
+ * Dal server di Vercel NON sono raggiungibili: http semplice, localhost/loopback, IP privati, host
+ * "nudi" senza punto e i suffissi interni; `freellmapi.co` è solo il sito (404), non un'API. In tutti
+ * questi casi (tipico errore: `http://127.0.0.1:3001/v1`) l'override viene ignorato e si usa il
+ * connettore interno di Solco (Groq in-process), così una variabile sbagliata non rompe la riserva.
+ */
+function isUsableExternalRouter(raw: string): boolean {
+  let url: URL;
   try {
-    const host = new URL(raw).hostname.toLowerCase();
-    return host === 'freellmapi.co' || host.endsWith('.freellmapi.co');
+    url = new URL(raw);
   } catch {
     return false;
   }
+  if (url.protocol !== 'https:') return false;
+  const host = url.hostname.toLowerCase();
+  if (!host.includes('.')) return false; // host "nudo" (localhost, nomi interni)
+  if (host.endsWith('.local') || host.endsWith('.internal') || host.endsWith('.localhost')) {
+    return false;
+  }
+  if (host === 'freellmapi.co' || host.endsWith('.freellmapi.co')) return false;
+  if (host === '0.0.0.0' || host === '::1' || host.startsWith('127.')) return false;
+  if (host.startsWith('10.') || host.startsWith('192.168.') || host.startsWith('169.254.')) {
+    return false;
+  }
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return false;
+  return true;
 }
 
 /** Il connettore interno su NEXT_PUBLIC_APP_URL; null solo se l'URL pubblico dell'app manca. */
@@ -39,17 +59,29 @@ export function builtInReserveBaseUrl(
 /**
  * Base URL OpenAI-compatibile della riserva. Di DEFAULT è il connettore interno di Solco
  * (builtInReserveBaseUrl): nessun router esterno da pubblicare. FREELLMAPI_BASE_URL resta un OVERRIDE
- * per un router esterno valido; se è assente, non è un URL http(s), o punta a `freellmapi.co` (solo il
- * sito, non un'API), si usa il connettore interno. Null solo se manca anche NEXT_PUBLIC_APP_URL.
+ * per un router esterno valido (HTTPS pubblico); se è assente, non è un URL usabile (localhost, http,
+ * IP privato, freellmapi.co), si usa il connettore interno. Null solo se manca NEXT_PUBLIC_APP_URL.
  */
 export function freellmapiBaseUrl(
   env: Record<string, string | undefined> = process.env,
 ): string | null {
   const raw = env.FREELLMAPI_BASE_URL?.trim();
-  if (raw && /^https?:\/\//i.test(raw) && !isNonApiFreellmapiHost(raw)) {
+  if (raw && isUsableExternalRouter(raw)) {
     return raw.replace(/\/+$/, '');
   }
   return builtInReserveBaseUrl(env);
+}
+
+/**
+ * True quando la riserva usa il connettore INTERNO (Groq chiamato in-process), non un router esterno
+ * via HTTP. In questo caso NON si fa alcun giro HTTP sull'app (niente loopback, redirect, cold-start
+ * o header persi): si chiama direttamente la logica del connettore.
+ */
+export function usesBuiltInConnector(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  const base = builtInReserveBaseUrl(env);
+  return base !== null && freellmapiBaseUrl(env) === base;
 }
 
 /**
@@ -150,30 +182,49 @@ export async function freellmapiChat(opts: FreellmapiChatOptions): Promise<strin
   const base = freellmapiBaseUrl(env);
   if (!base) throw new FreellmapiError('not_configured', null, 'FREELLMAPI_BASE_URL mancante');
 
-  const body = JSON.stringify({
-    model: opts.model ?? freellmapiModel(env),
-    messages: opts.messages,
-    stream: false,
-    ...(typeof opts.temperature === 'number' ? { temperature: opts.temperature } : {}),
-    ...(typeof opts.maxTokens === 'number' ? { max_tokens: opts.maxTokens } : {}),
-    ...(opts.responseFormat === 'json_object' ? { response_format: { type: 'json_object' } } : {}),
-  });
-
-  const timeout = AbortSignal.timeout(FREELLMAPI_TIMEOUT_MS);
-  const signal = opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout;
-
   let res: Response;
-  try {
-    res = await fetch(`${base}/chat/completions`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
-      body,
-      cache: 'no-store',
-      signal,
+  if (usesBuiltInConnector(env)) {
+    // Connettore INTERNO: niente giro HTTP sull'app, chiamata diretta a Groq (nessun Bearer da
+    // perdere in un redirect, nessun cold-start di una route a parte). forwardChat non autentica:
+    // l'autenticazione del connettore serve solo ai chiamanti ESTERNI via HTTP, non a noi stessi.
+    res = await forwardChat(
+      {
+        messages: opts.messages,
+        model: opts.model ?? freellmapiModel(env),
+        ...(typeof opts.temperature === 'number' ? { temperature: opts.temperature } : {}),
+        ...(typeof opts.maxTokens === 'number' ? { max_tokens: opts.maxTokens } : {}),
+        ...(opts.responseFormat === 'json_object'
+          ? { response_format: { type: 'json_object' } }
+          : {}),
+      },
+      env,
+    );
+  } else {
+    // Router ESTERNO (override FREELLMAPI_BASE_URL HTTPS pubblico): chiamata HTTP OpenAI-compatibile.
+    const body = JSON.stringify({
+      model: opts.model ?? freellmapiModel(env),
+      messages: opts.messages,
+      stream: false,
+      ...(typeof opts.temperature === 'number' ? { temperature: opts.temperature } : {}),
+      ...(typeof opts.maxTokens === 'number' ? { max_tokens: opts.maxTokens } : {}),
+      ...(opts.responseFormat === 'json_object'
+        ? { response_format: { type: 'json_object' } }
+        : {}),
     });
-  } catch (error) {
-    // DNS/reset/TLS/timeout: transitorio.
-    throw new FreellmapiError('busy', null, error instanceof Error ? error.name : 'network');
+    const timeout = AbortSignal.timeout(FREELLMAPI_TIMEOUT_MS);
+    const signal = opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout;
+    try {
+      res = await fetch(`${base}/chat/completions`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+        body,
+        cache: 'no-store',
+        signal,
+      });
+    } catch (error) {
+      // DNS/reset/TLS/timeout: transitorio.
+      throw new FreellmapiError('busy', null, error instanceof Error ? error.name : 'network');
+    }
   }
 
   if (!res.ok) {
@@ -274,6 +325,30 @@ export async function verifyFreellmapi(
         'Riserva non disponibile: manca NEXT_PUBLIC_APP_URL, quindi il connettore interno ' +
         '(/api/ai-reserve/v1) non ha un URL pubblico su cui essere chiamato.',
       httpStatus: null,
+    };
+  }
+  if (usesBuiltInConnector(env)) {
+    // In-process: la riserva interna interroga Groq direttamente (nessun loopback HTTP).
+    const probe = await listModels(env);
+    await probe.body?.cancel().catch(() => undefined);
+    if (probe.status === 200) {
+      return {
+        status: 'ok',
+        detail: `Riserva interna pronta (Groq, modello: ${freellmapiModel(env)}).`,
+        httpStatus: 200,
+      };
+    }
+    if (probe.status === 503) {
+      return {
+        status: 'warn',
+        detail: 'Riserva spenta: manca GROQ_API_KEY, il connettore interno non ha un upstream.',
+        httpStatus: 503,
+      };
+    }
+    return {
+      status: 'fail',
+      detail: `La riserva interna (Groq) ha risposto con un errore (HTTP ${probe.status}).`,
+      httpStatus: probe.status,
     };
   }
   let res: Response;
