@@ -68,12 +68,14 @@ jobs:
       - name: Versioni
         run: flutter --version
 
-      - name: Genera le piattaforme (android/) se mancano
+      - name: Genera le piattaforme (android/ e ios/) se mancano
         run: |
-          if [ ! -d android ]; then
-            flutter create --platforms=android --org online.solcomusic --project-name solco .
+          # Entrambe le piattaforme: flutter_launcher_icons genera anche le icone iOS (ios: true),
+          # quindi ios/ deve esistere pure in questa build Android, altrimenti il passo delle icone fallisce.
+          if [ ! -d android ] || [ ! -d ios ]; then
+            flutter create --platforms=android,ios --org online.solcomusic --project-name solco .
           else
-            echo "android/ già presente: salto."
+            echo "android/ e ios/ già presenti: salto."
           fi
 
       - name: Dipendenze (flutter pub get)
