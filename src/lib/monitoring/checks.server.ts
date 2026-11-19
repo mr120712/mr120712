@@ -5,6 +5,11 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
+import {
+  freellmapiApiKey,
+  freellmapiBaseUrl,
+  freellmapiModel,
+} from '@/lib/business/ai-freellmapi.server';
 import { anthropicApiKey } from '@/lib/business/ai-music-search.server';
 import {
   MONITOR_CHECK_IDS,
@@ -474,6 +479,26 @@ const checkAnthropic: Check = async (deps) => {
 };
 
 /**
+ * Riserva AI gratuita (freellmapi.co): entra in gioco solo se Claude non è disponibile. GET /models
+ * verifica la chiave senza spendere token. Non configurata = warn (non è un guasto), chiave rifiutata
+ * o errore = fail.
+ */
+const checkFreellmapi: Check = async (deps) => {
+  const key = freellmapiApiKey(deps.env);
+  if (!key) return warn('Non configurata (FREELLMAPI_API_KEY): la riserva AI gratuita è spenta');
+  const response = await request(deps, `${freellmapiBaseUrl(deps.env)}/models`, {
+    headers: { authorization: `Bearer ${key}`, accept: 'application/json' },
+  });
+  if (!response) return fail('freellmapi.co non raggiungibile');
+  await discard(response);
+  if (response.status === 200) return ok(`Riserva pronta (modello: ${freellmapiModel(deps.env)})`);
+  if (response.status === 401 || response.status === 403) {
+    return fail('Chiave non valida o revocata');
+  }
+  return fail(`freellmapi.co ha risposto con un errore (HTTP ${response.status})`);
+};
+
+/**
  * Il motore di trascrizione dei testi («Solco AI»: Whisper large-v3 su Groq, chiave GROQ_API_KEY;
  * OpenAI solo se LYRICS_AI_PROVIDER=openai) serve solo alla pagina admin «Diritti e testi». La
  * prova è la stessa richiesta della trascrizione su un secondo di silenzio generato dal server:
@@ -592,6 +617,7 @@ export const MONITOR_CHECK_FUNCTIONS: Record<MonitorCheckId, Check> = {
   jamendo: checkJamendo,
   email: checkEmail,
   anthropic: checkAnthropic,
+  freellmapi: checkFreellmapi,
   solco_ai: checkSolcoAi,
   stripe: checkStripe,
   cron_cleanup: checkCronCleanup,

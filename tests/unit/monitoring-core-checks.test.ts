@@ -82,6 +82,7 @@ const SECRETS = {
   JAMENDO_CLIENT_ID: 'jamendo-fake-client-id-42',
   DATABASE_URL: 'postgresql://solco:sup3r-s3cret-pass@db.internal.test:5432/solco',
   CRON_SECRET: 'fake-cron-secret-0123456789abcdef',
+  FREELLMAPI_API_KEY: 'freellmapi-fake-key-0123456789abcdef',
 };
 const SECRET_VALUES = Object.values(SECRETS);
 
@@ -103,6 +104,7 @@ const okRoutes: Record<string, FetchHandler> = {
     googleRedirect('https://accounts.google.com/v3/signin/identifier?dsh=S1&flowName=GeneralOAuth'),
   'www.googleapis.com': () => Response.json({ items: [{ id: 'video-1' }] }),
   'api.anthropic.com': () => Response.json({ data: [{ id: 'model' }] }),
+  'freellmapi.co': () => Response.json({ data: [{ id: 'model' }] }),
   'api.stripe.com': () => Response.json({ available: [] }),
 };
 
@@ -926,6 +928,7 @@ describe('secrets never reach a detail', () => {
             ),
           'www.googleapis.com': echo(400),
           'api.anthropic.com': echo(401),
+          'freellmapi.co': echo(401),
           'api.stripe.com': echo(401),
         }) as never,
         youtubeSearchHealth: thrower,

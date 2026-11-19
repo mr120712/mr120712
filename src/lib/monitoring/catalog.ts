@@ -75,6 +75,11 @@ export const MONITOR_CHECKS: Record<MonitorCheckId, MonitorCheckInfo> = {
     critical: false,
     help: 'La chiave Anthropic è valida.',
   },
+  freellmapi: {
+    label: 'Riserva AI gratuita (freellmapi.co)',
+    critical: false,
+    help: 'La riserva gratuita delle funzioni AI (freellmapi.co, chiave FREELLMAPI_API_KEY) accetta la chiave. È best-effort: entra in gioco solo se Claude non è disponibile; non essendo configurata non è un guasto.',
+  },
   solco_ai: {
     label: 'Solco AI (trascrizione testi)',
     critical: false,

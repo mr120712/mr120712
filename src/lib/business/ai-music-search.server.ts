@@ -21,6 +21,11 @@ import {
   rememberKeyOk,
 } from '@/lib/business/ai-anthropic.server';
 import {
+  FreellmapiError,
+  freellmapiConfigured,
+  freellmapiJson,
+} from '@/lib/business/ai-freellmapi.server';
+import {
   AI_SEARCH_MODEL,
   AI_SEARCH_SYSTEM_PROMPT,
   aiSearchEffort,
@@ -36,10 +41,18 @@ import { prisma } from '@/lib/db';
 
 // Re-exported so the route, the monitor and the tests keep one import site for key state.
 export { anthropicApiKey };
-/** Usable as far as this instance knows, without calling Anthropic. */
-export const aiSearchConfigured = aiKeyConfigured;
-/** Like `aiSearchConfigured`, but asks Anthropic once (GET /v1/models) when unchecked recently. */
-export const aiSearchAvailable = aiKeyAvailable;
+/**
+ * Usable as far as this instance knows, without a network call. La funzione è attiva se è usabile la
+ * chiave Claude OPPURE è configurata la riserva gratuita (freellmapi.co): così, se il proprietario
+ * imposta solo la riserva, «Cerca con l'AI» resta visibile.
+ */
+export function aiSearchConfigured(now = new Date()) {
+  return aiKeyConfigured(now) || freellmapiConfigured();
+}
+/** Come `aiSearchConfigured`, ma interroga Anthropic una volta (GET /v1/models) se non controllata di recente. */
+export async function aiSearchAvailable(now = new Date()) {
+  return (await aiKeyAvailable(now)) || freellmapiConfigured();
+}
 
 const PLAN_CACHE_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -113,17 +126,80 @@ function readPlan(response: Anthropic.Beta.BetaMessage) {
   }
 }
 
+// La riserva gratuita (freellmapi.co) deve produrre lo STESSO oggetto ClaudePlan; i modelli aperti non
+// hanno lo structured-output di Claude, quindi la forma la descriviamo nel prompt e la validiamo con zod.
+const FREELLM_PLAN_INSTRUCTION = `Rispondi SOLO con un oggetto JSON con ESATTAMENTE queste chiavi:
+{
+  "intro": "una o due frasi calorose in italiano su cosa hai cercato",
+  "youtubeQueries": ["al massimo 2 ricerche musicali precise per YouTube"],
+  "audioQueries": ["al massimo 2 ricerche brevi di genere/atmosfera per Audius"],
+  "radioTags": ["fino a 3 tag minuscoli per Radio Browser"],
+  "podcastQuery": "una ricerca podcast come stringa, oppure null",
+  "genres": ["fino a 4 slug dall'elenco generi di Solco"]
+}
+Nessun testo fuori dal JSON.`;
+
+/**
+ * Riserva gratuita: quando Claude non è disponibile (chiave assente, rifiutata, sopra budget o
+ * occupato) prova a produrre lo stesso piano con freellmapi.co. Best-effort: ritorna null se la
+ * riserva non è configurata o non riesce, così resta l'esito di Claude. Mai usata per un rifiuto di
+ * sicurezza di Claude. Scrive in cache come il percorso primario.
+ */
+async function planViaFreellm(
+  prompt: string,
+  cacheKey: string,
+  owner: string | null,
+  now: Date,
+): Promise<AiSearchOutcome | null> {
+  if (!freellmapiConfigured()) return null;
+  try {
+    const raw = await freellmapiJson<unknown>({
+      messages: [
+        { role: 'system', content: `${AI_SEARCH_SYSTEM_PROMPT}\n\n${FREELLM_PLAN_INSTRUCTION}` },
+        {
+          role: 'user',
+          content: `Descrizione dell'ascoltatore:\n<descrizione>\n${prompt}\n</descrizione>`,
+        },
+      ],
+      temperature: 0.4,
+      maxTokens: 1200,
+    });
+    const parsed = ClaudePlan.safeParse(raw);
+    if (!parsed.success) {
+      logAiFailure('freellm_invalid_plan', undefined, {}, 'warn');
+      return null;
+    }
+    const plan = sanitizePlan(parsed.data);
+    await writeCache(cacheKey, owner, plan, now);
+    return { ok: true, plan, cached: false };
+  } catch (error) {
+    logAiFailure(
+      'freellm',
+      error instanceof FreellmapiError ? undefined : error,
+      { outcome: error instanceof FreellmapiError ? error.outcome : 'failed' },
+      'warn',
+    );
+    return null;
+  }
+}
+
 export async function planMusicSearch(
   prompt: string,
   userId: string,
   now = new Date(),
 ): Promise<AiSearchOutcome> {
   const apiKey = anthropicApiKey();
-  // A key with the wrong shape, or rejected minutes ago, is not tried (and not paid) again.
-  if (!keyUsable(apiKey, now.getTime())) return { ok: false, error: 'not_configured' };
   const { key, owner } = aiSearchCacheKey(prompt, userId);
   const cached = await readCache(key, now);
   if (cached) return { ok: true, plan: cached, cached: true };
+
+  // Claude è primario. Se la sua chiave non è usabile (assente, malformata o rifiutata di recente),
+  // non lo chiamiamo (e non lo paghiamo): proviamo subito la riserva gratuita.
+  if (!keyUsable(apiKey, now.getTime())) {
+    return (
+      (await planViaFreellm(prompt, key, owner, now)) ?? { ok: false, error: 'not_configured' }
+    );
+  }
 
   try {
     // `create` (not `parse`): a refusal can carry partial text, which `parse` would throw on
@@ -185,6 +261,12 @@ export async function planMusicSearch(
     await writeCache(key, owner, plan, now);
     return { ok: true, plan, cached: false };
   } catch (error) {
-    return { ok: false, error: classifyAnthropicError(error, apiKey, now.getTime()) };
+    const outcome = classifyAnthropicError(error, apiKey, now.getTime());
+    // Claude non disponibile (chiave rifiutata, sopra budget, occupato o errore): prova la riserva.
+    if (outcome === 'not_configured' || outcome === 'busy' || outcome === 'failed') {
+      const fallback = await planViaFreellm(prompt, key, owner, now);
+      if (fallback) return fallback;
+    }
+    return { ok: false, error: outcome };
   }
 }
