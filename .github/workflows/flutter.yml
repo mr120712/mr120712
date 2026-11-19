@@ -7,6 +7,8 @@
 #          (ANDROID_KEYSTORE_BASE64 = il .jks di upload in base64, ANDROID_KEYSTORE_PASSWORD,
 #          ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD) l'AAB è firmato di RELEASE e pronto per Play;
 #          senza quei segreti è firmato di debug (dimostra solo che compila, non si carica su Play).
+#   apk    come aab, ma `flutter build apk` (APK universale installabile direttamente): è il file
+#          che il sito pubblica in public/solco.apk per «Scarica l'APK». Stessi segreti del keystore.
 # Il manifest Android (rete INTERNET + audio in background + nome «Solco») è in flutter/android-config/
 # e viene applicato dopo `flutter create`. `analyze` e `test` non bloccano la build.
 # Il repository è pubblico: i minuti Linux non costano. Nessun avvio automatico.
@@ -16,13 +18,14 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'check = analizza e prova; aab = compila anche il bundle Android'
+        description: 'check = analizza e prova; aab = bundle per Play; apk = APK universale per il sito'
         type: choice
         required: true
         default: aab
         options:
           - check
           - aab
+          - apk
 
 permissions:
   contents: read
@@ -158,5 +161,30 @@ jobs:
         with:
           name: solco-flutter-aab
           path: flutter/build/app/outputs/bundle/release/*.aab
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Compila l'APK Android (universale, installabile dal sito)
+        if: inputs.mode == 'apk'
+        run: flutter build apk --release
+
+      - name: Verifica l'APK (firma, package, versione)
+        if: inputs.mode == 'apk'
+        run: |
+          APK=$(ls build/app/outputs/flutter-apk/app-release.apk | head -1)
+          echo "APK: $APK ($(du -h "$APK" | cut -f1))"
+          echo "== versione dell'app (da pubspec: versionName+versionCode, atteso 0.7.3+12) =="
+          grep -nE "^version:" pubspec.yaml || true
+          echo "== impronta del certificato di firma (atteso 02:28:46:FD:...:F2:52) =="
+          keytool -printcert -jarfile "$APK" | grep -iE "SHA256:" || echo "(nessuna firma: build di debug)"
+          echo "== package e versione (dal manifest) =="
+          unzip -p "$APK" AndroidManifest.xml | strings | grep -iE "online.solcomusic.solco|0\.7\.3" | head -3 || true
+
+      - name: Pubblica l'APK come artefatto
+        if: always() && inputs.mode == 'apk'
+        uses: actions/upload-artifact@v4
+        with:
+          name: solco-flutter-apk
+          path: flutter/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: warn
           retention-days: 14
