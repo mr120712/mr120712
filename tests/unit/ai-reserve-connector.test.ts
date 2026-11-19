@@ -13,6 +13,7 @@ import {
   forwardChat,
   listModels,
   type ReserveChatBody,
+  reserveStatusLabel,
   resolveModel,
 } from '@/lib/business/ai-reserve-connector.server';
 
@@ -72,6 +73,15 @@ describe('authorizeReserve', () => {
     const env = { FREELLMAPI_API_KEY: SECRET };
     expect(authorizeReserve(req({ authorization: `Bearer ${SECRET}` }), env)).toEqual({ ok: true });
     expect(authorizeReserve(req({ authorization: `bearer ${SECRET}` }), env)).toEqual({ ok: true });
+  });
+});
+
+describe('reserveStatusLabel', () => {
+  it('mappa lo status di /models su un’etichetta di salute', () => {
+    expect(reserveStatusLabel(200)).toBe('ok');
+    expect(reserveStatusLabel(503)).toBe('unconfigured');
+    expect(reserveStatusLabel(502)).toBe('down');
+    expect(reserveStatusLabel(401)).toBe('down');
   });
 });
 

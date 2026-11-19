@@ -194,3 +194,10 @@ export async function listModels(
     headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
   });
 }
+
+/** Etichetta di salute della riserva dallo status di listModels: 200 ok, 503 non configurata, resto giù. */
+export function reserveStatusLabel(status: number): 'ok' | 'unconfigured' | 'down' {
+  if (status === 200) return 'ok';
+  if (status === 503) return 'unconfigured';
+  return 'down';
+}
