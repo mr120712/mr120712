@@ -39,6 +39,73 @@ String _sourceLabelForMode(String mode) => switch (mode) {
       _ => 'Audius',
     };
 
+/// Un «brano in evidenza» self-hosted (messo dall'amministratore), da /api/music/home-tracks.
+/// `streamUrl`/`artworkUrl` possono essere un percorso del proxy same-origin (file privato, servito
+/// dal server coi cookie di sessione) oppure un URL pubblico del CDN Blob (diretto, senza cookie).
+class FeaturedTrack {
+  FeaturedTrack({
+    required this.id,
+    required this.title,
+    this.artist,
+    required this.streamUrl,
+    this.durationSeconds,
+    this.artworkUrl,
+    this.artistSlug,
+    this.shareId,
+    this.offline = false,
+  });
+
+  final String id;
+  final String title;
+  final String? artist;
+  final String streamUrl;
+  final int? durationSeconds;
+  final String? artworkUrl;
+  final String? artistSlug;
+  final String? shareId;
+  final bool offline;
+
+  factory FeaturedTrack.fromJson(Map<String, dynamic> json) => FeaturedTrack(
+        id: json['id'] as String,
+        title: json['title'] as String,
+        artist: json['artist'] as String?,
+        streamUrl: json['streamUrl'] as String,
+        durationSeconds: (json['durationSeconds'] as num?)?.toInt(),
+        artworkUrl: json['artworkUrl'] as String?,
+        artistSlug: json['artistSlug'] as String?,
+        shareId: json['shareId'] as String?,
+        offline: json['offline'] as bool? ?? false,
+      );
+
+  PlayableItem toPlayable() => PlayableItem(
+        qualifiedId: 'featured:$id',
+        title: title,
+        subtitle: (artist == null || artist!.isEmpty) ? 'In evidenza' : artist!,
+        artworkUrl: artworkUrl,
+        streamPath: streamUrl,
+        durationSeconds: (durationSeconds != null && durationSeconds! > 0) ? durationSeconds : null,
+        sourceLabel: 'In evidenza',
+        playbackMode: 'featured',
+      );
+}
+
+/// Una sezione di brani in evidenza (una cartella dello store; la radice è «In evidenza»).
+class FeaturedSection {
+  FeaturedSection({required this.id, required this.title, required this.items});
+  final String id;
+  final String title;
+  final List<FeaturedTrack> items;
+
+  factory FeaturedSection.fromJson(Map<String, dynamic> json) => FeaturedSection(
+        id: (json['id'] as String?) ?? '',
+        title: (json['title'] as String?) ?? 'In evidenza',
+        items: ((json['items'] as List?) ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(FeaturedTrack.fromJson)
+            .toList(),
+      );
+}
+
 class AudiusTrack {
   AudiusTrack({
     required this.id,

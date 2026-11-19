@@ -30,6 +30,18 @@ final trendingProvider = FutureProvider<List<AudiusTrack>>((ref) async {
   return api.trending();
 });
 
+/// Brani in evidenza (self-hosted) per la Home, divisi in sezioni.
+final featuredSectionsProvider = FutureProvider<List<FeaturedSection>>((ref) async {
+  final api = await ref.watch(apiProvider.future);
+  return api.featuredSections();
+});
+
+/// I cookie di sessione da passare alle copertine PRIVATE dei brani in evidenza (proxy same-origin).
+final featuredCookieProvider = FutureProvider<Map<String, String>>((ref) async {
+  final api = await ref.watch(apiProvider.future);
+  return api.streamHeaders();
+});
+
 /// Testo di ricerca corrente.
 final searchQueryProvider = StateProvider<String>((ref) => '');
 

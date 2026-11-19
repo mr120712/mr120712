@@ -65,6 +65,11 @@ class SolcoApi {
   /// URL assoluto di uno stream, per darlo al lettore audio.
   String streamUrl(String streamPath) => '$kSolcoBaseUrl$streamPath';
 
+  /// Rende assoluto un URL dei brani in evidenza: un percorso del proxy same-origin prende il dominio
+  /// di Solco (serve il cookie di sessione); un URL già pubblico (CDN Blob) resta com'è (diretto).
+  String featuredUrl(String raw) =>
+      (raw.startsWith('http://') || raw.startsWith('https://')) ? raw : '$kSolcoBaseUrl$raw';
+
   /// I cookie da passare al lettore audio (just_audio) per lo stream protetto.
   Future<Map<String, String>> streamHeaders() async {
     final cookies = await _jar.loadForRequest(Uri.parse(kSolcoBaseUrl));
@@ -174,6 +179,34 @@ class SolcoApi {
           .toList();
     }
     throw SolcoApiException('Impossibile caricare le tendenze.', statusCode: res.statusCode);
+  }
+
+  /// Brani in evidenza (self-hosted) per la Home: GET /api/music/home-tracks → sezioni di FeaturedTrack.
+  /// Best-effort: se non arrivano (nessun brano, errore o server), restituisce una lista vuota, così
+  /// la Home non si rompe.
+  Future<List<FeaturedSection>> featuredSections() async {
+    try {
+      final res = await _dio.get<dynamic>('/api/music/home-tracks');
+      final data = res.data;
+      if (res.statusCode == 200 && data is Map<String, dynamic>) {
+        final sections = ((data['sections'] as List?) ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(FeaturedSection.fromJson)
+            .where((section) => section.items.isNotEmpty)
+            .toList();
+        if (sections.isNotEmpty) return sections;
+        final items = ((data['items'] as List?) ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(FeaturedTrack.fromJson)
+            .toList();
+        if (items.isNotEmpty) {
+          return [FeaturedSection(id: 'evidenza', title: 'In evidenza', items: items)];
+        }
+      }
+    } on DioException {
+      // Silenzioso: i brani in evidenza sono un di più in Home.
+    }
+    return const [];
   }
 
   /// Ricerca unificata: GET /api/music/search-all. Mentre si scrive NON si

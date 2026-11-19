@@ -92,8 +92,16 @@ class PlayerController extends ChangeNotifier {
     final item = current;
     if (item == null) return;
     final offline = item.localPath != null;
-    final uri = offline ? Uri.file(item.localPath!) : Uri.parse(_api.streamUrl(item.streamPath));
-    final headers = offline ? null : await _api.streamHeaders();
+    // Lo stream può essere: un file locale; un URL pubblico (es. CDN dei brani in evidenza), diretto
+    // e senza cookie; oppure un percorso del proxy same-origin, con i cookie di sessione.
+    final publicUrl = !offline &&
+        (item.streamPath.startsWith('http://') || item.streamPath.startsWith('https://'));
+    final uri = offline
+        ? Uri.file(item.localPath!)
+        : publicUrl
+            ? Uri.parse(item.streamPath)
+            : Uri.parse(_api.streamUrl(item.streamPath));
+    final headers = (offline || publicUrl) ? null : await _api.streamHeaders();
     final source = AudioSource.uri(
       uri,
       headers: headers,
@@ -101,7 +109,7 @@ class PlayerController extends ChangeNotifier {
         id: item.qualifiedId,
         title: item.title,
         artist: item.subtitle,
-        artUri: item.artworkUrl != null ? Uri.tryParse(item.artworkUrl!) : null,
+        artUri: item.artworkUrl != null ? Uri.tryParse(_api.featuredUrl(item.artworkUrl!)) : null,
         duration: item.durationSeconds != null && !item.isLive
             ? Duration(seconds: item.durationSeconds!)
             : null,

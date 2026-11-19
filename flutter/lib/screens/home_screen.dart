@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/app_state.dart';
 import '../theme.dart';
+import '../widgets/featured_sections.dart';
 import '../widgets/track_tile.dart';
 import 'classics_screen.dart';
 import 'favorites_screen.dart';
@@ -110,6 +111,7 @@ class HomeScreen extends ConsumerWidget {
                         ],
                       ),
                     ),
+                    const FeaturedSections(),
                     const Padding(
                       padding: EdgeInsets.fromLTRB(16, 12, 16, 8),
                       child: Text('Tendenze su Audius',
