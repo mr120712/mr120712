@@ -106,6 +106,46 @@ class FeaturedSection {
       );
 }
 
+/// Riepilogo dei «Premi» dell'utente (GET /api/rewards): codice invito, amici, giorni di ascolto che
+/// contano, fedeltà e data di scadenza del Premium regalato.
+class RewardsSummary {
+  RewardsSummary({
+    required this.code,
+    this.founderNumber,
+    required this.friendsJoined,
+    required this.friendsQualified,
+    required this.qualifyingDays,
+    required this.nextRewardIn,
+    this.loyaltyMonths,
+    this.premiumUntil,
+  });
+
+  final String code;
+  final int? founderNumber;
+  final int friendsJoined;
+  final int friendsQualified;
+  final int qualifyingDays;
+  final int nextRewardIn;
+  final int? loyaltyMonths;
+  final DateTime? premiumUntil;
+
+  factory RewardsSummary.fromJson(Map<String, dynamic> json) {
+    final friends = (json['friends'] as Map<String, dynamic>?) ?? const {};
+    final listening = (json['listening'] as Map<String, dynamic>?) ?? const {};
+    final premium = json['premiumUntil'];
+    return RewardsSummary(
+      code: (json['code'] as String?) ?? '',
+      founderNumber: (json['founderNumber'] as num?)?.toInt(),
+      friendsJoined: (friends['joined'] as num?)?.toInt() ?? 0,
+      friendsQualified: (friends['qualified'] as num?)?.toInt() ?? 0,
+      qualifyingDays: (listening['qualifyingDays'] as num?)?.toInt() ?? 0,
+      nextRewardIn: (listening['nextRewardIn'] as num?)?.toInt() ?? 0,
+      loyaltyMonths: (json['loyaltyMonths'] as num?)?.toInt(),
+      premiumUntil: premium is String ? DateTime.tryParse(premium) : null,
+    );
+  }
+}
+
 class AudiusTrack {
   AudiusTrack({
     required this.id,

@@ -42,6 +42,12 @@ final featuredCookieProvider = FutureProvider<Map<String, String>>((ref) async {
   return api.streamHeaders();
 });
 
+/// I Premi dell'utente: codice invito, amici, giorni di ascolto, Premium regalato.
+final rewardsProvider = FutureProvider<RewardsSummary>((ref) async {
+  final api = await ref.watch(apiProvider.future);
+  return api.rewards();
+});
+
 /// Testo di ricerca corrente.
 final searchQueryProvider = StateProvider<String>((ref) => '');
 

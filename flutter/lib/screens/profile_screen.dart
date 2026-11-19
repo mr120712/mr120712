@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/solco_api.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
+import 'premi_screen.dart';
 import 'premium_screen.dart';
 
 class ProfileScreen extends ConsumerWidget {
@@ -50,6 +51,18 @@ class ProfileScreen extends ConsumerWidget {
         _premiumCard(context, isPremium),
         const SizedBox(height: 24),
         if (session != null) ...[
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.card_giftcard, color: kSolcoLime),
+              title: const Text('Premi'),
+              subtitle: const Text('Invita amici, ottieni Premium in regalo'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const PremiScreen()),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
           OutlinedButton.icon(
             icon: const Icon(Icons.logout),
             label: const Text('Esci'),

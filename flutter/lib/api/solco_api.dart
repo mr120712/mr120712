@@ -209,6 +209,22 @@ class SolcoApi {
     return const [];
   }
 
+  /// Riepilogo dei Premi dell'utente: GET /api/rewards.
+  Future<RewardsSummary> rewards() async {
+    final res = await _dio.get<dynamic>('/api/rewards');
+    final data = res.data;
+    if (res.statusCode == 200 && data is Map<String, dynamic>) {
+      return RewardsSummary.fromJson(data);
+    }
+    if (res.statusCode == 401) {
+      throw SolcoApiException('Accedi per vedere i tuoi premi.', statusCode: 401);
+    }
+    throw SolcoApiException('Impossibile caricare i premi.', statusCode: res.statusCode);
+  }
+
+  /// Link di invito pubblico per il codice referral (/invito/&lt;code&gt; sul sito ufficiale).
+  String inviteLink(String code) => '$kSolcoBaseUrl/invito/$code';
+
   /// Ricerca unificata: GET /api/music/search-all. Mentre si scrive NON si
   /// interroga YouTube; qui restiamo su Audius (i brani riproducibili subito).
   Future<List<AudiusTrack>> search(String query) async {
