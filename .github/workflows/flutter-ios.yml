@@ -52,10 +52,13 @@ jobs:
       - name: Versioni
         run: flutter --version
 
-      - name: Genera la piattaforma iOS (ios/) se manca
+      - name: Genera le piattaforme (ios/ + android/) se mancano
+        # Generiamo anche android/ perché flutter_launcher_icons, configurato per entrambe le
+        # piattaforme nel pubspec, cerca android/app/src/main/AndroidManifest.xml: senza, fallisce.
+        # Qui compiliamo solo iOS; la cartella android/ generata resta inerte.
         run: |
           if [ ! -d ios ]; then
-            flutter create --platforms=ios --org online.solcomusic --project-name solco .
+            flutter create --platforms=ios,android --org online.solcomusic --project-name solco .
           else
             echo "ios/ già presente: salto."
           fi
