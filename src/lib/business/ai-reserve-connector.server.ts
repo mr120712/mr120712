@@ -142,9 +142,11 @@ const PROVIDER_DEFS: ProviderDef[] = [
     label: 'Google Gemini',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
     keyVar: 'GEMINI_API_KEY',
+    // gemini-2.0-flash/1.5-flash sono stati ritirati nel 2026 (quota free azzerata): si usano i
+    // Flash correnti, gratuiti nel free tier. Sovrascrivibili con GEMINI_MODEL/GEMINI_FALLBACK_MODEL.
     models: (env) => [
-      clean(env.GEMINI_MODEL) ?? 'gemini-2.0-flash',
-      clean(env.GEMINI_FALLBACK_MODEL) ?? 'gemini-1.5-flash',
+      clean(env.GEMINI_MODEL) ?? 'gemini-2.5-flash',
+      clean(env.GEMINI_FALLBACK_MODEL) ?? 'gemini-2.5-flash-lite',
     ],
   },
   {
