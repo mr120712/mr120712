@@ -12,7 +12,11 @@ import {
   usesBuiltInConnector,
 } from '@/lib/business/ai-freellmapi.server';
 import { anthropicApiKey } from '@/lib/business/ai-music-search.server';
-import { listModels } from '@/lib/business/ai-reserve-connector.server';
+import {
+  listModels,
+  reserveProviderKeyNames,
+  reserveProviderLabels,
+} from '@/lib/business/ai-reserve-connector.server';
 import {
   MONITOR_CHECK_IDS,
   type MonitorCheckId,
@@ -481,9 +485,9 @@ const checkAnthropic: Check = async (deps) => {
 };
 
 /**
- * Riserva AI gratuita (freellmapi.co): entra in gioco solo se Claude non è disponibile. GET /models
- * verifica la chiave senza spendere token. Non configurata = warn (non è un guasto), chiave rifiutata
- * o errore = fail.
+ * Riserva AI gratuita (router interno multi-provider in stile FreeLLMAPI): entra in gioco solo se
+ * Claude non è disponibile. GET /models verifica la catena senza spendere token. Non configurata =
+ * warn (non è un guasto), chiave rifiutata o errore = fail.
  */
 const checkFreellmapi: Check = async (deps) => {
   const key = freellmapiApiKey(deps.env);
@@ -495,14 +499,21 @@ const checkFreellmapi: Check = async (deps) => {
     );
   }
   if (usesBuiltInConnector(deps.env)) {
-    // Connettore INTERNO: interroga Groq in-process (nessun loopback HTTP, nessun Bearer da perdere).
+    // Router INTERNO: interroga i provider gratuiti in-process (nessun loopback HTTP, nessun Bearer
+    // da perdere), col failover del connettore. Un 200 = almeno un provider pronto.
     const probe = await listModels(deps.env);
     await discard(probe);
-    if (probe.status === 200) return ok(`Riserva pronta (modello: ${freellmapiModel(deps.env)})`);
-    if (probe.status === 503) {
-      return warn('Riserva spenta: manca GROQ_API_KEY (il connettore interno non ha un upstream)');
+    if (probe.status === 200) {
+      const labels = reserveProviderLabels(deps.env);
+      const chain = labels.length > 0 ? labels.join(', ') : 'provider gratuiti';
+      return ok(`Riserva pronta (${chain}; modello: ${freellmapiModel(deps.env)})`);
     }
-    return fail(`La riserva interna (Groq) ha risposto con un errore (HTTP ${probe.status})`);
+    if (probe.status === 503) {
+      return warn(
+        `Riserva spenta: nessun provider gratuito configurato (${reserveProviderKeyNames().join(', ')})`,
+      );
+    }
+    return fail(`La riserva interna ha risposto con un errore (HTTP ${probe.status})`);
   }
   const response = await request(deps, `${base}/models`, {
     headers: { authorization: `Bearer ${key}`, accept: 'application/json' },

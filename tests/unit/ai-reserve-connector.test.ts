@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 
 import {
+  activeProviders,
   authorizeReserve,
   bearerMatches,
   DEFAULT_RESERVE_MODEL,
@@ -13,6 +14,8 @@ import {
   forwardChat,
   listModels,
   type ReserveChatBody,
+  reserveProviderKeyNames,
+  reserveProviderLabels,
   reserveStatusLabel,
   resolveModel,
 } from '@/lib/business/ai-reserve-connector.server';
@@ -166,5 +169,111 @@ describe('listModels', () => {
     const fetchMock = vi.fn().mockRejectedValue(new Error('ENOTFOUND'));
     const res = await listModels({ GROQ_API_KEY: GROQ }, fetchMock);
     expect(res.status).toBe(502);
+  });
+});
+
+/** Mock di fetch che smista per hostname: throw/Response per host, "unexpected" per gli altri. */
+function byHost(routes: Record<string, () => Response | Promise<Response>>) {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const host = new URL(String(input)).hostname;
+    const handler = routes[host];
+    if (!handler) throw new Error(`unexpected fetch ${String(input)}`);
+    return handler();
+  });
+}
+
+describe('activeProviders', () => {
+  it('attiva solo i provider con chiave, nell’ordine del registro', () => {
+    expect(activeProviders({}).map((p) => p.id)).toEqual([]);
+    expect(activeProviders({ GROQ_API_KEY: GROQ }).map((p) => p.id)).toEqual(['groq']);
+    expect(
+      activeProviders({ GROQ_API_KEY: GROQ, OPENROUTER_API_KEY: 'or' }).map((p) => p.id),
+    ).toEqual(['groq', 'openrouter']);
+  });
+
+  it('AI_RESERVE_PROVIDERS riordina e limita la catena; un id senza chiave è saltato', () => {
+    expect(
+      activeProviders({
+        GROQ_API_KEY: GROQ,
+        CEREBRAS_API_KEY: 'cb',
+        AI_RESERVE_PROVIDERS: 'cerebras,groq',
+      }).map((p) => p.id),
+    ).toEqual(['cerebras', 'groq']);
+    expect(
+      activeProviders({ GROQ_API_KEY: GROQ, AI_RESERVE_PROVIDERS: 'gemini' }).map((p) => p.id),
+    ).toEqual([]);
+  });
+
+  it('groq espone default e scorta come modelli «auto»', () => {
+    const [groq] = activeProviders({ GROQ_API_KEY: GROQ });
+    expect(groq?.models).toEqual([DEFAULT_RESERVE_MODEL, FALLBACK_RESERVE_MODEL]);
+  });
+});
+
+describe('reserveProviderLabels / reserveProviderKeyNames', () => {
+  it('etichette dei provider attivi e nomi di tutte le variabili-chiave note', () => {
+    expect(reserveProviderLabels({ GROQ_API_KEY: GROQ })).toEqual(['Groq']);
+    expect(reserveProviderLabels({})).toEqual([]);
+    expect(reserveProviderKeyNames()).toEqual([
+      'GROQ_API_KEY',
+      'CEREBRAS_API_KEY',
+      'GEMINI_API_KEY',
+      'MISTRAL_API_KEY',
+      'OPENROUTER_API_KEY',
+    ]);
+  });
+});
+
+describe('forwardChat: failover fra provider', () => {
+  const multi = { GROQ_API_KEY: GROQ, OPENROUTER_API_KEY: 'or_key' };
+
+  it('Groq irraggiungibile → passa a OpenRouter e ne restituisce la risposta', async () => {
+    const fetchMock = byHost({
+      'api.groq.com': () => {
+        throw new Error('ECONNRESET');
+      },
+      'openrouter.ai': () => groqResponse({ choices: [{ message: { content: 'da openrouter' } }] }),
+    });
+    const res = await forwardChat(CHAT, multi, fetchMock as unknown as typeof fetch);
+    expect(res.status).toBe(200);
+    expect((await res.json()).choices[0].message.content).toBe('da openrouter');
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://api.groq.com/openai/v1/chat/completions');
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('https://openrouter.ai/api/v1/chat/completions');
+  });
+
+  it('Groq 429 (limitato) → passa subito a OpenRouter, senza lo scorta di Groq', async () => {
+    const fetchMock = byHost({
+      'api.groq.com': () => groqResponse({ error: { code: 'rate_limit_exceeded' } }, 429),
+      'openrouter.ai': () => groqResponse({ choices: [{ message: { content: 'ok' } }] }),
+    });
+    const res = await forwardChat(CHAT, multi, fetchMock as unknown as typeof fetch);
+    expect(res.status).toBe(200);
+    const hosts = fetchMock.mock.calls.map((c) => new URL(String(c[0])).hostname);
+    expect(hosts).toEqual(['api.groq.com', 'openrouter.ai']);
+  });
+
+  it('tutti i provider giù → 502 upstream_error con l’ultimo status', async () => {
+    const fetchMock = byHost({
+      'api.groq.com': () => groqResponse({ error: 'x' }, 500),
+      'openrouter.ai': () => groqResponse({ error: 'y' }, 503),
+    });
+    const res = await forwardChat(CHAT, multi, fetchMock as unknown as typeof fetch);
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: 'upstream_error', status: 503 });
+  });
+});
+
+describe('listModels: failover fra provider', () => {
+  it('Groq 500 → prova OpenRouter e torna 200', async () => {
+    const fetchMock = byHost({
+      'api.groq.com': () => groqResponse({ error: 'x' }, 500),
+      'openrouter.ai': () => groqResponse({ data: [{ id: 'free-model' }] }),
+    });
+    const res = await listModels(
+      { GROQ_API_KEY: GROQ, OPENROUTER_API_KEY: 'or' },
+      fetchMock as unknown as typeof fetch,
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).data[0].id).toBe('free-model');
   });
 });

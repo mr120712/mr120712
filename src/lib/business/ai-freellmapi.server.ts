@@ -8,7 +8,12 @@
 // privato, freellmapi.co) è ignorato e si usa il connettore interno. Non logga mai chiave/prompt/risposta.
 import 'server-only';
 import { createHash } from 'node:crypto';
-import { forwardChat, listModels } from '@/lib/business/ai-reserve-connector.server';
+import {
+  forwardChat,
+  listModels,
+  reserveProviderKeyNames,
+  reserveProviderLabels,
+} from '@/lib/business/ai-reserve-connector.server';
 
 /** Il segreto condiviso con il connettore interno (o il token di un router esterno), server-side. */
 export function freellmapiApiKey(env: Record<string, string | undefined> = process.env) {
@@ -85,10 +90,12 @@ export function usesBuiltInConnector(
 }
 
 /**
- * Il modello da usare. Predefinito «auto»: lascia scegliere al proxy un modello gratuito disponibile.
- * Imposta FREELLMAPI_MODEL a un id preciso da freellmapi.co/models (preferisci un modello APERTO, non
- * OpenAI). Se l'id non è valido la riserva fallisce in silenzio e resta l'errore di Claude: la verifica
- * admin e il monitoraggio mostrano il modello configurato e l'eventuale errore.
+ * Il modello da usare. Predefinito «auto»: lascia che il router interno scelga, per ogni provider
+ * gratuito, un suo modello disponibile (default, poi scorta) con failover automatico. Imposta
+ * FREELLMAPI_MODEL a un id preciso solo se vuoi forzare un singolo modello: verrà provato tale e
+ * quale su ogni provider finché uno lo riconosce (preferisci un modello APERTO, non OpenAI). Se l'id
+ * non è valido ovunque la riserva fallisce in silenzio e resta l'errore di Claude: la verifica admin
+ * e il monitoraggio mostrano il modello configurato e l'eventuale errore.
  */
 export function freellmapiModel(env: Record<string, string | undefined> = process.env) {
   return env.FREELLMAPI_MODEL?.trim() || 'auto';
@@ -328,26 +335,28 @@ export async function verifyFreellmapi(
     };
   }
   if (usesBuiltInConnector(env)) {
-    // In-process: la riserva interna interroga Groq direttamente (nessun loopback HTTP).
+    // In-process: il router interno interroga i provider gratuiti direttamente (nessun loopback HTTP).
     const probe = await listModels(env);
     await probe.body?.cancel().catch(() => undefined);
     if (probe.status === 200) {
+      const labels = reserveProviderLabels(env);
+      const chain = labels.length > 0 ? labels.join(', ') : 'provider gratuiti';
       return {
         status: 'ok',
-        detail: `Riserva interna pronta (Groq, modello: ${freellmapiModel(env)}).`,
+        detail: `Riserva interna pronta (${chain}; modello: ${freellmapiModel(env)}).`,
         httpStatus: 200,
       };
     }
     if (probe.status === 503) {
       return {
         status: 'warn',
-        detail: 'Riserva spenta: manca GROQ_API_KEY, il connettore interno non ha un upstream.',
+        detail: `Riserva spenta: nessun provider gratuito configurato (${reserveProviderKeyNames().join(', ')}).`,
         httpStatus: 503,
       };
     }
     return {
       status: 'fail',
-      detail: `La riserva interna (Groq) ha risposto con un errore (HTTP ${probe.status}).`,
+      detail: `La riserva interna ha risposto con un errore (HTTP ${probe.status}).`,
       httpStatus: probe.status,
     };
   }
