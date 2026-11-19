@@ -5,6 +5,7 @@ import '../api/solco_api.dart';
 import '../billing/iap_controller.dart';
 import '../offline/offline_store.dart';
 import '../player/player_controller.dart';
+import 'settings.dart';
 
 /// Il client API (creato una volta, con il cookie-jar persistente).
 final apiProvider = FutureProvider<SolcoApi>((ref) => SolcoApi.create());
@@ -13,7 +14,12 @@ final apiProvider = FutureProvider<SolcoApi>((ref) => SolcoApi.create());
 final playerProvider = Provider<PlayerController?>((ref) {
   final api = ref.watch(apiProvider).valueOrNull;
   if (api == null) return null;
-  final controller = PlayerController(api);
+  // L'autoplay continuo legge l'impostazione corrente a coda finita (pigramente,
+  // così un cambio dell'interruttore vale subito, senza ricreare il player).
+  final controller = PlayerController(
+    api,
+    autoplayEnabled: () => ref.read(settingsProvider).autoplay,
+  );
   ref.onDispose(controller.dispose);
   return controller;
 });

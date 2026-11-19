@@ -140,12 +140,12 @@ jobs:
         run: |
           AAB=$(ls build/app/outputs/bundle/release/*.aab | head -1)
           echo "AAB: $AAB ($(du -h "$AAB" | cut -f1))"
-          echo "== versione dell'app (da pubspec: versionName+versionCode, atteso 0.7.2+11) =="
+          echo "== versione dell'app (da pubspec: versionName+versionCode, atteso 0.7.3+12) =="
           grep -nE "^version:" pubspec.yaml || true
           echo "== impronta del certificato di firma (atteso 02:28:46:FD:...:F2:52) =="
           keytool -printcert -jarfile "$AAB" | grep -iE "SHA256:" || echo "(nessuna firma: build di debug)"
           echo "== package e versione (dal manifest) =="
-          unzip -p "$AAB" base/manifest/AndroidManifest.xml | strings | grep -iE "online.solcomusic.solco|0\.7\.2" | head -3 || true
+          unzip -p "$AAB" base/manifest/AndroidManifest.xml | strings | grep -iE "online.solcomusic.solco|0\.7\.3" | head -3 || true
           echo "== livelli SDK (attesi minSdk 24, target/compile 36 — richiesti da Play) =="
           if [ -f android/app/build.gradle.kts ]; then GRADLE_APP=android/app/build.gradle.kts; else GRADLE_APP=android/app/build.gradle; fi
           grep -nE "minSdk|targetSdk|compileSdk" "$GRADLE_APP" || true

@@ -15,11 +15,15 @@ enum RepeatMode { none, all, one }
 /// (Audius, radio live, episodi podcast) con avanti/indietro, shuffle,
 /// ripetizione e avanzamento automatico a fine brano.
 class PlayerController extends ChangeNotifier {
-  PlayerController(this._api) {
+  PlayerController(this._api, {bool Function()? autoplayEnabled})
+      : _autoplayEnabled = autoplayEnabled {
     _stateSub = _player.playerStateStream.listen(_onPlayerState);
   }
 
   final SolcoApi _api;
+
+  /// Letto a coda finita per decidere se continuare da soli. Null = autoplay spento.
+  final bool Function()? _autoplayEnabled;
   final AudioPlayer _player = AudioPlayer();
   final Random _random = Random();
 
@@ -254,12 +258,40 @@ class PlayerController extends ChangeNotifier {
         await _loadCurrent();
         await _player.play();
         notifyListeners();
+      } else if (await _maybeAutoplayMore()) {
+        await next();
       } else {
         await _player.pause();
         await _player.seek(Duration.zero);
       }
     } finally {
       _advancing = false;
+    }
+  }
+
+  /// Autoplay continuo: a coda finita, se l'impostazione è attiva e l'ultimo brano
+  /// è musica (non radio né podcast), aggiunge in coda brani popolari su Solco così
+  /// la riproduzione prosegue da sola, anche a schermo bloccato. Ritorna true se ha
+  /// aggiunto qualcosa. Il dedup per qualifiedId fa sì che la coda non cresca
+  /// all'infinito: quando tutte le tendenze sono già in coda, l'autoplay si ferma.
+  Future<bool> _maybeAutoplayMore() async {
+    final item = current;
+    if (item == null || item.isLive) return false;
+    if (item.playbackMode != 'audius' && item.playbackMode != 'featured') return false;
+    if (!(_autoplayEnabled?.call() ?? false)) return false;
+    try {
+      final more = await _api.trending();
+      final existing = _queue.map((e) => e.qualifiedId).toSet();
+      final fresh = more
+          .map((t) => t.toPlayable())
+          .where((p) => !existing.contains(p.qualifiedId))
+          .toList();
+      if (fresh.isEmpty) return false;
+      _queue = List.unmodifiable([..._queue, ...fresh]);
+      _original = List.unmodifiable([..._original, ...fresh]);
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 

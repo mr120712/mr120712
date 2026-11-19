@@ -1,7 +1,7 @@
 name: solco
 description: Solco — app mobile nativa (Flutter) che riusa il backend di www.solcomusic.online.
 publish_to: "none"
-version: 0.7.2+11
+version: 0.7.3+12
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -28,6 +28,8 @@ dependencies:
   # Acquisti in-app (abbonamenti auto-rinnovabili) con il plugin ufficiale Flutter:
   # App Store (StoreKit) su iOS e Play Billing su Android. La verifica è lato server.
   in_app_purchase: ^3.2.0
+  # Preferenze locali del dispositivo (Impostazioni): salvate con shared_preferences.
+  shared_preferences: ^2.3.2
 
 dev_dependencies:
   flutter_test:

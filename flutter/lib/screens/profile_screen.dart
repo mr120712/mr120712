@@ -6,6 +6,7 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import 'premi_screen.dart';
 import 'premium_screen.dart';
+import 'settings_screen.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -50,6 +51,18 @@ class ProfileScreen extends ConsumerWidget {
         ],
         _premiumCard(context, isPremium),
         const SizedBox(height: 24),
+        Card(
+          child: ListTile(
+            leading: const Icon(Icons.settings_outlined),
+            title: const Text('Impostazioni'),
+            subtitle: const Text('Autoplay continuo, informazioni e link utili'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const SettingsScreen()),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
         if (session != null) ...[
           Card(
             child: ListTile(
