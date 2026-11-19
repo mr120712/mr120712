@@ -146,6 +146,36 @@ class RewardsSummary {
   }
 }
 
+/// Una riga del testo. `timeMs` = inizio della riga in millisecondi (testo sincronizzato); null nel
+/// testo semplice.
+class LyricsLine {
+  LyricsLine({this.timeMs, required this.text});
+  final int? timeMs;
+  final String text;
+
+  factory LyricsLine.fromJson(Map<String, dynamic> json) => LyricsLine(
+        timeMs: (json['timeMs'] as num?)?.toInt(),
+        text: (json['text'] as String?) ?? '',
+      );
+}
+
+/// Il testo di un brano (stile Spotify), SOLO per i brani in evidenza con diritti dichiarati.
+class Lyrics {
+  Lyrics({required this.synced, required this.lines, this.credit});
+  final bool synced;
+  final List<LyricsLine> lines;
+  final String? credit;
+
+  factory Lyrics.fromJson(Map<String, dynamic> json) => Lyrics(
+        synced: (json['kind'] as String?) == 'synced',
+        lines: ((json['lines'] as List?) ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .map(LyricsLine.fromJson)
+            .toList(),
+        credit: json['credit'] as String?,
+      );
+}
+
 class AudiusTrack {
   AudiusTrack({
     required this.id,

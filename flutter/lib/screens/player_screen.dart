@@ -12,6 +12,7 @@ import '../api/solco_api.dart';
 import '../player/player_controller.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
+import '../widgets/lyrics_sheet.dart';
 
 /// Lettore a schermo intero (Now Playing): copertina grande, barra di avanzamento,
 /// precedente/play/successivo, shuffle e ripetizione, coda e attribuzione.
@@ -88,6 +89,16 @@ class PlayerScreen extends ConsumerWidget {
                   _SecondaryControls(player: player, isLive: track.isLive),
                   const Spacer(),
                   _Attribution(item: track),
+                  if (track.qualifiedId.startsWith('featured:'))
+                    TextButton.icon(
+                      icon: const Icon(Icons.lyrics_outlined, size: 20),
+                      label: const Text('Testo'),
+                      onPressed: () => _showLyrics(
+                        context,
+                        player,
+                        track.qualifiedId.substring('featured:'.length),
+                      ),
+                    ),
                   if (player.queue.length > 1)
                     TextButton.icon(
                       icon: const Icon(Icons.queue_music, size: 20),
@@ -103,6 +114,16 @@ class PlayerScreen extends ConsumerWidget {
           ),
         );
       },
+    );
+  }
+
+  void _showLyrics(BuildContext context, PlayerController player, String pathname) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: kSolcoNavyCard,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => LyricsSheet(pathname: pathname, player: player),
     );
   }
 

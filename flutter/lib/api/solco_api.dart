@@ -225,6 +225,25 @@ class SolcoApi {
   /// Link di invito pubblico per il codice referral (/invito/&lt;code&gt; sul sito ufficiale).
   String inviteLink(String code) => '$kSolcoBaseUrl/invito/$code';
 
+  /// Testo di un brano in evidenza: GET /api/music/lyrics?featured=&lt;pathname&gt;. null = nessun testo
+  /// o non autorizzato (il server dà la stessa risposta). Serve la sessione.
+  Future<Lyrics?> featuredLyrics(String pathname) async {
+    try {
+      final res = await _dio.get<dynamic>(
+        '/api/music/lyrics',
+        queryParameters: {'featured': pathname},
+      );
+      final data = res.data;
+      if (res.statusCode == 200 && data is Map<String, dynamic>) {
+        final lyrics = data['lyrics'];
+        if (lyrics is Map<String, dynamic>) return Lyrics.fromJson(lyrics);
+      }
+    } on DioException {
+      // Nessun testo: il player mostra «non disponibile».
+    }
+    return null;
+  }
+
   /// Ricerca unificata: GET /api/music/search-all. Mentre si scrive NON si
   /// interroga YouTube; qui restiamo su Audius (i brani riproducibili subito).
   Future<List<AudiusTrack>> search(String query) async {
