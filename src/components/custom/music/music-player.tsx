@@ -1099,6 +1099,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   const pendingSeekRef = useRef<{ qualifiedId: string; seconds: number } | null>(null);
   // Elemento on-demand fermato perché il dispositivo era senza rete: riparte una volta su 'online'.
   const offlineResumeRef = useRef<string | null>(null);
+  // Brano on-demand (brani in evidenza compresi) fermato da un calo di rete MENTRE suonava, dopo aver
+  // esaurito il ritentativo in corso: riparte da solo dal punto salvato quando l'ascoltatore torna su
+  // Solco (schermo riacceso / scheda visibile o a fuoco) o quando torna la rete. Null = niente da riprendere.
+  const dropResumeRef = useRef<string | null>(null);
   const restoredRef = useRef(false);
   // Background playback (see src/lib/music/playback-prefetch.ts and media-session.ts).
   const accessRef = useRef<AccessSnapshot | null>(null);
@@ -1322,8 +1326,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     async (requested: ActiveTrack): Promise<boolean> => {
       let track = requested;
       const request = ++playRequestRef.current;
-      // Un nuovo avvio: la ripresa automatica al ritorno della rete non serve più.
+      // Un nuovo avvio: la ripresa automatica al ritorno della rete/primo piano non serve più.
       offlineResumeRef.current = null;
+      dropResumeRef.current = null;
       if ((track.playbackMode === 'song' || isYouTubeTrack(track)) && isPageHidden()) {
         // YouTube never starts while Solco is hidden (API terms): it waits for the listener.
         decks.current?.pause();
@@ -1717,6 +1722,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     missStreakRef.current = 0;
     pendingSeekRef.current = null;
     offlineResumeRef.current = null;
+    dropResumeRef.current = null;
     releaseAudio();
     // Nothing plays any more: no object URL of the listener's files is kept.
     pruneLocalSources(new Set());
@@ -2832,6 +2838,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       audio.currentTime === 0 &&
       mediaRetryRef.current === 0 &&
       pendingSeekRef.current?.qualifiedId !== track.qualifiedId;
+    // Caduta a metà brano (non «mai partito»): dopo il ritentativo in corso il brano resterebbe fermo.
+    // Ricorda il punto e, se non è il limite Free, riparti da solo quando il brano torna in primo piano
+    // (resumeOnReturn) o torna la rete (evento 'online'). Vale anche per i brani in evidenza.
+    if (!neverStarted) {
+      const droppedAt = retryPositionRef.current > 0 ? retryPositionRef.current : audio.currentTime;
+      rememberResumePoint(track, droppedAt);
+      dropResumeRef.current = track.qualifiedId;
+    }
     setStatus('error');
     setErrorMessage(
       isOpenStream(track)
@@ -3712,13 +3726,37 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         void playCurrentTrack(currentTrack);
         return;
       }
-      if (offlineResumeRef.current === currentTrack.qualifiedId) {
+      if (
+        offlineResumeRef.current === currentTrack.qualifiedId ||
+        dropResumeRef.current === currentTrack.qualifiedId
+      ) {
         offlineResumeRef.current = null;
+        dropResumeRef.current = null;
         void playCurrentTrack(currentTrack);
       }
     };
     window.addEventListener('online', resume);
     return () => window.removeEventListener('online', resume);
+  }, [currentTrack, playCurrentTrack, previewEnded, status]);
+
+  // Ritorno in primo piano dopo un calo di rete in background: un brano on-demand (brani in evidenza
+  // compresi) fermato mentre suonava riparte da solo dal punto salvato quando lo schermo si riaccende o
+  // la scheda torna visibile/a fuoco. Non tocca i blocchi del limite Free (status resta 'idle', non
+  // 'error') né la diretta radio (già gestita da 'online').
+  useEffect(() => {
+    const resumeOnReturn = () => {
+      if (isPageHidden()) return;
+      if (!currentTrack || status !== 'error' || previewEnded) return;
+      if (dropResumeRef.current !== currentTrack.qualifiedId) return;
+      dropResumeRef.current = null;
+      void playCurrentTrack(currentTrack);
+    };
+    document.addEventListener('visibilitychange', resumeOnReturn);
+    window.addEventListener('focus', resumeOnReturn);
+    return () => {
+      document.removeEventListener('visibilitychange', resumeOnReturn);
+      window.removeEventListener('focus', resumeOnReturn);
+    };
   }, [currentTrack, playCurrentTrack, previewEnded, status]);
 
   // Restore the last queue (paused) after a reload or when reopening the app — only for the account
