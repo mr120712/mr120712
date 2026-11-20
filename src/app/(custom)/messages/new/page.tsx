@@ -5,6 +5,7 @@ import { NewMessage } from '@/components/custom/messages/new-message';
 export const metadata: Metadata = {
   title: 'Nuovo messaggio — Solco',
   description: 'Inizia una conversazione privata con un profilo della community Solco.',
+  robots: { index: false, follow: false },
 };
 
 export default async function NewMessagePage({

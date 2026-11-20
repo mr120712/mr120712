@@ -204,6 +204,15 @@ export const ACTION_RATE_LIMITS = {
     { requests: 12, windowMs: 60_000 },
     { requests: 60, windowMs: 3_600_000 },
   ],
+  // Chat inoltrate dal connettore pubblico «Riserva AI» (/api/ai-reserve/v1) e dal server MCP
+  // (/api/mcp) ai provider gratuiti: ogni chiamata spende upstream e intacca i tetti giornalieri
+  // bassi dei free tier (es. OpenRouter ~50/giorno). Per IP: largo per l'uso vero, ferma l'abuso di
+  // una chiave troppo condivisa. L'uso INTERNO di Solco NON passa di qui (chiama forwardChat
+  // in-process), quindi resta illimitato.
+  'ai.reserve': [
+    { requests: 15, windowMs: 60_000 },
+    { requests: 150, windowMs: 86_400_000 },
+  ],
   'solco.support': [{ requests: 5, windowMs: 600_000 }],
   // Tetto app-wide sulle risposte del supporto: ognuna è una richiesta a Claude a pagamento.
   'solco.support.global': [{ requests: 300, windowMs: 86_400_000 }],
@@ -615,6 +624,7 @@ const actionLabels: Record<RateLimitAction, string> = {
   'music.recommendations.ai': 'i consigli con l’AI di oggi',
   'music.recommendations.ai.global': 'i consigli con l’AI di oggi',
   'ai.chat': 'le richieste all’assistente',
+  'ai.reserve': 'le richieste alla riserva AI',
   'solco.support': 'le richieste al supporto',
   'solco.support.global': 'le richieste al supporto di oggi',
   'admin.assistant': 'le richieste all’assistente amministrativo',

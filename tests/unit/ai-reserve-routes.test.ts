@@ -7,6 +7,8 @@ const mocks = vi.hoisted(() => ({
   authorizeReserve: vi.fn(),
   forwardChat: vi.fn(),
   listModels: vi.fn(),
+  enforceRateLimit: vi.fn(),
+  getRateLimitIdentity: vi.fn(),
 }));
 
 vi.mock('server-only', () => ({}));
@@ -14,6 +16,10 @@ vi.mock('@/lib/business/ai-reserve-connector.server', () => ({
   authorizeReserve: mocks.authorizeReserve,
   forwardChat: mocks.forwardChat,
   listModels: mocks.listModels,
+}));
+vi.mock('@/lib/business/rate-limit.server', () => ({
+  enforceRateLimit: mocks.enforceRateLimit,
+  getRateLimitIdentity: mocks.getRateLimitIdentity,
 }));
 
 import { POST } from '@/app/api/ai-reserve/v1/chat/completions/route';
@@ -34,8 +40,12 @@ beforeEach(() => {
   mocks.authorizeReserve.mockReset();
   mocks.forwardChat.mockReset();
   mocks.listModels.mockReset();
+  mocks.enforceRateLimit.mockReset();
+  mocks.getRateLimitIdentity.mockReset();
   mocks.forwardChat.mockResolvedValue(new Response('{}', { status: 200 }));
   mocks.listModels.mockResolvedValue(new Response('{"data":[]}', { status: 200 }));
+  mocks.enforceRateLimit.mockResolvedValue(null); // consenti per default
+  mocks.getRateLimitIdentity.mockReturnValue('ip:test');
 });
 
 describe('GET /models', () => {
@@ -60,6 +70,18 @@ describe('POST /chat/completions', () => {
     mocks.authorizeReserve.mockReturnValue({ ok: false, status: 401, error: 'unauthorized' });
     const res = await POST(post({ messages: [{ role: 'user', content: 'ciao' }] }));
     expect(res.status).toBe(401);
+    expect(mocks.forwardChat).not.toHaveBeenCalled();
+  });
+
+  it('429 quando il rate limit è superato: nessun inoltro', async () => {
+    mocks.authorizeReserve.mockReturnValue({ ok: true });
+    mocks.enforceRateLimit.mockResolvedValue(
+      new Response(JSON.stringify({ error: 'rate_limited' }), { status: 429 }),
+    );
+    const res = await POST(
+      post({ messages: [{ role: 'user', content: 'ciao' }] }, { authorization: 'Bearer x' }),
+    );
+    expect(res.status).toBe(429);
     expect(mocks.forwardChat).not.toHaveBeenCalled();
   });
 

@@ -7,6 +7,7 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { bearerMatches, reserveSecret } from '@/lib/business/ai-reserve-connector.server';
 import { handleMcpMessage, type JsonRpcMessage } from '@/lib/business/mcp-reserve.server';
+import { enforceRateLimit, getRateLimitIdentity } from '@/lib/business/rate-limit.server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -52,6 +53,15 @@ export async function POST(request: Request) {
   const token = mcpToken(request);
   if (!token || !bearerMatches(token, secret)) {
     return rpcError(401, -32001, 'unauthorized', { 'WWW-Authenticate': 'Bearer' });
+  }
+
+  // Tetto per IP (stesso della «Riserva AI»): ogni chiamata agli strumenti inoltra ai provider
+  // gratuiti. Mantiene la forma JSON-RPC ma riusa il Retry-After del rate limiter.
+  const limited = await enforceRateLimit('ai.reserve', getRateLimitIdentity(null, request.headers));
+  if (limited) {
+    return rpcError(429, -32002, 'rate_limited', {
+      'Retry-After': limited.headers.get('Retry-After') ?? '60',
+    });
   }
 
   const body = (await request.json().catch(() => null)) as JsonRpcMessage | JsonRpcMessage[] | null;

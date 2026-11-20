@@ -12,9 +12,11 @@ export default function RouteError({
 }) {
   return (
     <main className="container mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center gap-4 px-6 py-16 text-center">
-      <h1 className="font-display text-3xl font-semibold tracking-tight">Something went wrong</h1>
-      <p className="text-muted-foreground">An unexpected error occurred. Please try again.</p>
-      <Button onClick={() => reset()}>Try again</Button>
+      <h1 className="font-display text-3xl font-semibold tracking-tight">
+        Qualcosa è andato storto
+      </h1>
+      <p className="text-muted-foreground">Si è verificato un errore imprevisto. Riprova.</p>
+      <Button onClick={() => reset()}>Riprova</Button>
     </main>
   );
 }

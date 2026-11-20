@@ -12,16 +12,16 @@ export default function GlobalError({
   reset: () => void;
 }) {
   return (
-    <html lang="en">
+    <html lang="it">
       <body className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background px-8 py-8 text-center font-body text-foreground">
-        <h1 className="font-display text-2xl font-semibold">Something went wrong</h1>
-        <p className="text-muted-foreground">A critical error occurred. Please try again.</p>
+        <h1 className="font-display text-2xl font-semibold">Qualcosa è andato storto</h1>
+        <p className="text-muted-foreground">Si è verificato un errore critico. Riprova.</p>
         <button
           type="button"
           onClick={() => reset()}
           className="rounded-md border border-border bg-primary px-4 py-2 font-medium text-primary-foreground hover:bg-primary/90"
         >
-          Try again
+          Riprova
         </button>
       </body>
     </html>

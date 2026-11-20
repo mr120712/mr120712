@@ -7,7 +7,7 @@
 // already provides LazyMotion + MotionConfig). Not needed inside LandingPage; nesting
 // is harmless (the inner LazyMotion only adds features and is non-strict).
 
-import { domMax, LazyMotion, MotionConfig } from 'motion/react';
+import { domAnimation, LazyMotion, MotionConfig } from 'motion/react';
 import type { ReactNode } from 'react';
 
 export type MotionKitProviderProps = {
@@ -16,12 +16,13 @@ export type MotionKitProviderProps = {
 
 /**
  * Kit components render `m.*` elements, which animate only below a LazyMotion.
- * `domMax` = animations + gestures + drag + layout, so page-level code can also use
- * layout animations. Not `strict`, so a stray `motion.*` element doesn't throw.
+ * `domAnimation` = animations + gestures (no drag/layout), which is all the kit uses
+ * (parallax transforms, CSS reveals). Trimmer bundle than `domMax`, loaded app-wide.
+ * Not `strict`, so a stray `motion.*` element doesn't throw.
  */
 export function MotionKitProvider({ children }: MotionKitProviderProps) {
   return (
-    <LazyMotion features={domMax}>
+    <LazyMotion features={domAnimation}>
       <MotionConfig reducedMotion="user">{children}</MotionConfig>
     </LazyMotion>
   );
