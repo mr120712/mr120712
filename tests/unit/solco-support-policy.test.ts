@@ -90,30 +90,29 @@ describe('perimetro dell’assistenza Solco', () => {
     expect(messages[1]).toEqual({ role: 'user', content: 'Come registro un ascolto?' });
   });
 
-  it('dichiara 40 registrazioni Free nella landing, nella scheda Play e nel prompt', () => {
-    const landing = readFileSync(resolve(process.cwd(), 'src/app/(setup)/page.tsx'), 'utf8');
+  it('dichiara i limiti Free su /piani, nella scheda Play e nel prompt', () => {
+    // La copy dei piani vive ora su /piani (la landing è un feed di scoperta); la disclosure delle
+    // 40 registrazioni/ascolti e dei diritti verificabili resta su scheda Play e prompt del supporto.
+    const plans = readFileSync(resolve(process.cwd(), 'src/app/(custom)/piani/page.tsx'), 'utf8');
     const playListing = readFileSync(resolve(process.cwd(), 'android/store-listing.it.md'), 'utf8');
     const supportPrompt = buildSupportMessages('Quanti ascolti posso salvare con Free?')[0]
       ?.content;
 
     expect(FREE_MONTHLY_LISTEN_LIMIT).toBe(40);
-    expect(landing).toContain('Free resta gratis con {FREE_MONTHLY_LISTEN_LIMIT} ascolti al mese');
-    expect(landing).toContain('Fino a {FREE_MONTHLY_LISTEN_LIMIT} ascolti registrati al mese');
+    expect(plans).toContain('ascolti al mese di brani Audius, audio.com e podcast');
     expect(playListing).toContain('fino a 40 nuove registrazioni al mese');
     expect(supportPrompt).toContain('40 registrazioni nel diario al mese');
-    expect(landing).toMatch(/diritti di\s+streaming\s+per Solco sono verificabili/);
     expect(playListing).toContain('diritti di streaming per Solco sono verificabili');
-    expect(`${landing}\n${playListing}\n${supportPrompt}`).not.toMatch(
+    expect(`${plans}\n${playListing}\n${supportPrompt}`).not.toMatch(
       /\b20\s+(?:ascolti|registrazioni)/i,
     );
   });
 
-  it('mantiene nella landing i vantaggi Solco Pro e la condizione sui diritti verificabili', () => {
-    const landing = readFileSync(resolve(process.cwd(), 'src/app/(setup)/page.tsx'), 'utf8');
+  it('espone i vantaggi Solco Pro sulla pagina dei piani', () => {
+    const plans = readFileSync(resolve(process.cwd(), 'src/app/(custom)/piani/page.tsx'), 'utf8');
 
-    expect(landing).toContain('Statistiche avanzate');
-    expect(landing).toContain('Temi extra');
-    expect(landing).toContain('Card senza logo');
-    expect(landing).toMatch(/Ascolto integrale solo per i brani con fonte e diritti verificabili/);
+    expect(plans).toContain('Statistiche avanzate');
+    expect(plans).toContain('Temi extra');
+    expect(plans).toContain('Card senza logo');
   });
 });
