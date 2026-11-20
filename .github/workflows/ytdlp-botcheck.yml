@@ -39,6 +39,11 @@ on:
         description: 'Verifica se il client WARP parte in un container senza privilegi (come su Render)'
         type: boolean
         default: false
+      usque:
+        description: "Misura l'uscita da WARP con usque (client in spazio utente, senza privilegi)"
+        type: choice
+        options: ['no', l4-socks, socks, socks-http2]
+        default: 'no'
 
 permissions:
   contents: read
@@ -181,3 +186,67 @@ jobs:
             done
             echo "--- ultime righe di warp-svc"; tail -n 25 /tmp/warp-svc.log | cut -c1-240
           ' || true
+
+      # usque: client WARP open-source che gira tutto in spazio utente, quindi senza privilegi di
+      # rete (il client ufficiale, misurato qui sopra, in un container normale non si collega).
+      # Compilato dal commit della versione 4.2.1, eseguito come utente «nobody» e senza variabili
+      # d'ambiente: è così che il worker lo terrebbe lontano dalle proprie chiavi.
+      - name: Prepara Go
+        if: inputs.usque != 'no'
+        uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Compila usque dal commit fissato
+        if: inputs.usque != 'no'
+        run: |
+          git clone -q https://github.com/Diniboy1123/usque.git /tmp/usque-src
+          cd /tmp/usque-src
+          git checkout -q 6aa03fc97d12848dce34eedbd187fb1077b5d1ea
+          CGO_ENABLED=0 go build -ldflags="-s -w" -o /tmp/usque .
+          ls -l /tmp/usque
+          sha256sum /tmp/usque
+
+      - name: Registra e avvia usque
+        if: inputs.usque != 'no'
+        env:
+          MODE: ${{ inputs.usque }}
+        run: |
+          sudo install -d -o nobody -g nogroup -m 700 /tmp/warp
+          run() { sudo -u nobody env -i HOME=/tmp/warp PATH=/usr/bin:/bin "$@"; }
+          cd /
+          started=$(date +%s)
+          run /tmp/usque -c /tmp/warp/config.json register -a -n solco-ci 2>&1 | sed -E 's#[A-Za-z0-9+/=_-]{24,}#[…]#g'
+          case "$MODE" in
+            l4-socks) args="l4-socks -b 127.0.0.1 -p 40001 --system-dns" ;;
+            socks) args="socks -b 127.0.0.1 -p 40001" ;;
+            socks-http2) args="socks -b 127.0.0.1 -p 40001 --http2" ;;
+          esac
+          sudo -u nobody env -i HOME=/tmp/warp PATH=/usr/bin:/bin sh -c "/tmp/usque -c /tmp/warp/config.json $args > /tmp/warp/usque.log 2>&1 &"
+          for attempt in $(seq 1 20); do
+            if curl -fsS -m 8 -x socks5://127.0.0.1:40001 https://www.cloudflare.com/cdn-cgi/trace > trace-usque.txt 2>/dev/null \
+              && grep -q 'warp=on' trace-usque.txt; then break; fi
+            sleep 1
+          done
+          echo "pronto dopo $(( $(date +%s) - started ))s"
+          grep -E '^(warp|colo|loc)=' trace-usque.txt || echo "WARP non attivo"
+          sudo tail -n 15 /tmp/warp/usque.log | cut -c1-220
+
+      - name: Prova le configurazioni uscendo da usque
+        if: inputs.usque != 'no'
+        env:
+          PROBE_URL: ${{ inputs.url }}
+          PROBE_CONFIGS: ${{ inputs.configs }}
+          PROBE_DOWNLOAD: ${{ inputs.download && 'ok' || 'none' }}
+          PROBE_PROXY: socks5://127.0.0.1:40001
+        run: |
+          if ! grep -q 'warp=on' trace-usque.txt 2>/dev/null; then
+            echo "WARP non è attivo: misura saltata"; exit 0
+          fi
+          python .github/scripts/ytdlp_botcheck.py
+          echo "--- memoria di usque (attuale e di picco)"
+          for process in /proc/[0-9]*; do
+            if sudo grep -q '^usque$' "$process/comm" 2>/dev/null; then sudo grep -E 'VmRSS|VmHWM' "$process/status"; fi
+          done
+          sudo tail -n 12 /tmp/warp/usque.log | cut -c1-220
