@@ -11,6 +11,7 @@ import {
   botVideoExperimentalEnabled,
   isAdminTelegramChat,
   requestBotVideo,
+  videoCommandRegex,
 } from '@/lib/business/bot-video.server';
 import { enforceRateLimit } from '@/lib/business/rate-limit.server';
 import { readJsonLimited } from '@/lib/business/request-body.server';
@@ -264,13 +265,13 @@ async function handleUpdate(
   // /video <url|descrizione> → SPERIMENTALE, owner-only (chat admin, in privato): l'AI interpreta la
   // richiesta e un worker yt-dlp ESTERNO risolve il media; il bot risponde col link. Gestito solo quando
   // la funzione è accesa (BOT_VIDEO_EXPERIMENTAL) E la chat è autorizzata (SKYNET_TELEGRAM_CHAT_IDS):
-  // altrimenti ricade nel messaggio generico, così resta invisibile a chi non deve vederla.
-  const video = /^\/(?:video|yt)(?:@\w+)?(?:\s+([\s\S]+))?$/.exec(text);
-  if (video && botVideoExperimentalEnabled() && isAdminTelegramChat(chatId)) {
-    if (chatType !== 'private') {
-      await sendTelegramMessage(chatId, 'Usa /video solo nella chat privata col bot.', {
-        replyMarkup: miniAppKeyboard(chatType),
-      });
+  // altrimenti SILENZIO totale (obscuration): nessuna risposta, come se il comando non esistesse.
+  const video = videoCommandRegex().exec(text);
+  if (video) {
+    // Obscuration: la funzione yt-dlp + AI è INVISIBILE a chi non è owner. Se non ricorrono TUTTE le
+    // condizioni (feature accesa + chat owner + chat privata) → SILENZIO, nessun messaggio: non se ne
+    // rivela l'esistenza né a estranei né nei gruppi (dove una risposta sarebbe visibile a tutti).
+    if (!botVideoExperimentalEnabled() || !isAdminTelegramChat(chatId) || chatType !== 'private') {
       return;
     }
     const input = (video[1] ?? '').trim().slice(0, 500);

@@ -84,6 +84,23 @@ export function isAdminTelegramChat(chatId: string, env: Env = process.env): boo
   return ids.length > 0 && ids.includes(chatId);
 }
 
+/**
+ * Alias "oscuro" opzionale per il comando video (BOT_VIDEO_ALIAS): un trigger NON ovvio, come copertura.
+ * Es. BOT_VIDEO_ALIAS="grab" → anche "/grab <url>" avvia il video. Deve essere un comando Telegram valido
+ * (lettere/numeri/underscore, 1-32 char); vuoto o non valido = nessun alias.
+ */
+export function botVideoAlias(env: Env = process.env): string | undefined {
+  const raw = clean(env.BOT_VIDEO_ALIAS)?.toLowerCase();
+  return raw && /^[a-z0-9_]{1,32}$/.test(raw) ? raw : undefined;
+}
+
+/** Regex del comando video: /video, /yt e l'eventuale alias oscuro. Gruppo 1 = argomento (url o testo). */
+export function videoCommandRegex(env: Env = process.env): RegExp {
+  const alias = botVideoAlias(env);
+  const names = alias ? `video|yt|${alias}` : 'video|yt';
+  return new RegExp(`^/(?:${names})(?:@\\w+)?(?:\\s+([\\s\\S]+))?$`);
+}
+
 const URL_RE = /\bhttps?:\/\/[^\s<>()]+/i;
 
 /** Estrae il primo URL http(s) dal testo (euristica, senza AI). null se non c'è. */
