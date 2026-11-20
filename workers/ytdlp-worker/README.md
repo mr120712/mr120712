@@ -95,3 +95,34 @@ Poi redeploy di Solco e, in **chat privata** col bot: `/video <url o descrizione
   inviano da URL fino a ~20 MB.
 - **Pulizia**: i file scaricati si cancellano da soli dopo `FILE_TTL_SECONDS` (default 15 min).
 - **Tieni yt-dlp aggiornato**: ricostruisci l'immagine ogni tanto (i siti cambiano).
+
+## YouTube: «Sign in to confirm you're not a bot»
+
+Da un IP datacenter (Fly, Render, …) YouTube spesso blocca i download con questo messaggio. Il worker lo
+**logga** (`fly logs`) e risponde `download failed`. Due leve, via env:
+
+| Variabile | Effetto |
+|---|---|
+| `YTDLP_PLAYER_CLIENT` | Forza un client YouTube (CSV), es. `android` o `ios,web`. Rimedio leggero: a volte sblocca senza cookie. |
+| `YTDLP_COOKIES` | Contenuto di un `cookies.txt` (formato Netscape) dei TUOI cookie YouTube. Rimedio forte, il più affidabile. **È un SEGRETO** → impostalo come secret, mai in chiaro nel repo o in `fly.toml`. |
+| `YTDLP_COOKIES_FILE` | In alternativa, il percorso a un `cookies.txt` già montato nel container. |
+
+Esporta i cookie con un'estensione «Get cookies.txt» dal browser dove sei loggato su YouTube, poi:
+
+```powershell
+# PowerShell
+fly secrets set YTDLP_COOKIES="$(Get-Content cookies.txt -Raw)" -a solco-ytdlp-worker
+```
+```bash
+# bash
+fly secrets set YTDLP_COOKIES="$(cat cookies.txt)" -a solco-ytdlp-worker
+```
+
+> I cookie danno accesso al tuo account YouTube: trattali come una password. Usa un account secondario se puoi.
+
+## Diagnostica
+
+Il worker logga su stdout (`fly logs -a solco-ytdlp-worker`): all'avvio stampa la config risolta
+(`mode`, `auth on/OFF`, `cookies si/no`, `player_client`), poi ogni richiesta (`richiesta download: …`),
+l'esito (`download ok …`) e, su errore, il **motivo preciso** di yt-dlp (`download failed per <url>: <errore>`).
+`GET /health` riporta anche `{"cookies": true|false, "player_client": …}` per confermare al volo che l'env è attivo.

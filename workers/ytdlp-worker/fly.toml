@@ -19,6 +19,11 @@ primary_region = "iad"
   # Tetto alla dimensione scaricata (MB) e durata dei file temporanei (secondi): default prudenti.
   MAX_FILESIZE_MB = "200"
   FILE_TTL_SECONDS = "900"
+  # YouTube da IP datacenter (Fly) può rispondere "Sign in to confirm you're not a bot".
+  # Rimedio leggero (a volte basta): forza un client YouTube — scommenta e prova "android" o "ios,web".
+  # YTDLP_PLAYER_CLIENT = "android"
+  # Rimedio forte (consigliato per YouTube): i tuoi cookie come SECRET, MAI in chiaro qui. Es. PowerShell:
+  #   fly secrets set YTDLP_COOKIES="$(Get-Content cookies.txt -Raw)" -a solco-ytdlp-worker
 
 [http_service]
   internal_port = 8080
