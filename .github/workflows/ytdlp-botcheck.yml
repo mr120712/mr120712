@@ -239,6 +239,12 @@ jobs:
           done
           echo "pronto dopo $(( $(date +%s) - started ))s"
           grep -E '^(warp|colo|loc)=' trace-usque.txt || echo "WARP non attivo"
+          # Ogni connessione esce dallo stesso indirizzo? YouTube lega la sessione e il link del media
+          # all'IP: se l'uscita cambia da una connessione all'altra, i tentativi vanno ripetuti.
+          echo "indirizzo di uscita di 8 connessioni consecutive (quante volte ciascuno):"
+          for attempt in $(seq 1 8); do
+            curl -fsS -m 8 -x socks5://127.0.0.1:40001 https://checkip.amazonaws.com || echo "nessuna risposta"
+          done | sort | uniq -c
           sudo tail -n 15 /tmp/warp/usque.log | cut -c1-220
 
       - name: Prova le configurazioni uscendo da usque
