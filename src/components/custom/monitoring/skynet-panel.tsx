@@ -1,7 +1,8 @@
 'use client';
 // @polsia:user-owned — pannello «Skynet» in Amministrazione → Monitoraggio: stato della sentinella
-// che guarda il sito ogni minuto (src/lib/skynet/), ultimi segnali, configurazione e diario degli
-// avvisi, con il motore post-quantistico. Si aggiorna da solo ogni minuto. Solo lettura.
+// che guarda il sito ogni minuto (src/lib/skynet/), la chat per farle domande, ultimi segnali,
+// configurazione, autodifesa e diario degli avvisi, con il motore post-quantistico. Si aggiorna da
+// solo ogni minuto.
 
 import { ShieldAlert, ShieldCheck, ShieldQuestion } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
@@ -9,6 +10,7 @@ import { Panel } from '@/components/custom/app-ui/panel';
 import { apiFetch } from '@/lib/api-client';
 import { type SkynetOverview, SkynetOverviewSchema } from '@/lib/contracts/skynet';
 import { EXPECTED_SKYNET_RULES } from '@/lib/skynet/signals';
+import { SkynetChat } from './skynet-chat';
 import styles from './skynet-panel.module.css';
 
 const ENDPOINT = '/api/admin/skynet';
@@ -33,6 +35,13 @@ const KIND_LABELS: Record<SkynetOverview['events'][number]['kind'], string> = {
   change: 'Modifica al firewall',
   hunt: 'Hacker in verifica',
   quantum: 'Motore post-quantistico',
+  defense: 'Autodifesa',
+};
+
+const DEFENSE_TARGET_LABELS: Record<string, string> = {
+  firewall: 'firewall',
+  'ai-bots': 'blocco delle AI',
+  'skynet-rules': 'regole Skynet',
 };
 
 const INTERNAL_LABELS: Record<string, string> = {
@@ -78,6 +87,57 @@ export function huntedText(data: SkynetOverview): string {
   const long = data.signals?.vercel.huntedLong ?? 0;
   if (long <= 0) return `${base} (24 ore)`;
   return `${base}, di cui ${long === 1 ? '1 prolungato' : `${long} prolungati`} (7 o 30 giorni)`;
+}
+
+function listText(items: string[]): string {
+  return items.length > 1
+    ? `${items.slice(0, -1).join(', ')} e ${items[items.length - 1]}`
+    : (items[0] ?? '');
+}
+
+/** L'autodifesa in una riga: attiva (e su cosa veglia), in pausa, spenta, ferma su qualcosa. */
+export function autodefenseText(data: SkynetOverview): string {
+  const auto = data.autodefense;
+  if (!auto) return '—';
+  if (auto.mode === 'disabled') return 'Spenta (SKYNET_AUTODEFENSE=off): Skynet avvisa soltanto';
+  if (auto.mode === 'paused') {
+    const until = auto.pausedUntil
+      ? new Date(auto.pausedUntil).toLocaleString('it-IT', {
+          timeZone: 'Europe/Rome',
+          dateStyle: 'short',
+          timeStyle: 'short',
+        })
+      : '';
+    return `In pausa${until ? ` fino al ${until}` : ''}: per riprendere scriva «riprendi autodifesa» nella chat`;
+  }
+  const watching = [
+    auto.watching.firewall ? 'firewall' : '',
+    auto.watching.aiBots ? 'blocco delle AI' : '',
+    auto.watching.rules > 0
+      ? `${auto.watching.rules} ${auto.watching.rules === 1 ? 'regola Skynet' : 'regole Skynet'}`
+      : '',
+  ].filter(Boolean);
+  const parts = [
+    watching.length > 0
+      ? `Attiva · riaccende da sola ${listText(watching)}`
+      : 'Attiva · sta imparando cosa è acceso',
+  ];
+  if (auto.restoredLastHour > 0) {
+    parts.push(
+      auto.restoredLastHour === 1
+        ? "1 ripristino nell'ultima ora"
+        : `${auto.restoredLastHour} ripristini nell'ultima ora`,
+    );
+  }
+  const names = (targets: string[]) =>
+    listText(targets.map((target) => DEFENSE_TARGET_LABELS[target] ?? target));
+  if (auto.standDown.length > 0) {
+    parts.push(`ferma su ${names(auto.standDown)}: qualcuno continua a spegnere`);
+  }
+  if (auto.failing.length > 0) {
+    parts.push(`non riesce a riaccendere ${names(auto.failing)}: va fatto a mano`);
+  }
+  return parts.join(' · ');
 }
 
 export function learningText(data: SkynetOverview): string {
@@ -143,20 +203,25 @@ export function SkynetPanel() {
   return (
     <Panel
       title="Skynet · sentinella"
-      description="Guarda il sito ogni minuto e avvisa gli amministratori su Telegram. Sugli incidenti avvisa soltanto. Il cacciatore manda alla verifica del browser chi cerca file da hacker (al primo tentativo) o insiste sugli accessi: 24 ore, 7 o 30 giorni per chi attacca anche durante la verifica (su Telegram solo prolungamenti e ondate, il resto nel diario). Impara dagli attacchi (statistiche aggregate, nessun indirizzo IP) e regola da solo alcune soglie di difesa, sempre dentro limiti fissi. Il motore post-quantistico controlla ogni ora che le connessioni resistano anche ai futuri computer quantistici."
+      description="Guarda il sito ogni minuto e avvisa gli amministratori su Telegram. Le si può fare una domanda: prima di rispondere cerca in tutte le sue fonti. Si protegge da sola: se qualcuno spegne il firewall, il blocco delle AI o una regola «Skynet ·», li riaccende identici a prima e lo dice (autodifesa). Il cacciatore manda alla verifica del browser chi cerca file da hacker (al primo tentativo) o insiste sugli accessi: 24 ore, 7 o 30 giorni per chi attacca anche durante la verifica (su Telegram solo prolungamenti e ondate, il resto nel diario). Impara dagli attacchi (statistiche aggregate, nessun indirizzo IP) e regola da solo alcune soglie di difesa, sempre dentro limiti fissi. Il motore post-quantistico controlla ogni ora che le connessioni resistano anche ai futuri computer quantistici."
     >
-      {error ? (
-        <p role="alert" className={styles.muted}>
-          {error}
-        </p>
-      ) : null}
-      {!data && !error ? <p className={styles.muted}>Caricamento…</p> : null}
-      {data ? <SkynetBody data={data} now={now} /> : null}
+      <div className={styles.body}>
+        {error ? (
+          <p role="alert" className={styles.muted}>
+            {error}
+          </p>
+        ) : null}
+        {!data && !error ? <p className={styles.muted}>Caricamento…</p> : null}
+        {data ? <SkynetStatus data={data} now={now} /> : null}
+        {/* Fuori dallo stato: la conversazione resta anche se un aggiornamento del pannello fallisce. */}
+        <SkynetChat onCommand={() => void load()} />
+        {data ? <SkynetDetails data={data} now={now} /> : null}
+      </div>
     </Panel>
   );
 }
 
-function SkynetBody({ data, now }: { data: SkynetOverview; now: number }) {
+function SkynetStatus({ data, now }: { data: SkynetOverview; now: number }) {
   const Icon =
     data.status === 'incident'
       ? ShieldAlert
@@ -177,15 +242,19 @@ function SkynetBody({ data, now }: { data: SkynetOverview; now: number }) {
         : 'Il primo controllo parte entro un minuto dal deploy.';
 
   return (
-    <div className={styles.body}>
-      <output className={styles.status} data-status={data.status}>
-        <Icon aria-hidden="true" className={styles.statusIcon} />
-        <div>
-          <p className={styles.statusLabel}>{label}</p>
-          <p className={styles.muted}>{detail}</p>
-        </div>
-      </output>
+    <output className={styles.status} data-status={data.status}>
+      <Icon aria-hidden="true" className={styles.statusIcon} />
+      <div>
+        <p className={styles.statusLabel}>{label}</p>
+        <p className={styles.muted}>{detail}</p>
+      </div>
+    </output>
+  );
+}
 
+function SkynetDetails({ data, now }: { data: SkynetOverview; now: number }) {
+  return (
+    <>
       <dl className={styles.facts}>
         <dt>Vercel</dt>
         <dd>{vercelText(data)}</dd>
@@ -193,6 +262,8 @@ function SkynetBody({ data, now }: { data: SkynetOverview; now: number }) {
         <dd>{data.signals?.vercel.anomalies ?? '—'}</dd>
         <dt>Firewall</dt>
         <dd>{firewallText(data)}</dd>
+        <dt>Autodifesa</dt>
+        <dd>{autodefenseText(data)}</dd>
         <dt>Hacker in verifica</dt>
         <dd>{huntedText(data)}</dd>
         <dt>Apprendimento</dt>
@@ -318,6 +389,6 @@ function SkynetBody({ data, now }: { data: SkynetOverview; now: number }) {
           </ol>
         )}
       </div>
-    </div>
+    </>
   );
 }

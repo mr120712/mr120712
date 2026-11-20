@@ -4,6 +4,7 @@
 //   /start <token>  → collega l'account Solco (dal deep-link) e consegna il codice di invito
 //   /start | /codice | /invito → se già collegato, rimanda il codice; altrimenti spiega come collegare
 //   /help → cosa fa il bot
+//   /skynet <domanda> → la chat di Skynet (sicurezza del sito): solo il proprietario, solo in privato
 import 'server-only';
 import { timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
@@ -31,14 +32,22 @@ import {
 } from '@/lib/business/telegram-bot.server';
 import { consumeTelegramLinkChallenge } from '@/lib/business/telegram-link';
 import { checkTelegramOwner } from '@/lib/business/telegram-owner.server';
+import { SKYNET_CHAT_MAX_QUESTION, SKYNET_CHAT_SUGGESTIONS } from '@/lib/contracts/skynet-chat';
 import { prisma } from '@/lib/db';
 import { env } from '@/lib/env';
 import { publicUploadsEnabled } from '@/lib/features';
 import { botSearch } from '@/lib/music/bot-search.server';
 import { getOwnUploadForDownload, listMyPublicUploads } from '@/lib/music/public-uploads.server';
+import {
+  parseOwnerCommand,
+  SKYNET_COMMAND,
+  telegramChatText,
+  telegramChatUsage,
+} from '@/lib/skynet/chat';
+import { askSkynet } from '@/lib/skynet/chat.server';
 
 export const dynamic = 'force-dynamic';
-/** /cerca, /scarica, /video fanno lavoro di rete (ricerca, invio file, worker esterno): margine ampio. */
+/** /cerca, /scarica, /video, /skynet fanno lavoro di rete (ricerca, file, worker, AI): margine ampio. */
 export const maxDuration = 60;
 
 const CONNECT_HINT = 'Apri Solco per collegare il tuo account 👇';
@@ -346,6 +355,48 @@ async function handleUpdate(
         chatId,
         `🎬 <b>${escapeTelegramHtml(title)}</b>\n${escapeTelegramHtml(mediaUrl)}\n\n<i>Sperimentale · link diretto al media.</i>`,
         { parseMode: 'HTML', disableWebPagePreview: false },
+      );
+    }
+    return;
+  }
+
+  // /skynet <domanda> → la chat di Skynet, la sentinella di sicurezza: cerca in tutte le sue fonti
+  // e risponde (src/lib/skynet/chat.server.ts). Riservata all'owner e solo in chat privata, con lo
+  // stesso gate di /video: per chiunque altro SILENZIO totale, come se il comando non esistesse (in
+  // un gruppo la risposta sarebbe visibile a tutti). Ogni domanda sta da sola: nessuna memoria.
+  const skynet = SKYNET_COMMAND.exec(text);
+  if (skynet) {
+    if (chatType !== 'private') return;
+    if (!(await checkTelegramOwner(chatId, username)).owner) return;
+    const question = (skynet[1] ?? '').trim().slice(0, SKYNET_CHAT_MAX_QUESTION);
+    if (!question) {
+      await sendTelegramMessage(chatId, telegramChatUsage(SKYNET_CHAT_SUGGESTIONS), {
+        parseMode: 'HTML',
+      });
+      return;
+    }
+    const limited = await enforceRateLimit('skynet.chat', `tg:${chatId}`);
+    if (limited) {
+      await sendTelegramMessage(chatId, 'Troppe domande di fila: riprovi tra poco.');
+      return;
+    }
+    // Un comando si esegue subito; una domanda richiede qualche secondo di ricerca.
+    if (!parseOwnerCommand(question)) {
+      await sendTelegramMessage(chatId, '🛰️ Cerco in tutte le fonti…');
+    }
+    try {
+      const answer = await askSkynet({
+        messages: [{ role: 'user', content: question }],
+        source: 'telegram',
+      });
+      await sendTelegramMessage(chatId, telegramChatText(answer), {
+        parseMode: 'HTML',
+        disableWebPagePreview: true,
+      });
+    } catch {
+      await sendTelegramMessage(
+        chatId,
+        'Skynet non è riuscito a rispondere. Non è stato cambiato nulla: riprovi fra poco.',
       );
     }
     return;

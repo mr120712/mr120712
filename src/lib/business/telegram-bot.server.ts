@@ -600,13 +600,23 @@ const VIDEO_COMMAND = {
   description: '🎬 Scarica un video da un link (sperimentale)',
 } as const;
 
-/** Comandi mostrati agli owner (le chat in SKYNET_TELEGRAM_CHAT_IDS): i pubblici + /video. */
-export const TELEGRAM_OWNER_COMMANDS = [...TELEGRAM_BOT_COMMANDS, VIDEO_COMMAND] as const;
+/** Comando owner-only: /skynet, la chat della sentinella di sicurezza. Stesso scope per-chat. */
+const SKYNET_COMMAND = {
+  command: 'skynet',
+  description: '🛰️ Chiedi a Skynet: sicurezza del sito',
+} as const;
+
+/** Comandi mostrati agli owner (le chat in SKYNET_TELEGRAM_CHAT_IDS): i pubblici + /video e /skynet. */
+export const TELEGRAM_OWNER_COMMANDS = [
+  ...TELEGRAM_BOT_COMMANDS,
+  VIDEO_COMMAND,
+  SKYNET_COMMAND,
+] as const;
 
 /**
  * Registra i comandi del bot (menu "/"). Best-effort.
  * - Pubblici (scope default) per TUTTI gli utenti.
- * - Owner (con /video) SOLO nelle chat admin, con scope per-chat → invisibile agli altri utenti.
+ * - Owner (con /video e /skynet) SOLO nelle chat admin, con scope per-chat → invisibile agli altri.
  */
 export async function setTelegramCommands(): Promise<boolean> {
   const base = await telegramApi('setMyCommands', { commands: TELEGRAM_BOT_COMMANDS });

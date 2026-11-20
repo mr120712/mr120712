@@ -93,3 +93,8 @@ chiamate legittime) e gli asset statici.
 - Niente avviso Telegram «regole attive 3 su 4».
 - Il gate UAM resta una scelta a parte: accenderlo (`UAM_MODE=first-visit` +
   `UAM_SECRET` ≥ 32 caratteri, poi redeploy) **solo dopo** l'approvazione su Play.
+- Da quando Skynet le ha viste attive, le **protegge da solo**: se una viene spenta
+  (o il firewall, o il blocco delle AI) la riaccende identica dopo due controlli di
+  fila e avvisa. Prima di spegnerne una di proposito scriva a Skynet
+  `pausa autodifesa 2 ore`. Una regola **cancellata** invece va rifatta a mano da qui.
+  Dettagli in [skynet.md](skynet.md).

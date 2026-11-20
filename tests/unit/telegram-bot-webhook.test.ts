@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
       null as { blobUrl: string; title: string; mimeType: string } | null,
   ),
   answerCallback: vi.fn(async (_id?: string) => undefined),
+  askSkynet: vi.fn(),
 }));
 
 vi.mock('@/lib/env', () => ({ env: mocks.env }));
@@ -54,6 +55,7 @@ vi.mock('@/lib/business/telegram-bot.server', () => ({
   },
 }));
 vi.mock('@/lib/business/rewards.server', () => ({ ensureReferralCode: mocks.ensureCode }));
+vi.mock('@/lib/skynet/chat.server', () => ({ askSkynet: mocks.askSkynet }));
 vi.mock('@/lib/business/telegram-link', () => ({ consumeTelegramLinkChallenge: mocks.consume }));
 vi.mock('@/lib/business/request-body.server', () => ({ readJsonLimited: mocks.readJson }));
 vi.mock('@/lib/db', () => ({
@@ -485,5 +487,147 @@ describe('POST /api/telegram/webhook — /id e comando riservato /video', () => 
     await POST(req(msg('/video https://youtu.be/abc')));
     const texts = mocks.send.mock.calls.map((call) => String(call[1]));
     expect(texts.some((text) => text.includes('YTDLP_SERVICE_URL'))).toBe(true);
+  });
+});
+
+describe('POST /api/telegram/webhook — /skynet, la chat della sentinella', () => {
+  afterEach(() => {
+    delete process.env.SKYNET_TELEGRAM_CHAT_IDS;
+  });
+
+  const texts = () => mocks.send.mock.calls.map((call) => String(call[1]));
+  const answer = (extra: Record<string, unknown> = {}) => ({
+    reply: 'Oggi tutto tranquillo.',
+    engine: 'claude',
+    sources: ['stato e segnali', 'diario', 'firewall di Vercel'],
+    missing: [],
+    ...extra,
+  });
+
+  beforeEach(() => {
+    mocks.askSkynet.mockReset();
+    mocks.askSkynet.mockResolvedValue(answer());
+  });
+
+  it('silenzio totale per chi non è owner, e anche per l’owner in un gruppo', async () => {
+    const res = await POST(req(msg('/skynet cosa è successo oggi?')));
+    expect(res.status).toBe(200);
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.askSkynet).not.toHaveBeenCalled();
+
+    process.env.SKYNET_TELEGRAM_CHAT_IDS = '123';
+    await POST(req(groupMsg('/skynet cosa è successo oggi?')));
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.askSkynet).not.toHaveBeenCalled();
+    // Il limite della chat di Skynet non viene nemmeno toccato da un estraneo.
+    expect(mocks.enforceRateLimit).not.toHaveBeenCalledWith('skynet.chat', expect.anything());
+  });
+
+  it('owner in privato: cerca, poi risponde con chi ha scritto e quante fonti ha letto', async () => {
+    process.env.SKYNET_TELEGRAM_CHAT_IDS = '123';
+    await POST(req(msg('/skynet Cosa è successo oggi?')));
+    expect(mocks.enforceRateLimit).toHaveBeenCalledWith('skynet.chat', 'tg:123');
+    expect(mocks.askSkynet).toHaveBeenCalledWith({
+      messages: [{ role: 'user', content: 'Cosa è successo oggi?' }],
+      source: 'telegram',
+    });
+    expect(texts()).toEqual([
+      '🛰️ Cerco in tutte le fonti…',
+      '<b>🛰️ Skynet</b>\nOggi tutto tranquillo.\n\n<i>Claude · 3 fonti lette</i>',
+    ]);
+    expect(mocks.send.mock.calls[1]?.[2]).toEqual({
+      parseMode: 'HTML',
+      disableWebPagePreview: true,
+    });
+  });
+
+  it('la risposta arriva senza HTML attivo e dice le fonti che non ha potuto leggere', async () => {
+    process.env.SKYNET_TELEGRAM_CHAT_IDS = '123';
+    mocks.askSkynet.mockResolvedValue(
+      answer({
+        reply: 'Regola <b>spenta</b> & riaccesa',
+        engine: 'reserve',
+        sources: ['diario'],
+        missing: ['firewall di Vercel', 'deploy'],
+      }),
+    );
+    await POST(req(msg('/skynet@SolcoBot il firewall?')));
+    expect(texts().at(-1)).toBe(
+      '<b>🛰️ Skynet</b>\nRegola &lt;b&gt;spenta&lt;/b&gt; &amp; riaccesa\n\n<i>Riserva AI · 1 fonte letta · non lette: firewall di Vercel, deploy</i>',
+    );
+  });
+
+  it('una risposta lunghissima resta sotto il limite di Telegram', async () => {
+    process.env.SKYNET_TELEGRAM_CHAT_IDS = '123';
+    mocks.askSkynet.mockResolvedValue(answer({ reply: 'x'.repeat(6000) }));
+    await POST(req(msg('/skynet raccontami tutto')));
+    const sent = texts().at(-1) ?? '';
+    expect(sent.length).toBeLessThanOrEqual(3900);
+    expect(sent.endsWith('…\n\n<i>Claude · 3 fonti lette</i>')).toBe(true);
+  });
+
+  it('/skynet senza domanda: spiega l’uso con gli esempi, non interpella il motore', async () => {
+    process.env.SKYNET_TELEGRAM_CHAT_IDS = '123';
+    await POST(req(msg('/skynet')));
+    expect(mocks.askSkynet).not.toHaveBeenCalled();
+    expect(lastSend().options.parseMode).toBe('HTML');
+    expect(lastSend().text).toContain('<code>/skynet Cosa è successo oggi?</code>');
+    expect(lastSend().text).toContain('<code>/skynet pausa autodifesa 2 ore</code>');
+  });
+
+  it('un comando parte subito, senza il messaggio di ricerca', async () => {
+    process.env.SKYNET_TELEGRAM_CHAT_IDS = '123';
+    mocks.askSkynet.mockResolvedValue(
+      answer({ reply: 'Fatto: autodifesa in pausa.', engine: 'command', sources: [] }),
+    );
+    await POST(req(msg('/skynet pausa autodifesa 2 ore')));
+    expect(mocks.askSkynet).toHaveBeenCalledWith({
+      messages: [{ role: 'user', content: 'pausa autodifesa 2 ore' }],
+      source: 'telegram',
+    });
+    expect(texts()).toEqual([
+      '<b>🛰️ Skynet</b>\nFatto: autodifesa in pausa.\n\n<i>Comando eseguito senza AI</i>',
+    ]);
+  });
+
+  it('domanda troppo lunga: tagliata prima di arrivare al motore', async () => {
+    process.env.SKYNET_TELEGRAM_CHAT_IDS = '123';
+    await POST(req(msg(`/skynet ${'a'.repeat(5000)}`)));
+    const sentQuestion = mocks.askSkynet.mock.calls[0]?.[0].messages[0].content as string;
+    expect(sentQuestion).toHaveLength(1000);
+  });
+
+  it('troppe domande: lo dice e non interpella il motore', async () => {
+    process.env.SKYNET_TELEGRAM_CHAT_IDS = '123';
+    mocks.enforceRateLimit.mockImplementation(async (action: string) =>
+      action === 'skynet.chat' ? new Response(null, { status: 429 }) : null,
+    );
+    await POST(req(msg('/skynet ci sei?')));
+    expect(texts()).toEqual(['Troppe domande di fila: riprovi tra poco.']);
+    expect(mocks.askSkynet).not.toHaveBeenCalled();
+  });
+
+  it('se il motore fallisce lo dice, e Telegram riceve comunque 200', async () => {
+    process.env.SKYNET_TELEGRAM_CHAT_IDS = '123';
+    mocks.askSkynet.mockRejectedValue(new Error('database'));
+    const res = await POST(req(msg('/skynet riprendi autodifesa')));
+    expect(res.status).toBe(200);
+    expect(texts()).toEqual([
+      'Skynet non è riuscito a rispondere. Non è stato cambiato nulla: riprovi fra poco.',
+    ]);
+  });
+
+  it('admin collegato col codice monouso: vale come owner anche per /skynet', async () => {
+    mocks.findUnique.mockResolvedValue({ userId: 'admin-1' });
+    mocks.findUser.mockResolvedValue({ role: 'admin', emailVerified: true });
+    await POST(req(msg('/skynet tutto bene?')));
+    expect(mocks.askSkynet).toHaveBeenCalledTimes(1);
+
+    mocks.askSkynet.mockClear();
+    mocks.send.mockClear();
+    mocks.findUser.mockResolvedValue({ role: 'user', emailVerified: true });
+    await POST(req(msg('/skynet tutto bene?')));
+    expect(mocks.askSkynet).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
   });
 });

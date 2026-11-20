@@ -1,14 +1,19 @@
 // @polsia:user-owned — «Skynet», la sentinella: ogni minuto (Vercel Cron, vedi vercel.json) legge
 // anomalie di traffico e firewall su Vercel, /health da fuori e l'ultimo giro dei controlli
-// interni, e avvisa gli amministratori su Telegram (src/lib/skynet/sentinel.server.ts). Solo
-// lettura e avvisi. Vercel invia "Authorization: Bearer <CRON_SECRET>"; senza segreto valido 401.
+// interni, e avvisa gli amministratori su Telegram (src/lib/skynet/sentinel.server.ts). Sul
+// firewall fa solo due cose: la verifica del browser per i recidivi e il ripristino delle
+// protezioni che trova spente. Vercel invia "Authorization: Bearer <CRON_SECRET>"; senza segreto
+// valido 401.
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { cronAuthorized } from '@/lib/business/cron-auth.server';
 import { runSentinel } from '@/lib/skynet/sentinel.server';
 
 export const dynamic = 'force-dynamic';
-/** Letture da Vercel (8 s), /health (10 s) e, solo in caso di incidente, il rapporto (25 s). */
+/**
+ * Letture da Vercel (8 s), /health (10 s), i ripristini dell'autodifesa (20 s) e, solo in caso di
+ * incidente, il rapporto (25 s).
+ */
 export const maxDuration = 60;
 
 const noStore = { 'Cache-Control': 'no-store' };

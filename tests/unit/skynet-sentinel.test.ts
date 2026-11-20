@@ -3,8 +3,8 @@
 //
 // «Skynet», un giro completo (src/lib/skynet/sentinel.server.ts) con database, Vercel, /health,
 // Telegram e Claude finti: legge solo (GET), avvisa solo gli admin verificati collegati a Telegram,
-// non manda mai il token Vercel fuori da api.vercel.com, un giro alla volta; il cacciatore e il
-// motore post-quantistico (strette di mano finte).
+// non manda mai il token Vercel fuori da api.vercel.com, un giro alla volta; il cacciatore, il
+// motore post-quantistico (strette di mano finte) e l'autodifesa (riaccende ciò che trova spento).
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
@@ -19,8 +19,11 @@ vi.mock('@/lib/monitoring/monitor.server', () => ({
 import type { PqResult } from '@/lib/skynet/quantum';
 import {
   type ReportInput,
+  readVercelForChat,
   runSentinel,
   type SentinelDeps,
+  skynetOverview,
+  switchAutodefense,
   telegramText,
   vercelAccess,
 } from '@/lib/skynet/sentinel.server';
@@ -119,7 +122,34 @@ type Site = {
   blocks: Array<{ public_ip: string; ruleName: string; count: number; startTime?: string }>;
   ips: Array<{ id: string; ip: string; hostname: string; action: string; notes?: string }>;
   patches: Array<Record<string, unknown>>;
+  /** Il blocco gestito delle AI («AI Bots»). */
+  aiBots: { active: boolean; action: string };
+  /** Le regole personalizzate, come le restituisce Vercel. */
+  rules: Array<Record<string, unknown>>;
+  /** Azioni di modifica che Vercel rifiuta (HTTP 400). */
+  refuse: string[];
+  /** Azioni che Vercel accetta ma che non cambiano nulla. */
+  ignore: string[];
 };
+
+const rule = (id: string, name: string) => ({
+  id,
+  name,
+  description: `Descrizione di ${name}`,
+  active: true,
+  valid: true,
+  validationErrors: null,
+  conditionGroup: [{ conditions: [{ type: 'path', op: 'pre', value: `/${id}` }] }],
+  action: { mitigate: { action: 'deny', actionDuration: '10m', rateLimit: null } },
+});
+
+const RULES = [
+  rule('rule_sonde', 'Skynet · sonde e scanner'),
+  rule('rule_ai', 'Skynet · AI dichiarate'),
+  rule('rule_sms', 'Skynet · SMS, registrazioni e recupero'),
+  rule('rule_browser', 'Skynet · browser automatici'),
+  rule('rule_mano', 'Limite richieste API per IP'),
+];
 
 function fakeFetch(site: Site, calls: Array<{ url: string; auth: string | null; method: string }>) {
   return async (input: string, init: RequestInit = {}) => {
@@ -138,14 +168,8 @@ function fakeFetch(site: Site, calls: Array<{ url: string; auth: string | null; 
         return Response.json({
           firewallEnabled: site.firewallEnabled,
           version: site.version,
-          managedRules: { ai_bots: { active: true, action: 'deny' } },
-          rules: [
-            { name: 'Skynet · sonde e scanner', active: true },
-            { name: 'Skynet · AI dichiarate', active: true },
-            { name: 'Skynet · SMS, registrazioni e recupero', active: true },
-            { name: 'Skynet · browser automatici', active: true },
-            { name: 'Limite richieste API per IP', active: true },
-          ],
+          managedRules: { ai_bots: site.aiBots },
+          rules: site.rules,
           ips: site.ips,
         });
       }
@@ -155,6 +179,8 @@ function fakeFetch(site: Site, calls: Array<{ url: string; auth: string | null; 
       if (url.pathname === '/v1/security/firewall/config' && init.method === 'PATCH') {
         const body = JSON.parse(String(init.body)) as Record<string, unknown>;
         site.patches.push(body);
+        if (site.refuse.includes(String(body.action))) return new Response('no', { status: 400 });
+        if (site.ignore.includes(String(body.action))) return Response.json({});
         const value = body.value as Record<string, string> | null;
         if (body.action === 'ip.insert' && value) {
           site.ips.push({ id: `ip_${site.ips.length + 1}`, ...value } as Site['ips'][number]);
@@ -163,11 +189,34 @@ function fakeFetch(site: Site, calls: Array<{ url: string; auth: string | null; 
           site.ips = site.ips.map((r) => (r.id === body.id ? { ...r, ...value } : r));
         }
         if (body.action === 'ip.remove') site.ips = site.ips.filter((r) => r.id !== body.id);
+        if (body.action === 'firewallEnabled') site.firewallEnabled = body.value === true;
+        if (body.action === 'managedRules.update' && body.id === 'ai_bots' && value) {
+          site.aiBots = { ...site.aiBots, ...(value as unknown as Site['aiBots']) };
+        }
+        if (body.action === 'rules.update' && value) {
+          site.rules = site.rules.map((r) => (r.id === body.id ? { ...r, ...value } : r));
+        }
         site.version += 1;
         return Response.json({});
       }
       if (url.pathname.startsWith('/v9/projects/')) {
         return Response.json({ security: { attackModeEnabled: site.attackMode } });
+      }
+      if (url.pathname === '/v6/deployments') {
+        return Response.json({
+          deployments: [
+            {
+              readyState: 'READY',
+              created: Date.UTC(2026, 10, 17, 20),
+              target: 'production',
+              creator: { email: 'proprietario@example.com' },
+              meta: {
+                githubCommitSha: 'b1384280c0ffee0000000000000000000000beef',
+                githubCommitMessage: 'Skynet: chat\n\ncorpo',
+              },
+            },
+          ],
+        });
       }
     }
     if (input === 'https://www.solcomusic.online/health') {
@@ -228,6 +277,10 @@ beforeEach(() => {
     blocks: [],
     ips: [],
     patches: [],
+    aiBots: { active: true, action: 'deny' },
+    rules: RULES.map((r) => ({ ...r })),
+    refuse: [],
+    ignore: [],
   };
   calls = [];
   fake = fakeDb();
@@ -248,6 +301,7 @@ describe('Skynet, un giro', () => {
       notified: 0,
       vercel: 'ok',
       hunted: 0,
+      defended: 0,
       quantum: null,
     });
     expect(sent).toEqual([]);
@@ -703,6 +757,373 @@ describe('Skynet, il motore post-quantistico', () => {
     const result = await tick({ probeQuantum: probeWith({ [WWW]: 'pq' }, probed) });
     expect(result).toMatchObject({ ran: false, quantum: null });
     expect(probed).toEqual([]);
+  });
+});
+
+describe('Skynet, l’autodifesa', () => {
+  const defenseEvents = () => fake.events.filter((event) => event.kind === 'defense');
+  const kinds = () => fake.events.map((event) => event.kind);
+
+  it('firewall spento: allarme subito, al secondo giro lo riaccende, verifica, lo dice; poi tutto normale', async () => {
+    await tick();
+    site.firewallEnabled = false;
+    site.version = 15;
+    const first = await tick();
+    expect(first).toMatchObject({ status: 'incident', problems: ['firewall-off'], defended: 0 });
+    expect(kinds()).toEqual(['change', 'incident']);
+    expect(site.patches).toEqual([]);
+    // Il rapporto sa che cosa l'autodifesa riaccenderà: dirà che ci prova Skynet.
+    expect(reports[0]?.autodefense).toEqual({
+      mode: 'active',
+      willRestore: ['il firewall di Vercel'],
+    });
+
+    const second = await tick();
+    expect(second.defended).toBe(1);
+    expect(site.patches).toEqual([{ action: 'firewallEnabled', id: null, value: true }]);
+    expect(site.firewallEnabled).toBe(true);
+    expect(defenseEvents()).toMatchObject([
+      {
+        severity: 'warning',
+        title: 'Autodifesa: ho riacceso il firewall di Vercel',
+        keys: ['firewall-off'],
+        notified: 1,
+      },
+    ]);
+    const message = sent.at(-1)?.html ?? '';
+    expect(message).toContain('🔒 Skynet · autodifesa');
+    expect(message).toContain('ho riletto il firewall: ora è in funzione');
+    // Il pannello mostra il firewall com'è adesso.
+    expect(fake.state.get('main')?.lastSignals).toMatchObject({
+      vercel: { firewallEnabled: true, firewallVersion: 16 },
+    });
+
+    await tick();
+    await tick();
+    const last = await tick();
+    expect(last).toMatchObject({ status: 'calm', decision: 'resolved' });
+    // La modifica di Skynet non è una «manomissione»: un solo avviso di modifica, quello vero.
+    expect(kinds()).toEqual(['change', 'incident', 'defense', 'resolved']);
+    expect(site.patches).toHaveLength(1);
+  });
+
+  it('blocco delle AI e regola Skynet spenti: riaccesi com’erano; mai le regole messe a mano', async () => {
+    site.aiBots = { active: true, action: 'challenge' };
+    await tick();
+    site.aiBots = { active: false, action: 'challenge' };
+    site.rules = site.rules.map((r) =>
+      r.id === 'rule_sonde' || r.id === 'rule_mano' ? { ...r, active: false } : r,
+    );
+    await tick();
+    expect(site.patches).toEqual([]);
+    const result = await tick();
+    expect(result.defended).toBe(2);
+    expect(site.patches).toEqual([
+      {
+        action: 'managedRules.update',
+        id: 'ai_bots',
+        value: { active: true, action: 'challenge' },
+      },
+      {
+        action: 'rules.update',
+        id: 'rule_sonde',
+        value: {
+          name: 'Skynet · sonde e scanner',
+          description: 'Descrizione di Skynet · sonde e scanner',
+          active: true,
+          conditionGroup: [{ conditions: [{ type: 'path', op: 'pre', value: '/rule_sonde' }] }],
+          // I campi null che Vercel restituisce non tornano indietro.
+          action: { mitigate: { action: 'deny', actionDuration: '10m' } },
+        },
+      },
+    ]);
+    expect(site.aiBots).toEqual({ active: true, action: 'challenge' });
+    expect(site.rules.find((r) => r.id === 'rule_sonde')?.active).toBe(true);
+    expect(site.rules.find((r) => r.id === 'rule_mano')?.active).toBe(false);
+    expect(defenseEvents()[0]?.title).toBe(
+      'Autodifesa: ho riacceso il blocco delle AI («AI Bots») e la regola «Skynet · sonde e scanner»',
+    );
+  });
+
+  it('mai visto acceso: Skynet avvisa ma non accende ciò che non ha mai trovato acceso', async () => {
+    site.firewallEnabled = false;
+    for (let run = 0; run < 5; run += 1) await tick();
+    expect(site.patches).toEqual([]);
+    expect(kinds()).toEqual(['incident']);
+    // E il rapporto non promette un ripristino che non ci sarà.
+    expect(reports[0]?.autodefense).toEqual({ mode: 'active', willRestore: [] });
+  });
+
+  it('pausa del proprietario: nessun ripristino finché dura, e lo si viene a sapere; «riprendi» riparte', async () => {
+    await tick();
+    const pause = await switchAutodefense({ kind: 'pause', minutes: 60 }, 'pannello', deps());
+    expect(pause.pausedUntil).toBe(new Date(Date.UTC(2026, 10, 17, 22, 1)).toISOString());
+    expect(defenseEvents()).toMatchObject([
+      { title: 'Autodifesa in pausa fino al 17 novembre alle 23:01', notified: 1 },
+    ]);
+    expect(sent.at(-1)?.html).toContain('dal pannello di amministrazione');
+
+    site.firewallEnabled = false;
+    await tick();
+    await tick();
+    await tick();
+    expect(site.patches).toEqual([]);
+    expect(reports[0]?.autodefense).toEqual({ mode: 'paused', willRestore: [] });
+    expect(heartbeats.at(-1)).toContain('autodifesa in pausa');
+    // Il giro della sentinella non cancella la pausa.
+    expect(fake.state.get('main')?.defensePausedUntil).toEqual(
+      new Date(Date.UTC(2026, 10, 17, 22, 1)),
+    );
+
+    await switchAutodefense({ kind: 'resume' }, 'telegram', deps());
+    expect(defenseEvents().at(-1)).toMatchObject({ title: 'Autodifesa ripresa' });
+    const result = await tick();
+    expect(result.defended).toBe(1);
+    expect(site.firewallEnabled).toBe(true);
+  });
+
+  it('SKYNET_AUTODEFENSE=off: solo avvisi', async () => {
+    const env = { ...ENV, SKYNET_AUTODEFENSE: 'off' };
+    await tick({ env });
+    site.firewallEnabled = false;
+    for (let run = 0; run < 4; run += 1) await tick({ env });
+    expect(site.patches).toEqual([]);
+    expect(reports[0]?.autodefense).toEqual({ mode: 'disabled', willRestore: [] });
+    expect(heartbeats.at(-1)).toContain('autodifesa spenta');
+  });
+
+  it('tiro alla fune: due ripristini in un’ora, poi si ferma e lo dice una volta sola', async () => {
+    await tick();
+    for (let run = 0; run < 14; run += 1) {
+      site.firewallEnabled = false;
+      await tick();
+    }
+    expect(site.patches).toEqual([
+      { action: 'firewallEnabled', id: null, value: true },
+      { action: 'firewallEnabled', id: null, value: true },
+    ]);
+    expect(defenseEvents().map((event) => event.title)).toEqual([
+      'Autodifesa: ho riacceso il firewall di Vercel',
+      'Autodifesa: ho riacceso il firewall di Vercel',
+      'Autodifesa ferma: qualcuno continua a spegnere il firewall di Vercel',
+    ]);
+    expect(defenseEvents().at(-1)?.severity).toBe('critical');
+  });
+
+  it('Vercel rifiuta la modifica: riprova tre volte, lo dice la prima e l’ultima, poi si ferma', async () => {
+    await tick();
+    site.firewallEnabled = false;
+    site.refuse = ['firewallEnabled'];
+    for (let run = 0; run < 16; run += 1) await tick();
+    expect(site.patches).toHaveLength(3);
+    expect(defenseEvents().map((event) => event.title)).toEqual([
+      'Autodifesa: non riesco a riaccendere il firewall di Vercel',
+      'Autodifesa: non riesco a riaccendere il firewall di Vercel',
+    ]);
+    expect(defenseEvents()[0]?.report).toContain('Riprovo da solo');
+    expect(defenseEvents()[1]?.report).toContain('Ho provato 3 volte');
+    expect(defenseEvents()[1]?.severity).toBe('critical');
+  });
+
+  it('una modifica accettata ma senza effetto non vale: la rilettura decide', async () => {
+    await tick();
+    site.firewallEnabled = false;
+    site.ignore = ['firewallEnabled'];
+    await tick();
+    const result = await tick();
+    expect(result.defended).toBe(0);
+    expect(defenseEvents()[0]?.title).toBe(
+      'Autodifesa: non riesco a riaccendere il firewall di Vercel',
+    );
+  });
+
+  it('riacceso da qualcun altro fra la lettura e la modifica: Skynet non tocca nulla', async () => {
+    await tick();
+    site.firewallEnabled = false;
+    await tick();
+    // Il secondo giro lo legge spento; quando rilegge, subito prima di agire, è già acceso.
+    let reads = 0;
+    const inner = fakeFetch(site, calls);
+    const result = await tick({
+      fetch: async (input, init) => {
+        if (input.includes('/config/active')) {
+          reads += 1;
+          if (reads === 2) site.firewallEnabled = true;
+        }
+        return inner(input, init);
+      },
+    });
+    expect(result.defended).toBe(0);
+    expect(site.patches).toEqual([]);
+    expect(defenseEvents()).toEqual([]);
+  });
+
+  it('Vercel lento: oltre il tempo non inizia altre modifiche, e riprende al tentativo dopo', async () => {
+    await tick();
+    site.rules = site.rules.map((r) =>
+      String(r.name).startsWith('Skynet ·') ? { ...r, active: false } : r,
+    );
+    await tick();
+    // Ogni modifica «dura» 15 secondi: dopo la seconda il tempo (20 s) è finito.
+    const inner = fakeFetch(site, calls);
+    let elapsed = 0;
+    const slow: Partial<SentinelDeps> = {
+      clock: () => elapsed,
+      fetch: async (input, init) => {
+        if (init?.method === 'PATCH') elapsed += 15_000;
+        return inner(input, init);
+      },
+    };
+    const result = await tick(slow);
+    expect(result.defended).toBe(2);
+    expect(site.patches.map((patch) => patch.id)).toEqual(['rule_sonde', 'rule_ai']);
+    expect(defenseEvents()[0]?.title).toBe(
+      'Autodifesa: ho riacceso la regola «Skynet · sonde e scanner» e la regola «Skynet · AI dichiarate»',
+    );
+    // Le altre due restano spente: Skynet le riaccende passato il tempo di attesa.
+    for (let run = 0; run < 4; run += 1) await tick();
+    expect(site.patches.map((patch) => patch.id)).toEqual([
+      'rule_sonde',
+      'rule_ai',
+      'rule_sms',
+      'rule_browser',
+    ]);
+    expect(site.rules.every((r) => r.active === true)).toBe(true);
+  });
+
+  it('una regola Skynet cancellata non si può ricreare: il rapporto non promette nulla, quella spenta sì', async () => {
+    await tick();
+    // Una regola cancellata e una spenta nello stesso momento.
+    site.rules = site.rules
+      .filter((r) => r.id !== 'rule_ai')
+      .map((r) => (r.id === 'rule_sms' ? { ...r, active: false } : r));
+    await tick();
+    expect(reports[0]?.problems.map((problem) => problem.key)).toEqual(['skynet-rules']);
+    expect(reports[0]?.autodefense).toEqual({
+      mode: 'active',
+      willRestore: ['le regole «Skynet ·»'],
+    });
+    await tick();
+    expect(site.patches.map((patch) => patch.id)).toEqual(['rule_sms']);
+    // Resta l'avviso per quella cancellata: 3 regole attive su 4, e niente altro da riaccendere.
+    for (let run = 0; run < 5; run += 1) await tick();
+    expect(site.patches).toHaveLength(1);
+    expect(fake.state.get('main')?.lastSignals).toMatchObject({
+      vercel: { skynetRulesActive: 3 },
+    });
+  });
+
+  it('senza token niente autodifesa; il pannello ne mostra lo stato', async () => {
+    await tick();
+    expect(
+      await skynetOverview({ db: fake.db as unknown as SentinelDeps['db'], env: ENV }),
+    ).toMatchObject({
+      autodefense: {
+        mode: 'active',
+        pausedUntil: null,
+        watching: { firewall: true, aiBots: true, rules: 4 },
+        standDown: [],
+        failing: [],
+        restoredLastHour: 0,
+      },
+    });
+    site.firewallEnabled = false;
+    await tick({ env: { NEXT_PUBLIC_APP_URL: ENV.NEXT_PUBLIC_APP_URL } });
+    await tick({ env: { NEXT_PUBLIC_APP_URL: ENV.NEXT_PUBLIC_APP_URL } });
+    expect(site.patches).toEqual([]);
+  });
+
+  it('il token non finisce nello stato dell’autodifesa né nei suoi messaggi', async () => {
+    await tick();
+    site.firewallEnabled = false;
+    await tick();
+    await tick();
+    expect(JSON.stringify(fake.state.get('main'))).not.toContain(TOKEN);
+    expect(JSON.stringify(fake.events)).not.toContain(TOKEN);
+    expect(JSON.stringify(sent)).not.toContain(TOKEN);
+    for (const call of calls) {
+      expect(call.auth === null || new URL(call.url).host === 'api.vercel.com').toBe(true);
+    }
+  });
+});
+
+describe('Skynet, le letture per la chat', () => {
+  it('firewall, registro e deploy in riassunto: reti mascherate, niente token, niente email', async () => {
+    site.ips = [
+      {
+        id: 'ip_1',
+        ip: '198.51.100.7',
+        hostname: '*',
+        action: 'challenge',
+        notes: 'Skynet · verifica fino al 2026-11-18T21:00:00.000Z',
+      },
+    ];
+    site.blocks = [
+      { public_ip: '198.51.100.7', ruleName: 'Skynet · sonde e scanner', count: 2 },
+      { public_ip: '203.0.113.9', ruleName: 'Skynet · sonde e scanner', count: 1 },
+    ];
+    const brief = await readVercelForChat(deps());
+    expect(brief?.firewall).toMatchObject({
+      acceso: true,
+      versione: 14,
+      bloccoAI: { attivo: true, azione: 'deny' },
+      verifiche: { totale: 1, da24ore: 1, esempi: [{ rete: '198.51.x.x', livello: 1 }] },
+      regoleIpMesseAMano: 0,
+    });
+    expect(brief?.firewall?.regole).toHaveLength(5);
+    expect(brief?.blocks).toMatchObject({ completo: true, interventi: 3, indirizzi: 2 });
+    expect(brief?.deployments).toEqual([
+      {
+        stato: 'READY',
+        quando: '2026-11-17T20:00:00.000Z',
+        ambiente: 'production',
+        commit: 'b138428',
+        messaggio: 'Skynet: chat',
+      },
+    ]);
+    const text = JSON.stringify(brief);
+    expect(text).not.toContain(TOKEN);
+    expect(text).not.toContain('198.51.100.7');
+    expect(text).not.toContain('203.0.113.9');
+    expect(text).not.toContain('example.com');
+    // Solo letture, e il token solo verso Vercel.
+    expect(calls.every((call) => call.method === 'GET')).toBe(true);
+    expect(calls.every((call) => new URL(call.url).host === 'api.vercel.com')).toBe(true);
+  });
+
+  it('registro lungo: legge tre pagine e dichiara che non è completo', async () => {
+    const inner = fakeFetch(site, calls);
+    let pages = 0;
+    const brief = await readVercelForChat(
+      deps({
+        fetch: async (input, init) => {
+          if (!input.includes('/firewall/events')) return inner(input, init);
+          pages += 1;
+          return Response.json({
+            actions: [
+              {
+                public_ip: `198.51.100.${pages}`,
+                ruleId: 'ip_blocking',
+                action: 'challenge',
+                count: 1,
+              },
+            ],
+            pagination: { hasMore: true, next: `pagina-${pages + 1}` },
+          });
+        },
+      }),
+    );
+    expect(pages).toBe(3);
+    expect(brief?.blocks).toMatchObject({ completo: false, interventi: 3, indirizzi: 3 });
+  });
+
+  it('senza token: nessuna lettura; Vercel muto: fonti a null, senza errori', async () => {
+    expect(await readVercelForChat(deps({ env: {} }))).toBeNull();
+    expect(calls).toEqual([]);
+    const silent = await readVercelForChat(
+      deps({ fetch: async () => new Response('no', { status: 500 }) }),
+    );
+    expect(silent).toEqual({ firewall: null, blocks: null, deployments: null });
   });
 });
 

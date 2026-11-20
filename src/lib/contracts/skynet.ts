@@ -1,6 +1,7 @@
 // @polsia:user-owned — contratto condiviso (route + pannello) di «Skynet», la sentinella che ogni
 // minuto guarda Solco (src/lib/skynet/). Mai segreti: del token Vercel si sa solo se c'è.
 import { z } from 'zod';
+import { DEFENSE_TARGETS } from '@/lib/skynet/autodefense';
 import { PQ_RESULTS } from '@/lib/skynet/quantum';
 
 /** Motore post-quantistico: i domini accettano lo scambio di chiavi X25519MLKEM768? */
@@ -59,10 +60,36 @@ export const SkynetLearningSchema = z.object({
   note: z.string(),
 });
 
+/** L'autodifesa: Skynet riaccende da solo le protezioni che trova spente (autodefense.ts). */
+export const SkynetAutodefenseSchema = z.object({
+  mode: z.enum(['active', 'paused', 'disabled']),
+  pausedUntil: z.string().nullable(),
+  /** Protezioni che Skynet ha visto accese e quindi sa riaccendere. */
+  watching: z.object({
+    firewall: z.boolean(),
+    aiBots: z.boolean(),
+    rules: z.number().int().nonnegative(),
+  }),
+  /** Protezioni su cui si è fermata: qualcuno continua a spegnerle. */
+  standDown: z.array(z.enum(DEFENSE_TARGETS)),
+  /** Protezioni che non è riuscita a riaccendere. */
+  failing: z.array(z.enum(DEFENSE_TARGETS)),
+  restoredLastHour: z.number().int().nonnegative(),
+});
+
 export const SkynetEventSchema = z.object({
   id: z.string(),
   at: z.string(),
-  kind: z.enum(['incident', 'update', 'reminder', 'resolved', 'change', 'hunt', 'quantum']),
+  kind: z.enum([
+    'incident',
+    'update',
+    'reminder',
+    'resolved',
+    'change',
+    'hunt',
+    'quantum',
+    'defense',
+  ]),
   severity: z.enum(['critical', 'warning', 'info']),
   title: z.string(),
   report: z.string(),
@@ -85,8 +112,11 @@ export const SkynetOverviewSchema = z.object({
   events: z.array(SkynetEventSchema),
   // I segnali salvati prima dell'apprendimento non hanno il campo.
   learning: SkynetLearningSchema.nullable().optional(),
+  // Manca nelle risposte di prima dell'autodifesa.
+  autodefense: SkynetAutodefenseSchema.nullable().optional(),
 });
 
 export type SkynetOverview = z.infer<typeof SkynetOverviewSchema>;
 export type SkynetLearningView = z.infer<typeof SkynetLearningSchema>;
+export type SkynetAutodefenseView = z.infer<typeof SkynetAutodefenseSchema>;
 export type SkynetEventView = z.infer<typeof SkynetEventSchema>;
