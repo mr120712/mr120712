@@ -228,6 +228,78 @@ export function activeProviders(env: Env = process.env): ReserveProvider[] {
   return providers;
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Rotazione dei provider (round-robin «smart routing» in stile FreeLLMAPI/FreeLLM).
+// I tier gratuiti hanno tetti GIORNALIERI bassi (es. OpenRouter ~50 richieste/giorno): colpire sempre
+// lo stesso provider per primo ne esaurisce la quota mentre gli altri restano inattivi. La rotazione fa
+// avanzare di una posizione il provider di TESTA della catena di failover a ogni finestra temporale,
+// così il carico (e il consumo di token) si distribuisce. È a FINESTRA TEMPORALE, quindi deterministica
+// e adatta al serverless (nessuno stato condiviso da tenere fra invocazioni effimere su Vercel): dentro
+// la stessa finestra la testa è stabile, alla finestra dopo avanza. Il failover resta intatto: la
+// rotazione cambia solo DA DOVE parte, non il fatto che tutti i provider vengano comunque provati.
+// Spenta di default (ordine di priorità rigido, Groq per primo); si accende con AI_RESERVE_ROTATE=1.
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** Finestra di rotazione predefinita: la testa della catena avanza di uno ogni minuto. */
+export const DEFAULT_ROTATE_WINDOW_MS = 60_000;
+
+const ROTATE_ON = new Set([
+  '1',
+  'true',
+  'on',
+  'yes',
+  'time',
+  'timed',
+  'rotate',
+  'round-robin',
+  'roundrobin',
+  'rr',
+]);
+
+/** True quando AI_RESERVE_ROTATE è un valore «acceso». Default (assente/0/off/false) → spenta. */
+export function rotationEnabled(env: Env = process.env): boolean {
+  const raw = clean(env.AI_RESERVE_ROTATE)?.toLowerCase();
+  return raw !== undefined && ROTATE_ON.has(raw);
+}
+
+/** Durata della finestra di rotazione in ms (AI_RESERVE_ROTATE_MS). Default 60s; minimo 1 (no /0). */
+export function rotateWindowMs(env: Env = process.env): number {
+  const raw = clean(env.AI_RESERVE_ROTATE_MS);
+  if (raw === undefined) return DEFAULT_ROTATE_WINDOW_MS;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 1) return DEFAULT_ROTATE_WINDOW_MS;
+  return Math.trunc(value);
+}
+
+/**
+ * Rotazione PURA di una lista di `offset` posizioni verso sinistra (round-robin). Non muta l'input e
+ * gestisce lista vuota o di un solo elemento (invariata) e offset negativi o non interi. È il cuore
+ * di «rotate ai agents»: ruota la catena di provider così che a guidarla sia di volta in volta un altro.
+ */
+export function rotateProviders<T>(providers: readonly T[], offset: number): T[] {
+  const n = providers.length;
+  if (n <= 1) return providers.slice();
+  const shift = ((Math.trunc(offset) % n) + n) % n;
+  if (shift === 0) return providers.slice();
+  return [...providers.slice(shift), ...providers.slice(0, shift)];
+}
+
+/**
+ * I provider attivi con la rotazione APPLICATA (se accesa): la stessa catena di `activeProviders`, ma
+ * ruotata in base alla finestra temporale corrente, così la testa cambia nel tempo. Con rotazione
+ * spenta, o con 0/1 provider, è identica ad `activeProviders`. La usa l'inoltro delle chat (forwardChat)
+ * per spalmare il consumo; il pannello, le sonde e la salute restano sull'ordine stabile del registro.
+ */
+export function rotatedProviders(
+  env: Env = process.env,
+  now: Date = new Date(),
+): ReserveProvider[] {
+  const providers = activeProviders(env);
+  if (!rotationEnabled(env) || providers.length <= 1) return providers;
+  const offset = Math.floor(now.getTime() / rotateWindowMs(env));
+  return rotateProviders(providers, offset);
+}
+
 /** Le etichette dei provider attivi, per i messaggi di stato (nessun segreto). */
 export function reserveProviderLabels(env: Env = process.env): string[] {
   return activeProviders(env).map((provider) => provider.label);
@@ -324,13 +396,16 @@ async function callProviderChat(
  * 5xx) o caduta di rete passa al PROVIDER successivo. Un modello esplicito è provato tale e quale su
  * ogni provider, finché uno lo riconosce. Senza alcun provider configurato → 503; se tutti falliscono
  * → 502 (upstream_error con l'ultimo status, o upstream_unreachable se nessuno ha mai risposto).
+ * Se la rotazione è accesa (AI_RESERVE_ROTATE), la catena parte da un provider diverso a ogni finestra
+ * temporale (rotatedProviders), per spalmare il consumo sui tier gratuiti; il failover resta identico.
  */
 export async function forwardChat(
   body: ReserveChatBody,
   env: Env = process.env,
   fetchImpl: FetchLike = fetch,
+  now: Date = new Date(),
 ): Promise<Response> {
-  const providers = activeProviders(env);
+  const providers = rotatedProviders(env, now);
   if (providers.length === 0) return jsonResponse({ error: 'upstream_not_configured' }, 503);
 
   const requested = body.model?.trim();

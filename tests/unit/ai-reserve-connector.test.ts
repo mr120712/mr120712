@@ -18,6 +18,8 @@ import {
   reserveProviderLabels,
   reserveStatusLabel,
   resolveModel,
+  rotatedProviders,
+  rotateProviders,
 } from '@/lib/business/ai-reserve-connector.server';
 
 const SECRET = 'reserve-secret-abc';
@@ -275,5 +277,100 @@ describe('listModels: failover fra provider', () => {
     );
     expect(res.status).toBe(200);
     expect((await res.json()).data[0].id).toBe('free-model');
+  });
+});
+
+describe('rotateProviders', () => {
+  it('ruota di offset posizioni a sinistra, senza mutare l’input', () => {
+    const base = ['a', 'b', 'c', 'd'];
+    expect(rotateProviders(base, 0)).toEqual(['a', 'b', 'c', 'd']);
+    expect(rotateProviders(base, 1)).toEqual(['b', 'c', 'd', 'a']);
+    expect(rotateProviders(base, 2)).toEqual(['c', 'd', 'a', 'b']);
+    expect(rotateProviders(base, 4)).toEqual(['a', 'b', 'c', 'd']); // giro completo
+    expect(rotateProviders(base, 5)).toEqual(['b', 'c', 'd', 'a']); // offset > n
+    expect(rotateProviders(base, -1)).toEqual(['d', 'a', 'b', 'c']); // negativo
+    expect(rotateProviders(base, 1.9)).toEqual(['b', 'c', 'd', 'a']); // troncato a 1
+    expect(base).toEqual(['a', 'b', 'c', 'd']); // input intatto
+  });
+
+  it('lista vuota o singola → invariata (copia)', () => {
+    expect(rotateProviders([], 3)).toEqual([]);
+    expect(rotateProviders(['solo'], 7)).toEqual(['solo']);
+  });
+});
+
+describe('rotatedProviders', () => {
+  const keys = { GROQ_API_KEY: GROQ, CEREBRAS_API_KEY: 'cb', GEMINI_API_KEY: 'gm' };
+
+  it('rotazione spenta (default) → ordine stabile del registro', () => {
+    expect(rotatedProviders(keys).map((p) => p.id)).toEqual(['groq', 'cerebras', 'gemini']);
+  });
+
+  it('accesa → la testa avanza con la finestra temporale', () => {
+    const env = { ...keys, AI_RESERVE_ROTATE: '1', AI_RESERVE_ROTATE_MS: '60000' };
+    expect(rotatedProviders(env, new Date(0)).map((p) => p.id)).toEqual([
+      'groq',
+      'cerebras',
+      'gemini',
+    ]);
+    expect(rotatedProviders(env, new Date(60_000)).map((p) => p.id)).toEqual([
+      'cerebras',
+      'gemini',
+      'groq',
+    ]);
+    expect(rotatedProviders(env, new Date(120_000)).map((p) => p.id)).toEqual([
+      'gemini',
+      'groq',
+      'cerebras',
+    ]);
+  });
+
+  it('dentro la stessa finestra la testa è stabile', () => {
+    const env = { ...keys, AI_RESERVE_ROTATE: 'on' };
+    const a = rotatedProviders(env, new Date(1_000)).map((p) => p.id);
+    const b = rotatedProviders(env, new Date(59_999)).map((p) => p.id); // stessa finestra di 60s
+    expect(a).toEqual(b);
+  });
+
+  it('un solo provider → nessuna rotazione anche se accesa', () => {
+    expect(
+      rotatedProviders({ GROQ_API_KEY: GROQ, AI_RESERVE_ROTATE: '1' }, new Date(300_000)).map(
+        (p) => p.id,
+      ),
+    ).toEqual(['groq']);
+  });
+
+  it('AI_RESERVE_ROTATE_MS non valido → finestra di default (60s), nessun /0', () => {
+    const env = { ...keys, AI_RESERVE_ROTATE: '1', AI_RESERVE_ROTATE_MS: '0' };
+    expect(rotatedProviders(env, new Date(60_000)).map((p) => p.id)).toEqual([
+      'cerebras',
+      'gemini',
+      'groq',
+    ]);
+  });
+});
+
+describe('forwardChat: rotazione', () => {
+  it('con AI_RESERVE_ROTATE acceso parte dal provider di testa della finestra', async () => {
+    const env = {
+      GROQ_API_KEY: GROQ,
+      OPENROUTER_API_KEY: 'or',
+      AI_RESERVE_ROTATE: '1',
+      AI_RESERVE_ROTATE_MS: '60000',
+    };
+    const fetchMock = byHost({
+      'api.groq.com': () => groqResponse({ choices: [{ message: { content: 'groq' } }] }),
+      'openrouter.ai': () => groqResponse({ choices: [{ message: { content: 'openrouter' } }] }),
+    });
+    // Finestra 1 (offset 1): la catena [groq, openrouter] ruota in [openrouter, groq].
+    const res = await forwardChat(
+      CHAT,
+      env,
+      fetchMock as unknown as typeof fetch,
+      new Date(60_000),
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).choices[0].message.content).toBe('openrouter');
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://openrouter.ai/api/v1/chat/completions');
   });
 });
