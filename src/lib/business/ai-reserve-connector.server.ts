@@ -30,9 +30,13 @@ export type FetchLike = typeof fetch;
 const clean = (value: string | undefined): string | undefined =>
   value?.trim() ? value.trim() : undefined;
 
-/** Il segreto condiviso: il Bearer che il client riserva presenta e che il connettore verifica. */
+/**
+ * Il segreto condiviso: il Bearer che il client riserva presenta e che il connettore verifica.
+ * FREELLMAPI_API_KEY, con FREELLMAPI_TOKEN come alias (precedenza a API_KEY). Entrambe le metà usano
+ * questa funzione, quindi il Bearer inviato e quello atteso restano sempre identici.
+ */
 export function reserveSecret(env: Env = process.env): string | undefined {
-  return clean(env.FREELLMAPI_API_KEY);
+  return clean(env.FREELLMAPI_API_KEY) ?? clean(env.FREELLMAPI_TOKEN);
 }
 
 /** La chiave upstream di Groq (il provider di default della riserva). */

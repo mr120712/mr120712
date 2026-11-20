@@ -15,9 +15,13 @@ import {
   reserveProviderLabels,
 } from '@/lib/business/ai-reserve-connector.server';
 
-/** Il segreto condiviso con il connettore interno (o il token di un router esterno), server-side. */
+/**
+ * Il segreto condiviso con il connettore interno (o il token di un router esterno), server-side.
+ * Accetta il valore sotto FREELLMAPI_API_KEY oppure, come alias, FREELLMAPI_TOKEN — così il "token"
+ * configurato sotto l'uno o l'altro nome funziona lo stesso. FREELLMAPI_API_KEY ha la precedenza.
+ */
 export function freellmapiApiKey(env: Record<string, string | undefined> = process.env) {
-  return env.FREELLMAPI_API_KEY?.trim() || undefined;
+  return env.FREELLMAPI_API_KEY?.trim() || env.FREELLMAPI_TOKEN?.trim() || undefined;
 }
 
 /** Percorso del connettore interno (router ospitato da Solco) sull'URL pubblico dell'app. */
