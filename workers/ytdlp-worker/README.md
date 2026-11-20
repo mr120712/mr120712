@@ -128,7 +128,8 @@ i **cookie** di un account. Il worker ha un **anti-bot** in quattro parti:
 
 `GET /health` (pubblico, nessun segreto) mostra lo stato in `antibot`: i client di fallback, quello
 preferito, se c'è un proxy (`proxy`, `proxy_info`), lo stato dell'uscita WARP (`warp`) e l'esito
-dell'**ultima** richiesta (`last`: `status`, `client`, `exit`).
+dell'**ultima** richiesta (`last`: `status`, `client`, `exit`, quanti tentativi sono serviti e quanti
+secondi è durata — il bot di Solco ne aspetta 40).
 
 ### Che cosa passa e che cosa no (misurato)
 
@@ -139,7 +140,7 @@ datacenter come Render). Si rifà con il workflow «Worker yt-dlp: misura anti-b
 |---|---|---|
 | IP del runner | 11 client YouTube, anche senza scaricare la pagina del video | `LOGIN_REQUIRED` su tutti |
 | IP del runner + PO Token | provider `bgutil` 2.0.2, token chiesto sempre (`fetch_pot=always`) | token generato, `LOGIN_REQUIRED` lo stesso |
-| WARP, modalità **proxy** | client ufficiale e `usque l4-socks` | estrazione e download riusciti (default, `tv_samsung`, `mweb`, `android_vr`, `web_embedded`) in 7 sessioni su 9; nelle altre due `LOGIN_REQUIRED` |
+| WARP, modalità **proxy** | client ufficiale e `usque l4-socks` | estrazione e download riusciti (default, `tv_samsung`, `mweb`, `android_vr`, `web_embedded`) da 8 indirizzi di uscita su 12; dagli altri quattro `LOGIN_REQUIRED` |
 | WARP, modalità **tunnel** | `usque socks`, su QUIC e su HTTP/2 | `LOGIN_REQUIRED` su tutti |
 
 L'esito è dell'**indirizzo di uscita**: nella stessa sessione WARP tutte le connessioni escono dallo
@@ -185,11 +186,12 @@ Cloudflare invece che dall'IP del worker.
   il worker li accetta al posto tuo quando registra il dispositivo, ed è per questo che la leva è spenta
   finché non la accendi tu. Il client è [`usque`](https://github.com/Diniboy1123/usque), open-source e
   **non ufficiale**: Cloudflare può smettere di accettarlo, e allora il worker torna all'uscita diretta.
-- **Se YouTube ferma anche WARP.** Capita a un indirizzo di uscita su quattro circa. Il worker allora
-  riavvia il client — stessa registrazione, indirizzo nuovo — e ripete lo stesso tentativo, fino a
-  `YTDLP_WARP_RENEWALS` volte per richiesta (default `2`); `antibot.warp.renewals` in `/health` conta
-  quante volte è successo. Se non basta il codice è `youtube_bot_check+warp`: di solito passa
-  riprovando, e restano il proxy e i cookie.
+- **Se YouTube ferma anche WARP.** Capita a un indirizzo di uscita su tre circa. Il worker allora
+  riavvia il client — stessa registrazione, indirizzo nuovo, poco più di un secondo — e ripete lo stesso
+  tentativo, fino a `YTDLP_WARP_RENEWALS` volte per richiesta (default `3`). Nel collaudo dal vivo i
+  primi due indirizzi erano fermati e il terzo ha scaricato il video. L'indirizzo che passa resta in
+  uso per le richieste successive; `antibot.warp.renewals` in `/health` conta i cambi. Se non basta il
+  codice è `youtube_bot_check+warp`: di solito passa riprovando, e restano il proxy e i cookie.
 - **Controlla** `GET /health` dopo il riavvio: `antibot.warp` è `{"enabled": true, "state": "ready",
   "colo": "…"}` (`colo` è la sede Cloudflare da cui esce il tunnel). `state: "failed"` ha un `error`
   che dice perché (registrazione rifiutata o limitata, Cloudflare non raggiungibile, tunnel che non

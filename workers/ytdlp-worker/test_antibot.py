@@ -90,7 +90,7 @@ class AntibotTest(unittest.TestCase):
     def setUp(self):
         FakeYDL.script, FakeYDL.calls = {}, []
         worker._PREFERRED_CLIENT = None
-        worker._LAST_OUTCOME.update(status=None, client=None, at=None)
+        worker._LAST_OUTCOME.update(dict.fromkeys(worker._LAST_OUTCOME))
         patcher = mock.patch.object(worker.yt_dlp, "YoutubeDL", FakeYDL)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -282,13 +282,14 @@ class WarpLadderTest(unittest.TestCase):
     def setUp(self):
         FakeYDL.script, FakeYDL.calls = {}, []
         worker._PREFERRED_CLIENT = None
-        worker._LAST_OUTCOME.update(status=None, client=None, exit=None, at=None)
+        worker._LAST_OUTCOME.update(dict.fromkeys(worker._LAST_OUTCOME))
         self.tunnel = mock.Mock(state="ready", error=None, colo="IAD", renewals=0)
         self.tunnel.proxy.return_value = WARP_URL
         self.tunnel.renew.return_value = WARP_URL
         for target, name, value in (
             (worker.yt_dlp, "YoutubeDL", FakeYDL),
             (worker, "WARP_ENABLED", True),
+            (worker, "WARP_RENEWALS", 2),
             (worker, "WARP", self.tunnel),
         ):
             patcher = mock.patch.object(target, name, value)
@@ -332,7 +333,8 @@ class WarpLadderTest(unittest.TestCase):
         self.assertEqual(self.tunnel.renew.call_count, 1)
         self.assertGreater(self.tunnel.renew.call_args.kwargs["wait"], 0)
         last = self.client.get("/health").json()["antibot"]["last"]
-        self.assertEqual((last["status"], last["exit"]), ("ok", "warp"))
+        self.assertEqual((last["status"], last["exit"], last["attempts"]), ("ok", "warp", 2))
+        self.assertIsInstance(last["seconds"], float)
 
     def test_bot_check_on_every_exit_address_says_warp_is_blocked_too(self):
         # Due indirizzi nuovi, poi gli altri client dallo stesso tunnel; mai l'IP del worker, che è fermato.

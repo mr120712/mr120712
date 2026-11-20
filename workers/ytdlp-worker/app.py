@@ -177,7 +177,8 @@ WARP_READY_SECONDS = float(os.environ.get("YTDLP_WARP_READY_SECONDS", "20"))
 # ripiegare sull'uscita diretta: deve restare tempo per scaricare entro i 40 secondi del bot.
 WARP_WAIT_SECONDS = float(os.environ.get("YTDLP_WARP_WAIT_SECONDS", "15"))
 # Quante volte, in una richiesta, si cambia indirizzo di uscita quando YouTube ferma quello in uso.
-WARP_RENEWALS = int(os.environ.get("YTDLP_WARP_RENEWALS", "2"))
+# Nelle misure è fermato circa un indirizzo su tre, e cambiarlo costa poco più di un secondo.
+WARP_RENEWALS = int(os.environ.get("YTDLP_WARP_RENEWALS", "3"))
 WARP_IGNORED = "non usata: c'è YTDLP_PROXY, che è l'uscita scelta dall'owner"
 # Video pubblico e stabile usato dalla sonda GET /antibot (solo estrazione, nessun download).
 PROBE_URL = os.environ.get("YTDLP_PROBE_URL", "https://www.youtube.com/watch?v=jNQXAC9IVRw").strip()
@@ -190,7 +191,14 @@ COOKIEFILE: str | None = None
 
 # Stato anti-bot del processo: il client che ha superato il controllo (riusato per primo) e l'ultimo esito.
 _PREFERRED_CLIENT: str | None = None
-_LAST_OUTCOME: dict[str, Any] = {"status": None, "client": None, "exit": None, "at": None}
+_LAST_OUTCOME: dict[str, Any] = {
+    "status": None,
+    "client": None,
+    "exit": None,
+    "attempts": None,
+    "seconds": None,
+    "at": None,
+}
 
 # Cosa fare per ogni esito (mostrato dalla sonda /antibot).
 _HINTS = {
@@ -742,12 +750,20 @@ def _first_exit(deadline: float) -> tuple[str, str | None]:
     return "direct", None
 
 
-def _note_outcome(status: str, attempt: str | None) -> None:
-    """Registra l'esito per /health. `attempt` è l'etichetta del tentativo: «tv», oppure «warp/tv»."""
-    exit_name, _, client = (attempt or "").rpartition("/")
-    if attempt:
+def _note_outcome(status: str, tried: list[str], started: float | None = None) -> None:
+    """Registra l'esito per /health: l'ultimo tentativo («tv», oppure «warp/tv» uscendo da WARP),
+    quanti ne sono serviti e quanto è durato tutto — il bot di Solco aspetta 40 secondi."""
+    exit_name, _, client = (tried[-1] if tried else "").rpartition("/")
+    if tried:
         exit_name = exit_name or ("proxy" if PROXY else "direct")
-    _LAST_OUTCOME.update(status=status, client=client or None, exit=exit_name or None, at=int(time.time()))
+    _LAST_OUTCOME.update(
+        status=status,
+        client=client or None,
+        exit=exit_name or None,
+        attempts=len(tried),
+        seconds=round(time.monotonic() - started, 1) if started is not None else None,
+        at=int(time.time()),
+    )
 
 
 def _run_with_antibot(
@@ -772,9 +788,10 @@ def _run_with_antibot(
     global _PREFERRED_CLIENT
     if PROXY and not _proxy_reachable():
         log.warning("proxy non raggiungibile entro %.0fs: yt-dlp non viene avviato", PROXY_CONNECT_TIMEOUT)
-        _note_outcome("proxy_unreachable", None)
+        _note_outcome("proxy_unreachable", [])
         raise UpstreamFailure("proxy_unreachable", [])
-    deadline = time.monotonic() + ANTIBOT_BUDGET_SECONDS
+    started = time.monotonic()
+    deadline = started + ANTIBOT_BUDGET_SECONDS
     tried: list[str] = []
     kind = "failed"
     exit_name, proxy = _first_exit(deadline)
@@ -786,7 +803,7 @@ def _run_with_antibot(
     position = 0
 
     def give_up() -> UpstreamFailure:
-        _note_outcome(kind, tried[-1] if tried else None)
+        _note_outcome(kind, tried, started)
         return UpstreamFailure(kind, tried, warp)
 
     while position < len(plan):
@@ -835,7 +852,7 @@ def _run_with_antibot(
         if len(tried) > 1 and clients and len(clients) == 1:
             _PREFERRED_CLIENT = clients[0]
             log.info("anti-bot: superato con %s (dopo %s)", name, tried[:-1])
-        _note_outcome("ok", name)
+        _note_outcome("ok", tried, started)
         return result, tried
     raise give_up()
 
