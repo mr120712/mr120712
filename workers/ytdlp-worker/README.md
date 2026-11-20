@@ -58,7 +58,13 @@ curl -s -X POST localhost:8080/download \
 
 Tutte e tre leggono il `Dockerfile` e passano `$PORT`.
 
-- **Fly.io**: `fly launch --no-deploy` (conferma il Dockerfile) → `fly secrets set WORKER_API_KEY=…` → `fly deploy`. L'URL è `https://<app>.fly.dev`.
+- **Fly.io** (consigliata — `fly.toml` già incluso, con `WORKER_MODE=serve`). Dentro `workers/ytdlp-worker`:
+  ```bash
+  fly apps create solco-ytdlp-worker                        # nome preso? scegline un altro e cambia `app` in fly.toml
+  fly secrets set WORKER_API_KEY="$(openssl rand -hex 32)"  # lo STESSO valore va in YTDLP_SERVICE_KEY su Vercel
+  fly deploy
+  ```
+  URL risultante: `https://solco-ytdlp-worker.fly.dev` → mettilo in `YTDLP_SERVICE_URL` su Solco. La macchina va a zero quando è inattiva (costo ~0) e riparte da sola alla prima richiesta.
 - **Render**: New → Web Service → "Docker" dal repo (root `workers/ytdlp-worker`) → aggiungi la env `WORKER_API_KEY`. URL `https://<app>.onrender.com`.
 - **Railway**: New → Deploy from repo (root `workers/ytdlp-worker`) → Variables: `WORKER_API_KEY`. Espone un dominio pubblico.
 

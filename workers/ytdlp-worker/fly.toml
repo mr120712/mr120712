@@ -1,0 +1,40 @@
+# Fly.io — worker yt-dlp di Solco. Esegue il Dockerfile come servizio vero (uvicorn + ffmpeg),
+# a differenza di Vercel. Deploy (dentro workers/ytdlp-worker):
+#   fly apps create solco-ytdlp-worker                        # se il nome è preso, scegline un altro e cambia `app` qui sotto
+#   fly secrets set WORKER_API_KEY="$(openssl rand -hex 32)"  # LO STESSO valore va in YTDLP_SERVICE_KEY su Vercel
+#   fly deploy
+# URL risultante: https://solco-ytdlp-worker.fly.dev  →  mettilo in YTDLP_SERVICE_URL su Solco, poi redeploy.
+# La macchina va a zero quando è inattiva (costo ~0) e riparte da sola alla prima richiesta.
+
+app = "solco-ytdlp-worker"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # "serve": scarica e ospita il file (YouTube affidabile + invio del file dentro Telegram).
+  # "extract": restituisce solo l'URL diretto (più leggero, senza storage).
+  WORKER_MODE = "serve"
+  # Tetto alla dimensione scaricata (MB) e durata dei file temporanei (secondi): default prudenti.
+  MAX_FILESIZE_MB = "200"
+  FILE_TTL_SECONDS = "900"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/health"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "1gb"
