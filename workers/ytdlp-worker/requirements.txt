@@ -2,4 +2,8 @@ fastapi>=0.115
 uvicorn[standard]>=0.34
 # yt-dlp non è pinnato di proposito: va tenuto FRESCO (i siti cambiano spesso). Ricostruisci l'immagine
 # ogni tanto per aggiornarlo, o aggiungi `pip install -U yt-dlp` all'avvio.
-yt-dlp
+# [default] porta yt-dlp-ejs (gli script che risolvono le "challenge" JavaScript di YouTube) e `deno` è il
+# runtime che li esegue. Senza i due, yt-dlp ripiega sull'estrazione SENZA JavaScript, che dichiara
+# deprecata e con formati mancanti.
+yt-dlp[default]
+deno
