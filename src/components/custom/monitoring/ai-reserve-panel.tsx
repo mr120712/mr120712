@@ -65,7 +65,7 @@ export function AiReservePanel() {
   return (
     <Panel
       title="Riserva AI · provider gratuiti"
-      description="Il router multi-provider ospitato da Solco (in stile FreeLLMAPI): un solo endpoint davanti a più AI gratuite con failover automatico. Claude resta il motore primario; questa è la riserva best-effort. Un provider è attivo solo se la sua chiave è su Vercel — aggiungine una e si accende da solo al prossimo deploy."
+      description="Il router multi-provider ospitato da Solco (in stile FreeLLMAPI): un solo endpoint davanti a più AI gratuite con failover automatico. Claude resta il motore primario; questa è la riserva best-effort. Un provider è attivo solo se la sua chiave è su Vercel — aggiungine una e si accende da solo al prossimo deploy. Il pannello cerca automaticamente gli agent (modelli) che ogni provider serve adesso interrogando /models, così i modelli ritirati si vedono subito."
     >
       {error ? (
         <p role="alert" className={styles.muted}>
@@ -88,6 +88,7 @@ function ReserveBody({ data }: { data: ReserveProvidersOverview }) {
         {data.configuredCount > data.liveCount
           ? ` · ${data.configuredCount - data.liveCount} con chiave ma non risponde`
           : ''}
+        {data.discoveredTotal > 0 ? ` · ${data.discoveredTotal} agent rilevati` : ''}
       </output>
 
       <ul className={styles.list}>
@@ -104,6 +105,22 @@ function ReserveBody({ data }: { data: ReserveProvidersOverview }) {
               <p className={styles.muted}>{detailText(provider)}</p>
               {provider.models.length > 0 ? (
                 <p className={styles.models}>{provider.models.join(' · ')}</p>
+              ) : null}
+              {provider.discoveredCount > 0 ? (
+                <p className={styles.discovered}>
+                  <span className={styles.discoveredLabel}>
+                    {provider.discoveredCount} agent rilevati
+                  </span>
+                  {provider.discoveredModels.length > 0 ? (
+                    <span className={styles.discoveredList}>
+                      {' · '}
+                      {provider.discoveredModels.join(' · ')}
+                      {provider.discoveredCount > provider.discoveredModels.length
+                        ? ` … +${provider.discoveredCount - provider.discoveredModels.length}`
+                        : ''}
+                    </span>
+                  ) : null}
+                </p>
               ) : null}
               {provider.status === 'not_configured' ? (
                 <p className={styles.hint}>

@@ -5,7 +5,7 @@
 import 'server-only';
 import {
   activeProviders,
-  probeProviders,
+  discoverProviderModels,
   reserveKnownProviders,
 } from '@/lib/business/ai-reserve-connector.server';
 import type {
@@ -23,17 +23,18 @@ export async function reserveProvidersOverview(
 ): Promise<ReserveProvidersOverview> {
   const known = reserveKnownProviders(env);
   const configuredIds = new Set(activeProviders(env).map((provider) => provider.id));
-  // La sonda interroga /models dei soli provider ATTIVI; se fallisce del tutto, trattiamo i configurati
-  // come "da verificare" (failing) senza rompere il pannello.
-  const probes = await probeProviders(env).catch(() => []);
-  const probeById = new Map(probes.map((probe) => [probe.id, probe]));
+  // Cerca automatica: interroga /models dei soli provider ATTIVI e scopre i modelli serviti ADESSO
+  // (oltre allo stato). Se fallisce del tutto, trattiamo i configurati come "da verificare" (failing)
+  // senza rompere il pannello e senza modelli scoperti.
+  const discoveries = await discoverProviderModels(env).catch(() => []);
+  const byId = new Map(discoveries.map((discovery) => [discovery.id, discovery]));
 
   const providers: ReserveProviderView[] = known.map((provider) => {
     const configured = configuredIds.has(provider.id);
-    const probe = probeById.get(provider.id);
+    const found = byId.get(provider.id);
     const status: ReserveProviderStatusName = !configured
       ? 'not_configured'
-      : probe?.ok
+      : found?.ok
         ? 'live'
         : 'failing';
     return {
@@ -44,7 +45,9 @@ export async function reserveProvidersOverview(
       models: provider.models,
       configured,
       status,
-      httpStatus: probe?.status ?? null,
+      httpStatus: found?.status ?? null,
+      discoveredModels: found?.models ?? [],
+      discoveredCount: found?.modelCount ?? 0,
     };
   });
 
@@ -53,6 +56,7 @@ export async function reserveProvidersOverview(
     liveCount: providers.filter((provider) => provider.status === 'live').length,
     configuredCount: providers.filter((provider) => provider.configured).length,
     total: providers.length,
+    discoveredTotal: providers.reduce((sum, provider) => sum + provider.discoveredCount, 0),
     checkedAt: now.toISOString(),
   };
 }

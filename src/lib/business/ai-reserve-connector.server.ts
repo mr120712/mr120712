@@ -521,6 +521,99 @@ export async function probeProviders(
   );
 }
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Scoperta automatica degli «AI agents» (cerca automatica dei modelli serviti ADESSO da ogni provider).
+// I modelli hardcoded nel registro sono solo IPOTESI: i tier gratuiti ritirano modelli e azzerano quote
+// di continuo (vedi i commenti su Gemini 2.0/1.5). Invece di indovinare, interroghiamo /models di ogni
+// provider attivo e scopriamo cosa serve davvero ora. Sola lettura, nessun token speso, nessun segreto:
+// alimenta il pannello admin, così un modello ritirato si vede subito e i modelli reali sono sempre a
+// vista. NON tocca l'inoltro delle chat (forwardChat resta sui modelli «auto» del registro col failover).
+// ──────────────────────────────────────────────────────────────────────────────
+
+/** Quanti modelli al massimo riportare per provider; gli altri contano solo in modelCount. */
+export const DISCOVER_MODELS_SAMPLE = 24;
+
+/**
+ * Estrae gli id dei modelli da una risposta /models OpenAI-shaped ({ data: [{ id }] }), in modo
+ * tollerante: ignora voci senza id stringa, deduplica e ordina. Qualsiasi forma inattesa → lista vuota.
+ */
+export function parseModelIds(payload: unknown): string[] {
+  const data = (payload as { data?: unknown } | null)?.data;
+  if (!Array.isArray(data)) return [];
+  const ids: string[] = [];
+  for (const entry of data) {
+    const id = (entry as { id?: unknown } | null)?.id;
+    if (typeof id === 'string' && id.trim()) ids.push(id.trim());
+  }
+  return dedupe(ids).sort((a, b) => a.localeCompare(b));
+}
+
+/** Esito della scoperta /models di un provider: stato della sonda + modelli serviti ora (senza segreti). */
+export interface ProviderDiscovery {
+  id: string;
+  label: string;
+  status: number | null;
+  ok: boolean;
+  /** Id dei modelli serviti ora dal provider (ordinati, deduplicati; campione se sono molti). */
+  models: string[];
+  /** Quanti modelli ha restituito in tutto (models può essere solo un campione). */
+  modelCount: number;
+}
+
+/**
+ * «Cerca automatica di AI agents»: interroga /models di OGNI provider ATTIVO in parallelo e scopre i
+ * modelli che ciascuno serve ADESSO. Sola lettura, nessun token speso, nessun segreto nel risultato.
+ * Se un provider non risponde (o non ha chiave) → ok:false e lista vuota, senza rompere gli altri.
+ * Alimenta il pannello admin; non partecipa all'inoltro delle chat.
+ */
+export async function discoverProviderModels(
+  env: Env = process.env,
+  fetchImpl: FetchLike = fetch,
+): Promise<ProviderDiscovery[]> {
+  const providers = activeProviders(env);
+  return Promise.all(
+    providers.map(async (provider): Promise<ProviderDiscovery> => {
+      try {
+        const res = await fetchImpl(`${provider.baseUrl}/models`, {
+          headers: providerHeaders(provider),
+          cache: 'no-store',
+          signal: AbortSignal.timeout(20_000),
+        });
+        if (!res.ok) {
+          await res.body?.cancel().catch(() => undefined);
+          return {
+            id: provider.id,
+            label: provider.label,
+            status: res.status,
+            ok: false,
+            models: [],
+            modelCount: 0,
+          };
+        }
+        const payload = (await res.json().catch(() => null)) as unknown;
+        const all = parseModelIds(payload);
+        return {
+          id: provider.id,
+          label: provider.label,
+          status: res.status,
+          ok: true,
+          models: all.slice(0, DISCOVER_MODELS_SAMPLE),
+          modelCount: all.length,
+        };
+      } catch {
+        return {
+          id: provider.id,
+          label: provider.label,
+          status: null,
+          ok: false,
+          models: [],
+          modelCount: 0,
+        };
+      }
+    }),
+  );
+}
+
 /** Etichetta di salute della riserva dallo status di listModels: 200 ok, 503 non configurata, resto giù. */
 export function reserveStatusLabel(status: number): 'ok' | 'unconfigured' | 'down' {
   if (status === 200) return 'ok';

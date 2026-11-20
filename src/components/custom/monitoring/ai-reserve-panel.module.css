@@ -105,6 +105,20 @@
   word-break: break-word;
 }
 
+.discovered {
+  font-size: 0.78rem;
+  color: var(--muted-foreground);
+  margin: 0.2rem 0 0;
+  word-break: break-word;
+}
+.discoveredLabel {
+  font-weight: 600;
+  color: var(--foreground);
+}
+.discoveredList {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 .hint {
   font-size: 0.82rem;
   margin: 0.15rem 0 0;

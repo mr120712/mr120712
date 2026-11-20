@@ -16,12 +16,16 @@ export const ReserveProviderViewSchema = z.object({
   keyVar: z.string(),
   /** Dove ottenere una chiave gratuita. */
   signupUrl: z.string(),
-  /** Modelli che il provider proverebbe in ordine (default pubblici). */
+  /** Modelli che il provider proverebbe in ordine (default pubblici del registro). */
   models: z.array(z.string()),
   configured: z.boolean(),
   status: ReserveProviderStatusSchema,
   /** HTTP della sonda /models dell'upstream (null se non interrogato o irraggiungibile). */
   httpStatus: z.number().int().nullable(),
+  /** AI agents SCOPERTI automaticamente da /models (campione dei modelli serviti ora). */
+  discoveredModels: z.array(z.string()),
+  /** Quanti modelli ha restituito in tutto il provider (discoveredModels può essere un campione). */
+  discoveredCount: z.number().int().nonnegative(),
 });
 export type ReserveProviderView = z.infer<typeof ReserveProviderViewSchema>;
 
@@ -32,6 +36,8 @@ export const ReserveProvidersOverviewSchema = z.object({
   /** Provider con chiave presente (a prescindere dall'esito della sonda). */
   configuredCount: z.number().int().nonnegative(),
   total: z.number().int().nonnegative(),
+  /** AI agents scoperti in totale su tutti i provider (somma dei discoveredCount). */
+  discoveredTotal: z.number().int().nonnegative(),
   checkedAt: z.string(),
 });
 export type ReserveProvidersOverview = z.infer<typeof ReserveProvidersOverviewSchema>;

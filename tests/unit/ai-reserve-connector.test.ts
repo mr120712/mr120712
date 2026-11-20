@@ -10,9 +10,11 @@ import {
   authorizeReserve,
   bearerMatches,
   DEFAULT_RESERVE_MODEL,
+  discoverProviderModels,
   FALLBACK_RESERVE_MODEL,
   forwardChat,
   listModels,
+  parseModelIds,
   type ReserveChatBody,
   reserveProviderKeyNames,
   reserveProviderLabels,
@@ -372,5 +374,89 @@ describe('forwardChat: rotazione', () => {
     expect(res.status).toBe(200);
     expect((await res.json()).choices[0].message.content).toBe('openrouter');
     expect(fetchMock.mock.calls[0]?.[0]).toBe('https://openrouter.ai/api/v1/chat/completions');
+  });
+});
+
+describe('parseModelIds', () => {
+  it('estrae, deduplica e ordina gli id dalla forma OpenAI { data: [{ id }] }', () => {
+    expect(
+      parseModelIds({ data: [{ id: 'llama-3.3' }, { id: 'gemma-2' }, { id: 'llama-3.3' }] }),
+    ).toEqual(['gemma-2', 'llama-3.3']);
+  });
+
+  it('ignora voci senza id stringa, numeri e stringhe vuote; fa trim', () => {
+    expect(
+      parseModelIds({ data: [{ id: ' a ' }, { id: 42 }, { name: 'x' }, {}, { id: '' }] }),
+    ).toEqual(['a']);
+  });
+
+  it('forma inattesa → lista vuota', () => {
+    expect(parseModelIds(null)).toEqual([]);
+    expect(parseModelIds({})).toEqual([]);
+    expect(parseModelIds({ data: 'nope' })).toEqual([]);
+    expect(parseModelIds([{ id: 'x' }])).toEqual([]); // manca il wrapper { data }
+  });
+});
+
+describe('discoverProviderModels', () => {
+  it('nessun provider configurato → lista vuota', async () => {
+    expect(await discoverProviderModels({}, vi.fn())).toEqual([]);
+  });
+
+  it('scopre i modelli serviti ora da ogni provider attivo (ordinati)', async () => {
+    const fetchMock = byHost({
+      'api.groq.com': () =>
+        groqResponse({ data: [{ id: 'llama-3.3-70b' }, { id: 'llama-3.1-8b' }] }),
+      'openrouter.ai': () => groqResponse({ data: [{ id: 'nemotron:free' }] }),
+    });
+    const found = await discoverProviderModels(
+      { GROQ_API_KEY: GROQ, OPENROUTER_API_KEY: 'or' },
+      fetchMock as unknown as typeof fetch,
+    );
+    const byId = Object.fromEntries(found.map((d) => [d.id, d]));
+    expect(byId.groq?.ok).toBe(true);
+    expect(byId.groq?.status).toBe(200);
+    expect(byId.groq?.models).toEqual(['llama-3.1-8b', 'llama-3.3-70b']);
+    expect(byId.groq?.modelCount).toBe(2);
+    expect(byId.openrouter?.models).toEqual(['nemotron:free']);
+  });
+
+  it('upstream non-200 → ok:false, lista vuota, status riportato', async () => {
+    const fetchMock = byHost({
+      'api.groq.com': () => groqResponse({ error: 'bad key' }, 401),
+    });
+    const [groq] = await discoverProviderModels(
+      { GROQ_API_KEY: GROQ },
+      fetchMock as unknown as typeof fetch,
+    );
+    expect(groq).toMatchObject({ ok: false, status: 401, models: [], modelCount: 0 });
+  });
+
+  it('rete che cade su un provider → ok:false (status null) senza rompere gli altri', async () => {
+    const fetchMock = byHost({
+      'api.groq.com': () => {
+        throw new Error('ECONNRESET');
+      },
+      'openrouter.ai': () => groqResponse({ data: [{ id: 'm' }] }),
+    });
+    const found = await discoverProviderModels(
+      { GROQ_API_KEY: GROQ, OPENROUTER_API_KEY: 'or' },
+      fetchMock as unknown as typeof fetch,
+    );
+    const byId = Object.fromEntries(found.map((d) => [d.id, d]));
+    expect(byId.groq).toMatchObject({ ok: false, status: null, modelCount: 0 });
+    expect(byId.openrouter?.ok).toBe(true);
+  });
+
+  it('molti modelli → models è un campione (24) ma modelCount è il totale', async () => {
+    const many = Array.from({ length: 50 }, (_, i) => ({ id: `m-${String(i).padStart(2, '0')}` }));
+    const fetchMock = byHost({ 'api.groq.com': () => groqResponse({ data: many }) });
+    const [groq] = await discoverProviderModels(
+      { GROQ_API_KEY: GROQ },
+      fetchMock as unknown as typeof fetch,
+    );
+    expect(groq?.modelCount).toBe(50);
+    expect(groq?.models.length).toBe(24); // DISCOVER_MODELS_SAMPLE
+    expect(groq?.models[0]).toBe('m-00'); // ordinati, campione iniziale
   });
 });
