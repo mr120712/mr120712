@@ -200,6 +200,22 @@ export type TelegramWebhookStatus = {
   lastError: string | null;
 };
 
+/**
+ * Update che il bot DEVE ricevere: i messaggi E i tap sui pulsanti del menu (callback_query). Senza
+ * 'callback_query' nel setWebhook, Telegram non consegna i tap e il menu inline resta muto.
+ */
+export const WEBHOOK_ALLOWED_UPDATES = ['message', 'callback_query'] as const;
+
+/**
+ * Gli update registrati su Telegram coprono quelli che il bot gestisce? Un `allowed_updates` assente
+ * significa «tutti gli update» (callback_query incluso), quindi va bene; se è una lista, deve
+ * contenerli tutti. Serve all'auto-riparazione del webhook (il cron ri-registra se manca qualcosa).
+ */
+export function webhookUpdatesOk(registered: unknown): boolean {
+  if (!Array.isArray(registered)) return true;
+  return WEBHOOK_ALLOWED_UPDATES.every((update) => registered.includes(update));
+}
+
 /** Stato del webhook interattivo: bot/secret configurati e registrato sull'URL atteso? */
 export async function telegramWebhookStatus(): Promise<TelegramWebhookStatus> {
   const botConfigured = isTelegramBotConfigured();
@@ -227,6 +243,7 @@ export async function telegramWebhookStatus(): Promise<TelegramWebhookStatus> {
   const currentUrl =
     typeof info.result.url === 'string' && info.result.url ? info.result.url : null;
   const matches = currentUrl === expectedUrl;
+  const updatesOk = webhookUpdatesOk(info.result.allowed_updates);
   return {
     ...base,
     currentUrl,
@@ -234,7 +251,7 @@ export async function telegramWebhookStatus(): Promise<TelegramWebhookStatus> {
     pendingUpdates: Number(info.result.pending_update_count ?? 0),
     lastError:
       typeof info.result.last_error_message === 'string' ? info.result.last_error_message : null,
-    ready: botConfigured && secretConfigured && matches,
+    ready: botConfigured && secretConfigured && matches && updatesOk,
   };
 }
 
@@ -254,7 +271,7 @@ export async function registerTelegramWebhook(): Promise<{ ok: boolean; message:
   const res = await telegramApi('setWebhook', {
     url: telegramWebhookUrl(),
     secret_token: secret,
-    allowed_updates: ['message'],
+    allowed_updates: [...WEBHOOK_ALLOWED_UPDATES],
   });
   if (res?.ok) return { ok: true, message: 'Webhook registrato con successo.' };
   return {
@@ -479,16 +496,35 @@ function openSolcoButton(chatType: string | null) {
     : { text: '🎧 Apri Solco', url: BOT_PUBLIC_URL };
 }
 
-/** Tastiera inline per il messaggio con il codice: apri l'app, condividi l'invito, vai ai premi. */
+/** Link Telegram del bot (t.me/<username>) per la condivisione nativa; ripiega sul sito se manca lo username. */
+function botTelegramLink(): string {
+  const username = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME?.trim().replace(/^@/, '');
+  return username ? `https://t.me/${username}` : BOT_PUBLIC_URL;
+}
+
+/** Costruisce il deep-link di condivisione nativa di Telegram (apre «scegli una chat» con testo precompilato). */
+function telegramShareUrl(url: string, text: string): string {
+  return `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`;
+}
+
+/** Condivisione «brand» del bot: porta nuovi utenti dentro il bot (loop virale nativo di Telegram). */
+function shareSolcoUrl(): string {
+  return telegramShareUrl(
+    botTelegramLink(),
+    'Ho scoperto Solco 🎧 musica gratis, radio e podcast. Provalo qui 👇',
+  );
+}
+
+/** Tastiera inline per il messaggio con il codice: condividi l'invito (il gancio virale), apri l'app, premi. */
 export function inviteKeyboard(inviteLink: string, chatType: string | null) {
-  const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(inviteLink)}&text=${encodeURIComponent('Ascolta musica su Solco 🎧')}`;
+  const shareUrl = telegramShareUrl(
+    inviteLink,
+    '🎧 Ascolta musica gratis su Solco! Col mio invito, 1 mese di Premium gratis per entrambi 💜',
+  );
   return {
     inline_keyboard: [
-      [openSolcoButton(chatType)],
-      [
-        { text: '📲 Condividi l’invito', url: shareUrl },
-        { text: '🎁 I tuoi premi', url: publicRewardsUrl() },
-      ],
+      [{ text: '📣 Invita amici · Premium per entrambi', url: shareUrl }],
+      [openSolcoButton(chatType), { text: '🎁 I tuoi premi', url: publicRewardsUrl() }],
     ],
   };
 }
@@ -505,7 +541,12 @@ export function searchKeyboard(query: string, chatType: string | null) {
     chatType === 'private'
       ? { text: '▶️ Ascolta su Solco', web_app: { url } }
       : { text: '▶️ Ascolta su Solco', url };
-  return { inline_keyboard: [[open]] };
+  // «Condividi» sposta la ricerca in un'altra chat: la scoperta musicale si propaga (loop virale).
+  const share = {
+    text: '📲 Condividi',
+    url: telegramShareUrl(url, 'Senti cosa ho trovato su Solco 🎧'),
+  };
+  return { inline_keyboard: [[open, share]] };
 }
 
 /**
@@ -517,11 +558,14 @@ export function menuKeyboard(chatType: string | null) {
   return {
     inline_keyboard: [
       [openSolcoButton(chatType)],
+      // Il gancio virale, in primo piano: il referral (Premium per entrambi).
+      [{ text: '🎁 Invita amici · Premium per entrambi', callback_data: 'menu:codice' }],
       [
         { text: '🔎 Cerca musica', callback_data: 'menu:cerca' },
         { text: '⬇️ I miei brani', callback_data: 'menu:scarica' },
       ],
-      [{ text: '🎁 Codice invito', callback_data: 'menu:codice' }],
+      // Condivisione nativa del bot: un tap porta Solco in un'altra chat.
+      [{ text: '📣 Condividi Solco', url: shareSolcoUrl() }],
     ],
   };
 }
@@ -541,10 +585,10 @@ export async function answerTelegramCallback(callbackQueryId: string): Promise<v
 /** Comandi del bot mostrati nel menu "/" di Telegram (setMyCommands). */
 export const TELEGRAM_BOT_COMMANDS = [
   { command: 'menu', description: 'Apri il menu di Solco' },
+  { command: 'invita', description: 'Invita amici · Premium gratis per entrambi 🎁' },
   { command: 'cerca', description: 'Cerca musica Creative Commons' },
   { command: 'scarica', description: 'Scarica i tuoi brani caricati su Solco' },
-  { command: 'codice', description: 'Ricevi il tuo codice di invito' },
-  { command: 'invito', description: 'Ricevi il tuo link di invito' },
+  { command: 'codice', description: 'Il tuo codice di invito' },
   { command: 'app', description: 'Apri Solco (Mini App)' },
   { command: 'help', description: 'Cosa può fare questo bot' },
 ] as const;

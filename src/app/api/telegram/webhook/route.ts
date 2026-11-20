@@ -43,9 +43,10 @@ export const maxDuration = 60;
 const CONNECT_HINT = 'Apri Solco per collegare il tuo account 👇';
 
 const HELP_TEXT =
-  '<b>Solco Music</b> 🎧\n\nEcco cosa posso fare:\n• /menu — il menu con i pulsanti\n• /cerca parole — trova musica Creative Commons\n• /scarica — scarica i TUOI brani caricati su Solco\n• /codice — il tuo codice di invito\n• /invito — il tuo link di invito\n• /app — apri Solco (Mini App)\n\nTocca <b>Apri Solco</b> per aprire l’app qui dentro, come Mini App.';
+  '<b>Solco Music</b> 🎧\n\nEcco cosa posso fare:\n• /menu — il menu con i pulsanti\n• /invita — invita amici: Premium gratis per entrambi 🎁\n• /cerca parole — trova musica Creative Commons\n• /scarica — scarica i TUOI brani caricati su Solco\n• /codice — il tuo codice di invito\n• /app — apri Solco (Mini App)\n\nTocca <b>Apri Solco</b> per aprire l’app qui dentro, come Mini App.';
 
-const MENU_TEXT = '<b>Menu Solco</b> 🎧\nScegli cosa fare:';
+const MENU_TEXT =
+  '<b>Menu Solco</b> 🎧\nMusica gratis, radio e podcast.\n\n🎁 <b>Invita un amico</b>: quando si abbona, un mese di Premium gratis per <b>entrambi</b>.';
 
 /** Titolo/artista troncati: i campi Audius non hanno limite di lunghezza nello schema, e 5 righe
  *  intere potrebbero sforare il tetto di 4096 caratteri di sendMessage (→ 400, risposta persa). */
