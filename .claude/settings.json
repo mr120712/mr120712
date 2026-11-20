@@ -1,0 +1,14 @@
+{
+  "extraKnownMarketplaces": {
+    "sprites": {
+      "source": {
+        "source": "github",
+        "repo": "superfly/sprites-claude-plugin"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "sprites@sprites": true,
+    "fly@sprites": true
+  }
+}
