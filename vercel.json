@@ -46,6 +46,10 @@
     {
       "path": "/api/cron/skynet",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/telegram-webhook",
+      "schedule": "23 */12 * * *"
     }
   ]
 }
