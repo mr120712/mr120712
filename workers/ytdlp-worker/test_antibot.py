@@ -1,7 +1,10 @@
 # Test dell'anti-bot del worker: yt-dlp è sostituito da un finto che recita un copione per client
 # (nessuna rete). Esegui dalla cartella del worker:
 #   pip install -r requirements.txt httpx && python -m unittest -v test_antibot
+import contextlib
+import io
 import os
+import socket
 import tempfile
 import unittest
 from pathlib import Path
@@ -25,6 +28,12 @@ import app as worker  # noqa: E402
 
 AUTH = {"authorization": "Bearer test-key"}
 BOT_CHECK = "ERROR: [youtube] abc: Sign in to confirm you’re not a bot. Use --cookies for the authentication."
+# Testi reali di yt-dlp 2026.10.26 con un proxy che rifiuta (407 sul tunnel) o che non risponde.
+PROXY_407 = (
+    "ERROR: [youtube] abc: Unable to download API page: ('Unable to connect to proxy', OSError('Tunnel "
+    "connection failed: 407 Proxy Authentication Required')) (caused by ProxyError(...))"
+)
+PROXY_URL = "http://customer-1234:s3cret@proxy.example.com:8080"
 
 
 class FakeYDL:
@@ -82,6 +91,15 @@ class AntibotTest(unittest.TestCase):
             "Private video. Sign in if you've been granted access": "login_required",
             "Video unavailable. This video has been removed by the uploader": "unavailable",
             "Unable to download webpage: timed out": "failed",
+            PROXY_407: "proxy_error",
+            # Il proxy che risponde 429 sul tunnel è un rifiuto del proxy, non un limite di YouTube.
+            "('Unable to connect to proxy', OSError('Tunnel connection failed: 429 Too Many Requests'))": "proxy_error",
+            "('[Errno 5] Connection refused', Socks5Error(5, 'Connection refused')) (caused by ProxyError(...))": (
+                "proxy_error"
+            ),
+            # Un proxy SOCKS irraggiungibile non nomina il proxy: si riconosce dalla connessione Socks.
+            "SocksHTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: "
+            "[Errno 111] Connection refused (caused by TransportError(...))": "proxy_error",
         }
         for text, expected in cases.items():
             self.assertEqual(worker._classify_error(Exception(text)), expected, text)
@@ -165,11 +183,175 @@ class AntibotTest(unittest.TestCase):
         self.assertIn(f"/file/{files[0]}?exp=", res.json()["url"])
         self.assertEqual(res.json()["filesize"], 10)
 
-    def test_proxy_credentials_never_reach_the_logs(self):
+    def proxied(self, reachable: bool = True) -> None:
+        """Fino a fine test: YTDLP_PROXY impostato, e il controllo TCP verso il proxy dà `reachable`."""
+        for name, value in (("PROXY", PROXY_URL), ("_proxy_reachable", lambda: reachable)):
+            patcher = mock.patch.object(worker, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_unreachable_proxy_fails_fast_without_running_yt_dlp(self):
+        self.proxied(reachable=False)
+        res = self.post()
+        self.assertEqual((res.status_code, res.json()["detail"]), (502, "proxy_unreachable"))
+        self.assertEqual(FakeYDL.calls, [])
+        self.assertEqual(self.client.get("/health").json()["antibot"]["last"]["status"], "proxy_unreachable")
+
+        probe = self.client.get("/antibot", headers=AUTH).json()
+        self.assertEqual((probe["youtube"], probe["tried"], probe["proxy"]), ("proxy_unreachable", [], True))
+        self.assertIn("host e porta", probe["hint"])
+
+    def test_a_proxy_that_refuses_is_reported_and_does_not_rotate_clients(self):
+        self.proxied()
+        FakeYDL.script = {"default": PROXY_407}
+        res = self.post()
+        self.assertEqual((res.status_code, res.json()["detail"]), (502, "proxy_error"))
+        self.assertEqual(FakeYDL.calls, ["default"])
+        self.assertIn("utente e password", self.client.get("/antibot", headers=AUTH).json()["hint"])
+
+    def test_requests_go_out_through_the_proxy(self):
+        self.proxied()
+        seen: list[str | None] = []
+        original = FakeYDL.__init__
+
+        def spy(ydl, opts):
+            seen.append(opts.get("proxy"))
+            original(ydl, opts)
+
+        with mock.patch.object(FakeYDL, "__init__", spy):
+            self.assertEqual(self.post().status_code, 200)
+        self.assertEqual(seen, [PROXY_URL])
+
+    def test_bot_check_names_the_levers_already_active(self):
+        FakeYDL.script = {"default": BOT_CHECK, "tv": BOT_CHECK, "android_vr": BOT_CHECK}
+        with mock.patch.object(worker, "COOKIEFILE", "/tmp/cookies.txt"):
+            self.assertEqual(self.post().json()["detail"], "youtube_bot_check+cookies")
+            self.assertIn("riesporta cookies.txt", self.client.get("/antibot", headers=AUTH).json()["hint"])
+
+        self.proxied()
+        self.assertEqual(self.post().json()["detail"], "youtube_bot_check+proxy")
+        hint = self.client.get("/antibot", headers=AUTH).json()["hint"]
+        self.assertIn("residenziale", hint)
+        self.assertNotIn("cookies.txt", hint)
+        with mock.patch.object(worker, "COOKIEFILE", "/tmp/cookies.txt"):
+            self.assertEqual(self.post().json()["detail"], "youtube_bot_check+cookies+proxy")
+        # Lo stato in /health resta il codice stabile: le leve sono già lì accanto (cookies, proxy).
+        self.assertEqual(self.client.get("/health").json()["antibot"]["last"]["status"], "youtube_bot_check")
+
+
+class ProxyTest(unittest.TestCase):
+    """YTDLP_PROXY arriva da un campo web, nel formato che dà il fornitore: va letto e mai mostrato."""
+
+    def test_formats_handed_out_by_providers_are_accepted(self):
+        accepted = {
+            "http://user:pw@proxy.example.com:8080": "http://user:pw@proxy.example.com:8080",
+            "HTTP://user:pw@proxy.example.com:8080/": "http://user:pw@proxy.example.com:8080",
+            "socks5://proxy.example.com:1080": "socks5://proxy.example.com:1080",
+            "socks5h://user@[2001:db8::1]:1080": "socks5h://user@[2001:db8::1]:1080",
+            "proxy.example.com:8080": "http://proxy.example.com:8080",
+            "user:pw@proxy.example.com:8080": "http://user:pw@proxy.example.com:8080",
+            "token:@proxy.example.com:8001": "http://token:@proxy.example.com:8001",
+            "proxy.example.com:8080:user:pw": "http://user:pw@proxy.example.com:8080",
+            "socks5://proxy.example.com:1080:user:pw": "socks5://user:pw@proxy.example.com:1080",
+            "user:pw:proxy.example.com:8080": "http://user:pw@proxy.example.com:8080",
+            "203.0.113.7:8080:user:pw": "http://user:pw@203.0.113.7:8080",
+            '  "proxy.example.com:8080:user:pw"  ': "http://user:pw@proxy.example.com:8080",
+            # Password con «@», «:», «/», «#»: codificata, così l'URL resta leggibile da yt-dlp.
+            "proxy.example.com:8080:user:p@ss:word/1#x": "http://user:p%40ss%3Aword%2F1%23x@proxy.example.com:8080",
+            "http://user:p@ss:word@proxy.example.com:8080": "http://user:p%40ss%3Aword@proxy.example.com:8080",
+            # Già codificata in un URL: non viene codificata due volte.
+            "http://user:p%40ss@proxy.example.com:8080": "http://user:p%40ss@proxy.example.com:8080",
+            # Password di sole cifre: le due letture reggono, vince quella con un host vero.
+            "user:12345:proxy.example.com:8080": "http://user:12345@proxy.example.com:8080",
+            "proxy.example.com:8080:user:12345": "http://user:12345@proxy.example.com:8080",
+        }
+        for raw, expected in accepted.items():
+            self.assertEqual(worker._normalize_proxy(raw), (expected, None), raw)
+        self.assertEqual(worker._normalize_proxy("   "), ("", None))
+
+    def test_unusable_values_are_refused_without_echoing_them(self):
+        # Meglio nessun proxy che ogni richiesta fallita; il motivo va in /health, quindi niente valore.
+        for raw in (
+            "just-a-host",
+            "a:b:c",
+            "ftp://proxy.example.com:21",
+            "http://proxy.example.com",
+            "proxy.example.com:99999",
+            "proxy.example.com:8080:s3cret-user",
+            "s3cret-user:s3cret-pw@proxy.example.com",
+        ):
+            url, error = worker._normalize_proxy(raw)
+            self.assertEqual(url, "", raw)
+            self.assertTrue(error, raw)
+            for leaked in ("s3cret", "proxy.example.com"):
+                self.assertNotIn(leaked, error, raw)
+
+    def test_a_pasted_list_uses_its_first_readable_proxy(self):
+        listed = "proxy.example.com:8080:user:pw\r\nproxy.example.com:8081:user:pw\nproxy.example.com:8082:user:pw\n"
+        self.assertEqual(worker._first_proxy(listed), ("http://user:pw@proxy.example.com:8080", None, 2))
+        # Una riga d'intestazione non impedisce di trovare il proxy.
+        self.assertEqual(
+            worker._first_proxy("proxies:\n  socks5://proxy.example.com:1080\n"),
+            ("socks5://proxy.example.com:1080", None, 1),
+        )
+        self.assertEqual(worker._first_proxy(' "proxy.example.com:8080" '), ("http://proxy.example.com:8080", None, 0))
+        self.assertEqual(worker._first_proxy(""), ("", None, 0))
+        url, error, ignored = worker._first_proxy("not-a-proxy\nstill:not")
+        self.assertEqual((url, ignored), ("", 0))
+        self.assertIn("formato non riconosciuto", error)
+
+    def test_credentials_never_reach_the_logs(self):
         with mock.patch.object(worker, "PROXY", "http://user:s3cret@proxy.example.com:8080"):
             self.assertEqual(worker._base_opts()["proxy"], "http://user:s3cret@proxy.example.com:8080")
             text = worker._redact("ProxyError: cannot reach http://user:s3cret@proxy.example.com:8080 (s3cret)")
-        self.assertNotIn("s3cret", text)
+        self.assertEqual(text, "ProxyError: cannot reach [proxy] (***)")
+
+        # Password con caratteri speciali: sparisce sia codificata sia in chiaro, e lo username lungo con lei.
+        with mock.patch.object(worker, "PROXY", "http://customer-1234:p%40ss%3Aword@proxy.example.com:8080"):
+            text = worker._redact("auth failed for customer-1234 with p@ss:word / p%40ss%3Aword")
+        self.assertEqual(text, "auth failed for *** with *** / ***")
+
+    def test_yt_dlp_itself_writes_nothing_raw_to_the_logs(self):
+        # yt-dlp VERO contro un proxy spento: senza il logger muto stamperebbe "ERROR: …" su stderr.
+        closed = socket.socket()
+        closed.bind(("127.0.0.1", 0))
+        port = closed.getsockname()[1]
+        closed.close()
+        stderr = io.StringIO()
+        with mock.patch.object(worker, "PROXY", f"http://user:s3cret@127.0.0.1:{port}"):
+            self.assertFalse(worker._proxy_reachable())
+            with contextlib.redirect_stderr(stderr), self.assertRaises(yt_dlp.utils.DownloadError) as raised:
+                with yt_dlp.YoutubeDL(worker._base_opts()) as ydl:
+                    ydl.extract_info("https://www.youtube.com/watch?v=jNQXAC9IVRw", download=False, process=False)
+        self.assertEqual(stderr.getvalue(), "")
+        self.assertEqual(worker._classify_error(raised.exception), "proxy_error")
+
+    def test_reachability_is_a_real_connection_to_the_proxy(self):
+        with socket.socket() as listening:
+            listening.bind(("127.0.0.1", 0))
+            listening.listen()
+            port = listening.getsockname()[1]
+            with mock.patch.object(worker, "PROXY", f"socks5://user:pw@127.0.0.1:{port}"):
+                self.assertTrue(worker._proxy_reachable())
+        with mock.patch.object(worker, "PROXY", f"socks5://user:pw@127.0.0.1:{port}"):
+            self.assertFalse(worker._proxy_reachable())
+
+    def test_health_reports_the_proxy_without_host_or_credentials(self):
+        client = TestClient(worker.app)
+        self.assertEqual(
+            client.get("/health").json()["antibot"]["proxy_info"], {"scheme": None, "error": None, "ignored": 0}
+        )
+        with mock.patch.object(worker, "PROXY", "socks5://user:s3cret@proxy.example.com:1080"):
+            body = client.get("/health").text
+        self.assertIn('"proxy":true', body)
+        self.assertIn('"scheme":"socks5"', body)
+        for leaked in ("s3cret", "proxy.example.com"):
+            self.assertNotIn(leaked, body)
+
+        # Valore illeggibile: nessun proxy in uso, e /health dice perché.
+        with mock.patch.object(worker, "PROXY_ERROR", "formato non riconosciuto"):
+            info = client.get("/health").json()["antibot"]
+        self.assertEqual((info["proxy"], info["proxy_info"]["error"]), (False, "formato non riconosciuto"))
 
 
 TAB = "\t"

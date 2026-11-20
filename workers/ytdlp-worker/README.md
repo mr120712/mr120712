@@ -102,8 +102,11 @@ Da un IP datacenter (Fly, Render, …) YouTube spesso blocca i download con ques
 un **anti-bot** in tre parti:
 
 1. **Rileva** il controllo e lo distingue dagli altri errori. `/download` risponde `502` con un codice in
-   `detail`: `youtube_bot_check`, `rate_limited`, `login_required`, `unavailable` (oppure il generico
-   `download failed` / `extraction failed`). Il bot di Solco traduce il codice nel rimedio da applicare.
+   `detail`: `youtube_bot_check`, `rate_limited`, `login_required`, `unavailable`, `proxy_unreachable`,
+   `proxy_error` (oppure il generico `download failed` / `extraction failed`). Il bot di Solco traduce il
+   codice nel rimedio da applicare. A `youtube_bot_check` si accodano le leve **già attive**
+   (`youtube_bot_check+proxy`, `youtube_bot_check+cookies+proxy`): così il bot non consiglia di impostare
+   ciò che c'è già, ma dice cosa non va (cookie scaduti, IP del proxy bloccato).
 2. **Riprova da solo** con altri client YouTube (`YTDLP_FALLBACK_CLIENTS`, uno alla volta, entro
    `YTDLP_ANTIBOT_BUDGET_SECONDS`) e **ricorda** quello che passa, usandolo per primo alle richieste dopo.
    È un tentativo a costo zero, non una garanzia: se l'IP è bloccato servono i cookie o un proxy.
@@ -117,13 +120,14 @@ un **anti-bot** in tre parti:
    ```
 
 `GET /health` (pubblico, nessun segreto) mostra lo stato in `antibot`: i client di fallback, quello
-preferito e l'esito dell'**ultima** richiesta (`last.status`).
+preferito, se c'è un proxy (`proxy`, `proxy_info`) e l'esito dell'**ultima** richiesta (`last.status`).
 
 | Variabile | Effetto |
 |---|---|
 | `YTDLP_COOKIES` | Contenuto di un `cookies.txt` (formato Netscape) dei TUOI cookie YouTube. Rimedio forte, il più affidabile. **È un SEGRETO** → impostalo come secret, mai in chiaro nel repo o in `fly.toml`. |
 | `YTDLP_COOKIES_FILE` | In alternativa, il percorso a un `cookies.txt` già montato nel container. Su Render un Secret File `cookies.txt` (`/etc/secrets/cookies.txt`) è rilevato da solo. |
-| `YTDLP_PROXY` | Proxy in uscita per yt-dlp (es. `http://utente:password@host:porta`), utile se l'IP del worker è bloccato. **SEGRETO** se contiene credenziali; non finisce mai nei log. |
+| `YTDLP_PROXY` | Proxy in uscita per yt-dlp, utile se l'IP del worker è bloccato: vedi [Impostare un proxy](#impostare-un-proxy). **SEGRETO** se contiene credenziali; non finisce mai nei log né in `/health`. |
+| `YTDLP_PROXY_CONNECT_TIMEOUT` | Secondi concessi al proxy per accettare la connessione prima di ogni richiesta (default `5`). Oltre, l'esito è `proxy_unreachable` senza avviare yt-dlp. |
 | `YTDLP_PLAYER_CLIENT` | Forza il client del PRIMO tentativo (CSV), es. `android` o `ios,web`. Vuoto = default di yt-dlp. |
 | `YTDLP_FALLBACK_CLIENTS` | Client provati dopo un controllo anti-bot (default `tv,android_vr,web_safari,mweb`). Vuoto = nessun fallback. |
 | `YTDLP_ANTIBOT_BUDGET_SECONDS` | Oltre questo tempo non si iniziano altri tentativi (default `25`; il bot di Solco aspetta 40 s). |
@@ -158,12 +162,54 @@ vengono scartate (contate in `skipped`), così nessun valore di cookie finisce n
 > I cookie danno accesso al tuo account YouTube: trattali come una password e usa un account secondario.
 > Scadono o vengono invalidati: se torna `youtube_bot_check` o `login_required`, riesportali.
 
+### Impostare un proxy
+
+L'alternativa ai cookie: far uscire yt-dlp da un IP che YouTube non blocca.
+
+- **Che proxy serve.** Un proxy **residenziale** o **mobile** di un fornitore a pagamento. I proxy
+  *datacenter* (e quasi tutti quelli gratuiti) sono bloccati come l'IP del worker: l'esito resta
+  `youtube_bot_check`, e il codice diventa `youtube_bot_check+proxy` per dirlo.
+- **Quanto traffico.** In modalità `serve` passa dal proxy **l'intero file**, non solo la richiesta
+  iniziale (YouTube lega il link del media all'IP che lo ha chiesto). I proxy residenziali si pagano a
+  GB: `MAX_FILESIZE_MB` (default `200`) è anche il tetto al consumo per singolo video.
+- **Dove si imposta.** Render → il servizio → **Environment** → variabile `YTDLP_PROXY` → salva (il
+  servizio riparte da solo). Su Fly: `fly secrets set YTDLP_PROXY="…"`. Mai nel repo.
+- **Formati accettati.** Incolla la stringa così come la dà il fornitore:
+
+  | Formato | Esempio |
+  |---|---|
+  | URL | `http://utente:password@host:porta` (anche `https://`, `socks5://`, `socks5h://`, `socks4://`) |
+  | host prima | `host:porta:utente:password` |
+  | credenziali prima | `utente:password:host:porta` |
+  | senza schema | `utente:password@host:porta`, oppure `host:porta` se il proxy autorizza per IP |
+
+  Senza schema si assume `http`; per un SOCKS5 in forma «a due punti» anteponi lo schema
+  (`socks5://host:porta:utente:password`). Una password con `@`, `:`, `/` o `#` va bene così com'è: il
+  worker la codifica da solo.
+- **Un proxy solo.** Se incolli un elenco (una riga per proxy, come lo scaricano i fornitori) viene
+  usato il primo leggibile, sempre lo stesso; `proxy_info.ignored` conta gli altri.
+- **Controlla** `GET /health` dopo il riavvio: `antibot.proxy` è `true` e `proxy_info.scheme` dice lo
+  schema letto. Se il valore non è interpretabile il proxy **non viene usato** e `proxy_info.error`
+  spiega perché (host e credenziali non compaiono mai).
+
+Alla prima richiesta, `antibot.last.status` dice com'è andata:
+
+| Esito | Significato | Rimedio |
+|---|---|---|
+| `ok` | YouTube risponde attraverso il proxy. | — |
+| `proxy_unreachable` | Host o porta non accettano connessioni (controllo fatto prima di avviare yt-dlp). | Controlla host e porta; il servizio proxy è attivo? |
+| `proxy_error` | Il proxy ha risposto ma ha rifiutato (es. `407`). | Utente/password, credito residuo, YouTube consentito dal piano, IP del worker autorizzato. |
+| `youtube_bot_check` | Il proxy funziona, ma YouTube blocca anche il suo IP. | Proxy residenziale/mobile, o i cookie. |
+
+Cookie e proxy si possono usare insieme.
+
 ## Diagnostica
 
 Il worker logga su stdout (`fly logs -a solco-ytdlp-worker`): all'avvio stampa la config risolta
 (`mode`, `auth`, `cookies`, `proxy`, `player_client`, `fallback`), poi ogni richiesta (`richiesta download: …`),
 l'esito (`download ok …`) e, su errore, il **motivo preciso** di yt-dlp per ogni client provato
-(`yt-dlp fallito (client=tv, esito=youtube_bot_check): …`).
+(`yt-dlp fallito (client=tv, esito=youtube_bot_check): …`). È l'unica riga per errore: yt-dlp non scrive
+la sua su stderr, e questa passa da un filtro che toglie l'URL e le credenziali del proxy.
 `GET /health` riporta anche `{"auth": …, "cookies": true|false, "player_client": …, "antibot": {…}}` per
 confermare al volo che l'env è attivo.
 
@@ -180,6 +226,6 @@ pip install -r requirements.txt httpx && python -m unittest -v test_antibot
 | **Trasporto (in transito)** | TLS ovunque: `force_https` in `fly.toml` cifra sia Solco→worker (`/download`) sia Telegram/utente→worker (`/file`). Niente HTTP in chiaro. |
 | **Auth — FAIL-CLOSED** | Senza `WORKER_API_KEY` il worker risponde **503 a tutto** (non parte mai «aperto» per sbaglio). `/download` esige `Authorization: Bearer <WORKER_API_KEY>`, confronto a tempo costante. Per i soli test locali: `WORKER_ALLOW_OPEN=1`. |
 | **Link ai file — FIRMATI + a scadenza** | In modalità `serve` l'URL è `/file/<id>?exp=<ts>&sig=<hmac>`: HMAC-SHA256 con `WORKER_API_KEY`, legato al nome file e a una scadenza = `FILE_TTL_SECONDS`. Non falsificabile senza la chiave e non riusabile dopo la scadenza; il file viene comunque cancellato alla stessa scadenza. Telegram può prelevarlo senza conoscere la chiave (basta il link firmato). |
-| **Segreti (a riposo)** | `WORKER_API_KEY` e `YTDLP_COOKIES` vanno impostati come **secret di Fly** (`fly secrets set …`) — cifrati a riposo, mai nel repo né in `fly.toml`. I log non stampano mai chiavi né cookie. |
+| **Segreti (a riposo)** | `WORKER_API_KEY`, `YTDLP_COOKIES` e `YTDLP_PROXY` vanno impostati come **secret di Fly** (`fly secrets set …`) — cifrati a riposo, mai nel repo né in `fly.toml`. I log non stampano mai chiavi, cookie o credenziali del proxy. |
 
 In breve: imposta `WORKER_API_KEY` come secret (lo STESSO valore di `YTDLP_SERVICE_KEY` su Vercel) e il canale è cifrato end-to-end, autenticato e con link usa-e-getta. `GET /health` → `"auth":"required"` conferma che è chiuso correttamente (`"unconfigured"` = manca la chiave = tutto 503).

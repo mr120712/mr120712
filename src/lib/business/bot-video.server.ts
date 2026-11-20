@@ -188,11 +188,15 @@ export type FetchLike = typeof fetch;
  * un generico "HTTP 502". Niente segreti: solo nomi di variabili, e il comando è visibile al solo owner.
  */
 const WORKER_FAILURE_HINTS = new Map<string, string>([
-  [
-    'youtube_bot_check',
-    'YouTube ha fermato il worker con il controllo anti-bot («Sign in to confirm you’re not a bot»), anche provando gli altri client: imposta YTDLP_COOKIES (o YTDLP_PROXY) sul worker',
-  ],
   ['rate_limited', 'YouTube sta limitando il worker (troppe richieste): riprova più tardi'],
+  [
+    'proxy_unreachable',
+    'il proxy impostato sul worker (YTDLP_PROXY) non è raggiungibile: controlla host e porta, e che il servizio proxy sia attivo',
+  ],
+  [
+    'proxy_error',
+    'il proxy impostato sul worker (YTDLP_PROXY) ha rifiutato la connessione: controlla utente e password, il credito residuo e che il piano consenta YouTube',
+  ],
   [
     'login_required',
     'il video richiede un accesso (limite d’età, privato o riservato agli iscritti): servono i cookie di un account, YTDLP_COOKIES sul worker',
@@ -204,10 +208,34 @@ const WORKER_FAILURE_HINTS = new Map<string, string>([
   ['file too large or not downloadable', 'il file è troppo grande o non è scaricabile'],
 ]);
 
+/**
+ * Il controllo anti-bot di YouTube, detto in base alle leve GIÀ attive sul worker: il codice arriva
+ * come `youtube_bot_check`, `youtube_bot_check+proxy`, `youtube_bot_check+cookies+proxy`. Così l'owner
+ * non si sente dire «imposta il proxy» quando il proxy c'è già ed è il suo IP a essere bloccato.
+ */
+function botCheckHint(levers: ReadonlySet<string>): string {
+  const blocked =
+    'YouTube ha fermato il worker con il controllo anti-bot («Sign in to confirm you’re not a bot»)';
+  const cookies = levers.has('cookies');
+  const proxy = levers.has('proxy');
+  if (cookies && proxy) {
+    return `${blocked} anche con i cookie e il proxy: riesporta cookies.txt sul worker e usa un proxy residenziale o mobile (non datacenter)`;
+  }
+  if (proxy) {
+    return `${blocked} anche passando dal proxy: il suo IP è bloccato come quello del worker; serve un proxy residenziale o mobile (non datacenter), oppure i cookie (YTDLP_COOKIES)`;
+  }
+  if (cookies) {
+    return `${blocked} anche con i cookie: sono scaduti o l’account è stato segnalato; riesporta cookies.txt sul worker, oppure imposta YTDLP_PROXY`;
+  }
+  return `${blocked}, anche provando gli altri client: imposta YTDLP_COOKIES (o YTDLP_PROXY) sul worker`;
+}
+
 /** Dettaglio leggibile di una risposta non-2xx del worker: codice noto → rimedio, altrimenti lo stato. */
 async function workerFailureDetail(res: Response): Promise<string> {
   const body = (await res.json().catch(() => null)) as { detail?: unknown } | null;
   const code = typeof body?.detail === 'string' ? body.detail : '';
+  const [kind, ...levers] = code.split('+');
+  if (kind === 'youtube_bot_check') return botCheckHint(new Set(levers));
   const hint = WORKER_FAILURE_HINTS.get(code);
   if (hint) return hint;
   if (res.status === 401) {

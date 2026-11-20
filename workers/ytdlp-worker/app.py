@@ -25,7 +25,9 @@
 #     Su Render basta un «Secret File» chiamato cookies.txt (/etc/secrets/cookies.txt): è usato da solo.
 #   - YTDLP_PLAYER_CLIENT    = client YouTube da forzare, CSV (es. "android" o "ios,web"); vuoto = default yt-dlp
 #   - YTDLP_FALLBACK_CLIENTS = client da provare, uno alla volta, DOPO un controllo anti-bot; vuoto = nessuno
-#   - YTDLP_PROXY            = proxy in uscita per yt-dlp (es. residenziale); è un SEGRETO se contiene credenziali
+#   - YTDLP_PROXY            = proxy in uscita per yt-dlp (es. residenziale); è un SEGRETO se contiene credenziali.
+#     Accetta l'URL (http://utente:password@host:porta, anche socks5://) e i formati dei fornitori
+#     (host:porta:utente:password, utente:password:host:porta). /health → antibot.proxy_info dice se è stato letto.
 import asyncio
 import hashlib
 import hmac
@@ -33,13 +35,14 @@ import logging
 import mimetypes
 import os
 import re
+import socket
 import time
 import uuid
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 import yt_dlp
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -80,7 +83,79 @@ def _csv(value: str) -> list[str]:
 FALLBACK_CLIENTS = _csv(os.environ.get("YTDLP_FALLBACK_CLIENTS", "tv,android_vr,web_safari,mweb"))
 # Tempo massimo oltre il quale non si INIZIANO altri tentativi (il bot di Solco aspetta 40s in tutto).
 ANTIBOT_BUDGET_SECONDS = float(os.environ.get("YTDLP_ANTIBOT_BUDGET_SECONDS", "25"))
-PROXY = os.environ.get("YTDLP_PROXY", "").strip()
+_PROXY_SCHEMES = {"http", "https", "socks4", "socks4a", "socks5", "socks5h"}
+_PROXY_HOSTPORT = re.compile(r"([A-Za-z0-9._-]+|\[[0-9A-Fa-f:.]+\]):(\d{1,5})")
+# Quanto si aspetta che il proxy accetti la connessione, prima di ogni lavoro di yt-dlp.
+PROXY_CONNECT_TIMEOUT = float(os.environ.get("YTDLP_PROXY_CONNECT_TIMEOUT", "5"))
+
+
+def _hostport(value: str) -> tuple[str, int] | None:
+    match = _PROXY_HOSTPORT.fullmatch(value)
+    port = int(match[2]) if match else 0
+    return (match[1], port) if match and 0 < port < 65536 else None
+
+
+def _normalize_proxy(raw: str) -> tuple[str, str | None]:
+    """(URL del proxy per yt-dlp, errore). Accetta l'URL classico e i formati in cui i fornitori
+    consegnano le credenziali — `host:porta:utente:password`, `utente:password:host:porta`,
+    `utente:password@host:porta`, `host:porta` — e li riscrive `schema://utente:password@host:porta`
+    con le credenziali codificate (un «@» o un «:» nella password spezzerebbero l'URL).
+
+    Un valore non interpretabile dà URL vuoto + il motivo: meglio nessun proxy che ogni richiesta
+    fallita. Il motivo finisce in /health, quindi non contiene MAI il valore."""
+    value = raw.strip().strip("\"'` ")
+    if not value:
+        return "", None
+    scheme, separator, rest = value.partition("://")
+    if not separator:
+        scheme, rest = "http", value
+    scheme = scheme.lower()
+    if scheme not in _PROXY_SCHEMES:
+        return "", "schema non supportato: usa http, https, socks4 o socks5"
+
+    def build(target: tuple[str, int], user: str | None, password: str | None) -> tuple[str, None]:
+        auth = ""
+        if user is not None:
+            secret = "" if password is None else f":{quote(password, safe='')}"
+            auth = f"{quote(user, safe='')}{secret}@"
+        return f"{scheme}://{auth}{target[0]}:{target[1]}", None
+
+    userinfo, at, tail = rest.rpartition("@")
+    target = _hostport(tail.rstrip("/"))
+    if target and at:  # utente[:password]@host:porta — forma URL: le credenziali possono essere già codificate
+        user, colon, password = userinfo.partition(":")
+        return build(target, unquote(user), unquote(password) if colon else None)
+    if target:  # host:porta
+        return build(target, None, None)
+    parts = rest.split(":")
+    if len(parts) >= 4:
+        head = _hostport(":".join(parts[:2]))
+        last = _hostport(":".join(parts[-2:]).rstrip("/"))
+        # Se reggono entrambe le letture (password di sole cifre) vince quella con un host «vero».
+        if head and last and "." not in head[0] and "." in last[0]:
+            head = None
+        if head:  # host:porta:utente:password
+            return build(head, parts[2], ":".join(parts[3:]))
+        if last:  # utente:password:host:porta
+            return build(last, parts[0], ":".join(parts[1:-2]))
+    return "", "formato non riconosciuto: usa http://utente:password@host:porta"
+
+
+def _first_proxy(raw: str) -> tuple[str, str | None, int]:
+    """(URL, errore, voci ignorate). I fornitori fanno scaricare ELENCHI, una riga per proxy: se in
+    YTDLP_PROXY ne arriva uno si usa il primo proxy leggibile, sempre lo stesso (YouTube lega i link
+    del media all'IP che li ha chiesti: cambiare proxy a metà lavoro li invaliderebbe)."""
+    entries = raw.split()
+    first_error: str | None = None
+    for entry in entries:
+        url, error = _normalize_proxy(entry)
+        if url:
+            return url, None, len(entries) - 1
+        first_error = first_error or error
+    return "", first_error, 0
+
+
+PROXY, PROXY_ERROR, PROXY_IGNORED = _first_proxy(os.environ.get("YTDLP_PROXY", ""))
 # Video pubblico e stabile usato dalla sonda GET /antibot (solo estrazione, nessun download).
 PROBE_URL = os.environ.get("YTDLP_PROBE_URL", "https://www.youtube.com/watch?v=jNQXAC9IVRw").strip()
 
@@ -102,10 +177,38 @@ _HINTS = {
         "account YouTube, meglio secondario) oppure YTDLP_PROXY, poi ridistribuisci."
     ),
     "rate_limited": "YouTube sta limitando questo IP (troppe richieste): aspetta, o usa YTDLP_PROXY.",
+    "proxy_unreachable": (
+        "Il proxy di YTDLP_PROXY non accetta connessioni: controlla host e porta, e che il servizio sia attivo."
+    ),
+    "proxy_error": (
+        "Il proxy di YTDLP_PROXY ha rifiutato la richiesta: controlla utente e password, il credito "
+        "residuo e che il piano consenta YouTube."
+    ),
     "login_required": "Il contenuto richiede un accesso: imposta YTDLP_COOKIES.",
     "unavailable": "Il video di prova non è disponibile da questo worker: cambia YTDLP_PROBE_URL.",
     "failed": "Errore non riconosciuto: guarda i log del worker per il motivo preciso di yt-dlp.",
 }
+
+
+def _active_levers() -> list[str]:
+    """Le leve anti-bot GIÀ attive su questo worker, nell'ordine usato nei codici (`+cookies+proxy`)."""
+    return [name for name, active in (("cookies", COOKIEFILE), ("proxy", PROXY)) if active]
+
+
+def _hint(status: str) -> str:
+    """Cosa fare per l'esito. Se il controllo anti-bot scatta con cookie o proxy GIÀ attivi, il
+    consiglio non è "impostali" ma cosa non va in quelli che ci sono."""
+    levers = _active_levers()
+    if status != "youtube_bot_check" or not levers:
+        return _HINTS.get(status, _HINTS["failed"])
+    advice = {
+        "cookies": "i cookie sono scaduti o l'account è stato segnalato: riesporta cookies.txt",
+        "proxy": (
+            "l'IP del proxy è bloccato come quello del worker: serve un proxy residenziale o mobile, "
+            "non datacenter"
+        ),
+    }
+    return "Il controllo anti-bot scatta lo stesso — " + "; ".join(advice[lever] for lever in levers) + "."
 
 
 class UpstreamFailure(Exception):
@@ -218,12 +321,23 @@ def _resolve_cookies() -> str | None:
     return str(COOKIES_RUNTIME_PATH)
 
 
+class _SilentLogger:
+    """yt-dlp scriverebbe ogni errore su stderr così com'è. Qui tace: _run_with_antibot registra già
+    lo stesso errore, una volta sola e passato da _redact (nessuna credenziale del proxy nei log)."""
+
+    def debug(self, _message: str) -> None:
+        pass
+
+    info = warning = error = debug
+
+
 def _base_opts() -> dict:
     """Opzioni yt-dlp comuni a extract/serve: retry, cookie e proxy. Il client YouTube lo sceglie
     _run_with_antibot, tentativo per tentativo."""
     opts: dict = {
         "quiet": True,
         "no_warnings": True,
+        "logger": _SilentLogger(),
         "noplaylist": True,
         "default_search": "ytsearch",
         "socket_timeout": 30,
@@ -238,12 +352,34 @@ def _base_opts() -> dict:
 
 
 def _redact(text: str) -> str:
-    """Toglie dai log l'URL del proxy (può contenere utente e password)."""
+    """Toglie dai log l'URL del proxy e le sue credenziali (anche nella forma non codificata)."""
     if not PROXY:
         return text
     text = text.replace(PROXY, "[proxy]")
-    password = urlsplit(PROXY).password
-    return text.replace(password, "***") if password else text
+    parsed = urlsplit(PROXY)
+    secrets = [parsed.password or ""]
+    if len(parsed.username or "") >= 6:  # uno username corto sporcherebbe parole innocue dei log
+        secrets.append(parsed.username or "")
+    for secret in filter(None, secrets):
+        for form in {secret, unquote(secret)}:
+            text = text.replace(form, "***")
+    return text
+
+
+# Come yt-dlp racconta un proxy che rifiuta o non risponde (testi reali: 407 sul tunnel, porta chiusa,
+# SOCKS che nega la connessione). Un proxy SOCKS irraggiungibile non nomina il proxy: vedi sotto.
+_PROXY_FAILURES = ("proxyerror", "unable to connect to proxy", "tunnel connection failed")
+
+
+def _proxy_reachable() -> bool:
+    """Il proxy accetta connessioni? Controllo TCP breve PRIMA di yt-dlp: con host o porta sbagliati
+    yt-dlp resterebbe appeso fino al timeout (e il bot di Solco con lui) senza dire perché."""
+    parsed = urlsplit(PROXY)
+    try:
+        with socket.create_connection((parsed.hostname, parsed.port), timeout=PROXY_CONNECT_TIMEOUT):
+            return True
+    except OSError:
+        return False
 
 
 def _classify_error(exc: BaseException) -> str:
@@ -252,6 +388,11 @@ def _classify_error(exc: BaseException) -> str:
     text = str(exc).replace("’", "'").lower()
     if "not a bot" in text:
         return "youtube_bot_check"
+    # Prima del 429: anche il proxy può rispondere "Too Many Requests" sul tunnel, ed è un suo rifiuto.
+    if any(marker in text for marker in _PROXY_FAILURES) or (
+        "sockshttp" in text and "failed to establish a new connection" in text
+    ):
+        return "proxy_error"
     if "http error 429" in text or "too many requests" in text or "try again later" in text:
         return "rate_limited"
     if (
@@ -305,6 +446,10 @@ def _run_with_antibot(
     non si risolvono così e fermano subito i tentativi.
     """
     global _PREFERRED_CLIENT
+    if PROXY and not _proxy_reachable():
+        log.warning("proxy non raggiungibile entro %.0fs: yt-dlp non viene avviato", PROXY_CONNECT_TIMEOUT)
+        _note_outcome("proxy_unreachable", None)
+        raise UpstreamFailure("proxy_unreachable", [])
     deadline = time.monotonic() + ANTIBOT_BUDGET_SECONDS
     tried: list[str] = []
     kind = "failed"
@@ -339,8 +484,13 @@ def _run_with_antibot(
 
 
 def _upstream_http(failure: UpstreamFailure, generic: str) -> HTTPException:
-    """502 con `detail` = codice riconosciuto (es. youtube_bot_check) o il messaggio generico di prima."""
-    return HTTPException(status_code=502, detail=generic if failure.kind == "failed" else failure.kind)
+    """502 con `detail` = codice riconosciuto (es. youtube_bot_check) o il messaggio generico di prima.
+    Al controllo anti-bot si accodano le leve già attive (`youtube_bot_check+cookies+proxy`): così Solco
+    non consiglia di impostare ciò che c'è già."""
+    if failure.kind == "failed":
+        return HTTPException(status_code=502, detail=generic)
+    levers = _active_levers() if failure.kind == "youtube_bot_check" else []
+    return HTTPException(status_code=502, detail="+".join([failure.kind, *levers]))
 
 
 def _check_auth(authorization: str | None) -> None:
@@ -397,11 +547,15 @@ async def lifespan(_app: FastAPI):
         MODE,
         auth_state,
         "si" if COOKIEFILE else "no",
-        "si" if PROXY else "no",
+        urlsplit(PROXY).scheme if PROXY else "no",
         PLAYER_CLIENT or "default",
         ",".join(FALLBACK_CLIENTS) or "nessuno",
         MAX_FILESIZE_MB,
     )
+    if PROXY_ERROR:
+        log.warning("YTDLP_PROXY ignorato: %s", PROXY_ERROR)
+    if PROXY_IGNORED:
+        log.warning("YTDLP_PROXY contiene un elenco: uso il primo proxy leggibile, ignoro gli altri %s", PROXY_IGNORED)
     if not API_KEY and not ALLOW_OPEN:
         log.warning("WORKER_API_KEY non impostata: ogni richiesta risponderà 503 finché non la imposti.")
     task = asyncio.create_task(_cleanup_loop()) if MODE == "serve" else None
@@ -428,6 +582,13 @@ def health() -> dict:
             "fallback_clients": FALLBACK_CLIENTS,
             "preferred_client": _PREFERRED_CLIENT,
             "proxy": bool(PROXY),
+            # Schema del proxy accettato, o perché YTDLP_PROXY è stato scartato; `ignored` conta le altre
+            # voci di un elenco (se ne usa una sola). Mai host o credenziali.
+            "proxy_info": {
+                "scheme": urlsplit(PROXY).scheme if PROXY else None,
+                "error": PROXY_ERROR,
+                "ignored": PROXY_IGNORED,
+            },
             "last": dict(_LAST_OUTCOME),
         },
     }
@@ -455,7 +616,7 @@ def antibot(authorization: str | None = Header(default=None)) -> dict:
         "cookies": bool(COOKIEFILE),
         "proxy": bool(PROXY),
         "seconds": round(time.monotonic() - started, 1),
-        "hint": _HINTS.get(status, _HINTS["failed"]),
+        "hint": _hint(status),
     }
 
 

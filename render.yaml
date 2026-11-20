@@ -32,5 +32,8 @@ services:
       # (mounted at /etc/secrets/cookies.txt, picked up automatically). Or as a variable:
       # - key: YTDLP_COOKIES
       #   sync: false
+      # Proxy (residential/mobile — datacenter proxies get the same bot check). Paste it the way the
+      # provider hands it out: http://user:pass@host:port, host:port:user:pass or user:pass:host:port.
+      # GET /health → antibot.proxy_info shows whether it was read (never the host or the credentials).
       # - key: YTDLP_PROXY
       #   sync: false

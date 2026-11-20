@@ -187,6 +187,21 @@ describe('resolveVideoDownload', () => {
     const botCheck = await failure(502, { detail: 'youtube_bot_check' });
     expect(botCheck).toContain('controllo anti-bot');
     expect(botCheck).toContain('YTDLP_COOKIES');
+    expect(botCheck).toContain('YTDLP_PROXY');
+    // Con una leva GIÀ attiva sul worker il consiglio cambia: non «impostala», ma cosa non va in quella.
+    const viaProxy = await failure(502, { detail: 'youtube_bot_check+proxy' });
+    expect(viaProxy).toContain('anche passando dal proxy');
+    expect(viaProxy).toContain('residenziale');
+    expect(viaProxy).not.toContain('YTDLP_PROXY');
+    const withCookies = await failure(502, { detail: 'youtube_bot_check+cookies' });
+    expect(withCookies).toContain('riesporta cookies.txt');
+    expect(withCookies).toContain('YTDLP_PROXY');
+    const withBoth = await failure(502, { detail: 'youtube_bot_check+cookies+proxy' });
+    expect(withBoth).toContain('anche con i cookie e il proxy');
+    expect(withBoth).not.toContain('imposta');
+    // Proxy configurato male: il messaggio dice quale parte controllare.
+    expect(await failure(502, { detail: 'proxy_unreachable' })).toContain('host e porta');
+    expect(await failure(502, { detail: 'proxy_error' })).toContain('utente e password');
     expect(await failure(502, { detail: 'rate_limited' })).toContain('troppe richieste');
     expect(await failure(502, { detail: 'login_required' })).toContain('YTDLP_COOKIES');
     expect(await failure(502, { detail: 'unavailable' })).toContain('non è disponibile');
