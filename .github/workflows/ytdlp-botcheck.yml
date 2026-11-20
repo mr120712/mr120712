@@ -1,0 +1,91 @@
+# @polsia:user-owned — misura del controllo anti-bot di YouTube per il worker yt-dlp.
+# Il worker (workers/ytdlp-worker, su Render) parte da un IP da datacenter, e YouTube a quegli IP
+# risponde spesso «Sign in to confirm you're not a bot». Questo giro prova, da un runner GitHub
+# (anche lui un IP da datacenter, ma con accesso a YouTube), quali client e quali leve superano il
+# controllo: è il dato su cui si decide la scala di tentativi del worker.
+# Solo a mano (Actions → "Worker yt-dlp: controllo anti-bot" → Run workflow). Nessun segreto:
+# richieste anonime a YouTube, niente accesso al worker in produzione.
+name: 'Worker yt-dlp: controllo anti-bot'
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Video da provare'
+        type: string
+        default: 'https://www.youtube.com/watch?v=hTWKbfoikeg'
+      configs:
+        description: 'Configurazioni in JSON (vuoto = quelle dello script)'
+        type: string
+        default: ''
+      provider:
+        description: 'Provider di PO Token da avviare'
+        type: choice
+        options: [node, deno, none]
+        default: node
+      download:
+        description: 'Scarica davvero con le configurazioni che passano'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ytdlp-botcheck
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    name: Misura da un IP da datacenter
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Scarica lo script e i requisiti del worker
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            .github/scripts
+            workers/ytdlp-worker
+          persist-credentials: false
+
+      - name: Prepara Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Installa yt-dlp come nel worker, più il plugin dei PO Token
+        run: |
+          python -m pip install --quiet --upgrade pip
+          python -m pip install --quiet -r workers/ytdlp-worker/requirements.txt bgutil-ytdlp-pot-provider==2.0.2
+          python -m pip list | grep -i -E 'yt-dlp|bgutil|deno'
+
+      - name: Da dove esce il traffico
+        run: curl -fsS -m 15 https://ipinfo.io/json | jq '{org, country, region}' || true
+
+      - name: Avvia il provider di PO Token
+        if: inputs.provider != 'none'
+        env:
+          FLAVOR: ${{ inputs.provider }}
+        run: |
+          tag=2.0.2
+          if [ "$FLAVOR" = deno ]; then tag=2.0.2-deno; fi
+          docker run --name bgutil -d --init -p 127.0.0.1:4416:4416 "brainicism/bgutil-ytdlp-pot-provider:$tag"
+          for attempt in $(seq 1 30); do
+            if curl -fsS -m 3 http://127.0.0.1:4416/ping; then echo; break; fi
+            sleep 2
+          done
+          docker stats --no-stream bgutil
+
+      - name: Prova le configurazioni
+        env:
+          PROBE_URL: ${{ inputs.url }}
+          PROBE_CONFIGS: ${{ inputs.configs }}
+          PROBE_DOWNLOAD: ${{ inputs.download && 'ok' || 'none' }}
+        run: python .github/scripts/ytdlp_botcheck.py
+
+      - name: Stato del provider a fine giro
+        if: always() && inputs.provider != 'none'
+        run: |
+          docker stats --no-stream bgutil || true
+          docker logs --tail 80 bgutil 2>&1 | cut -c1-300 || true
