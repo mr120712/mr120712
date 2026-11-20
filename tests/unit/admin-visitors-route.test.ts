@@ -15,6 +15,7 @@ vi.mock('@/lib/db', () => ({ prisma: { $queryRaw: mocks.queryRaw } }));
 vi.mock('@/lib/site', () => ({ siteUrl: 'https://www.solcomusic.online' }));
 
 import { GET } from '@/app/api/admin/visitors/route';
+import { romeDayKey } from '@/lib/admin/signups';
 import { AdminVisitorsSchema } from '@/lib/contracts/admin-visitors';
 
 const admin = { id: 'admin-1', role: 'admin', emailVerified: true };
@@ -29,7 +30,9 @@ function rawRows() {
     if (text.includes('"device"')) return [{ device: 'mobile', visitors: 6n }];
     if (text.includes('"country"')) return [{ country: 'IT', visitors: 7n, ip: '203.0.113.7' }];
     if (text.includes('"path"')) return [{ path: '/', visitors: 7n, views: 12n }];
-    return [{ day: new Date().toISOString().slice(0, 10), visitors: 7n, views: 12n }];
+    // Il giorno è quello italiano, come lo calcola la route: fra le 23:00 e le 24:00 UTC (d'estate
+    // dalle 22:00) in Italia è già domani, e il giorno UTC non comparirebbe come «oggi».
+    return [{ day: romeDayKey(new Date()), visitors: 7n, views: 12n }];
   });
 }
 
