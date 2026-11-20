@@ -12,6 +12,9 @@ afterEach(() => {
 
 /** Loads the helper with a fresh env so NEXT_PUBLIC_APP_URL is re-read. */
 async function load(appUrl = PUBLIC_URL, trusted = '') {
+  // Il modulo importa @/lib/env, che valida TUTTE le env al load; qui ci serve solo
+  // NEXT_PUBLIC_APP_URL, quindi saltiamo la validazione (bypass documentato in AGENTS.md).
+  vi.stubEnv('SKIP_ENV_VALIDATION', '1');
   vi.stubEnv('DATABASE_URL', DATABASE_URL);
   vi.stubEnv('NEXT_PUBLIC_APP_URL', appUrl);
   vi.stubEnv('BETTER_AUTH_TRUSTED_ORIGINS', trusted);

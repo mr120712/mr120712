@@ -9,6 +9,9 @@ const { MAX_IDLE_CONNECTION_LIFETIME_SECONDS, withIdleConnectionLimit } = await 
 );
 
 const limit = `max_idle_connection_lifetime=${MAX_IDLE_CONNECTION_LIFETIME_SECONDS}`;
+// URL Postgres validi: withIdleConnectionLimit riscrive solo gli URL postgres(ql)://.
+const PG = 'postgresql://user:pass@host:5432';
+const PG_ENCODED = 'postgresql://user:p%40ss%3Aword@host:5432'; // credenziali con codifica %-
 
 describe('withIdleConnectionLimit', () => {
   test('stays below the 10 s sandbox freeze delay', () => {
@@ -16,24 +19,24 @@ describe('withIdleConnectionLimit', () => {
   });
 
   test('adds the limit to a URL without a query string', () => {
-    expect(withIdleConnectionLimit('REDACTED/db')).toBe(`REDACTED/db?${limit}`);
+    expect(withIdleConnectionLimit(`${PG}/db`)).toBe(`${PG}/db?${limit}`);
   });
 
   test('appends the limit after existing parameters', () => {
-    expect(withIdleConnectionLimit('REDACTED/db?sslmode=require&pgbouncer=true')).toBe(
-      `REDACTED/db?sslmode=require&pgbouncer=true&${limit}`,
+    expect(withIdleConnectionLimit(`${PG}/db?sslmode=require&pgbouncer=true`)).toBe(
+      `${PG}/db?sslmode=require&pgbouncer=true&${limit}`,
     );
-    expect(withIdleConnectionLimit('REDACTED/db?sslmode=require&')).toBe(
-      `REDACTED/db?sslmode=require&${limit}`,
+    expect(withIdleConnectionLimit(`${PG}/db?sslmode=require&`)).toBe(
+      `${PG}/db?sslmode=require&${limit}`,
     );
   });
 
   test('keeps the encoded credentials as they are', () => {
-    expect(withIdleConnectionLimit('REDACTED/db')).toBe(`REDACTED/db?${limit}`);
+    expect(withIdleConnectionLimit(`${PG_ENCODED}/db`)).toBe(`${PG_ENCODED}/db?${limit}`);
   });
 
   test('keeps a value the app already set', () => {
-    const url = 'REDACTED/db?MAX_IDLE_CONNECTION_LIFETIME=60';
+    const url = `${PG}/db?MAX_IDLE_CONNECTION_LIFETIME=60`;
     expect(withIdleConnectionLimit(url)).toBe(url);
   });
 
@@ -43,6 +46,6 @@ describe('withIdleConnectionLimit', () => {
     expect(withIdleConnectionLimit('prisma+postgres://accelerate.prisma-data.net/?api_key=k')).toBe(
       'prisma+postgres://accelerate.prisma-data.net/?api_key=k',
     );
-    expect(withIdleConnectionLimit('REDACTED/db#x')).toBe('REDACTED/db#x');
+    expect(withIdleConnectionLimit(`${PG}/db#x`)).toBe(`${PG}/db#x`);
   });
 });

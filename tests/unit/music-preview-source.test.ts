@@ -95,7 +95,7 @@ describe('ispezione del file audio privato caricato', () => {
 
     await expect(
       inspectPrivateEvidenceFile('private/rights.pdf', 'application/pdf', bytes.length),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({ mimeType: 'application/pdf', byteLength: bytes.length });
   });
 
   it('rifiuta una prova il cui contenuto non corrisponde al tipo file dichiarato', async () => {
