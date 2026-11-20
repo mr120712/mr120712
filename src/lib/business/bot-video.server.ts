@@ -12,6 +12,7 @@
 import 'server-only';
 import { z } from 'zod';
 import { freellmapiJson } from '@/lib/business/ai-freellmapi.server';
+import { ownerTelegramChatIds } from '@/lib/business/telegram-owner-chats';
 
 type Env = Record<string, string | undefined>;
 const clean = (value: string | undefined): string | undefined =>
@@ -75,13 +76,9 @@ export function ytdlpServiceKey(env: Env = process.env): string | undefined {
   return clean(env.YTDLP_SERVICE_KEY);
 }
 
-/** Le chat Telegram degli amministratori (owner): SKYNET_TELEGRAM_CHAT_IDS (CSV di id). */
+/** True se la chat è fra quelle dell'owner (SKYNET_TELEGRAM_CHAT_IDS, vedi ownerTelegramChatIds). */
 export function isAdminTelegramChat(chatId: string, env: Env = process.env): boolean {
-  const ids = (clean(env.SKYNET_TELEGRAM_CHAT_IDS) ?? '')
-    .split(',')
-    .map((id) => id.trim())
-    .filter(Boolean);
-  return ids.length > 0 && ids.includes(chatId);
+  return ownerTelegramChatIds(env).includes(chatId);
 }
 
 /**

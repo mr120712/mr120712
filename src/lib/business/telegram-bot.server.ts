@@ -1,6 +1,7 @@
 // @polsia:user-owned — client minimale del bot Telegram (invio messaggi, diagnostica, webhook) e
 // utilità del link invito.
 import 'server-only';
+import { ownerTelegramChatIds } from '@/lib/business/telegram-owner-chats';
 import { env } from '@/lib/env';
 import { inviteUrlForCode, publicRewardsUrl } from '@/lib/public-links';
 
@@ -602,14 +603,6 @@ const VIDEO_COMMAND = {
 /** Comandi mostrati agli owner (le chat in SKYNET_TELEGRAM_CHAT_IDS): i pubblici + /video. */
 export const TELEGRAM_OWNER_COMMANDS = [...TELEGRAM_BOT_COMMANDS, VIDEO_COMMAND] as const;
 
-/** Le chat admin/owner da SKYNET_TELEGRAM_CHAT_IDS (CSV di id numerici). */
-function ownerTelegramChatIds(): number[] {
-  return (process.env.SKYNET_TELEGRAM_CHAT_IDS ?? '')
-    .split(',')
-    .map((id) => Number(id.trim()))
-    .filter((id) => Number.isFinite(id) && id !== 0);
-}
-
 /**
  * Registra i comandi del bot (menu "/"). Best-effort.
  * - Pubblici (scope default) per TUTTI gli utenti.
@@ -618,7 +611,7 @@ function ownerTelegramChatIds(): number[] {
 export async function setTelegramCommands(): Promise<boolean> {
   const base = await telegramApi('setMyCommands', { commands: TELEGRAM_BOT_COMMANDS });
   let scopedOk = true;
-  for (const chat_id of ownerTelegramChatIds()) {
+  for (const chat_id of ownerTelegramChatIds().map(Number)) {
     const res = await telegramApi('setMyCommands', {
       commands: TELEGRAM_OWNER_COMMANDS,
       scope: { type: 'chat', chat_id },

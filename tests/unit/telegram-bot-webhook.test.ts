@@ -1,6 +1,6 @@
 // @polsia:user-owned
 // @vitest-environment node
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
@@ -391,5 +391,46 @@ describe('POST /api/telegram/webhook (bot)', () => {
     expect(mocks.sendAudio).toHaveBeenCalled();
     const lastText = String(mocks.send.mock.calls.at(-1)?.[1] ?? '');
     expect(lastText).toContain('https://blob.example/primo.mp3');
+  });
+});
+
+describe('POST /api/telegram/webhook — /id e comando riservato /video', () => {
+  afterEach(() => {
+    delete process.env.SKYNET_TELEGRAM_CHAT_IDS;
+    delete process.env.YTDLP_SERVICE_URL;
+  });
+
+  it('/id dice l’ID della chat a chiunque, senza accennare ai comandi riservati', async () => {
+    await POST(req(msg('/id')));
+    expect(lastSend().text).toContain('<code>123</code>');
+    expect(lastSend().text).not.toContain('owner');
+  });
+
+  it('/id conferma l’owner solo nella sua chat privata (ID incollato con virgolette e spazi)', async () => {
+    process.env.SKYNET_TELEGRAM_CHAT_IDS = ' "123" ; 456';
+    await POST(req(msg('/id')));
+    expect(lastSend().text).toContain('riconosciuta come owner');
+
+    mocks.send.mockClear();
+    await POST(req(groupMsg('/id')));
+    expect(lastSend().text).toContain('<code>123</code>');
+    expect(lastSend().text).not.toContain('owner');
+  });
+
+  it('/video: silenzio totale per chi non è owner, anche in un gruppo dell’owner', async () => {
+    const res = await POST(req(msg('/video https://youtu.be/abc')));
+    expect(res.status).toBe(200);
+    expect(mocks.send).not.toHaveBeenCalled();
+
+    process.env.SKYNET_TELEGRAM_CHAT_IDS = '123';
+    await POST(req(groupMsg('/video https://youtu.be/abc')));
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it('/video: per l’owner in privato parte (senza worker configurato lo dice)', async () => {
+    process.env.SKYNET_TELEGRAM_CHAT_IDS = '123';
+    await POST(req(msg('/video https://youtu.be/abc')));
+    const texts = mocks.send.mock.calls.map((call) => String(call[1]));
+    expect(texts.some((text) => text.includes('YTDLP_SERVICE_URL'))).toBe(true);
   });
 });

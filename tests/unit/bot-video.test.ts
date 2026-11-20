@@ -69,6 +69,16 @@ describe('isAdminTelegramChat', () => {
     expect(isAdminTelegramChat('999', env)).toBe(false);
     expect(isAdminTelegramChat('222', {})).toBe(false);
   });
+
+  it('tollera come l’ID viene incollato: virgolette, spazi, a capo, punto e virgola', () => {
+    for (const value of ['"222"', " '222' ", '111;222', '111\n222', '111 222', '`222`,']) {
+      expect(isAdminTelegramChat('222', { SKYNET_TELEGRAM_CHAT_IDS: value }), value).toBe(true);
+    }
+    // I gruppi hanno ID negativi; un valore non numerico (username, vuoto) non autorizza nessuno.
+    expect(isAdminTelegramChat('-100123', { SKYNET_TELEGRAM_CHAT_IDS: '-100123' })).toBe(true);
+    expect(isAdminTelegramChat('222', { SKYNET_TELEGRAM_CHAT_IDS: '@utente222' })).toBe(false);
+    expect(isAdminTelegramChat('', { SKYNET_TELEGRAM_CHAT_IDS: ' , ' })).toBe(false);
+  });
 });
 
 describe('extractUrl', () => {

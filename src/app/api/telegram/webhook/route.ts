@@ -150,6 +150,19 @@ async function handleUpdate(
     return;
   }
 
+  // /id → l'ID numerico di QUESTA chat: serve all'owner per compilare SKYNET_TELEGRAM_CHAT_IDS (il valore
+  // che sblocca i comandi riservati). Non elencato nel menu e non rivela nulla di quei comandi: la
+  // conferma «riconosciuta come owner» compare SOLO nella chat privata dell'owner stesso.
+  if (/^\/id(@\w+)?$/.test(text)) {
+    const owner = chatType === 'private' && isAdminTelegramChat(chatId);
+    await sendTelegramMessage(
+      chatId,
+      `ID di questa chat: <code>${escapeTelegramHtml(chatId)}</code>${owner ? '\n✅ Chat riconosciuta come owner.' : ''}`,
+      { parseMode: 'HTML' },
+    );
+    return;
+  }
+
   // /cerca <parole> → musica Creative Commons (Audius + radio + podcast), riproducibile su Solco.
   const search = /^\/(?:cerca|search|trova)(?:@\w+)?(?:\s+([\s\S]+))?$/.exec(text);
   if (search) {
