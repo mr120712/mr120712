@@ -40,8 +40,7 @@ export const dynamic = 'force-dynamic';
 /** /cerca, /scarica, /video fanno lavoro di rete (ricerca, invio file, worker esterno): margine ampio. */
 export const maxDuration = 60;
 
-const CONNECT_HINT =
-  'Per ricevere il tuo codice di invito, collega il tuo account: apri Solco → Premi → «Ricevi il codice su Telegram».';
+const CONNECT_HINT = 'Apri Solco per collegare il tuo account 👇';
 
 const HELP_TEXT =
   '<b>Solco Music</b> 🎧\n\nEcco cosa posso fare:\n• /menu — il menu con i pulsanti\n• /cerca parole — trova musica Creative Commons\n• /scarica — scarica i TUOI brani caricati su Solco\n• /codice — il tuo codice di invito\n• /invito — il tuo link di invito\n• /app — apri Solco (Mini App)\n\nTocca <b>Apri Solco</b> per aprire l’app qui dentro, come Mini App.';
