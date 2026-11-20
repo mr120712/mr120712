@@ -7,6 +7,11 @@
 import 'server-only';
 import { timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
+import {
+  botVideoExperimentalEnabled,
+  isAdminTelegramChat,
+  requestBotVideo,
+} from '@/lib/business/bot-video.server';
 import { enforceRateLimit } from '@/lib/business/rate-limit.server';
 import { readJsonLimited } from '@/lib/business/request-body.server';
 import { ensureReferralCode } from '@/lib/business/rewards.server';
@@ -31,7 +36,7 @@ import { botSearch } from '@/lib/music/bot-search.server';
 import { getOwnUploadForDownload, listMyPublicUploads } from '@/lib/music/public-uploads.server';
 
 export const dynamic = 'force-dynamic';
-/** /cerca e /scarica fanno lavoro di rete (ricerca, invio file): margine ampio oltre il default. */
+/** /cerca, /scarica, /video fanno lavoro di rete (ricerca, invio file, worker esterno): margine ampio. */
 export const maxDuration = 60;
 
 const CONNECT_HINT =
@@ -252,6 +257,58 @@ async function handleUpdate(
         { disableWebPagePreview: true },
       );
     }
+    return;
+  }
+
+  // /video <url|descrizione> → SPERIMENTALE, owner-only (chat admin, in privato): l'AI interpreta la
+  // richiesta e un worker yt-dlp ESTERNO risolve il media; il bot risponde col link. Gestito solo quando
+  // la funzione è accesa (BOT_VIDEO_EXPERIMENTAL) E la chat è autorizzata (SKYNET_TELEGRAM_CHAT_IDS):
+  // altrimenti ricade nel messaggio generico, così resta invisibile a chi non deve vederla.
+  const video = /^\/(?:video|yt)(?:@\w+)?(?:\s+([\s\S]+))?$/.exec(text);
+  if (video && botVideoExperimentalEnabled() && isAdminTelegramChat(chatId)) {
+    if (chatType !== 'private') {
+      await sendTelegramMessage(chatId, 'Usa /video solo nella chat privata col bot.', {
+        replyMarkup: miniAppKeyboard(chatType),
+      });
+      return;
+    }
+    const input = (video[1] ?? '').trim().slice(0, 500);
+    if (!input) {
+      await sendTelegramMessage(
+        chatId,
+        'Uso: <b>/video url o descrizione</b> (sperimentale)\nEs. <i>/video https://…</i>',
+        { parseMode: 'HTML' },
+      );
+      return;
+    }
+    const limited = await enforceRateLimit('bot.video', `tg:${chatId}`);
+    if (limited) {
+      await sendTelegramMessage(chatId, 'Troppi download di fila: riprova tra poco.');
+      return;
+    }
+    await sendTelegramMessage(chatId, '⏳ Cerco e preparo il video… (sperimentale)');
+    const outcome = await requestBotVideo(input);
+    if (outcome.status === 'not_configured') {
+      await sendTelegramMessage(
+        chatId,
+        'Funzione sperimentale non configurata: manca il worker yt-dlp (imposta <code>YTDLP_SERVICE_URL</code>).',
+        { parseMode: 'HTML' },
+      );
+      return;
+    }
+    if (outcome.status === 'failed') {
+      await sendTelegramMessage(
+        chatId,
+        `Non sono riuscito a prendere il video: ${escapeTelegramHtml(outcome.detail)}.`,
+        { parseMode: 'HTML' },
+      );
+      return;
+    }
+    await sendTelegramMessage(
+      chatId,
+      `🎬 <b>${escapeTelegramHtml(outcome.result.title)}</b>\n${escapeTelegramHtml(outcome.result.mediaUrl)}\n\n<i>Sperimentale · link diretto al media.</i>`,
+      { parseMode: 'HTML', disableWebPagePreview: false },
+    );
     return;
   }
 

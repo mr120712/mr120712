@@ -124,6 +124,12 @@ export const ACTION_RATE_LIMITS = {
     { requests: 20, windowMs: 60_000 },
     { requests: 300, windowMs: 86_400_000 },
   ],
+  // Funzione sperimentale /video del bot: ogni chiamata passa dall'AI e da un worker yt-dlp esterno
+  // (lavoro reale). Owner-only, quindi basso volume: pochi al minuto, qualche decina al giorno per chat.
+  'bot.video': [
+    { requests: 5, windowMs: 60_000 },
+    { requests: 50, windowMs: 86_400_000 },
+  ],
   'solco.pro.write': [
     { requests: 20, windowMs: 60_000 },
     { requests: 200, windowMs: 86_400_000 },
@@ -603,6 +609,7 @@ const actionLabels: Record<RateLimitAction, string> = {
   'monitor.run.admin': 'i controlli manuali',
   'telegram.announce.admin': 'gli annunci su Telegram',
   'telegram.webhook': 'i comandi al bot Telegram',
+  'bot.video': 'i download video sperimentali',
   'solco.pro.write': 'le modifiche a Solco Pro',
   'listening.write': 'le modifiche agli ascolti',
   'music.ai_search': 'le ricerche con l’AI',
