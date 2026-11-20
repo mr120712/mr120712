@@ -122,7 +122,7 @@ preferito e l'esito dell'**ultima** richiesta (`last.status`).
 | Variabile | Effetto |
 |---|---|
 | `YTDLP_COOKIES` | Contenuto di un `cookies.txt` (formato Netscape) dei TUOI cookie YouTube. Rimedio forte, il più affidabile. **È un SEGRETO** → impostalo come secret, mai in chiaro nel repo o in `fly.toml`. |
-| `YTDLP_COOKIES_FILE` | In alternativa, il percorso a un `cookies.txt` già montato nel container. |
+| `YTDLP_COOKIES_FILE` | In alternativa, il percorso a un `cookies.txt` già montato nel container. Su Render un Secret File `cookies.txt` (`/etc/secrets/cookies.txt`) è rilevato da solo. |
 | `YTDLP_PROXY` | Proxy in uscita per yt-dlp (es. `http://utente:password@host:porta`), utile se l'IP del worker è bloccato. **SEGRETO** se contiene credenziali; non finisce mai nei log. |
 | `YTDLP_PLAYER_CLIENT` | Forza il client del PRIMO tentativo (CSV), es. `android` o `ios,web`. Vuoto = default di yt-dlp. |
 | `YTDLP_FALLBACK_CLIENTS` | Client provati dopo un controllo anti-bot (default `tv,android_vr,web_safari,mweb`). Vuoto = nessun fallback. |
@@ -133,18 +133,30 @@ preferito e l'esito dell'**ultima** richiesta (`last.status`).
 protegge i formati con "challenge" JavaScript e yt-dlp, senza un runtime che le risolva, ripiega
 sull'estrazione senza JavaScript, che dichiara deprecata e con formati mancanti.
 
-Esporta i cookie con un'estensione «Get cookies.txt» dal browser dove sei loggato su YouTube, poi:
+### Impostare i cookie (il rimedio quando l'esito è `youtube_bot_check`)
 
-```powershell
-# PowerShell
-fly secrets set YTDLP_COOKIES="$(Get-Content cookies.txt -Raw)" -a solco-ytdlp-worker
-```
-```bash
-# bash
-fly secrets set YTDLP_COOKIES="$(cat cookies.txt)" -a solco-ytdlp-worker
-```
+1. **Esporta `cookies.txt`** da un browser su computer, con un account YouTube **secondario**:
+   apri una finestra in incognito, accedi a YouTube, poi nella stessa scheda vai su
+   `https://www.youtube.com/robots.txt` ed esporta i cookie di quella scheda con un'estensione tipo
+   «Get cookies.txt LOCALLY» (formato Netscape). Chiudi la finestra in incognito senza fare logout:
+   così la sessione non viene più usata dal browser e i cookie non vengono ruotati.
+2. **Dalli al worker** in uno di questi modi (dal più comodo):
+   - **Render → Environment → Secret Files**: aggiungi un file chiamato esattamente `cookies.txt` e
+     incolla il contenuto. Viene montato in `/etc/secrets/cookies.txt` e il worker lo usa da solo.
+   - Variabile `YTDLP_COOKIES` con il contenuto del file (secret), oppure `YTDLP_COOKIES_FILE` con il
+     percorso di un file già montato.
+   - Fly: `fly secrets set YTDLP_COOKIES="$(cat cookies.txt)" -a solco-ytdlp-worker`
+     (PowerShell: `"$(Get-Content cookies.txt -Raw)"`).
+3. **Controlla** `GET /health` dopo il riavvio: `cookies_info` dice da dove sono stati presi
+   (`source`), quanti sono (`count`) e se ce ne sono di YouTube (`youtube`), senza mai mostrare nomi o
+   valori. Con `count: 0` c'è un `error` che spiega perché.
 
-> I cookie danno accesso al tuo account YouTube: trattali come una password. Usa un account secondario se puoi.
+Il worker lavora sempre su una copia scrivibile e **ripara** ciò che un campo web fa a questo file: fine
+riga Windows, TAB diventati spazi, righe fuse in una sola, intestazione mancante. Le righe illeggibili
+vengono scartate (contate in `skipped`), così nessun valore di cookie finisce nei log.
+
+> I cookie danno accesso al tuo account YouTube: trattali come una password e usa un account secondario.
+> Scadono o vengono invalidati: se torna `youtube_bot_check` o `login_required`, riesportali.
 
 ## Diagnostica
 

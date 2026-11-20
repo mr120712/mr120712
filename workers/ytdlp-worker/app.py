@@ -22,6 +22,7 @@
 # Leve via env:
 #   - YTDLP_COOKIES          = contenuto di un cookies.txt (formato Netscape) → scritto su file e passato a yt-dlp
 #   - YTDLP_COOKIES_FILE     = percorso a un cookies.txt già montato nel container (alternativa a YTDLP_COOKIES)
+#     Su Render basta un «Secret File» chiamato cookies.txt (/etc/secrets/cookies.txt): è usato da solo.
 #   - YTDLP_PLAYER_CLIENT    = client YouTube da forzare, CSV (es. "android" o "ios,web"); vuoto = default yt-dlp
 #   - YTDLP_FALLBACK_CLIENTS = client da provare, uno alla volta, DOPO un controllo anti-bot; vuoto = nessuno
 #   - YTDLP_PROXY            = proxy in uscita per yt-dlp (es. residenziale); è un SEGRETO se contiene credenziali
@@ -31,6 +32,7 @@ import hmac
 import logging
 import mimetypes
 import os
+import re
 import time
 import uuid
 from collections.abc import Callable
@@ -43,6 +45,7 @@ import yt_dlp
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from yt_dlp.cookies import YoutubeDLCookieJar
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("ytdlp-worker")
@@ -60,6 +63,12 @@ DOWNLOAD_DIR = Path(os.environ.get("DOWNLOAD_DIR", "/tmp/ytdlp-serve"))
 PLAYER_CLIENT = os.environ.get("YTDLP_PLAYER_CLIENT", "").strip()
 COOKIES_FILE_ENV = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
 _COOKIES_INLINE = os.environ.get("YTDLP_COOKIES", "")
+# Render «Secret Files»: un file chiamato cookies.txt viene montato qui e usato da solo, senza altre variabili.
+SECRET_COOKIES_PATH = "/etc/secrets/cookies.txt"
+# La copia scrivibile e normalizzata che yt-dlp usa davvero (fuori da DOWNLOAD_DIR: lo sweep non la tocca).
+COOKIES_RUNTIME_PATH = Path("/tmp/ytdlp-cookies.txt")
+# Esito del caricamento dei cookie, senza segreti (mostrato in /health).
+COOKIES_INFO: dict[str, Any] = {"source": None, "count": 0, "youtube": False, "skipped": 0, "error": None}
 
 
 def _csv(value: str) -> list[str]:
@@ -114,19 +123,99 @@ class DownloadRequest(BaseModel):
     format: str | None = None
 
 
-def _resolve_cookies() -> str | None:
-    """cookies.txt da usare: un file già montato (YTDLP_COOKIES_FILE) o scritto da YTDLP_COOKIES. None = nessuno."""
-    if COOKIES_FILE_ENV and Path(COOKIES_FILE_ENV).is_file():
-        return COOKIES_FILE_ENV
-    if _COOKIES_INLINE.strip():
-        dest = Path("/tmp/ytdlp-cookies.txt")  # fuori da DOWNLOAD_DIR: lo sweep non lo tocca
+_NETSCAPE_HEADER = "# Netscape HTTP Cookie File"
+# Un record del formato Netscape quando i TAB sono andati persi (incollato in un campo web):
+# dominio, flag, percorso, secure, scadenza, nome, valore — separati da spazi.
+_COOKIE_RECORD = re.compile(
+    r"(\S+)[ \t]+(TRUE|FALSE)[ \t]+(\S+)[ \t]+(TRUE|FALSE)[ \t]+(\d+)[ \t]+(\S+)[ \t]*(\S*)"
+)
+
+
+def _normalize_cookies(text: str) -> tuple[str, int]:
+    """Rende leggibile a yt-dlp un cookies.txt passato per un campo web. Ritorna (testo, righe scartate).
+
+    yt-dlp vuole l'intestazione Netscape e 7 campi separati da TAB; altrimenti SCARTA le righe in
+    silenzio (0 cookie caricati) e le stampa nei log, valori compresi. Qui si sistemano fine riga
+    Windows, TAB diventati spazi, righe fuse in una sola e intestazione mancante; ciò che resta
+    illeggibile viene tolto, così nessun valore di cookie finisce mai nei log.
+    """
+    records: list[str] = []
+    skipped = 0
+    for raw in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        line = raw.strip(" ")
+        if not line.strip():
+            continue
+        if "\t" in line:
+            fields = line.split("\t")
+            if len(fields) == 6:
+                fields.append("")  # valore vuoto: il TAB finale si perde facilmente
+            if len(fields) == 7 and (not line.startswith("#") or line.startswith("#HttpOnly_")):
+                records.append("\t".join(fields))
+            elif not line.startswith("#"):
+                skipped += 1
+            continue
+        found = ["\t".join(match.groups()) for match in _COOKIE_RECORD.finditer(line)]
+        if found:
+            records.extend(found)
+        elif not line.startswith("#"):
+            skipped += 1
+    return "\n".join([_NETSCAPE_HEADER, *records]) + "\n", skipped
+
+
+def _cookie_source() -> tuple[str, str] | None:
+    """(origine, testo) dei cookie, in ordine: YTDLP_COOKIES_FILE, YTDLP_COOKIES, Secret File di Render."""
+
+    def read(path: str) -> str | None:
+        if not path or not Path(path).is_file():
+            return None
         try:
-            dest.write_text(_COOKIES_INLINE)
-            dest.chmod(0o600)
-            return str(dest)
+            return Path(path).read_text(errors="replace")
         except OSError as exc:
-            log.warning("impossibile scrivere il cookies file: %s", exc)
-    return None
+            log.warning("cookies: impossibile leggere %s: %s", path, exc)
+            return None
+
+    text = read(COOKIES_FILE_ENV)
+    if text is not None:
+        return "file", text
+    if _COOKIES_INLINE.strip():
+        return "env", _COOKIES_INLINE
+    text = read(SECRET_COOKIES_PATH)
+    return ("secret-file", text) if text is not None else None
+
+
+def _resolve_cookies() -> str | None:
+    """Prepara i cookie per yt-dlp e ritorna il percorso da usare (None = nessun cookie valido).
+
+    Si lavora SEMPRE su una copia scrivibile: yt-dlp riscrive il file a fine lavoro e i secret file
+    montati sono in sola lettura. La copia è normalizzata e poi verificata caricandola davvero; l'esito
+    (quanti cookie, se ce ne sono di YouTube) va in COOKIES_INFO, visibile in /health senza segreti.
+    """
+    COOKIES_INFO.update(source=None, count=0, youtube=False, skipped=0, error=None)
+    source = _cookie_source()
+    if not source:
+        return None
+    label, text = source
+    normalized, skipped = _normalize_cookies(text)
+    COOKIES_INFO.update(source=label, skipped=skipped)
+    try:
+        COOKIES_RUNTIME_PATH.parent.mkdir(parents=True, exist_ok=True)
+        COOKIES_RUNTIME_PATH.write_text(normalized)
+        COOKIES_RUNTIME_PATH.chmod(0o600)
+        jar = YoutubeDLCookieJar(str(COOKIES_RUNTIME_PATH))
+        jar.load()
+        cookies = list(jar)
+    except Exception as exc:  # file non scrivibile o formato che yt-dlp rifiuta (es. JSON)
+        COOKIES_INFO.update(error=f"cookie non caricati: {type(exc).__name__}")
+        log.warning("cookies (%s): non caricati: %s", label, type(exc).__name__)
+        return None
+    youtube = any("youtube.com" in (cookie.domain or "") for cookie in cookies)
+    COOKIES_INFO.update(count=len(cookies), youtube=youtube)
+    if not cookies:
+        COOKIES_INFO.update(error="nessun cookie valido: serve un cookies.txt in formato Netscape")
+        log.warning("cookies (%s): nessun cookie valido (righe scartate: %s)", label, skipped)
+        return None
+    log.info("cookies (%s): %s caricati, YouTube=%s, righe scartate=%s", label, len(cookies), youtube, skipped)
+    return str(COOKIES_RUNTIME_PATH)
 
 
 def _base_opts() -> dict:
@@ -331,6 +420,8 @@ def health() -> dict:
         "mode": MODE,
         "auth": "required" if API_KEY else ("open" if ALLOW_OPEN else "unconfigured"),
         "cookies": bool(COOKIEFILE),
+        # Esito del caricamento dei cookie (origine, quanti, se di YouTube): mai nomi o valori.
+        "cookies_info": dict(COOKIES_INFO),
         "player_client": PLAYER_CLIENT or None,
         # Stato anti-bot (nessun segreto): le leve attive e l'esito dell'ULTIMA richiesta a monte.
         "antibot": {

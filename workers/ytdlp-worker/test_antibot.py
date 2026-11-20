@@ -172,5 +172,104 @@ class AntibotTest(unittest.TestCase):
         self.assertNotIn("s3cret", text)
 
 
+TAB = "\t"
+SID = TAB.join([".youtube.com", "TRUE", "/", "TRUE", "2000000000", "SID", "s3cr3t-sid-value"])
+HSID = "#HttpOnly_" + TAB.join([".youtube.com", "TRUE", "/", "TRUE", "2000000000", "HSID", "s3cr3t-hsid-value"])
+EXPORTED = f"# Netscape HTTP Cookie File\n# exported by a browser extension\n\n{SID}\n{HSID}\n"
+
+
+class CookiesTest(unittest.TestCase):
+    """I cookie arrivano da un campo web (variabile o Secret File): devono caricarsi comunque."""
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp(prefix="ytdlp-cookies-test-"))
+        for name, value in {
+            "COOKIES_RUNTIME_PATH": self.dir / "runtime" / "cookies.txt",
+            "SECRET_COOKIES_PATH": str(self.dir / "missing.txt"),
+            "COOKIES_FILE_ENV": "",
+            "_COOKIES_INLINE": "",
+        }.items():
+            patcher = mock.patch.object(worker, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def names(self, text: str) -> list[str]:
+        path = self.dir / "check.txt"
+        path.write_text(text)
+        jar = worker.YoutubeDLCookieJar(str(path))
+        jar.load()
+        return sorted(cookie.name for cookie in jar)
+
+    def test_repairs_what_a_web_form_does_to_a_cookies_file(self):
+        variants = {
+            "as exported": EXPORTED,
+            "windows line endings": EXPORTED.replace("\n", "\r\n"),
+            "header missing": f"{SID}\n{HSID}\n",
+            "tabs pasted as spaces": EXPORTED.replace(TAB, " "),
+            "everything on one line": EXPORTED.replace(TAB, " ").replace("\n", " "),
+        }
+        for label, text in variants.items():
+            normalized, skipped = worker._normalize_cookies(text)
+            self.assertEqual(self.names(normalized), ["HSID", "SID"], label)
+            self.assertEqual(skipped, 0, label)
+
+    def test_an_empty_value_keeps_its_seven_fields(self):
+        empty = TAB.join([".youtube.com", "TRUE", "/", "TRUE", "2000000000", "EMPTY", ""])
+        normalized, skipped = worker._normalize_cookies(f"{SID}\n{empty.rstrip(TAB)}\n")
+        self.assertEqual((self.names(normalized), skipped), (["EMPTY", "SID"], 0))
+
+    def test_unreadable_lines_are_dropped_and_counted(self):
+        normalized, skipped = worker._normalize_cookies(EXPORTED + "not a cookie line\n" + '{"json": true}\n')
+        self.assertEqual(skipped, 2)
+        self.assertNotIn("not a cookie", normalized)
+        self.assertEqual(self.names(normalized), ["HSID", "SID"])
+
+    def test_secret_file_is_copied_to_a_writable_path_and_reported_without_secrets(self):
+        secret = self.dir / "cookies.txt"
+        secret.write_text(EXPORTED.replace(TAB, " "))
+        secret.chmod(0o400)
+        with mock.patch.object(worker, "SECRET_COOKIES_PATH", str(secret)):
+            path = worker._resolve_cookies()
+        self.assertEqual(path, str(worker.COOKIES_RUNTIME_PATH))
+        self.assertNotEqual(path, str(secret))
+        self.assertEqual(self.names(Path(path).read_text()), ["HSID", "SID"])
+        info = dict(worker.COOKIES_INFO)
+        self.assertEqual(
+            info, {"source": "secret-file", "count": 2, "youtube": True, "skipped": 0, "error": None}
+        )
+        with mock.patch.object(worker, "COOKIEFILE", path):
+            health = TestClient(worker.app).get("/health").text
+        self.assertIn('"cookies":true', health)
+        self.assertNotIn("s3cr3t", health)
+
+    def test_source_order_is_explicit_file_then_variable_then_secret_file(self):
+        explicit, secret = self.dir / "explicit.txt", self.dir / "cookies.txt"
+        explicit.write_text(EXPORTED)
+        secret.write_text(EXPORTED)
+        with mock.patch.object(worker, "SECRET_COOKIES_PATH", str(secret)):
+            worker._resolve_cookies()
+            self.assertEqual(worker.COOKIES_INFO["source"], "secret-file")
+            with mock.patch.object(worker, "_COOKIES_INLINE", EXPORTED):
+                worker._resolve_cookies()
+                self.assertEqual(worker.COOKIES_INFO["source"], "env")
+                with mock.patch.object(worker, "COOKIES_FILE_ENV", str(explicit)):
+                    worker._resolve_cookies()
+                    self.assertEqual(worker.COOKIES_INFO["source"], "file")
+
+    def test_unusable_cookies_are_not_passed_to_yt_dlp(self):
+        for text in ("just some text", '[{"domain": ".youtube.com", "name": "SID"}]'):
+            with mock.patch.object(worker, "_COOKIES_INLINE", text):
+                self.assertIsNone(worker._resolve_cookies(), text)
+            self.assertEqual(worker.COOKIES_INFO["count"], 0)
+            self.assertIn("nessun cookie valido", worker.COOKIES_INFO["error"])
+
+    def test_no_cookies_configured(self):
+        self.assertIsNone(worker._resolve_cookies())
+        self.assertEqual(
+            dict(worker.COOKIES_INFO),
+            {"source": None, "count": 0, "youtube": False, "skipped": 0, "error": None},
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
