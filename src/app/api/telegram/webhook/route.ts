@@ -26,6 +26,7 @@ import {
   searchKeyboard,
   sendTelegramAudio,
   sendTelegramMessage,
+  sendTelegramVideo,
   TELEGRAM_MENU_CALLBACKS,
 } from '@/lib/business/telegram-bot.server';
 import { verifyTelegramLinkToken } from '@/lib/business/telegram-link';
@@ -304,11 +305,29 @@ async function handleUpdate(
       );
       return;
     }
-    await sendTelegramMessage(
-      chatId,
-      `🎬 <b>${escapeTelegramHtml(outcome.result.title)}</b>\n${escapeTelegramHtml(outcome.result.mediaUrl)}\n\n<i>Sperimentale · link diretto al media.</i>`,
-      { parseMode: 'HTML', disableWebPagePreview: false },
-    );
+    const { title, mediaUrl, ext, filesize } = outcome.result;
+    // Con il worker in modalità "serve" il file è ospitato dal worker e ha una dimensione nota: se è un
+    // video piccolo (≤ ~20MB, il limite di Telegram per l'invio da URL) prova a mandarlo DENTRO la chat;
+    // altrimenti (o se l'invio fallisce) manda il link. In modalità "extract" (filesize assente) → link.
+    const videoExts = new Set(['mp4', 'mov', 'm4v', 'webm']);
+    const smallVideo =
+      typeof filesize === 'number' &&
+      filesize > 0 &&
+      filesize <= 20 * 1024 * 1024 &&
+      ext !== null &&
+      videoExts.has(ext.toLowerCase());
+    const sent = smallVideo
+      ? await sendTelegramVideo(chatId, mediaUrl, {
+          caption: `🎬 <b>${escapeTelegramHtml(title)}</b>\n<i>Sperimentale</i>`,
+        })
+      : false;
+    if (!sent) {
+      await sendTelegramMessage(
+        chatId,
+        `🎬 <b>${escapeTelegramHtml(title)}</b>\n${escapeTelegramHtml(mediaUrl)}\n\n<i>Sperimentale · link diretto al media.</i>`,
+        { parseMode: 'HTML', disableWebPagePreview: false },
+      );
+    }
     return;
   }
 

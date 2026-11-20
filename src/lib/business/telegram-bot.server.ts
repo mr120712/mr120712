@@ -430,6 +430,42 @@ export async function sendTelegramAudio(
   }
 }
 
+/**
+ * Invia un VIDEO da un URL pubblico: Telegram lo scarica dall'URL e lo consegna in chat (nessun
+ * download lato nostro). Limite di Telegram per l'invio da URL: ~20 MB. Ritorna true solo se Telegram
+ * conferma `ok:true`; su file troppo grande o URL non raggiungibile ritorna false (il chiamante fa da
+ * fallback con un link). Non lancia mai.
+ */
+export async function sendTelegramVideo(
+  chatId: string,
+  videoUrl: string,
+  options: { caption?: string } = {},
+): Promise<boolean> {
+  const token = env.TELEGRAM_BOT_TOKEN;
+  if (!token) return false;
+  const signal =
+    typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+      ? AbortSignal.timeout(45000)
+      : undefined;
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        video: videoUrl,
+        supports_streaming: true,
+        ...(options.caption ? { caption: options.caption, parse_mode: 'HTML' } : {}),
+      }),
+      signal,
+    });
+    const data = (await res.json().catch(() => null)) as { ok?: boolean } | null;
+    return Boolean(data?.ok);
+  } catch {
+    return false;
+  }
+}
+
 /** Escapa il testo per parse_mode HTML (solo & < >, come da documentazione Telegram). */
 export function escapeTelegramHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

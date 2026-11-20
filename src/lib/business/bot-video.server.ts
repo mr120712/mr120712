@@ -130,6 +130,9 @@ export const BotVideoWorkerResponseSchema = z.object({
   title: z.string().trim().min(1).max(300).nullish(),
   ext: z.string().trim().max(16).nullish(),
   durationSeconds: z.number().int().nonnegative().max(86_400).nullish(),
+  // Solo in modalità "serve": la dimensione in byte del file scaricato (per decidere se Telegram può
+  // prelevarlo dall'URL e inviarlo in chat). Assente in modalità "extract" (URL diretto).
+  filesize: z.number().int().nonnegative().max(10_000_000_000).nullish(),
 });
 export type BotVideoWorkerResponse = z.infer<typeof BotVideoWorkerResponseSchema>;
 
@@ -138,6 +141,8 @@ export interface VideoResult {
   title: string;
   ext: string | null;
   durationSeconds: number | null;
+  /** Byte del file (solo modalità "serve"); null in "extract". Decide l'invio del file in Telegram. */
+  filesize: number | null;
 }
 
 export type BotVideoOutcome =
@@ -195,6 +200,7 @@ export async function resolveVideoDownload(
       title: clean(parsed.data.title ?? undefined) ?? intent.title,
       ext: clean(parsed.data.ext ?? undefined) ?? null,
       durationSeconds: parsed.data.durationSeconds ?? null,
+      filesize: parsed.data.filesize ?? null,
     },
   };
 }

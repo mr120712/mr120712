@@ -108,6 +108,7 @@ describe('resolveVideoDownload', () => {
             title: 'Bel video',
             ext: 'mp4',
             durationSeconds: 90,
+            filesize: 1_048_576,
           }),
           { status: 200 },
         ),
@@ -120,6 +121,7 @@ describe('resolveVideoDownload', () => {
         title: 'Bel video',
         ext: 'mp4',
         durationSeconds: 90,
+        filesize: 1_048_576,
       },
     });
     const call = fetchMock.mock.calls[0];
@@ -152,5 +154,17 @@ describe('resolveVideoDownload', () => {
     expect(
       (await resolveVideoDownload(intent, env, fetchMock as unknown as typeof fetch)).status,
     ).toBe('failed');
+  });
+
+  it('risposta senza filesize (modalità extract) → filesize null', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ url: 'https://cdn.example.com/x.mp4', title: 'X' }), {
+          status: 200,
+        }),
+    );
+    const out = await resolveVideoDownload(intent, env, fetchMock as unknown as typeof fetch);
+    expect(out.status).toBe('ok');
+    if (out.status === 'ok') expect(out.result.filesize).toBeNull();
   });
 });

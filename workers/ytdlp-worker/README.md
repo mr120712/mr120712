@@ -1,8 +1,14 @@
 # Worker yt-dlp per il comando `/video` di Solco
 
 Microservizio minimale che Solco chiama per la funzione **sperimentale** `/video` del bot Telegram.
-yt-dlp non può girare dentro Solco (Vercel serverless): questo worker lo esegue altrove e restituisce
-un **URL diretto** al media, che il bot rimanda come link.
+yt-dlp non può girare dentro Solco (Vercel serverless): questo worker lo esegue altrove.
+
+Due modalità, via `WORKER_MODE`:
+- **`extract`** (default) — restituisce l'**URL diretto** del media (nessun file sul worker). Veloce; per
+  YouTube il link può essere legato all'IP e a breve scadenza.
+- **`serve`** — **scarica** il media e lo **serve** da questo worker a un URL temporaneo `/file/<id>`, con
+  pulizia automatica. Robusto per YouTube e permette a Telegram di prelevare il file (così il bot può
+  inviarlo IN chat, non solo come link). Richiede disco e banda sul worker.
 
 > ⚠️ Usalo per contenuti **tuoi o liberi**. Non elude DRM/paywall. Tienilo **privato**: imposta
 > `WORKER_API_KEY` e non diffondere l'URL del servizio.
@@ -22,9 +28,19 @@ C'è anche `GET /health` → `{ "ok": true }`.
 
 ## File
 
-- `app.py` — l'endpoint (FastAPI + yt-dlp).
+- `app.py` — l'endpoint (FastAPI + yt-dlp), modalità `extract` e `serve`.
 - `requirements.txt` — fastapi, uvicorn, yt-dlp.
 - `Dockerfile` — Python 3.12 + ffmpeg.
+
+## Variabili d'ambiente (worker)
+
+| Variabile | Default | A cosa serve |
+|---|---|---|
+| `WORKER_API_KEY` | — | Bearer richiesto su `/download` (tienilo impostato). |
+| `WORKER_MODE` | `extract` | `extract` (URL diretto) oppure `serve` (scarica e ospita). |
+| `PUBLIC_BASE_URL` | (dall'header) | Solo `serve`: l'URL pubblico del worker per costruire i link `/file/<id>`. |
+| `FILE_TTL_SECONDS` | `900` | Solo `serve`: dopo quanti secondi i file scaricati vengono cancellati. |
+| `MAX_FILESIZE_MB` | `200` | Solo `serve`: tetto alla dimensione scaricata. |
 
 ## Avvio in locale
 
@@ -55,12 +71,12 @@ Tutte e tre leggono il `Dockerfile` e passano `$PORT`.
 
 Poi redeploy di Solco e, in **chat privata** col bot: `/video <url o descrizione>`.
 
-## Limiti onesti
+## Note e limiti
 
-- **Link diretto, non file**: niente storage sul worker. Per **YouTube** l'URL diretto è spesso
-  **legato all'IP** e a breve scadenza: aperto da un IP diverso può dare 403. Funziona bene per molti
-  altri siti (X/Twitter, TikTok, file diretti…). Per YouTube affidabile serve una variante
-  **scarica-e-ospita** (il worker scarica il file e lo serve/caricà da sé): te la preparo se ti serve.
-- **Dimensioni**: se poi vorrai inviare il file DENTRO Telegram invece del link, valgono i limiti dei
-  bot (~50 MB).
+- **Quale modalità**: usa `serve` se ti serve **YouTube affidabile** o l'invio del file dentro Telegram;
+  usa `extract` (più leggero, senza storage) per X/Twitter, TikTok, file diretti, dove l'URL diretto va bene.
+- **Invio in Telegram**: in modalità `serve` il worker torna anche `filesize`; Solco, se è un video sotto
+  ~20 MB, prova a inviarlo DENTRO la chat (sendVideo da URL), altrimenti manda il link. I bot Telegram
+  inviano da URL fino a ~20 MB.
+- **Pulizia**: i file scaricati si cancellano da soli dopo `FILE_TTL_SECONDS` (default 15 min).
 - **Tieni yt-dlp aggiornato**: ricostruisci l'immagine ogni tanto (i siti cambiano).

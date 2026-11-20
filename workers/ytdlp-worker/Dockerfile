@@ -16,5 +16,6 @@ COPY app.py .
 ENV PORT=8080
 EXPOSE 8080
 
-# Un solo worker: l'estrazione è veloce e il servizio è a basso volume (owner-only).
-CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080}"]
+# --proxy-headers + --forwarded-allow-ips così, in modalità "serve", request.base_url è HTTPS (il link
+# /file/<id> restituito è corretto dietro il proxy della piattaforma). In alternativa imposta PUBLIC_BASE_URL.
+CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT:-8080} --proxy-headers --forwarded-allow-ips='*'"]
