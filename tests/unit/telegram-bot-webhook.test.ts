@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   publicUploads: false,
   send: vi.fn(async (_chatId?: string, _text?: string, _options?: unknown) => true),
   ensureCode: vi.fn(async (_userId?: string) => 'ABC123'),
-  verify: vi.fn(),
+  consume: vi.fn(),
   readJson: vi.fn(),
   deleteMany: vi.fn(async () => ({})),
   upsert: vi.fn(async () => ({})),
@@ -53,7 +53,7 @@ vi.mock('@/lib/business/telegram-bot.server', () => ({
   },
 }));
 vi.mock('@/lib/business/rewards.server', () => ({ ensureReferralCode: mocks.ensureCode }));
-vi.mock('@/lib/business/telegram-link', () => ({ verifyTelegramLinkToken: mocks.verify }));
+vi.mock('@/lib/business/telegram-link', () => ({ consumeTelegramLinkChallenge: mocks.consume }));
 vi.mock('@/lib/business/request-body.server', () => ({ readJsonLimited: mocks.readJson }));
 vi.mock('@/lib/db', () => ({
   prisma: {
@@ -108,7 +108,7 @@ beforeEach(() => {
   mocks.send.mockResolvedValue(true);
   mocks.ensureCode.mockResolvedValue('ABC123');
   mocks.findUnique.mockResolvedValue(null);
-  mocks.verify.mockReturnValue(null);
+  mocks.consume.mockResolvedValue(null);
   mocks.enforceRateLimit.mockResolvedValue(null);
   mocks.botSearch.mockResolvedValue([]);
   mocks.sendAudio.mockResolvedValue(true);
@@ -164,7 +164,7 @@ describe('POST /api/telegram/webhook (bot)', () => {
     const res = await POST(req(msg('/codice')));
     expect(res.status).toBe(200);
     const { text, options } = lastSend();
-    expect(text).toContain('collega il tuo account');
+    expect(text).toContain('collegare il tuo account');
     expect(options.replyMarkup).toEqual({ kind: 'mini' });
   });
 
@@ -176,7 +176,7 @@ describe('POST /api/telegram/webhook (bot)', () => {
   });
 
   it('/start <token> valido: collega l’account e manda il codice', async () => {
-    mocks.verify.mockReturnValue('user-9');
+    mocks.consume.mockResolvedValue('user-9');
     await POST(req(msg('/start tok123')));
     expect(mocks.deleteMany).toHaveBeenCalled();
     expect(mocks.upsert).toHaveBeenCalled();
@@ -290,7 +290,7 @@ describe('POST /api/telegram/webhook (bot)', () => {
     await POST(req(msg('/scarica')));
     expect(mocks.listUploads).not.toHaveBeenCalled();
     const { text, options } = lastSend();
-    expect(text).toContain('collega il tuo account');
+    expect(text).toContain('collegare il tuo account');
     expect(options.replyMarkup).toEqual({ kind: 'mini' });
   });
 
@@ -370,11 +370,11 @@ describe('POST /api/telegram/webhook (bot)', () => {
   });
 
   it('/start <token> in un gruppo: NON collega l’account (niente upsert)', async () => {
-    mocks.verify.mockReturnValue('user-9');
+    mocks.consume.mockResolvedValue('user-9');
     await POST(req(groupMsg('/start tok123')));
     expect(mocks.upsert).not.toHaveBeenCalled();
     expect(mocks.deleteMany).not.toHaveBeenCalled();
-    expect(mocks.verify).not.toHaveBeenCalled();
+    expect(mocks.consume).not.toHaveBeenCalled();
     expect(lastSend().text).toContain('in privato');
   });
 

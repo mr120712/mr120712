@@ -1,45 +1,79 @@
-// @polsia:user-owned — token firmato (HMAC) per collegare un account Solco al bot Telegram.
-// L'utente loggato ottiene un token a breve scadenza; il bot lo riceve via deep-link
-// (t.me/<bot>?start=<token>) e, verificandolo, sa quale utente collegare. Nessuna tabella di token:
-// il token è autocontenuto e firmato con BETTER_AUTH_SECRET.
+// @polsia:user-owned — gate di collegamento account Solco ↔ bot Telegram. L'utente loggato ottiene
+// un CODICE monouso, casuale e a breve scadenza, salvato su DB e legato al suo userId; il bot lo
+// riceve via deep-link (t.me/<bot>?start=<code>) e, verificandolo, sa quale utente collegare.
+// Sicurezza del gate:
+//   • imprevedibile: 24 byte casuali (192 bit) in base64url → 32 caratteri;
+//   • compatibile con Telegram: charset A-Za-z0-9_- e ≤64 caratteri (il limite del parametro ?start=);
+//   • monouso: il consumo È la cancellazione della riga (un replay non trova nulla);
+//   • a scadenza breve: 15 minuti per aprire il bot e premere Start;
+//   • legato lato server all'esatto userId: il client non può scegliere chi collegare;
+//   • un solo codice attivo per utente: ogni nuovo codice invalida i precedenti.
 import 'server-only';
-import { createHmac, timingSafeEqual } from 'node:crypto';
-import { env } from '@/lib/env';
+import { randomBytes } from 'node:crypto';
 
-/** Validità del token di collegamento (il tempo per aprire il bot). */
-const TOKEN_TTL_MS = 15 * 60 * 1000;
+/** Validità del codice di collegamento (il tempo per aprire il bot e premere Start). */
+export const LINK_CODE_TTL_MS = 15 * 60 * 1000;
 
-function sign(payload: string): string {
-  return createHmac('sha256', env.BETTER_AUTH_SECRET).update(payload).digest('base64url');
+// 24 byte → 32 caratteri base64url: imprevedibile e ben dentro il limite di 64 di Telegram.
+const CODE_BYTES = 24;
+// Il bot accetta solo codici di questa forma prima di toccare il DB (guardia a buon mercato).
+const CODE_RE = /^[A-Za-z0-9_-]{16,64}$/;
+
+/** Superficie minima di Prisma che serve al gate: tenerla stretta rende il modulo testabile. */
+export interface LinkChallengeStore {
+  telegramLinkChallenge: {
+    deleteMany(args: { where: { userId: string } }): Promise<unknown>;
+    create(args: { data: { code: string; userId: string; expiresAt: Date } }): Promise<unknown>;
+    delete(args: { where: { code: string } }): Promise<{ userId: string; expiresAt: Date }>;
+  };
 }
 
-/** Crea un token `payload.firma` che codifica userId e scadenza. */
-export function createTelegramLinkToken(userId: string, now = Date.now()): string {
-  const payload = Buffer.from(JSON.stringify({ u: userId, e: now + TOKEN_TTL_MS })).toString(
-    'base64url',
-  );
-  return `${payload}.${sign(payload)}`;
+/** Un codice casuale url-safe (A-Za-z0-9_-), 32 caratteri. */
+export function generateTelegramLinkCode(): string {
+  return randomBytes(CODE_BYTES).toString('base64url');
 }
 
-/** Verifica firma e scadenza; ritorna lo userId, oppure null se non valido/scaduto. */
-export function verifyTelegramLinkToken(token: string, now = Date.now()): string | null {
-  const dot = token.indexOf('.');
-  if (dot <= 0) return null;
-  const payload = token.slice(0, dot);
-  const sig = token.slice(dot + 1);
-  const expected = sign(payload);
-  const a = Buffer.from(sig);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+/** Forma accettabile per un codice ricevuto dal bot (prima di interrogare il DB). */
+export function isValidTelegramLinkCode(code: string): boolean {
+  return CODE_RE.test(code);
+}
+
+/**
+ * Crea una sfida monouso per `userId`: invalida gli eventuali codici pendenti dello stesso utente e
+ * ne salva uno nuovo con scadenza. Ritorna il codice da mettere nel deep-link.
+ */
+export async function createTelegramLinkChallenge(
+  db: LinkChallengeStore,
+  userId: string,
+  now: number = Date.now(),
+): Promise<string> {
+  const code = generateTelegramLinkCode();
+  // Un solo codice attivo per utente: libera i precedenti prima di crearne uno nuovo.
+  await db.telegramLinkChallenge.deleteMany({ where: { userId } });
+  await db.telegramLinkChallenge.create({
+    data: { code, userId, expiresAt: new Date(now + LINK_CODE_TTL_MS) },
+  });
+  return code;
+}
+
+/**
+ * Consuma il codice ricevuto dal bot e ritorna lo userId da collegare, oppure null se è malformato,
+ * inesistente (già usato), o scaduto. Monouso: la cancellazione È il consumo, quindi un replay dello
+ * stesso codice non collega nulla. Non lancia mai.
+ */
+export async function consumeTelegramLinkChallenge(
+  db: LinkChallengeStore,
+  code: string,
+  now: number = Date.now(),
+): Promise<string | null> {
+  if (!isValidTelegramLinkCode(code)) return null;
+  let row: { userId: string; expiresAt: Date };
   try {
-    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as {
-      u?: unknown;
-      e?: unknown;
-    };
-    if (typeof data.u !== 'string' || typeof data.e !== 'number') return null;
-    if (now > data.e) return null;
-    return data.u;
+    // delete su un campo @unique: atomico. Se il codice non esiste (già consumato), lancia → null.
+    row = await db.telegramLinkChallenge.delete({ where: { code } });
   } catch {
     return null;
   }
+  if (!row || row.expiresAt.getTime() < now) return null;
+  return row.userId;
 }

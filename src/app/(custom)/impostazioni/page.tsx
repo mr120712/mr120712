@@ -6,6 +6,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { AccountEmailSettings } from '@/components/custom/settings/account-email-settings';
 import { SettingsPanel } from '@/components/custom/settings/settings-panel';
+import { TelegramAccountLink } from '@/components/custom/settings/telegram-account-link';
 
 export const metadata: Metadata = {
   title: 'Impostazioni',
@@ -46,6 +47,8 @@ export default function ImpostazioniPage() {
 
       {/* Solo con l'accesso: l'email e, se non è verificata, il link di verifica. */}
       <AccountEmailSettings />
+      {/* Solo con l'accesso + bot configurato: collega/scollega l'account Telegram (gate sicuro). */}
+      <TelegramAccountLink />
       <SettingsPanel />
     </main>
   );

@@ -9,3 +9,18 @@ model TelegramAccountLink {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 }
+
+// @polsia:app-owned — sfida monouso per collegare un account al bot: l'utente loggato ottiene un
+// `code` casuale a breve scadenza; il bot lo riceve via deep-link (t.me/<bot>?start=<code>) e, se è
+// valido e non scaduto, collega l'account. Monouso: il consumo è la cancellazione della riga. Il
+// codice è corto (sta nei 64 caratteri ammessi da Telegram per ?start=, charset A-Za-z0-9_-).
+model TelegramLinkChallenge {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}

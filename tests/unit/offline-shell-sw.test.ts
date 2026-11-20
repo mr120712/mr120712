@@ -737,6 +737,8 @@ describe('vercel.json — /sw.js headers', () => {
       { path: '/api/cron/health', schedule: '41 5 * * *' },
       // «Skynet»: la sentinella guarda il sito ogni minuto (src/lib/skynet/).
       { path: '/api/cron/skynet', schedule: '* * * * *' },
+      // Auto-riparazione del webhook del bot Telegram una volta al giorno.
+      { path: '/api/cron/telegram-webhook', schedule: '37 4 * * *' },
     ]);
   });
 });

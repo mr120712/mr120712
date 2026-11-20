@@ -29,7 +29,7 @@ import {
   sendTelegramVideo,
   TELEGRAM_MENU_CALLBACKS,
 } from '@/lib/business/telegram-bot.server';
-import { verifyTelegramLinkToken } from '@/lib/business/telegram-link';
+import { consumeTelegramLinkChallenge } from '@/lib/business/telegram-link';
 import { prisma } from '@/lib/db';
 import { env } from '@/lib/env';
 import { publicUploadsEnabled } from '@/lib/features';
@@ -108,11 +108,11 @@ async function handleUpdate(
       );
       return;
     }
-    const userId = verifyTelegramLinkToken(start[1]);
+    const userId = await consumeTelegramLinkChallenge(prisma, start[1]);
     if (!userId) {
       await sendTelegramMessage(
         chatId,
-        'Link scaduto o non valido. Riprova da Solco → Premi → «Ricevi il codice su Telegram».',
+        'Codice scaduto o già usato. Rigeneralo da Solco → Impostazioni → «Collega account Telegram».',
         { replyMarkup: miniAppKeyboard(chatType) },
       );
       return;

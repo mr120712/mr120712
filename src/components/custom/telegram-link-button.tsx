@@ -8,7 +8,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api-client';
-import { TelegramLinkResponseSchema } from '@/lib/contracts/telegram';
+import { TelegramLinkStartSchema } from '@/lib/contracts/telegram';
 
 const BOT_USERNAME = process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME;
 
@@ -19,11 +19,10 @@ export function TelegramLinkButton() {
   const connect = async () => {
     setLoading(true);
     try {
-      const { token } = await apiFetch('/api/telegram/link', {
+      const { url } = await apiFetch('/api/telegram/link', {
         method: 'POST',
-        schema: TelegramLinkResponseSchema,
+        schema: TelegramLinkStartSchema,
       });
-      const url = `https://t.me/${encodeURIComponent(BOT_USERNAME)}?start=${encodeURIComponent(token)}`;
       window.open(url, '_blank', 'noopener,noreferrer');
     } catch (error) {
       const cause =
