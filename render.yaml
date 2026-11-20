@@ -1,0 +1,30 @@
+# Render Blueprint — Solco yt-dlp worker (Docker service, code in workers/ytdlp-worker/).
+#
+# WHY this file: a web service created as runtime "node" at the repo root builds the Next.js app,
+# NOT the worker. The fix is a DOCKER service rooted at workers/ytdlp-worker. Render can't convert a
+# node service to docker in place, so recreate it from this Blueprint.
+#
+# Use (Render dashboard):
+#   1) Delete the old mis-created service (the "node" one) so its name frees up.
+#   2) New → Blueprint → pick this repo → Apply. Render reads this file.
+#   3) When prompted, set WORKER_API_KEY (the SAME value as YTDLP_SERVICE_KEY on Vercel).
+#   4) Health goes green at /health → {"ok":true,"mode":"serve"}. Tell Claude the URL to wire Vercel.
+services:
+  - type: web
+    name: s2a76b51c9520ac
+    runtime: docker
+    repo: https://github.com/mr120712/mr120712
+    rootDir: workers/ytdlp-worker        # the key fix — build the worker's Dockerfile, not the repo root
+    region: ohio
+    plan: free                           # free SPINS DOWN (cold start can exceed the bot's 40s);
+                                         # use "starter" for an always-on worker (recommended)
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: WORKER_MODE
+        value: serve
+      - key: WORKER_API_KEY
+        sync: false                      # secret — set it in the dashboard (= YTDLP_SERVICE_KEY on Vercel)
+      # Optional, only if YouTube blocks the datacenter IP ("Sign in to confirm you're not a bot"):
+      # - key: YTDLP_COOKIES
+      #   sync: false
