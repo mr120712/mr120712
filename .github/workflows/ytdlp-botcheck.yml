@@ -224,28 +224,44 @@ jobs:
         run: |
           sudo install -d -o nobody -g nogroup -m 700 /tmp/warp
           run() { sudo -u nobody env -i HOME=/tmp/warp PATH=/usr/bin:/bin "$@"; }
-          started=$(date +%s)
-          run /tmp/usque -c /tmp/warp/config.json register -a -n solco-ci 2>&1 | sed -E 's#[A-Za-z0-9+/=_-]{24,}#[…]#g'
           case "$MODE" in
             l4-socks) args="l4-socks -b 127.0.0.1 -p 40001 --system-dns" ;;
             socks) args="socks -b 127.0.0.1 -p 40001" ;;
             socks-http2) args="socks -b 127.0.0.1 -p 40001 --http2" ;;
           esac
-          sudo -u nobody env -i HOME=/tmp/warp PATH=/usr/bin:/bin sh -c "cd /tmp/warp && /tmp/usque -c config.json $args > usque.log 2>&1 &"
-          for attempt in $(seq 1 20); do
-            if curl -fsS -m 8 -x socks5://127.0.0.1:40001 https://www.cloudflare.com/cdn-cgi/trace > trace-usque.txt 2>/dev/null \
-              && grep -q 'warp=on' trace-usque.txt; then break; fi
+          register() {
+            sudo rm -f /tmp/warp/config.json
+            run /tmp/usque -c /tmp/warp/config.json register -a -n solco-ci 2>&1 | sed -E 's#[A-Za-z0-9+/=_-]{24,}#[…]#g' | tail -n 2
+          }
+          launch() {
+            sudo pkill -x usque || true
             sleep 1
-          done
+            run sh -c "cd /tmp/warp && /tmp/usque -c config.json $args > usque.log 2>&1 &"
+            for attempt in $(seq 1 20); do
+              if curl -fsS -m 8 -x socks5://127.0.0.1:40001 https://www.cloudflare.com/cdn-cgi/trace > trace-usque.txt 2>/dev/null \
+                && grep -q 'warp=on' trace-usque.txt; then break; fi
+              sleep 1
+            done
+          }
+          # Da quale indirizzo esce ogni connessione (quante volte ciascuno). YouTube lega la sessione e
+          # il link del media all'IP: conta sapere se l'uscita è la stessa per tutta la sessione, e se
+          # cambia riavviando il client o registrando un dispositivo nuovo.
+          addresses() {
+            for attempt in $(seq 1 "$1"); do
+              curl -fsS -m 8 -x socks5://127.0.0.1:40001 https://checkip.amazonaws.com || echo "nessuna risposta"
+            done | sort | uniq -c
+          }
+          started=$(date +%s)
+          register
+          launch
           echo "pronto dopo $(( $(date +%s) - started ))s"
           grep -E '^(warp|colo|loc)=' trace-usque.txt || echo "WARP non attivo"
-          # Ogni connessione esce dallo stesso indirizzo? YouTube lega la sessione e il link del media
-          # all'IP: se l'uscita cambia da una connessione all'altra, i tentativi vanno ripetuti.
-          echo "indirizzo di uscita di 8 connessioni consecutive (quante volte ciascuno):"
-          for attempt in $(seq 1 8); do
-            curl -fsS -m 8 -x socks5://127.0.0.1:40001 https://checkip.amazonaws.com || echo "nessuna risposta"
-          done | sort | uniq -c
-          sudo tail -n 15 /tmp/warp/usque.log | cut -c1-220
+          echo "--- 8 connessioni consecutive"; addresses 8
+          echo "--- dopo il riavvio del client, stessa registrazione"; launch; addresses 4
+          echo "--- dopo una registrazione nuova"; register; launch; addresses 4
+          echo "--- dopo un'altra registrazione nuova"; register; launch; addresses 4
+          grep -E '^(warp|colo)=' trace-usque.txt || echo "WARP non attivo"
+          sudo tail -n 6 /tmp/warp/usque.log | cut -c1-220
 
       - name: Prova le configurazioni uscendo da usque
         if: inputs.usque != 'no'
