@@ -205,19 +205,33 @@ const WORKER_FAILURE_HINTS = new Map<string, string>([
     'unavailable',
     'il video non è disponibile (rimosso, privato o bloccato nella regione del worker)',
   ],
+  [
+    'media_unavailable',
+    'YouTube ha risposto, ma nessuno dei client provati ha dato un file scaricabile: riprova tra qualche minuto',
+  ],
   ['file too large or not downloadable', 'il file è troppo grande o non è scaricabile'],
 ]);
 
 /**
  * Il controllo anti-bot di YouTube, detto in base alle leve GIÀ attive sul worker: il codice arriva
- * come `youtube_bot_check`, `youtube_bot_check+proxy`, `youtube_bot_check+cookies+proxy`. Così l'owner
- * non si sente dire «imposta il proxy» quando il proxy c'è già ed è il suo IP a essere bloccato.
+ * come `youtube_bot_check`, `youtube_bot_check+proxy`, `youtube_bot_check+cookies+proxy`,
+ * `youtube_bot_check+warp` (fermata anche l'uscita da Cloudflare WARP) o `…+warp_down` (WARP acceso ma
+ * non pronto). Così l'owner non si sente dire «accendi WARP» o «imposta il proxy» quando ci sono già.
  */
 function botCheckHint(levers: ReadonlySet<string>): string {
   const blocked =
     'YouTube ha fermato il worker con il controllo anti-bot («Sign in to confirm you’re not a bot»)';
   const cookies = levers.has('cookies');
   const proxy = levers.has('proxy');
+  if (levers.has('warp_down')) {
+    return `${blocked} e l’uscita da Cloudflare WARP non era pronta: riprova tra un minuto`;
+  }
+  if (levers.has('warp')) {
+    const next = cookies
+      ? 'riesporta cookies.txt sul worker o usa un proxy residenziale (YTDLP_PROXY)'
+      : 'servono i cookie (YTDLP_COOKIES) o un proxy residenziale (YTDLP_PROXY)';
+    return `${blocked} anche uscendo da Cloudflare WARP: di solito passa riprovando più tardi; se continua, ${next}`;
+  }
   if (cookies && proxy) {
     return `${blocked} anche con i cookie e il proxy: riesporta cookies.txt sul worker e usa un proxy residenziale o mobile (non datacenter)`;
   }
@@ -225,9 +239,9 @@ function botCheckHint(levers: ReadonlySet<string>): string {
     return `${blocked} anche passando dal proxy: il suo IP è bloccato come quello del worker; serve un proxy residenziale o mobile (non datacenter), oppure i cookie (YTDLP_COOKIES)`;
   }
   if (cookies) {
-    return `${blocked} anche con i cookie: sono scaduti o l’account è stato segnalato; riesporta cookies.txt sul worker, oppure imposta YTDLP_PROXY`;
+    return `${blocked} anche con i cookie: sono scaduti o l’account è stato segnalato; riesporta cookies.txt sul worker, oppure accendi l’uscita da Cloudflare WARP (YTDLP_WARP=1) o imposta YTDLP_PROXY`;
   }
-  return `${blocked}, anche provando gli altri client: imposta YTDLP_COOKIES (o YTDLP_PROXY) sul worker`;
+  return `${blocked}: accendi sul worker l’uscita gratuita da Cloudflare WARP (YTDLP_WARP=1), oppure imposta YTDLP_PROXY o YTDLP_COOKIES`;
 }
 
 /** Dettaglio leggibile di una risposta non-2xx del worker: codice noto → rimedio, altrimenti lo stato. */

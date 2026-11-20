@@ -26,8 +26,14 @@ services:
       - key: WORKER_API_KEY
         sync: false                      # secret — set it in the dashboard (= YTDLP_SERVICE_KEY on Vercel)
       # Optional, only if YouTube blocks the datacenter IP ("Sign in to confirm you're not a bot").
-      # The worker detects it, retries with other clients, and GET /antibot tells you if it passes;
-      # these are the real fixes when it doesn't (see workers/ytdlp-worker/README.md).
+      # The worker detects it and GET /antibot tells you if it passes; these are the fixes when it
+      # doesn't (see workers/ytdlp-worker/README.md), from the least to the most demanding.
+      # Free exit through Cloudflare WARP — measured as the one free lever that gets past the check
+      # from a datacenter IP. Off until you turn it on: enabling it accepts Cloudflare's WARP terms
+      # (the client is "usque", open source and unofficial). GET /health → antibot.warp shows whether
+      # the tunnel is up; it needs outbound UDP.
+      # - key: YTDLP_WARP
+      #   value: "1"
       # Cookies: easiest is Dashboard → Environment → Secret Files → a file named cookies.txt
       # (mounted at /etc/secrets/cookies.txt, picked up automatically). Or as a variable:
       # - key: YTDLP_COOKIES

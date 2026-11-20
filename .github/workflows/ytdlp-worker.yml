@@ -1,0 +1,124 @@
+# @polsia:user-owned — collaudo del worker yt-dlp (workers/ytdlp-worker), l'immagine che gira su Render.
+# A ogni modifica del worker costruisce l'immagine VERA e ne esegue i test al suo interno.
+# Avviato a mano (Actions → "Worker yt-dlp: collaudo" → Run workflow) fa anche la prova dal vivo:
+# avvia il container come su Render — poca memoria, nessun privilegio aggiunto — con l'uscita da
+# Cloudflare WARP accesa, e gli fa scaricare un video da YouTube. Il runner è un IP da datacenter:
+# da solo riceve «Sign in to confirm you're not a bot», ed è il confronto che chiude la prova.
+# Nessun segreto: la chiave del worker è finta e vive solo nel container di prova.
+name: 'Worker yt-dlp: collaudo'
+
+on:
+  push:
+    paths:
+      - 'workers/ytdlp-worker/**'
+      - '.github/workflows/ytdlp-worker.yml'
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Video da far scaricare al worker'
+        type: string
+        default: 'https://www.youtube.com/watch?v=hTWKbfoikeg'
+      cpus:
+        description: 'CPU date al container (Render free ne dà 0.1)'
+        type: string
+        default: '1'
+      strict:
+        description: 'Togli al container ogni capability (il client WARP non può cambiare utente)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ytdlp-worker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  collaudo:
+    name: Immagine, test e prova dal vivo
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      LIVE: ${{ github.event_name == 'workflow_dispatch' }}
+      KEY: collaudo
+    steps:
+      - name: Scarica il worker
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: workers/ytdlp-worker
+          persist-credentials: false
+
+      - name: Costruisci l'immagine del worker
+        run: docker build --tag ytdlp-worker workers/ytdlp-worker
+
+      - name: Test del worker dentro l'immagine
+        run: |
+          docker run --rm --volume "$PWD/workers/ytdlp-worker/test_antibot.py:/app/test_antibot.py:ro" ytdlp-worker sh -c '
+            pip install --quiet --root-user-action=ignore httpx
+            python -m unittest test_antibot > /tmp/test.log 2>&1
+            code=$?
+            tail -n 6 /tmp/test.log
+            usque version 2>&1 | tail -n 1
+            exit $code
+          '
+
+      - name: Avvia il worker come su Render, con l'uscita WARP accesa
+        if: env.LIVE == 'true'
+        env:
+          CPUS: ${{ inputs.cpus }}
+          STRICT: ${{ inputs.strict }}
+        run: |
+          limits="--memory 512m --cpus $CPUS"
+          if [ "$STRICT" = true ]; then limits="$limits --cap-drop ALL --security-opt no-new-privileges"; fi
+          docker run --detach --name worker $limits --publish 127.0.0.1:8080:8080 \
+            --env WORKER_API_KEY="$KEY" --env WORKER_MODE=serve --env YTDLP_WARP=1 ytdlp-worker
+          started=$(date +%s)
+          for attempt in $(seq 1 90); do
+            state=$(curl -fsS -m 3 http://127.0.0.1:8080/health 2>/dev/null | jq -r '.antibot.warp.state' || true)
+            case "$state" in ready|failed) break ;; esac
+            sleep 2
+          done
+          echo "uscita WARP: $state dopo $(( $(date +%s) - started ))s dall'avvio del container"
+          curl -fsS -m 5 http://127.0.0.1:8080/health | jq '{mode, auth, warp: .antibot.warp}'
+
+      - name: La sonda anti-bot del worker
+        if: env.LIVE == 'true'
+        run: |
+          curl -sS -m 180 -H "authorization: Bearer $KEY" http://127.0.0.1:8080/antibot | jq .
+
+      - name: Fa scaricare il video al worker
+        if: env.LIVE == 'true'
+        env:
+          URL: ${{ inputs.url }}
+        run: |
+          started=$(date +%s)
+          status=$(jq -n --arg url "$URL" '{url: $url, format: "best"}' \
+            | curl -sS -m 600 -o answer.json -w '%{http_code}' -X POST http://127.0.0.1:8080/download \
+                -H "authorization: Bearer $KEY" -H 'content-type: application/json' --data-binary @-)
+          echo "HTTP $status in $(( $(date +%s) - started ))s (il bot di Solco ne aspetta 40)"
+          jq 'del(.url)' answer.json
+          test "$status" = 200
+          curl -fsS -m 300 -o video.bin "$(jq -r .url answer.json)"
+          echo "file servito: $(stat -c %s video.bin) byte — $(file -b video.bin | cut -c1-70)"
+          test "$(stat -c %s video.bin)" = "$(jq -r .filesize answer.json)"
+
+      - name: Stato del worker a fine prova
+        if: always() && env.LIVE == 'true'
+        run: |
+          curl -sS -m 5 http://127.0.0.1:8080/health | jq .antibot || true
+          docker stats --no-stream worker || true
+          docker top worker -o user,rss,args | cut -c1-110 || true
+          docker logs worker 2>&1 | grep -v 'GET /health' | tail -n 30 | cut -c1-230 || true
+
+      # Il confronto: stessa immagine, stesso runner, uscita WARP spenta.
+      - name: Lo stesso worker senza WARP
+        if: env.LIVE == 'true'
+        run: |
+          docker rm --force worker > /dev/null
+          docker run --detach --name diretto --publish 127.0.0.1:8080:8080 --env WORKER_API_KEY="$KEY" ytdlp-worker
+          for attempt in $(seq 1 30); do
+            if curl -fsS -m 3 http://127.0.0.1:8080/health > /dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          curl -sS -m 180 -H "authorization: Bearer $KEY" http://127.0.0.1:8080/antibot | jq '{youtube, exit, tried, hint}'

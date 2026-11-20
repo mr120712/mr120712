@@ -3,9 +3,14 @@
 #   pip install -r requirements.txt httpx && python -m unittest -v test_antibot
 import contextlib
 import io
+import json
 import os
+import pwd
 import socket
+import stat
+import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -18,6 +23,7 @@ os.environ.update(
     YTDLP_FALLBACK_CLIENTS="tv,android_vr",
     YTDLP_PLAYER_CLIENT="",
     YTDLP_PROXY="",
+    YTDLP_WARP="",
 )
 os.environ.pop("YTDLP_SERVICE_KEY", None)
 
@@ -34,10 +40,20 @@ PROXY_407 = (
     "connection failed: 407 Proxy Authentication Required')) (caused by ProxyError(...))"
 )
 PROXY_URL = "http://customer-1234:s3cret@proxy.example.com:8080"
+# Il SOCKS locale dell'uscita WARP, e i rifiuti che dipendono dal client (testi reali di yt-dlp 2026.10.26).
+WARP_URL = f"socks5://127.0.0.1:{worker.WARP_PORT}"
+MEDIA_403 = "ERROR: unable to download video data: HTTP Error 403: Forbidden"
+RELOAD = "ERROR: [youtube] abc: The page needs to be reloaded."
+NO_FORMAT = "ERROR: [youtube] abc: Requested format is not available. Use --list-formats for a list of available formats"
+SOCKS_DOWN = (
+    "ERROR: [youtube] abc: Unable to download API page: SocksHTTPSConnection(host='www.youtube.com', port=443): "
+    "Failed to establish a new connection: [Errno 111] Connection refused (caused by TransportError(...))"
+)
 
 
 class FakeYDL:
-    """Finto YoutubeDL: `script` associa l'etichetta del client al comportamento ("ok" o un testo d'errore)."""
+    """Finto YoutubeDL: `script` associa l'etichetta del tentativo al comportamento ("ok" o un testo
+    d'errore). L'etichetta è il client («tv», «default») e, uscendo da WARP, «warp/tv»."""
 
     script: dict[str, str] = {}
     calls: list[str] = []
@@ -45,7 +61,8 @@ class FakeYDL:
     def __init__(self, opts: dict):
         self.opts = opts
         clients = (opts.get("extractor_args") or {}).get("youtube", {}).get("player_client")
-        self.label = ",".join(clients) if clients else "default"
+        label = ",".join(clients) if clients else "default"
+        self.label = f"warp/{label}" if opts.get("proxy") == WARP_URL else label
 
     def __enter__(self):
         return self
@@ -100,6 +117,10 @@ class AntibotTest(unittest.TestCase):
             # Un proxy SOCKS irraggiungibile non nomina il proxy: si riconosce dalla connessione Socks.
             "SocksHTTPSConnection(host='www.youtube.com', port=443): Failed to establish a new connection: "
             "[Errno 111] Connection refused (caused by TransportError(...))": "proxy_error",
+            # Rifiuti del singolo client: un altro client può dare il file.
+            MEDIA_403: "media_unavailable",
+            RELOAD: "media_unavailable",
+            NO_FORMAT: "media_unavailable",
         }
         for text, expected in cases.items():
             self.assertEqual(worker._classify_error(Exception(text)), expected, text)
@@ -133,6 +154,21 @@ class AntibotTest(unittest.TestCase):
         self.assertEqual((res.status_code, res.json()["detail"]), (502, "unavailable"))
         self.assertEqual(FakeYDL.calls, ["default"])
 
+    def test_a_refusal_tied_to_the_client_tries_the_next_one(self):
+        # 403 sul media, «The page needs to be reloaded», nessun file unico: dipendono dal client, non dall'IP.
+        for refusal in (MEDIA_403, RELOAD, NO_FORMAT):
+            FakeYDL.script, FakeYDL.calls = {"default": refusal}, []
+            worker._PREFERRED_CLIENT = None
+            self.assertEqual(self.post().status_code, 200, refusal)
+            self.assertEqual(FakeYDL.calls, ["default", "tv"], refusal)
+
+    def test_every_client_refusing_is_reported_as_media_unavailable(self):
+        FakeYDL.script = {"default": MEDIA_403, "tv": RELOAD, "android_vr": NO_FORMAT}
+        res = self.post()
+        self.assertEqual((res.status_code, res.json()["detail"]), (502, "media_unavailable"))
+        self.assertEqual(FakeYDL.calls, ["default", "tv", "android_vr"])
+        self.assertIn("riprovando", self.client.get("/antibot", headers=AUTH).json()["hint"])
+
     def test_unrecognised_error_keeps_the_generic_detail(self):
         FakeYDL.script = {"default": "Unable to download webpage: timed out"}
         res = self.post()
@@ -152,11 +188,12 @@ class AntibotTest(unittest.TestCase):
         self.assertEqual(FakeYDL.calls, ["ios,web", "tv"])
 
     def test_a_preferred_client_that_stops_passing_is_forgotten(self):
-        worker._PREFERRED_CLIENT = "tv"
-        FakeYDL.script = {"tv": BOT_CHECK}
-        self.assertEqual(self.post().status_code, 200)
-        self.assertEqual(FakeYDL.calls, ["tv", "default"])
-        self.assertIsNone(worker._PREFERRED_CLIENT)
+        for refusal in (BOT_CHECK, MEDIA_403):
+            worker._PREFERRED_CLIENT = "tv"
+            FakeYDL.script, FakeYDL.calls = {"tv": refusal}, []
+            self.assertEqual(self.post().status_code, 200)
+            self.assertEqual(FakeYDL.calls, ["tv", "default"])
+            self.assertIsNone(worker._PREFERRED_CLIENT)
 
     def test_probe_requires_the_key_and_reports_the_outcome(self):
         self.assertEqual(self.client.get("/antibot").status_code, 401)
@@ -237,6 +274,258 @@ class AntibotTest(unittest.TestCase):
             self.assertEqual(self.post().json()["detail"], "youtube_bot_check+cookies+proxy")
         # Lo stato in /health resta il codice stabile: le leve sono già lì accanto (cookies, proxy).
         self.assertEqual(self.client.get("/health").json()["antibot"]["last"]["status"], "youtube_bot_check")
+
+
+class WarpLadderTest(unittest.TestCase):
+    """Con YTDLP_WARP=1 yt-dlp esce da Cloudflare WARP; l'uscita diretta resta di riserva."""
+
+    def setUp(self):
+        FakeYDL.script, FakeYDL.calls = {}, []
+        worker._PREFERRED_CLIENT = None
+        worker._LAST_OUTCOME.update(status=None, client=None, exit=None, at=None)
+        self.tunnel = mock.Mock(state="ready", error=None)
+        self.tunnel.proxy.return_value = WARP_URL
+        for target, name, value in (
+            (worker.yt_dlp, "YoutubeDL", FakeYDL),
+            (worker, "WARP_ENABLED", True),
+            (worker, "WARP", self.tunnel),
+        ):
+            patcher = mock.patch.object(target, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.client = TestClient(worker.app)
+
+    def post(self):
+        return self.client.post("/download", json={"url": "https://youtu.be/abc"}, headers=AUTH)
+
+    def test_requests_leave_through_warp(self):
+        res = self.post()
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(FakeYDL.calls, ["warp/default"])
+        last = self.client.get("/health").json()["antibot"]["last"]
+        self.assertEqual((last["status"], last["exit"], last["client"]), ("ok", "warp", "default"))
+        # Il worker appena svegliato aspetta il tunnel invece di partire dall'uscita che YouTube ferma.
+        self.assertGreater(self.tunnel.proxy.call_args.kwargs["wait"], 0)
+
+    def test_a_refusal_tied_to_the_client_stays_on_warp_and_remembers_the_winner(self):
+        FakeYDL.script = {"warp/default": MEDIA_403}
+        self.assertEqual(self.post().status_code, 200)
+        self.assertEqual(FakeYDL.calls, ["warp/default", "warp/tv"])
+        FakeYDL.calls = []
+        self.assertEqual(self.post().status_code, 200)
+        self.assertEqual(FakeYDL.calls, ["warp/tv"])
+
+    def test_every_client_refusing_through_warp_does_not_fall_back_to_the_blocked_exit(self):
+        FakeYDL.script = {"warp/default": MEDIA_403, "warp/tv": RELOAD, "warp/android_vr": NO_FORMAT}
+        res = self.post()
+        self.assertEqual((res.status_code, res.json()["detail"]), (502, "media_unavailable"))
+        self.assertEqual(FakeYDL.calls, ["warp/default", "warp/tv", "warp/android_vr"])
+
+    def test_bot_check_through_warp_changes_exit_not_client(self):
+        FakeYDL.script = {"warp/default": BOT_CHECK}
+        res = self.post()
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(FakeYDL.calls, ["warp/default", "default"])
+        self.assertEqual(self.client.get("/health").json()["antibot"]["last"]["exit"], "direct")
+
+    def test_bot_check_on_both_exits_says_warp_is_blocked_too(self):
+        FakeYDL.script = {"warp/default": BOT_CHECK, "default": BOT_CHECK, "tv": BOT_CHECK, "android_vr": BOT_CHECK}
+        res = self.post()
+        self.assertEqual((res.status_code, res.json()["detail"]), (502, "youtube_bot_check+warp"))
+        self.assertEqual(FakeYDL.calls, ["warp/default", "default", "tv", "android_vr"])
+        probe = self.client.get("/antibot", headers=AUTH).json()
+        self.assertEqual((probe["youtube"], probe["exit"], probe["warp"]), ("youtube_bot_check", None, "ready"))
+        self.assertIn("anche l'uscita da Cloudflare WARP è fermata", probe["hint"])
+
+    def test_warp_that_is_not_up_is_reported_as_down(self):
+        self.tunnel.proxy.return_value = None
+        self.tunnel.state = "failed"
+        FakeYDL.script = {"default": BOT_CHECK, "tv": BOT_CHECK, "android_vr": BOT_CHECK}
+        res = self.post()
+        self.assertEqual(res.json()["detail"], "youtube_bot_check+warp_down")
+        self.assertEqual(FakeYDL.calls, ["default", "tv", "android_vr"])
+        self.assertIn("non disponibile", self.client.get("/antibot", headers=AUTH).json()["hint"])
+
+    def test_a_tunnel_that_drops_is_restarted_and_the_direct_exit_takes_over(self):
+        FakeYDL.script = {"warp/default": SOCKS_DOWN}
+        self.assertEqual(self.post().status_code, 200)
+        self.assertEqual(FakeYDL.calls, ["warp/default", "default"])
+        self.tunnel.report_failure.assert_called_once_with()
+
+        # Se anche la diretta è fermata, il codice dice che WARP è giù: non che il proxy dell'owner è rotto.
+        FakeYDL.script.update({"default": BOT_CHECK, "tv": BOT_CHECK, "android_vr": BOT_CHECK})
+        self.assertEqual(self.post().json()["detail"], "youtube_bot_check+warp_down")
+
+    def test_the_owner_proxy_wins_over_warp(self):
+        with mock.patch.object(worker, "PROXY", PROXY_URL), mock.patch.object(worker, "_proxy_reachable", lambda: True):
+            self.assertEqual(self.post().status_code, 200)
+            warp = self.client.get("/health").json()["antibot"]["warp"]
+        self.assertEqual(FakeYDL.calls, ["default"])
+        self.tunnel.proxy.assert_not_called()
+        self.assertIn("YTDLP_PROXY", warp["error"])
+
+    def test_probe_says_which_exit_passed(self):
+        probe = self.client.get("/antibot", headers=AUTH).json()
+        self.assertEqual((probe["youtube"], probe["exit"], probe["client"]), ("ok", "warp", "default"))
+        self.assertIn("uscendo da Cloudflare WARP", probe["hint"])
+
+    def test_health_reports_the_warp_exit(self):
+        self.assertEqual(
+            self.client.get("/health").json()["antibot"]["warp"],
+            {"enabled": True, "state": "ready", "error": None},
+        )
+        with mock.patch.object(worker, "WARP_ENABLED", False), mock.patch.object(worker, "WARP", worker.WarpExit()):
+            self.assertEqual(
+                self.client.get("/health").json()["antibot"]["warp"],
+                {"enabled": False, "state": "off", "error": None},
+            )
+
+
+# Finto client WARP: fa ciò che dice behavior.json (accanto a lui) e annota come è stato chiamato.
+FAKE_CLIENT = textwrap.dedent(
+    """\
+    #!{python}
+    import json, os, socket, sys, time
+    from pathlib import Path
+
+    here = Path(__file__).resolve().parent
+    behavior = json.loads((here / "behavior.json").read_text())
+    args = sys.argv[1:]
+    with (here / "calls.jsonl").open("a") as calls:
+        calls.write(json.dumps({{"args": args, "env": sorted(os.environ), "uid": os.getuid()}}) + "\\n")
+    if "version" in args:
+        sys.exit(0)
+    config = Path(args[args.index("-c") + 1])
+    if "register" in args:
+        if behavior["register"] != "ok":
+            print("Failed to register: " + behavior["register"], file=sys.stderr)
+            sys.exit(1)
+        config.write_text(json.dumps({{"private_key": "c2VjcmV0LXByaXZhdGUta2V5LXNlY3JldC1wcml2YXRlLWtleQ=="}}))
+        sys.exit(0)
+    if not config.is_file():
+        sys.exit(2)
+    server = socket.create_server(("127.0.0.1", int(args[args.index("-p") + 1])))
+    time.sleep(120)
+    """
+)
+
+
+class WarpExitTest(unittest.TestCase):
+    """Il gestore dell'uscita WARP contro un finto client: registrazione, avvio, cadute, isolamento."""
+
+    def setUp(self):
+        # Sotto /tmp e leggibile da tutti: quando i test girano da root il client parte come «nobody».
+        self.base = Path(tempfile.mkdtemp(prefix="warp-test-", dir="/tmp"))
+        self.base.chmod(0o755)
+        self.bin = self.base / "bin"
+        self.bin.mkdir()
+        self.bin.chmod(0o777)
+        client = self.bin / "usque"
+        python = next((path for path in ("/usr/local/bin/python3", "/usr/bin/python3") if os.access(path, os.X_OK)), "")
+        client.write_text(FAKE_CLIENT.format(python=python or sys.executable))
+        client.chmod(0o755)
+        self.behave(register="ok")
+        with socket.socket() as free:
+            free.bind(("127.0.0.1", 0))
+            port = free.getsockname()[1]
+        self.traffic = True  # che cosa risponde la prova «il tunnel porta traffico?»
+        for name, value in {
+            "WARP_ENABLED": True,
+            "WARP_BIN": str(client),
+            "WARP_DIR": self.base / "state",
+            "WARP_PORT": port,
+            "WARP_READY_SECONDS": 1.5,
+            "_WARP_RETRY_SECONDS": (3600,),  # nessun riavvio automatico durante i test
+            "_warp_trace": self.trace,
+        }.items():
+            patcher = mock.patch.object(worker, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.warp = worker.WarpExit()
+        self.addCleanup(__import__("shutil").rmtree, self.base, True)
+        self.addCleanup(self.warp.stop)
+
+    def behave(self, **behavior):
+        (self.bin / "behavior.json").write_text(json.dumps(behavior))
+
+    def calls(self) -> list[dict]:
+        record = self.bin / "calls.jsonl"
+        lines = record.read_text().splitlines() if record.is_file() else []
+        return [call for call in map(json.loads, lines) if "version" not in call["args"]]
+
+    def trace(self, _proxy: str) -> bool:
+        return self.traffic
+
+    def test_registers_once_then_carries_traffic(self):
+        self.warp.start()
+        self.assertEqual(self.warp.proxy(wait=15), f"socks5://127.0.0.1:{worker.WARP_PORT}")
+        self.assertEqual((self.warp.state, self.warp.error), ("ready", None))
+        register, serve = (call["args"] for call in self.calls())
+        self.assertEqual(register[2:], ["register", "-a", "-n", "solco-worker"])
+        # La modalità che YouTube lascia passare (misurato), e un SOCKS non raggiungibile da fuori.
+        self.assertEqual(serve[2], "l4-socks")
+        self.assertEqual(serve[serve.index("-b") + 1], "127.0.0.1")
+
+        # Il client muore: il tunnel non viene più offerto e riparte SENZA registrare un altro dispositivo.
+        with mock.patch.object(worker, "_WARP_RETRY_SECONDS", (0, 3600)):
+            self.warp._process.kill()
+            self.warp._process.wait()
+            self.assertIsNotNone(self.warp.proxy(wait=15))
+        self.assertEqual([call["args"][2] for call in self.calls()], ["register", "l4-socks", "l4-socks"])
+
+    def test_a_tunnel_that_never_carries_traffic_is_reported_and_leaves_no_client(self):
+        self.traffic = False
+        self.warp.start()
+        self.assertIsNone(self.warp.proxy(wait=20))
+        self.assertEqual(self.warp.state, "failed")
+        self.assertIn("non risponde", self.warp.error)
+        self.assertIsNone(self.warp._process)
+        self.assertFalse(worker._port_open(worker.WARP_PORT))
+
+    def test_a_refused_registration_is_reported_without_the_raw_answer(self):
+        token = "A" * 40
+        self.behave(register=f"429 Too Many Requests token={token}")
+        with self.assertLogs(worker.log, "WARNING") as logs:
+            self.warp.start()
+            self.assertIsNone(self.warp.proxy(wait=15))
+        self.assertEqual(self.warp.state, "failed")
+        self.assertIn("429", self.warp.error)
+        self.assertNotIn(token, self.warp.error + "\n".join(logs.output))
+        self.assertEqual(len(self.calls()), 1)  # nessun client avviato senza registrazione
+
+    def test_the_client_never_sees_the_worker_secrets(self):
+        with mock.patch.dict(os.environ, {"WORKER_API_KEY": "test-key", "YTDLP_COOKIES": "SID=1"}):
+            self.warp.start()
+            self.assertIsNotNone(self.warp.proxy(wait=15))
+        expected_uid = pwd.getpwnam("nobody").pw_uid if os.geteuid() == 0 else os.getuid()
+        for call in self.calls():
+            self.assertLessEqual(set(call["env"]), {"HOME", "PATH", "LC_CTYPE"}, call)
+            self.assertEqual(call["uid"], expected_uid, call)
+        # La registrazione resta in una cartella che solo il client (e root) può leggere.
+        self.assertEqual(stat.S_IMODE(worker.WARP_DIR.stat().st_mode), 0o700)
+
+    def test_a_missing_client_is_reported(self):
+        with mock.patch.object(worker, "WARP_BIN", str(self.bin / "absent")):
+            self.warp.start()
+            self.assertIsNone(self.warp.proxy(wait=10))
+        self.assertEqual(self.warp.state, "failed")
+        self.assertIn("non è nell'immagine", self.warp.error)
+
+    def test_stays_off_unless_enabled_and_never_next_to_an_owner_proxy(self):
+        for name, value in (("WARP_ENABLED", False), ("PROXY", PROXY_URL)):
+            with mock.patch.object(worker, name, value):
+                self.warp.start()
+                self.assertEqual((self.warp.state, self.warp.proxy(wait=1)), ("off", None))
+        self.assertEqual(self.calls(), [])
+
+    def test_stop_leaves_no_client_running(self):
+        self.warp.start()
+        self.assertIsNotNone(self.warp.proxy(wait=15))
+        process = self.warp._process
+        self.warp.stop()
+        self.assertIsNotNone(process.poll())
+        self.warp.start()
+        self.assertEqual((self.warp.state, self.warp.proxy(wait=1)), ("off", None))
 
 
 class ProxyTest(unittest.TestCase):

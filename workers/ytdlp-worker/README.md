@@ -98,29 +98,52 @@ Poi redeploy di Solco e, in **chat privata** col bot: `/video <url o descrizione
 
 ## YouTube: «Sign in to confirm you're not a bot»
 
-Da un IP datacenter (Fly, Render, …) YouTube spesso blocca i download con questo messaggio. Il worker ha
-un **anti-bot** in tre parti:
+Da un IP da datacenter (Render, Fly, …) YouTube risponde con questo messaggio a **ogni** client di
+yt-dlp: è l'indirizzo a essere fermato, non la richiesta. Lo si supera in tre modi, dal meno al più
+impegnativo: uscire da **Cloudflare WARP** (gratis, una variabile), usare un **proxy** residenziale, dare
+i **cookie** di un account. Il worker ha un **anti-bot** in quattro parti:
 
 1. **Rileva** il controllo e lo distingue dagli altri errori. `/download` risponde `502` con un codice in
-   `detail`: `youtube_bot_check`, `rate_limited`, `login_required`, `unavailable`, `proxy_unreachable`,
-   `proxy_error` (oppure il generico `download failed` / `extraction failed`). Il bot di Solco traduce il
-   codice nel rimedio da applicare. A `youtube_bot_check` si accodano le leve **già attive**
-   (`youtube_bot_check+proxy`, `youtube_bot_check+cookies+proxy`): così il bot non consiglia di impostare
-   ciò che c'è già, ma dice cosa non va (cookie scaduti, IP del proxy bloccato).
-2. **Riprova da solo** con altri client YouTube (`YTDLP_FALLBACK_CLIENTS`, uno alla volta, entro
-   `YTDLP_ANTIBOT_BUDGET_SECONDS`) e **ricorda** quello che passa, usandolo per primo alle richieste dopo.
-   È un tentativo a costo zero, non una garanzia: se l'IP è bloccato servono i cookie o un proxy.
-3. **Sonda**: `GET /antibot` (con la chiave, come `/download`) estrae un video pubblico senza scaricarlo e
-   dice se questo worker passa il controllo, con che client e cosa fare se no:
+   `detail`: `youtube_bot_check`, `media_unavailable`, `rate_limited`, `login_required`, `unavailable`,
+   `proxy_unreachable`, `proxy_error` (oppure il generico `download failed` / `extraction failed`). Il
+   bot di Solco traduce il codice nel rimedio. A `youtube_bot_check` si accodano le leve **già attive**
+   (`+cookies`, `+proxy`, `+warp` se è fermata anche l'uscita WARP, `+warp_down` se WARP è acceso ma non
+   disponibile): così il bot non consiglia di impostare ciò che c'è già, ma dice cosa non va.
+2. **Cambia uscita**: con `YTDLP_WARP=1` yt-dlp esce da Cloudflare WARP e l'IP del worker resta di
+   riserva (vedi [Uscire da Cloudflare WARP](#uscire-da-cloudflare-warp)).
+3. **Cambia client**: quando un client YouTube non dà il file (403 sul media, «The page needs to be
+   reloaded», nessun file unico audio+video → `media_unavailable`) prova i successivi
+   (`YTDLP_FALLBACK_CLIENTS`, uno alla volta, entro `YTDLP_ANTIBOT_BUDGET_SECONDS`) e **ricorda** quello
+   che passa. Contro il controllo anti-bot cambiare client non basta: lo ricevono tutti.
+4. **Sonda**: `GET /antibot` (con la chiave, come `/download`) estrae un video pubblico senza scaricarlo e
+   dice se questo worker passa il controllo, da quale uscita, con che client e cosa fare se no:
 
    ```bash
    curl -H "Authorization: Bearer $WORKER_API_KEY" https://<worker>/antibot
-   # {"youtube":"ok","client":"default","tried":["default"],"cookies":false,"proxy":false,...}
-   # {"youtube":"youtube_bot_check","client":null,"tried":["default","tv",...],"hint":"...YTDLP_COOKIES..."}
+   # {"youtube":"ok","client":"default","exit":"warp","tried":["warp/default"],"warp":"ready",...}
+   # {"youtube":"youtube_bot_check","client":null,"exit":null,"tried":["default","tv_samsung",...],"hint":"..."}
    ```
 
 `GET /health` (pubblico, nessun segreto) mostra lo stato in `antibot`: i client di fallback, quello
-preferito, se c'è un proxy (`proxy`, `proxy_info`) e l'esito dell'**ultima** richiesta (`last.status`).
+preferito, se c'è un proxy (`proxy`, `proxy_info`), lo stato dell'uscita WARP (`warp`) e l'esito
+dell'**ultima** richiesta (`last`: `status`, `client`, `exit`).
+
+### Che cosa passa e che cosa no (misurato)
+
+Misura del 20 novembre 2026 con yt-dlp 2026.10.26, da runner GitHub (IP Microsoft Azure, cioè da
+datacenter come Render). Si rifà con il workflow «Worker yt-dlp: misura anti-bot».
+
+| Uscita | Che cosa è stato provato | Esito |
+|---|---|---|
+| IP del runner | 11 client YouTube, anche senza scaricare la pagina del video | `LOGIN_REQUIRED` su tutti |
+| IP del runner + PO Token | provider `bgutil` 2.0.2, token chiesto sempre (`fetch_pot=always`) | token generato, `LOGIN_REQUIRED` lo stesso |
+| WARP, modalità **proxy** | client ufficiale e `usque l4-socks` | estrazione e download riusciti (default, `tv_samsung`, `mweb`, `android_vr`, `web_embedded`) |
+| WARP, modalità **tunnel** | `usque socks`, su QUIC e su HTTP/2 | `LOGIN_REQUIRED` su tutti |
+
+Due conseguenze nel worker: i PO Token non sono installati (non servono contro un blocco sull'IP), e
+l'uscita WARP usa solo la modalità proxy. Il client **ufficiale** di Cloudflare non è utilizzabile su
+Render: in un container senza privilegi resta in «Connecting». Per questo l'immagine usa `usque`, che
+gira tutto in spazio utente (19 MB di memoria, pronto in 3 secondi).
 
 | Variabile | Effetto |
 |---|---|
@@ -128,14 +151,43 @@ preferito, se c'è un proxy (`proxy`, `proxy_info`) e l'esito dell'**ultima** ri
 | `YTDLP_COOKIES_FILE` | In alternativa, il percorso a un `cookies.txt` già montato nel container. Su Render un Secret File `cookies.txt` (`/etc/secrets/cookies.txt`) è rilevato da solo. |
 | `YTDLP_PROXY` | Proxy in uscita per yt-dlp, utile se l'IP del worker è bloccato: vedi [Impostare un proxy](#impostare-un-proxy). **SEGRETO** se contiene credenziali; non finisce mai nei log né in `/health`. |
 | `YTDLP_PROXY_CONNECT_TIMEOUT` | Secondi concessi al proxy per accettare la connessione prima di ogni richiesta (default `5`). Oltre, l'esito è `proxy_unreachable` senza avviare yt-dlp. |
+| `YTDLP_WARP` | `1` accende l'uscita gratuita da Cloudflare WARP: vedi [Uscire da Cloudflare WARP](#uscire-da-cloudflare-warp). Spenta di default; ignorata se c'è `YTDLP_PROXY`. |
 | `YTDLP_PLAYER_CLIENT` | Forza il client del PRIMO tentativo (CSV), es. `android` o `ios,web`. Vuoto = default di yt-dlp. |
-| `YTDLP_FALLBACK_CLIENTS` | Client provati dopo un controllo anti-bot (default `tv,android_vr,web_safari,mweb`). Vuoto = nessun fallback. |
+| `YTDLP_FALLBACK_CLIENTS` | Client provati quando il precedente non dà il file (default `tv_samsung,mweb,android_vr,web_embedded`, quelli che nella misura danno un file unico audio+video). Vuoto = nessun fallback. |
 | `YTDLP_ANTIBOT_BUDGET_SECONDS` | Oltre questo tempo non si iniziano altri tentativi (default `25`; il bot di Solco aspetta 40 s). |
 | `YTDLP_PROBE_URL` | Video usato da `GET /antibot` (default: un video pubblico e stabile). |
 
 **Runtime JavaScript.** `requirements.txt` installa `yt-dlp[default]` (con `yt-dlp-ejs`) e `deno`: YouTube
 protegge i formati con "challenge" JavaScript e yt-dlp, senza un runtime che le risolva, ripiega
 sull'estrazione senza JavaScript, che dichiara deprecata e con formati mancanti.
+
+### Uscire da Cloudflare WARP
+
+La leva gratuita, e l'unica che non chiede né un account né un abbonamento: yt-dlp esce dalla rete di
+Cloudflare invece che dall'IP del worker.
+
+- **Come si accende.** Render → il servizio → **Environment** → variabile `YTDLP_WARP` = `1` → salva (il
+  servizio riparte da solo). Su Fly: `fly secrets set YTDLP_WARP=1`.
+- **Che cosa fa.** All'avvio il worker registra un dispositivo WARP gratuito e apre un SOCKS5 **solo
+  locale** (`127.0.0.1`). Da quel momento yt-dlp esce da lì: richiesta e download insieme, perché YouTube
+  lega il link del media all'IP che lo ha chiesto (per questo serve la modalità `serve`: in `extract`
+  il link restituito varrebbe solo da quell'uscita). L'IP del worker resta di riserva, per quando WARP
+  non è disponibile o viene fermato a sua volta. Con `YTDLP_PROXY` impostato WARP non viene usato: il
+  proxy è la scelta esplicita dell'owner.
+- **Che cosa accetti accendendola.** I [termini di Cloudflare per WARP](https://www.cloudflare.com/application/terms/):
+  il worker li accetta al posto tuo quando registra il dispositivo, ed è per questo che la leva è spenta
+  finché non la accendi tu. Il client è [`usque`](https://github.com/Diniboy1123/usque), open-source e
+  **non ufficiale**: Cloudflare può smettere di accettarlo, e allora il worker torna all'uscita diretta.
+- **Nessuna garanzia.** YouTube può fermare anche gli indirizzi di WARP: il codice diventa
+  `youtube_bot_check+warp`, di solito passa riprovando, e restano il proxy e i cookie.
+- **Controlla** `GET /health` dopo il riavvio: `antibot.warp` è `{"enabled": true, "state": "ready"}`.
+  `state: "failed"` ha un `error` che dice perché (registrazione rifiutata o limitata, Cloudflare non
+  raggiungibile, tunnel che non risponde: serve traffico **UDP** in uscita). Il worker riprova da solo
+  dopo 5, 30 e 120 secondi, poi a ogni richiesta.
+- **Isolamento.** Il client gira senza le variabili d'ambiente del worker e, quando il container lo
+  permette, come utente `nobody`: non vede né `WORKER_API_KEY` né i cookie. È compilato nell'immagine da
+  un commit fisso del suo sorgente (vedi `Dockerfile`). Ogni avvio del container registra un nuovo
+  dispositivo WARP: su un piano che spegne il servizio quando è fermo succede a ogni risveglio.
 
 ### Impostare i cookie (il rimedio quando l'esito è `youtube_bot_check`)
 
@@ -164,7 +216,7 @@ vengono scartate (contate in `skipped`), così nessun valore di cookie finisce n
 
 ### Impostare un proxy
 
-L'alternativa ai cookie: far uscire yt-dlp da un IP che YouTube non blocca.
+L'alternativa a pagamento a WARP: far uscire yt-dlp da un IP che YouTube non blocca, scelto da te.
 
 - **Che proxy serve.** Un proxy **residenziale** o **mobile** di un fornitore a pagamento. I proxy
   *datacenter* (e quasi tutti quelli gratuiti) sono bloccati come l'IP del worker: l'esito resta
@@ -201,23 +253,29 @@ Alla prima richiesta, `antibot.last.status` dice com'è andata:
 | `proxy_error` | Il proxy ha risposto ma ha rifiutato (es. `407`). | Utente/password, credito residuo, YouTube consentito dal piano, IP del worker autorizzato. |
 | `youtube_bot_check` | Il proxy funziona, ma YouTube blocca anche il suo IP. | Proxy residenziale/mobile, o i cookie. |
 
-Cookie e proxy si possono usare insieme.
+Cookie e proxy si possono usare insieme, e così cookie e WARP.
 
 ## Diagnostica
 
 Il worker logga su stdout (`fly logs -a solco-ytdlp-worker`): all'avvio stampa la config risolta
-(`mode`, `auth`, `cookies`, `proxy`, `player_client`, `fallback`), poi ogni richiesta (`richiesta download: …`),
-l'esito (`download ok …`) e, su errore, il **motivo preciso** di yt-dlp per ogni client provato
-(`yt-dlp fallito (client=tv, esito=youtube_bot_check): …`). È l'unica riga per errore: yt-dlp non scrive
-la sua su stderr, e questa passa da un filtro che toglie l'URL e le credenziali del proxy.
+(`mode`, `auth`, `cookies`, `proxy`, `warp`, `player_client`, `fallback`), poi ogni richiesta
+(`richiesta download: …`), l'esito (`download ok …`) e, su errore, il **motivo preciso** di yt-dlp per
+ogni tentativo (`yt-dlp fallito (tentativo=warp/tv_samsung, esito=media_unavailable): …`; senza
+prefisso è l'uscita diretta o il proxy). È l'unica riga per errore: yt-dlp non scrive la sua su stderr, e
+questa passa da un filtro che toglie l'URL e le credenziali del proxy. Le righe `WARP: …` dicono quando
+l'uscita è pronta o perché non lo è.
 `GET /health` riporta anche `{"auth": …, "cookies": true|false, "player_client": …, "antibot": {…}}` per
 confermare al volo che l'env è attivo.
 
-Test dell'anti-bot (yt-dlp finto, nessuna rete), dalla cartella del worker:
+Test del worker (yt-dlp e client WARP finti, nessuna rete), dalla cartella del worker:
 
 ```bash
 pip install -r requirements.txt httpx && python -m unittest -v test_antibot
 ```
+
+Il workflow «Worker yt-dlp: collaudo» li esegue dentro l'immagine a ogni modifica; avviato a mano
+fa anche la prova dal vivo: il container, con WARP acceso, scarica un video da YouTube partendo da un
+runner il cui IP da solo riceve il controllo anti-bot.
 
 ## Sicurezza (cifratura end-to-end)
 
@@ -227,5 +285,6 @@ pip install -r requirements.txt httpx && python -m unittest -v test_antibot
 | **Auth — FAIL-CLOSED** | Senza `WORKER_API_KEY` il worker risponde **503 a tutto** (non parte mai «aperto» per sbaglio). `/download` esige `Authorization: Bearer <WORKER_API_KEY>`, confronto a tempo costante. Per i soli test locali: `WORKER_ALLOW_OPEN=1`. |
 | **Link ai file — FIRMATI + a scadenza** | In modalità `serve` l'URL è `/file/<id>?exp=<ts>&sig=<hmac>`: HMAC-SHA256 con `WORKER_API_KEY`, legato al nome file e a una scadenza = `FILE_TTL_SECONDS`. Non falsificabile senza la chiave e non riusabile dopo la scadenza; il file viene comunque cancellato alla stessa scadenza. Telegram può prelevarlo senza conoscere la chiave (basta il link firmato). |
 | **Segreti (a riposo)** | `WORKER_API_KEY`, `YTDLP_COOKIES` e `YTDLP_PROXY` vanno impostati come **secret di Fly** (`fly secrets set …`) — cifrati a riposo, mai nel repo né in `fly.toml`. I log non stampano mai chiavi, cookie o credenziali del proxy. |
+| **Uscita WARP** | Il SOCKS del client WARP ascolta solo su `127.0.0.1`. Il client gira con l'ambiente vuoto e, potendo, come `nobody`: non riceve la chiave del worker né i cookie. La sua registrazione resta in una cartella `0700` dentro il container e sparisce con lui. |
 
 In breve: imposta `WORKER_API_KEY` come secret (lo STESSO valore di `YTDLP_SERVICE_KEY` su Vercel) e il canale è cifrato end-to-end, autenticato e con link usa-e-getta. `GET /health` → `"auth":"required"` conferma che è chiuso correttamente (`"unconfigured"` = manca la chiave = tutto 503).

@@ -28,14 +28,22 @@
 #   - YTDLP_PROXY            = proxy in uscita per yt-dlp (es. residenziale); è un SEGRETO se contiene credenziali.
 #     Accetta l'URL (http://utente:password@host:porta, anche socks5://) e i formati dei fornitori
 #     (host:porta:utente:password, utente:password:host:porta). /health → antibot.proxy_info dice se è stato letto.
+#   - YTDLP_WARP             = 1 per avere un'uscita di riserva GRATUITA da Cloudflare WARP: quando l'IP del
+#     worker riceve il controllo anti-bot, yt-dlp riprova da lì. Misurato dal vivo da un IP da datacenter: è la
+#     sola leva senza costi che passa (gli altri client e i PO Token no). Spenta di default: accenderla vale
+#     come accettare i termini di Cloudflare per WARP, e il client è «usque», open-source e non ufficiale.
 import asyncio
 import hashlib
 import hmac
 import logging
 import mimetypes
 import os
+import pwd
 import re
+import shutil
 import socket
+import subprocess
+import threading
 import time
 import uuid
 from collections.abc import Callable
@@ -78,9 +86,11 @@ def _csv(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-# Anti-bot: client YouTube provati UNO ALLA VOLTA quando il tentativo normale riceve il controllo anti-bot.
-# È un tentativo a costo zero, non una garanzia: se l'IP è bloccato servono i cookie o un proxy.
-FALLBACK_CLIENTS = _csv(os.environ.get("YTDLP_FALLBACK_CLIENTS", "tv,android_vr,web_safari,mweb"))
+# Anti-bot: client YouTube provati UNO ALLA VOLTA quando il tentativo normale non dà il file.
+# L'elenco viene da una misura (vedi README): su un'uscita pulita questi danno un file unico audio+video,
+# mentre «tv» risponde «The page needs to be reloaded» e «web_safari»/«visionos» non hanno quel formato.
+# Contro un IP fermato dal controllo anti-bot non bastano: lì serve cambiare uscita (WARP, proxy) o i cookie.
+FALLBACK_CLIENTS = _csv(os.environ.get("YTDLP_FALLBACK_CLIENTS", "tv_samsung,mweb,android_vr,web_embedded"))
 # Tempo massimo oltre il quale non si INIZIANO altri tentativi (il bot di Solco aspetta 40s in tutto).
 ANTIBOT_BUDGET_SECONDS = float(os.environ.get("YTDLP_ANTIBOT_BUDGET_SECONDS", "25"))
 _PROXY_SCHEMES = {"http", "https", "socks4", "socks4a", "socks5", "socks5h"}
@@ -156,6 +166,17 @@ def _first_proxy(raw: str) -> tuple[str, str | None, int]:
 
 
 PROXY, PROXY_ERROR, PROXY_IGNORED = _first_proxy(os.environ.get("YTDLP_PROXY", ""))
+# Uscita da Cloudflare WARP (vedi WarpExit): solo se accesa con YTDLP_WARP=1, e mai insieme a YTDLP_PROXY.
+WARP_ENABLED = os.environ.get("YTDLP_WARP", "").strip().lower() in {"1", "true", "yes", "on"}
+WARP_BIN = os.environ.get("YTDLP_WARP_BIN", "").strip() or "usque"
+WARP_DIR = Path(os.environ.get("YTDLP_WARP_DIR", "/tmp/ytdlp-warp"))
+WARP_PORT = int(os.environ.get("YTDLP_WARP_PORT", "40000"))
+# Quanto si aspetta, per ciascun trasporto, che il tunnel porti traffico dopo l'avvio del client.
+WARP_READY_SECONDS = float(os.environ.get("YTDLP_WARP_READY_SECONDS", "20"))
+# Quanto una richiesta aspetta un tunnel che sta ancora partendo (worker appena svegliato), prima di
+# ripiegare sull'uscita diretta: deve restare tempo per scaricare entro i 40 secondi del bot.
+WARP_WAIT_SECONDS = float(os.environ.get("YTDLP_WARP_WAIT_SECONDS", "15"))
+WARP_IGNORED = "non usata: c'è YTDLP_PROXY, che è l'uscita scelta dall'owner"
 # Video pubblico e stabile usato dalla sonda GET /antibot (solo estrazione, nessun download).
 PROBE_URL = os.environ.get("YTDLP_PROBE_URL", "https://www.youtube.com/watch?v=jNQXAC9IVRw").strip()
 
@@ -167,14 +188,19 @@ COOKIEFILE: str | None = None
 
 # Stato anti-bot del processo: il client che ha superato il controllo (riusato per primo) e l'ultimo esito.
 _PREFERRED_CLIENT: str | None = None
-_LAST_OUTCOME: dict[str, Any] = {"status": None, "client": None, "at": None}
+_LAST_OUTCOME: dict[str, Any] = {"status": None, "client": None, "exit": None, "at": None}
 
 # Cosa fare per ogni esito (mostrato dalla sonda /antibot).
 _HINTS = {
     "ok": "YouTube risponde: nessun controllo anti-bot per questo worker.",
     "youtube_bot_check": (
-        "L'IP del worker è fermato dal controllo anti-bot. Imposta YTDLP_COOKIES (cookies.txt di un "
-        "account YouTube, meglio secondario) oppure YTDLP_PROXY, poi ridistribuisci."
+        "L'IP del worker è fermato dal controllo anti-bot. Accendi l'uscita gratuita da Cloudflare WARP "
+        "(YTDLP_WARP=1), oppure imposta YTDLP_PROXY o YTDLP_COOKIES (cookies.txt di un account YouTube, "
+        "meglio secondario), poi ridistribuisci."
+    ),
+    "media_unavailable": (
+        "YouTube risponde ma nessun client ha dato un file scaricabile: di solito passa riprovando; "
+        "se persiste, aggiorna yt-dlp ricostruendo l'immagine."
     ),
     "rate_limited": "YouTube sta limitando questo IP (troppe richieste): aspetta, o usa YTDLP_PROXY.",
     "proxy_unreachable": (
@@ -190,15 +216,20 @@ _HINTS = {
 }
 
 
-def _active_levers() -> list[str]:
-    """Le leve anti-bot GIÀ attive su questo worker, nell'ordine usato nei codici (`+cookies+proxy`)."""
-    return [name for name, active in (("cookies", COOKIEFILE), ("proxy", PROXY)) if active]
+def _active_levers(warp: str | None = None) -> list[str]:
+    """Le leve anti-bot GIÀ attive su questo worker, nell'ordine usato nei codici
+    (`+cookies+proxy`, `+warp`, `+warp_down`). `warp` è la sorte dell'uscita WARP in quel tentativo:
+    «blocked» = fermata anche lei, «down» = accesa ma non disponibile."""
+    levers = [name for name, active in (("cookies", COOKIEFILE), ("proxy", PROXY)) if active]
+    if warp:
+        levers.append("warp" if warp == "blocked" else "warp_down")
+    return levers
 
 
-def _hint(status: str) -> str:
-    """Cosa fare per l'esito. Se il controllo anti-bot scatta con cookie o proxy GIÀ attivi, il
-    consiglio non è "impostali" ma cosa non va in quelli che ci sono."""
-    levers = _active_levers()
+def _hint(status: str, warp: str | None = None) -> str:
+    """Cosa fare per l'esito. Se il controllo anti-bot scatta con delle leve GIÀ attive, il consiglio
+    non è "impostale" ma cosa non va in quelle che ci sono."""
+    levers = _active_levers(warp)
     if status != "youtube_bot_check" or not levers:
         return _HINTS.get(status, _HINTS["failed"])
     advice = {
@@ -207,17 +238,27 @@ def _hint(status: str) -> str:
             "l'IP del proxy è bloccato come quello del worker: serve un proxy residenziale o mobile, "
             "non datacenter"
         ),
+        "warp": (
+            "anche l'uscita da Cloudflare WARP è fermata: di solito passa riprovando più tardi, "
+            "altrimenti restano i cookie o un proxy residenziale"
+        ),
+        "warp_down": (
+            "l'uscita da Cloudflare WARP è accesa ma non disponibile (motivo in /health → antibot.warp): "
+            "riprova fra un minuto"
+        ),
     }
     return "Il controllo anti-bot scatta lo stesso — " + "; ".join(advice[lever] for lever in levers) + "."
 
 
 class UpstreamFailure(Exception):
-    """yt-dlp non è riuscito. `kind` è un codice stabile (_classify_error), `tried` i client provati."""
+    """yt-dlp non è riuscito. `kind` è un codice stabile (_classify_error), `tried` i tentativi fatti,
+    `warp` la sorte dell'uscita WARP quando è accesa: «down» (non disponibile) o «blocked» (fermata)."""
 
-    def __init__(self, kind: str, tried: list[str]):
+    def __init__(self, kind: str, tried: list[str], warp: str | None = None):
         super().__init__(kind)
         self.kind = kind
         self.tried = tried
+        self.warp = warp
 
 
 class DownloadRequest(BaseModel):
@@ -366,6 +407,224 @@ def _redact(text: str) -> str:
     return text
 
 
+class _WarpError(Exception):
+    """Perché l'uscita WARP non è partita: frase breve e senza segreti, mostrata in /health."""
+
+
+def _warp_command() -> list[str]:
+    """Come viene avviato il client: modalità «l4-socks», cioè il proxy di Cloudflare aperto connessione
+    per connessione, su QUIC (UDP 443). È una scelta misurata: da lì YouTube risponde, mentre dalla
+    modalità «socks» — un tunnel IP completo, che esce da altri indirizzi — arriva lo stesso controllo
+    anti-bot dell'IP del worker, sia su QUIC sia su HTTP/2. Pronta in 3 secondi, 19 MB di memoria.
+    Il SOCKS ascolta solo su 127.0.0.1: non è raggiungibile da fuori dal container."""
+    return ["l4-socks", "-b", "127.0.0.1", "-p", str(WARP_PORT), "--system-dns"]
+
+
+# Attesa prima di riprovare dopo un avvio fallito: breve la prima volta, poi sempre più rada.
+_WARP_RETRY_SECONDS = (5, 30, 120, 600)
+_TOKEN = re.compile(r"[A-Za-z0-9+/=_-]{24,}")
+
+
+def _port_open(port: int) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+def _warp_trace(proxy: str) -> bool:
+    """Una richiesta vera attraverso il SOCKS: Cloudflare dice se arriva da WARP («warp=on»). È la
+    prova che il tunnel porta traffico, non solo che la porta è aperta."""
+    opts = {"quiet": True, "no_warnings": True, "logger": _SilentLogger(), "proxy": proxy, "socket_timeout": 8}
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            body = ydl.urlopen("https://www.cloudflare.com/cdn-cgi/trace").read().decode(errors="replace")
+    except Exception:
+        return False
+    return "warp=on" in body or "warp=plus" in body
+
+
+class WarpExit:
+    """Uscita di riserva da Cloudflare WARP, per quando YouTube ferma l'IP del worker.
+
+    `usque` (client WARP open-source, tutto in spazio utente: gira anche senza privilegi di rete, dove
+    il client ufficiale non si collega) registra un dispositivo gratuito e apre un SOCKS5 solo locale.
+    Parte in un thread, così l'avvio del worker non lo aspetta; chi serve una richiesta lo aspetta con
+    `proxy(wait=…)`. Il client gira senza le variabili d'ambiente del worker e, potendo, come utente
+    «nobody»: non vede né la chiave del worker né i cookie.
+    """
+
+    def __init__(self) -> None:
+        self.state = "off"  # off | starting | ready | failed
+        self.error: str | None = None
+        self._process: subprocess.Popen | None = None
+        self._config = WARP_DIR / "config.json"
+        self._lock = threading.Lock()
+        self._settled = threading.Event()  # alzato quando un avvio è finito, bene o male
+        self._stopped = False
+        self._failures = 0
+        self._retry_at = 0.0
+
+    def start(self) -> None:
+        """Avvia (o riavvia) il tunnel in background. Senza effetto se è spento, se c'è YTDLP_PROXY
+        (l'uscita scelta dall'owner), se un avvio è già in corso o se è presto per riprovare."""
+        if not WARP_ENABLED or PROXY or self._stopped:
+            return
+        with self._lock:
+            if self.state in ("starting", "ready") or time.monotonic() < self._retry_at:
+                return
+            self.state = "starting"
+            self._settled.clear()
+        threading.Thread(target=self._bootstrap, name="warp", daemon=True).start()
+
+    def proxy(self, wait: float = 0.0) -> str | None:
+        """L'URL del SOCKS locale se il tunnel porta traffico, altrimenti None. Con `wait` aspetta un
+        avvio in corso (il worker appena svegliato riceve la richiesta prima che il tunnel sia su)."""
+        if self.state == "ready" and (self._process is None or self._process.poll() is not None):
+            self._fail("il client WARP si è fermato")
+        if self.state == "failed":
+            self.start()
+        if self.state == "starting" and wait > 0:
+            self._settled.wait(wait)
+        return f"socks5://127.0.0.1:{WARP_PORT}" if self.state == "ready" else None
+
+    def report_failure(self) -> None:
+        """yt-dlp non è riuscito a passare dal SOCKS: il tunnel è da considerare giù e da riavviare."""
+        if self.state == "ready":
+            self._fail("il tunnel ha smesso di rispondere")
+
+    def stop(self) -> None:
+        """Spegne il tunnel e non lo riavvia più (chiusura del worker)."""
+        self._stopped = True
+        self._halt()
+        self.state = "off"
+
+    def _bootstrap(self) -> None:
+        try:
+            self._connect()
+        except _WarpError as exc:
+            self._fail(str(exc))
+        except Exception as exc:  # qualunque cosa succeda, il worker continua a servire dall'uscita diretta
+            self._fail(f"errore inatteso: {type(exc).__name__}")
+        else:
+            self._failures = 0
+            self.state, self.error = "ready", None
+            log.info("WARP: uscita pronta")
+        finally:
+            if self._stopped:  # spento mentre partiva: non deve restare un client in esecuzione
+                self._halt()
+                self.state = "off"
+            self._settled.set()
+
+    def _fail(self, reason: str) -> None:
+        self._halt()
+        if self._stopped:
+            return
+        delay = _WARP_RETRY_SECONDS[min(self._failures, len(_WARP_RETRY_SECONDS) - 1)]
+        self._failures += 1
+        self._retry_at = time.monotonic() + delay
+        self.state, self.error = "failed", reason
+        log.warning("WARP: uscita non disponibile (%s); nuovo tentativo fra %ss", reason, delay)
+        # Si riprova da soli solo poche volte: dopo, soltanto quando arriva una richiesta (vedi proxy).
+        if self._failures < len(_WARP_RETRY_SECONDS):
+            timer = threading.Timer(delay + 0.5, self.start)
+            timer.daemon = True
+            timer.start()
+
+    def _connect(self) -> None:
+        if not shutil.which(WARP_BIN):
+            raise _WarpError("il client WARP non è nell'immagine del worker")
+        WARP_DIR.mkdir(parents=True, exist_ok=True)
+        WARP_DIR.chmod(0o700)
+        sandbox = self._sandbox()
+        if not self._config.is_file():
+            self._register(sandbox)
+        self._halt()
+        if self._stopped:
+            raise _WarpError("spenta")
+        with (WARP_DIR / "client.log").open("wb") as output:
+            self._process = subprocess.Popen(
+                [WARP_BIN, "-c", str(self._config), *_warp_command()],
+                stdout=output,
+                stderr=subprocess.STDOUT,
+                **sandbox,
+            )
+        if not self._carries_traffic():
+            raise _WarpError("il tunnel non risponde: serve traffico UDP in uscita verso Cloudflare")
+
+    def _sandbox(self) -> dict:
+        """Come viene eseguito il client: ambiente vuoto (le chiavi del worker non gli arrivano) e, se
+        il worker è root e il sistema lo permette, utente «nobody» proprietario della sola WARP_DIR."""
+        options: dict = {
+            "cwd": str(WARP_DIR),
+            "env": {"HOME": str(WARP_DIR), "PATH": "/usr/local/bin:/usr/bin:/bin"},
+            "stdin": subprocess.DEVNULL,
+        }
+        if os.geteuid() != 0:
+            return options
+        try:
+            nobody = pwd.getpwnam("nobody")
+            identity = {"user": nobody.pw_uid, "group": nobody.pw_gid, "extra_groups": []}
+            os.chown(WARP_DIR, nobody.pw_uid, nobody.pw_gid)
+            subprocess.run([WARP_BIN, "version"], capture_output=True, timeout=15, check=False, **options, **identity)
+        except (KeyError, OSError, subprocess.SubprocessError):
+            # Niente cambio utente in questo container: resta l'ambiente vuoto.
+            try:
+                os.chown(WARP_DIR, os.geteuid(), os.getegid())
+            except OSError:
+                pass
+            return options
+        if self._config.is_file():
+            os.chown(self._config, nobody.pw_uid, nobody.pw_gid)
+        return {**options, **identity}
+
+    def _register(self, sandbox: dict) -> None:
+        """Registra un dispositivo WARP gratuito (una volta per container: la configurazione resta in
+        WARP_DIR). `-a` accetta i termini di Cloudflare: per questo l'uscita va accesa esplicitamente."""
+        command = [WARP_BIN, "-c", str(self._config), "register", "-a", "-n", "solco-worker"]
+        try:
+            done = subprocess.run(
+                command, capture_output=True, encoding="utf-8", errors="replace", timeout=45, check=False, **sandbox
+            )
+        except subprocess.TimeoutExpired:
+            raise _WarpError("registrazione: Cloudflare non ha risposto in tempo") from None
+        if done.returncode == 0 and self._config.is_file():
+            return
+        output = " ".join(f"{done.stdout} {done.stderr}".split())
+        log.warning("WARP: registrazione fallita: %s", _TOKEN.sub("[…]", output)[-300:])
+        lowered = output.lower()
+        if "429" in lowered or "too many" in lowered:
+            raise _WarpError("registrazione: Cloudflare limita questo IP (429), si riprova più tardi")
+        if any(marker in lowered for marker in ("dial tcp", "no such host", "timeout", "unreachable", "refused")):
+            raise _WarpError("registrazione: il worker non raggiunge Cloudflare")
+        raise _WarpError("registrazione rifiutata da Cloudflare")
+
+    def _carries_traffic(self) -> bool:
+        proxy = f"socks5://127.0.0.1:{WARP_PORT}"
+        deadline = time.monotonic() + WARP_READY_SECONDS
+        while time.monotonic() < deadline:
+            if self._process is None or self._process.poll() is not None:
+                return False
+            if _port_open(WARP_PORT) and _warp_trace(proxy):
+                return True
+            time.sleep(1)
+        return False
+
+    def _halt(self) -> None:
+        process, self._process = self._process, None
+        if process is None or process.poll() is not None:
+            return
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+
+
+WARP = WarpExit()
+
+
 # Come yt-dlp racconta un proxy che rifiuta o non risponde (testi reali: 407 sul tunnel, porta chiusa,
 # SOCKS che nega la connessione). Un proxy SOCKS irraggiungibile non nomina il proxy: vedi sotto.
 _PROXY_FAILURES = ("proxyerror", "unable to connect to proxy", "tunnel connection failed")
@@ -380,6 +639,19 @@ def _proxy_reachable() -> bool:
             return True
     except OSError:
         return False
+
+
+# Rifiuti che dipendono dal CLIENT YouTube e non dall'IP: un altro client può dare il file. Testi reali,
+# misurati su un'uscita pulita: 403 sul media con il client predefinito, «The page needs to be reloaded»
+# con tv, nessun file unico audio+video con visionos e web_safari.
+_CLIENT_FAILURES = (
+    "http error 403",
+    "page needs to be reloaded",
+    "requested format is not available",
+    "no video formats found",
+)
+# Gli esiti dopo i quali ha senso un altro tentativo; tutti gli altri (video rimosso, 429, login…) no.
+_RETRYABLE = {"youtube_bot_check", "media_unavailable"}
 
 
 def _classify_error(exc: BaseException) -> str:
@@ -409,6 +681,8 @@ def _classify_error(exc: BaseException) -> str:
         or "not available in your country" in text
     ):
         return "unavailable"
+    if any(marker in text for marker in _CLIENT_FAILURES):
+        return "media_unavailable"
     return "failed"
 
 
@@ -430,8 +704,24 @@ def _client_plan() -> list[tuple[str, list[str] | None]]:
     return plan
 
 
-def _note_outcome(status: str, client: str | None) -> None:
-    _LAST_OUTCOME.update(status=status, client=client, at=int(time.time()))
+def _exit_plan(deadline: float) -> list[tuple[str, str | None]]:
+    """Le uscite da provare, in ordine: (nome, proxy). Con YTDLP_PROXY c'è solo quella, perché è la
+    scelta esplicita dell'owner. Con WARP acceso si esce da lì — lo si accende proprio perché l'IP del
+    worker è fermato — e la diretta resta di riserva; se il tunnel sta ancora partendo lo si aspetta."""
+    if PROXY:
+        return [("proxy", PROXY)]
+    if not WARP_ENABLED:
+        return [("direct", None)]
+    tunnel = WARP.proxy(wait=max(0.0, min(WARP_WAIT_SECONDS, deadline - time.monotonic())))
+    return [("warp", tunnel), ("direct", None)] if tunnel else [("direct", None)]
+
+
+def _note_outcome(status: str, attempt: str | None) -> None:
+    """Registra l'esito per /health. `attempt` è l'etichetta del tentativo: «tv», oppure «warp/tv»."""
+    exit_name, _, client = (attempt or "").rpartition("/")
+    if attempt:
+        exit_name = exit_name or ("proxy" if PROXY else "direct")
+    _LAST_OUTCOME.update(status=status, client=client or None, exit=exit_name or None, at=int(time.time()))
 
 
 def _run_with_antibot(
@@ -439,11 +729,13 @@ def _run_with_antibot(
     work: Callable[[Any], Any],
     cleanup: Callable[[], None] | None = None,
 ) -> tuple[Any, list[str]]:
-    """Esegue `work(ydl)`; se YouTube risponde col controllo anti-bot riprova con i client di fallback.
+    """Esegue `work(ydl)` finché un tentativo riesce: per ogni uscita (_exit_plan), i client YouTube.
 
-    Ritorna (risultato, client provati — l'ultimo è quello riuscito). Solleva UpstreamFailure con il
-    codice dell'ULTIMO errore. Solo il controllo anti-bot fa cambiare client: video rimosso, 429 o login
-    non si risolvono così e fermano subito i tentativi.
+    Ritorna (risultato, tentativi — l'ultimo è quello riuscito; «warp/tv» = client tv uscendo da WARP).
+    Solleva UpstreamFailure con il codice dell'ultimo errore. Si riprova solo dopo il controllo anti-bot
+    o un rifiuto legato al client (_RETRYABLE): video rimosso, 429 o login non si risolvono così e
+    fermano subito i tentativi. Il controllo anti-bot riguarda l'IP — misurato: da un IP fermato lo
+    ricevono tutti i client — quindi finché resta un'altra uscita si cambia quella, non il client.
     """
     global _PREFERRED_CLIENT
     if PROXY and not _proxy_reachable():
@@ -453,43 +745,70 @@ def _run_with_antibot(
     deadline = time.monotonic() + ANTIBOT_BUDGET_SECONDS
     tried: list[str] = []
     kind = "failed"
-    for label, clients in _client_plan():
-        if tried and time.monotonic() >= deadline:
-            log.warning("anti-bot: budget di %.0fs esaurito dopo %s", ANTIBOT_BUDGET_SECONDS, tried)
+    exits = _exit_plan(deadline)
+    # Che ne è stato dell'uscita WARP, per dirlo all'owner: non partita/caduta («down») o fermata
+    # anche lei dal controllo anti-bot («blocked»).
+    warp = "down" if WARP_ENABLED and not PROXY and exits[0][0] != "warp" else None
+
+    def give_up() -> UpstreamFailure:
+        _note_outcome(kind, tried[-1] if tried else None)
+        return UpstreamFailure(kind, tried, warp)
+
+    for position, (exit_name, proxy) in enumerate(exits):
+        another_exit = position + 1 < len(exits)
+        for label, clients in _client_plan():
+            if tried and time.monotonic() >= deadline:
+                log.warning("anti-bot: budget di %.0fs esaurito dopo %s", ANTIBOT_BUDGET_SECONDS, tried)
+                raise give_up()
+            attempt = dict(opts)
+            if proxy:
+                attempt["proxy"] = proxy
+            if clients:
+                attempt["extractor_args"] = {"youtube": {"player_client": clients}}
+            name = f"warp/{label}" if exit_name == "warp" else label
+            tried.append(name)
+            try:
+                with yt_dlp.YoutubeDL(attempt) as ydl:
+                    result = work(ydl)
+            except Exception as exc:  # yt-dlp mette il motivo nel testo di DownloadError/ExtractorError
+                failure = _classify_error(exc)
+                log.warning("yt-dlp fallito (tentativo=%s, esito=%s): %s", name, failure, _redact(str(exc))[:300])
+                if cleanup:
+                    cleanup()
+                if exit_name == "warp" and failure == "proxy_error":
+                    # Il tunnel è caduto: non è una risposta di YouTube. Si riavvia e si passa alla diretta.
+                    WARP.report_failure()
+                    warp = "down"
+                    break
+                kind = failure
+                if kind not in _RETRYABLE:
+                    raise give_up() from None
+                if label == _PREFERRED_CLIENT:
+                    _PREFERRED_CLIENT = None  # non passa più: si riparte dalla configurazione
+                if kind == "youtube_bot_check":
+                    if exit_name == "warp":
+                        warp = "blocked"
+                    if another_exit:
+                        break
+                continue
+            if len(tried) > 1 and clients and len(clients) == 1:
+                _PREFERRED_CLIENT = clients[0]
+                log.info("anti-bot: superato con %s (dopo %s)", name, tried[:-1])
+            _note_outcome("ok", name)
+            return result, tried
+        else:
+            # Tutti i client provati su questa uscita: un'altra uscita non cambierebbe l'esito.
             break
-        attempt = dict(opts)
-        if clients:
-            attempt["extractor_args"] = {"youtube": {"player_client": clients}}
-        tried.append(label)
-        try:
-            with yt_dlp.YoutubeDL(attempt) as ydl:
-                result = work(ydl)
-        except Exception as exc:  # yt-dlp mette il motivo nel testo di DownloadError/ExtractorError
-            kind = _classify_error(exc)
-            log.warning("yt-dlp fallito (client=%s, esito=%s): %s", label, kind, _redact(str(exc))[:300])
-            if cleanup:
-                cleanup()
-            if kind != "youtube_bot_check":
-                break
-            if label == _PREFERRED_CLIENT:
-                _PREFERRED_CLIENT = None  # non passa più: si riparte dalla configurazione
-            continue
-        if len(tried) > 1 and clients and len(clients) == 1:
-            _PREFERRED_CLIENT = clients[0]
-            log.info("anti-bot: superato con il client %s (dopo %s)", label, tried[:-1])
-        _note_outcome("ok", label)
-        return result, tried
-    _note_outcome(kind, tried[-1] if tried else None)
-    raise UpstreamFailure(kind, tried)
+    raise give_up()
 
 
 def _upstream_http(failure: UpstreamFailure, generic: str) -> HTTPException:
     """502 con `detail` = codice riconosciuto (es. youtube_bot_check) o il messaggio generico di prima.
-    Al controllo anti-bot si accodano le leve già attive (`youtube_bot_check+cookies+proxy`): così Solco
-    non consiglia di impostare ciò che c'è già."""
+    Al controllo anti-bot si accodano le leve già attive (`youtube_bot_check+cookies+proxy`,
+    `youtube_bot_check+warp`): così Solco non consiglia di impostare ciò che c'è già."""
     if failure.kind == "failed":
         return HTTPException(status_code=502, detail=generic)
-    levers = _active_levers() if failure.kind == "youtube_bot_check" else []
+    levers = _active_levers(failure.warp) if failure.kind == "youtube_bot_check" else []
     return HTTPException(status_code=502, detail="+".join([failure.kind, *levers]))
 
 
@@ -543,15 +862,19 @@ async def lifespan(_app: FastAPI):
     COOKIEFILE = _resolve_cookies()
     auth_state = "required" if API_KEY else ("open(DEV!)" if ALLOW_OPEN else "UNCONFIGURED→503")
     log.info(
-        "avvio worker: mode=%s auth=%s cookies=%s proxy=%s player_client=%s fallback=%s max=%sMB",
+        "avvio worker: mode=%s auth=%s cookies=%s proxy=%s warp=%s player_client=%s fallback=%s max=%sMB",
         MODE,
         auth_state,
         "si" if COOKIEFILE else "no",
         urlsplit(PROXY).scheme if PROXY else "no",
+        "si" if WARP_ENABLED and not PROXY else "no",
         PLAYER_CLIENT or "default",
         ",".join(FALLBACK_CLIENTS) or "nessuno",
         MAX_FILESIZE_MB,
     )
+    if WARP_ENABLED and PROXY:
+        log.warning("YTDLP_WARP %s", WARP_IGNORED)
+    WARP.start()
     if PROXY_ERROR:
         log.warning("YTDLP_PROXY ignorato: %s", PROXY_ERROR)
     if PROXY_IGNORED:
@@ -562,6 +885,7 @@ async def lifespan(_app: FastAPI):
     yield
     if task:
         task.cancel()
+    WARP.stop()
 
 
 app = FastAPI(title="Solco yt-dlp worker", lifespan=lifespan)
@@ -589,6 +913,13 @@ def health() -> dict:
                 "error": PROXY_ERROR,
                 "ignored": PROXY_IGNORED,
             },
+            # Uscita da Cloudflare WARP: se è accesa (YTDLP_WARP=1), a che punto è
+            # (off | starting | ready | failed) e, se non va, perché.
+            "warp": {
+                "enabled": WARP_ENABLED,
+                "state": WARP.state,
+                "error": WARP_IGNORED if WARP_ENABLED and PROXY else WARP.error,
+            },
             "last": dict(_LAST_OUTCOME),
         },
     }
@@ -600,6 +931,7 @@ def antibot(authorization: str | None = Header(default=None)) -> dict:
     supera il controllo. Richiede la chiave come /download, perché genera traffico in uscita."""
     _check_auth(authorization)
     started = time.monotonic()
+    warp = None
     try:
         # process=False: basta la risposta del player (dove scatta il controllo), niente scelta formati.
         _, tried = _run_with_antibot(
@@ -608,15 +940,24 @@ def antibot(authorization: str | None = Header(default=None)) -> dict:
         )
         status = "ok"
     except UpstreamFailure as failure:
-        status, tried = failure.kind, failure.tried
+        status, tried, warp = failure.kind, failure.tried, failure.warp
+    passed = tried[-1] if status == "ok" and tried else None
+    via_warp = bool(passed and passed.startswith("warp/"))
     return {
         "youtube": status,
-        "client": tried[-1] if status == "ok" and tried else None,
+        "client": passed.rpartition("/")[2] if passed else None,
+        # Da dove è uscito il tentativo riuscito: «warp», «proxy» o «direct».
+        "exit": ("warp" if via_warp else "proxy" if PROXY else "direct") if passed else None,
         "tried": tried,
         "cookies": bool(COOKIEFILE),
         "proxy": bool(PROXY),
+        "warp": WARP.state,
         "seconds": round(time.monotonic() - started, 1),
-        "hint": _hint(status),
+        "hint": (
+            "YouTube risponde uscendo da Cloudflare WARP (l'IP del worker, da solo, è fermato)."
+            if via_warp
+            else _hint(status, warp)
+        ),
     }
 
 

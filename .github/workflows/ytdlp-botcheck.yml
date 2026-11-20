@@ -1,11 +1,20 @@
 # @polsia:user-owned — misura del controllo anti-bot di YouTube per il worker yt-dlp.
 # Il worker (workers/ytdlp-worker, su Render) parte da un IP da datacenter, e YouTube a quegli IP
-# risponde spesso «Sign in to confirm you're not a bot». Questo giro prova, da un runner GitHub
-# (anche lui un IP da datacenter, ma con accesso a YouTube), quali client e quali leve superano il
-# controllo: è il dato su cui si decide la scala di tentativi del worker.
-# Solo a mano (Actions → "Worker yt-dlp: controllo anti-bot" → Run workflow). Nessun segreto:
-# richieste anonime a YouTube, niente accesso al worker in produzione.
-name: 'Worker yt-dlp: controllo anti-bot'
+# risponde «Sign in to confirm you're not a bot». Questo giro misura, da un runner GitHub (anche lui
+# un IP da datacenter, ma con accesso a YouTube), che cosa supera il controllo: è il dato su cui è
+# costruita la scala di tentativi del worker. Da rifare quando YouTube cambia comportamento.
+#
+# Che cosa si può misurare (Actions → "Worker yt-dlp: misura anti-bot" → Run workflow):
+#   - direct          i client YouTube dall'IP del runner, con e senza PO Token (provider bgutil);
+#   - warp            l'uscita da Cloudflare WARP con il client ufficiale, in modalità proxy;
+#   - warp_container  se quel client si collega in un container senza privilegi (come su Render);
+#   - usque           l'uscita da WARP con il client in spazio utente, nelle sue tre modalità.
+# Esito del 20 novembre 2026 (yt-dlp 2026.10.26), riportato nel README del worker: dall'IP del runner
+# non passa nessun client, nemmeno con i PO Token; da WARP in modalità proxy sì («l4-socks» di usque
+# e client ufficiale), in modalità tunnel no; il client ufficiale non si collega senza privilegi.
+# Nessun segreto: richieste anonime a YouTube, niente accesso al worker in produzione. Il collaudo
+# dell'immagine vera del worker è in ytdlp-worker.yml.
+name: 'Worker yt-dlp: misura anti-bot'
 
 on:
   workflow_dispatch:

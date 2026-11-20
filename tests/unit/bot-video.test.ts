@@ -186,8 +186,21 @@ describe('resolveVideoDownload', () => {
 
     const botCheck = await failure(502, { detail: 'youtube_bot_check' });
     expect(botCheck).toContain('controllo anti-bot');
+    // La prima leva proposta è quella gratuita che non chiede nulla all'owner; poi proxy e cookie.
+    expect(botCheck).toContain('YTDLP_WARP=1');
     expect(botCheck).toContain('YTDLP_COOKIES');
     expect(botCheck).toContain('YTDLP_PROXY');
+    // WARP acceso: se è fermato anche lui, o se non era pronto, il messaggio non dice più «accendilo».
+    const viaWarp = await failure(502, { detail: 'youtube_bot_check+warp' });
+    expect(viaWarp).toContain('anche uscendo da Cloudflare WARP');
+    expect(viaWarp).toContain('YTDLP_COOKIES');
+    expect(viaWarp).not.toContain('YTDLP_WARP');
+    const warpAndCookies = await failure(502, { detail: 'youtube_bot_check+cookies+warp' });
+    expect(warpAndCookies).toContain('riesporta cookies.txt');
+    const warpDown = await failure(502, { detail: 'youtube_bot_check+warp_down' });
+    expect(warpDown).toContain('non era pronta');
+    expect(warpDown).toContain('riprova tra un minuto');
+    expect(warpDown).not.toContain('YTDLP_');
     // Con una leva GIÀ attiva sul worker il consiglio cambia: non «impostala», ma cosa non va in quella.
     const viaProxy = await failure(502, { detail: 'youtube_bot_check+proxy' });
     expect(viaProxy).toContain('anche passando dal proxy');
@@ -205,6 +218,9 @@ describe('resolveVideoDownload', () => {
     expect(await failure(502, { detail: 'rate_limited' })).toContain('troppe richieste');
     expect(await failure(502, { detail: 'login_required' })).toContain('YTDLP_COOKIES');
     expect(await failure(502, { detail: 'unavailable' })).toContain('non è disponibile');
+    expect(await failure(502, { detail: 'media_unavailable' })).toContain(
+      'riprova tra qualche minuto',
+    );
     expect(await failure(413, { detail: 'file too large or not downloadable' })).toContain(
       'troppo grande',
     );
