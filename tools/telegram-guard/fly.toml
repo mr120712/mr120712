@@ -1,0 +1,37 @@
+# Fly.io — Telegram Guard Pro (monitor difensivo, SEMPRE attivo: niente scale-to-zero, nessun HTTP).
+# La sessione è un SECRET (TG_SESSION_STRING): niente file da caricare nel volume.
+#
+# Deploy (dentro tools/telegram-guard):
+#   1) genera la session string sul TUO computer (una volta):
+#        TG_API_ID=... TG_API_HASH=... python3 bootstrap_session.py     # login interattivo → stampa la stringa
+#   2) crea app + volume (per lo stato) e imposta i secret:
+#        fly apps create solco-telegram-guard
+#        fly volumes create tg_guard_data --size 1 --region fra
+#        fly secrets set TG_API_ID=123456 TG_API_HASH=xxxx TG_SESSION_STRING="1BVtsO...==" TG_ALERT_CHAT=me
+#   3) fly deploy
+#   Log: fly logs   ·   gli avvisi arrivano nei tuoi Messaggi salvati (TG_ALERT_CHAT=me).
+
+app = "solco-telegram-guard"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  TG_NONINTERACTIVE = "1"
+  TG_ALERT_CHAT = "me"
+  TG_STATE_PATH = "/data/guard_state.json"
+  TG_HEARTBEAT_PATH = "/data/heartbeat"
+  TG_CHECK_INTERVAL = "60"
+  # TG_AUTO_REVOKE_UNCONFIRMED = "1"   # scommenta per revocare da solo i login non confermati
+
+# Lo stato (baseline) vive in un volume così sopravvive ai restart (niente ri-baseline).
+[mounts]
+  source = "tg_guard_data"
+  destination = "/data"
+
+# Un worker di fondo, senza [http_service]: UNA macchina sempre accesa, nessun traffico in ingresso.
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "256mb"

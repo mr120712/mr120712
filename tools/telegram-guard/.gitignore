@@ -1,0 +1,8 @@
+# Mai committare: sessione (auth key!), stato, segreti, cache.
+__pycache__/
+*.session
+*.session-journal
+guard_state.json
+guard_state.json.tmp
+guard.env
+heartbeat

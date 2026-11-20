@@ -1,0 +1,30 @@
+[Unit]
+Description=Telegram Guard Pro — monitor difensivo delle sessioni Telegram
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=teleguard
+Group=teleguard
+WorkingDirectory=/opt/telegram-guard
+# I segreti (TG_API_ID, TG_API_HASH, ecc.) stanno in questo file, chmod 600, NON nel repo.
+EnvironmentFile=/opt/telegram-guard/guard.env
+ExecStart=/opt/telegram-guard/venv/bin/python /opt/telegram-guard/telegram_guard_pro.py
+Restart=on-failure
+RestartSec=10
+
+# Hardening del servizio
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictAddressFamilies=AF_INET AF_INET6
+# Solo questa cartella è scrivibile (ci vivono il file .session e lo stato).
+ReadWritePaths=/opt/telegram-guard
+
+[Install]
+WantedBy=multi-user.target
