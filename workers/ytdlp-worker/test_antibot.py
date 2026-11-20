@@ -283,8 +283,9 @@ class WarpLadderTest(unittest.TestCase):
         FakeYDL.script, FakeYDL.calls = {}, []
         worker._PREFERRED_CLIENT = None
         worker._LAST_OUTCOME.update(status=None, client=None, exit=None, at=None)
-        self.tunnel = mock.Mock(state="ready", error=None)
+        self.tunnel = mock.Mock(state="ready", error=None, colo="IAD", renewals=0)
         self.tunnel.proxy.return_value = WARP_URL
+        self.tunnel.renew.return_value = WARP_URL
         for target, name, value in (
             (worker.yt_dlp, "YoutubeDL", FakeYDL),
             (worker, "WARP_ENABLED", True),
@@ -321,21 +322,36 @@ class WarpLadderTest(unittest.TestCase):
         self.assertEqual((res.status_code, res.json()["detail"]), (502, "media_unavailable"))
         self.assertEqual(FakeYDL.calls, ["warp/default", "warp/tv", "warp/android_vr"])
 
-    def test_bot_check_through_warp_changes_exit_not_client(self):
+    def test_bot_check_through_warp_changes_the_exit_address_and_repeats_the_client(self):
+        # Il controllo anti-bot riguarda l'indirizzo: si riavvia il tunnel e si ripete lo STESSO client.
         FakeYDL.script = {"warp/default": BOT_CHECK}
+        self.tunnel.renew.side_effect = lambda wait: FakeYDL.script.clear() or WARP_URL
+        res = self.post()
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(FakeYDL.calls, ["warp/default", "warp/default"])
+        self.assertEqual(self.tunnel.renew.call_count, 1)
+        self.assertGreater(self.tunnel.renew.call_args.kwargs["wait"], 0)
+        last = self.client.get("/health").json()["antibot"]["last"]
+        self.assertEqual((last["status"], last["exit"]), ("ok", "warp"))
+
+    def test_bot_check_on_every_exit_address_says_warp_is_blocked_too(self):
+        # Due indirizzi nuovi, poi gli altri client dallo stesso tunnel; mai l'IP del worker, che è fermato.
+        FakeYDL.script = {"warp/default": BOT_CHECK, "warp/tv": BOT_CHECK, "warp/android_vr": BOT_CHECK}
+        res = self.post()
+        self.assertEqual((res.status_code, res.json()["detail"]), (502, "youtube_bot_check+warp"))
+        self.assertEqual(FakeYDL.calls, ["warp/default"] * 3 + ["warp/tv", "warp/android_vr"])
+        self.assertEqual(self.tunnel.renew.call_count, 2)
+        probe = self.client.get("/antibot", headers=AUTH).json()
+        self.assertEqual((probe["youtube"], probe["exit"], probe["warp"]), ("youtube_bot_check", None, "ready"))
+        self.assertIn("anche l'uscita da Cloudflare WARP è fermata", probe["hint"])
+
+    def test_a_tunnel_that_does_not_come_back_leaves_the_direct_exit(self):
+        FakeYDL.script = {"warp/default": BOT_CHECK}
+        self.tunnel.renew.return_value = None
         res = self.post()
         self.assertEqual(res.status_code, 200, res.text)
         self.assertEqual(FakeYDL.calls, ["warp/default", "default"])
         self.assertEqual(self.client.get("/health").json()["antibot"]["last"]["exit"], "direct")
-
-    def test_bot_check_on_both_exits_says_warp_is_blocked_too(self):
-        FakeYDL.script = {"warp/default": BOT_CHECK, "default": BOT_CHECK, "tv": BOT_CHECK, "android_vr": BOT_CHECK}
-        res = self.post()
-        self.assertEqual((res.status_code, res.json()["detail"]), (502, "youtube_bot_check+warp"))
-        self.assertEqual(FakeYDL.calls, ["warp/default", "default", "tv", "android_vr"])
-        probe = self.client.get("/antibot", headers=AUTH).json()
-        self.assertEqual((probe["youtube"], probe["exit"], probe["warp"]), ("youtube_bot_check", None, "ready"))
-        self.assertIn("anche l'uscita da Cloudflare WARP è fermata", probe["hint"])
 
     def test_warp_that_is_not_up_is_reported_as_down(self):
         self.tunnel.proxy.return_value = None
@@ -372,12 +388,12 @@ class WarpLadderTest(unittest.TestCase):
     def test_health_reports_the_warp_exit(self):
         self.assertEqual(
             self.client.get("/health").json()["antibot"]["warp"],
-            {"enabled": True, "state": "ready", "error": None},
+            {"enabled": True, "state": "ready", "colo": "IAD", "renewals": 0, "error": None},
         )
         with mock.patch.object(worker, "WARP_ENABLED", False), mock.patch.object(worker, "WARP", worker.WarpExit()):
             self.assertEqual(
                 self.client.get("/health").json()["antibot"]["warp"],
-                {"enabled": False, "state": "off", "error": None},
+                {"enabled": False, "state": "off", "colo": None, "renewals": 0, "error": None},
             )
 
 
@@ -453,8 +469,8 @@ class WarpExitTest(unittest.TestCase):
         lines = record.read_text().splitlines() if record.is_file() else []
         return [call for call in map(json.loads, lines) if "version" not in call["args"]]
 
-    def trace(self, _proxy: str) -> bool:
-        return self.traffic
+    def trace(self, _proxy: str) -> dict | None:
+        return {"warp": "on", "colo": "IAD"} if self.traffic else None
 
     def test_registers_once_then_carries_traffic(self):
         self.warp.start()
@@ -472,6 +488,21 @@ class WarpExitTest(unittest.TestCase):
             self.warp._process.wait()
             self.assertIsNotNone(self.warp.proxy(wait=15))
         self.assertEqual([call["args"][2] for call in self.calls()], ["register", "l4-socks", "l4-socks"])
+
+    def test_renewing_restarts_the_client_on_the_same_registration(self):
+        # Così si cambia indirizzo di uscita: client nuovo, nessun dispositivo nuovo registrato.
+        self.warp.start()
+        self.assertIsNotNone(self.warp.proxy(wait=15))
+        first = self.warp._process
+        self.assertEqual(self.warp.renew(wait=15), f"socks5://127.0.0.1:{worker.WARP_PORT}")
+        self.assertIsNotNone(first.poll())
+        self.assertIsNot(self.warp._process, first)
+        self.assertEqual((self.warp.state, self.warp.colo, self.warp.renewals), ("ready", "IAD", 1))
+        self.assertEqual([call["args"][2] for call in self.calls()], ["register", "l4-socks", "l4-socks"])
+
+        # Un tunnel che non c'è non si rinnova.
+        self.warp.stop()
+        self.assertIsNone(self.warp.renew(wait=1))
 
     def test_a_tunnel_that_never_carries_traffic_is_reported_and_leaves_no_client(self):
         self.traffic = False

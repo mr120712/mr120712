@@ -46,7 +46,9 @@ jobs:
       - name: Scarica il worker
         uses: actions/checkout@v4
         with:
-          sparse-checkout: workers/ytdlp-worker
+          sparse-checkout: |
+            workers/ytdlp-worker
+            .github/scripts
           persist-credentials: false
 
       - name: Costruisci l'immagine del worker
@@ -103,12 +105,24 @@ jobs:
           echo "file servito: $(stat -c %s video.bin) byte — $(file -b video.bin | cut -c1-70)"
           test "$(stat -c %s video.bin)" = "$(jq -r .filesize answer.json)"
 
+      # Lo stesso yt-dlp, senza il worker intorno, dallo stesso tunnel e nello stesso momento: se qui
+      # passa e il worker no (o viceversa), la differenza è nel worker e non nell'indirizzo di uscita.
+      - name: yt-dlp da solo, dallo stesso tunnel
+        if: always() && env.LIVE == 'true'
+        env:
+          URL: ${{ inputs.url }}
+        run: |
+          docker cp .github/scripts/ytdlp_botcheck.py worker:/tmp/ytdlp_botcheck.py
+          docker exec --env PROBE_PROXY=socks5://127.0.0.1:40000 --env PROBE_DOWNLOAD=none --env PROBE_URL="$URL" \
+            --env PROBE_CONFIGS='[{"name":"default","pot":"auto"},{"name":"tv_samsung","clients":["tv_samsung"],"pot":"auto"}]' \
+            worker python /tmp/ytdlp_botcheck.py 2>&1 | grep -v 'Providers' | cut -c1-200 | tail -n 24 || true
+
       - name: Stato del worker a fine prova
         if: always() && env.LIVE == 'true'
         run: |
-          curl -sS -m 5 http://127.0.0.1:8080/health | jq .antibot || true
+          curl -sS -m 5 http://127.0.0.1:8080/health | jq -c '.antibot | {warp, last, preferred_client}' || true
           docker stats --no-stream worker || true
-          docker top worker -o user,rss,args | cut -c1-110 || true
+          docker top worker -o pid,user,rss,args | cut -c1-110 || true
           docker logs worker 2>&1 | grep -v 'GET /health' | tail -n 30 | cut -c1-230 || true
 
       # Il confronto: stessa immagine, stesso runner, uscita WARP spenta.
