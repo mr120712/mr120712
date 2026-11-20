@@ -49,7 +49,7 @@
     },
     {
       "path": "/api/cron/telegram-webhook",
-      "schedule": "23 */12 * * *"
+      "schedule": "37 4 * * *"
     }
   ]
 }
