@@ -215,7 +215,6 @@ jobs:
         run: |
           sudo install -d -o nobody -g nogroup -m 700 /tmp/warp
           run() { sudo -u nobody env -i HOME=/tmp/warp PATH=/usr/bin:/bin "$@"; }
-          cd /
           started=$(date +%s)
           run /tmp/usque -c /tmp/warp/config.json register -a -n solco-ci 2>&1 | sed -E 's#[A-Za-z0-9+/=_-]{24,}#[…]#g'
           case "$MODE" in
@@ -223,7 +222,7 @@ jobs:
             socks) args="socks -b 127.0.0.1 -p 40001" ;;
             socks-http2) args="socks -b 127.0.0.1 -p 40001 --http2" ;;
           esac
-          sudo -u nobody env -i HOME=/tmp/warp PATH=/usr/bin:/bin sh -c "/tmp/usque -c /tmp/warp/config.json $args > /tmp/warp/usque.log 2>&1 &"
+          sudo -u nobody env -i HOME=/tmp/warp PATH=/usr/bin:/bin sh -c "cd /tmp/warp && /tmp/usque -c config.json $args > usque.log 2>&1 &"
           for attempt in $(seq 1 20); do
             if curl -fsS -m 8 -x socks5://127.0.0.1:40001 https://www.cloudflare.com/cdn-cgi/trace > trace-usque.txt 2>/dev/null \
               && grep -q 'warp=on' trace-usque.txt; then break; fi
