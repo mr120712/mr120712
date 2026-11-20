@@ -22,10 +22,24 @@ export const BOT_VIDEO_WORKER_TIMEOUT_MS = 40_000;
 /** Deadline del passo AI (riserva): breve, per non consumare il budget della route. */
 export const BOT_VIDEO_AI_TIMEOUT_MS = 12_000;
 
-/** La funzione sperimentale è accesa solo con BOT_VIDEO_EXPERIMENTAL = 1 / true. */
+/**
+ * La funzione video è ACCESA di default: diventa usabile per gli owner (SKYNET_TELEGRAM_CHAT_IDS) in
+ * chat privata quando il worker yt-dlp è configurato. Resta un interruttore di sicurezza: si spegne
+ * solo con BOT_VIDEO_EXPERIMENTAL = 0 / false / off / no.
+ */
 export function botVideoExperimentalEnabled(env: Env = process.env): boolean {
   const raw = clean(env.BOT_VIDEO_EXPERIMENTAL)?.toLowerCase();
-  return raw === '1' || raw === 'true' || raw === 'on' || raw === 'yes';
+  return raw !== '0' && raw !== 'false' && raw !== 'off' && raw !== 'no';
+}
+
+/**
+ * Agent/modello FreeLLMAPI scelto per interpretare le richieste video in linguaggio naturale
+ * (BOT_VIDEO_AI_MODEL). Vuoto = scelta automatica della riserva (FREELLMAPI_MODEL o 'auto', che gira
+ * sul miglior provider disponibile). Imposta un id preciso (dal catalogo in Admin → Monitoraggio) per
+ * forzare un agent specifico.
+ */
+export function botVideoAiModel(env: Env = process.env): string | undefined {
+  return clean(env.BOT_VIDEO_AI_MODEL);
 }
 
 /**
@@ -112,6 +126,7 @@ export async function interpretVideoRequest(
         },
         { role: 'user', content: trim(input, 500) },
       ],
+      model: botVideoAiModel(env),
       maxTokens: 200,
       signal: AbortSignal.timeout(BOT_VIDEO_AI_TIMEOUT_MS),
       env,

@@ -12,6 +12,7 @@ vi.mock('@/lib/business/ai-freellmapi.server', () => ({
 }));
 
 import {
+  botVideoAiModel,
   botVideoExperimentalEnabled,
   extractUrl,
   interpretVideoRequest,
@@ -26,12 +27,24 @@ beforeEach(() => {
 });
 
 describe('botVideoExperimentalEnabled', () => {
-  it('spenta di default, accesa con 1/true/on/yes', () => {
-    expect(botVideoExperimentalEnabled({})).toBe(false);
-    expect(botVideoExperimentalEnabled({ BOT_VIDEO_EXPERIMENTAL: '0' })).toBe(false);
+  it('accesa di default; spenta solo con 0/false/off/no', () => {
+    expect(botVideoExperimentalEnabled({})).toBe(true);
     expect(botVideoExperimentalEnabled({ BOT_VIDEO_EXPERIMENTAL: '1' })).toBe(true);
-    expect(botVideoExperimentalEnabled({ BOT_VIDEO_EXPERIMENTAL: 'true' })).toBe(true);
     expect(botVideoExperimentalEnabled({ BOT_VIDEO_EXPERIMENTAL: 'on' })).toBe(true);
+    expect(botVideoExperimentalEnabled({ BOT_VIDEO_EXPERIMENTAL: '0' })).toBe(false);
+    expect(botVideoExperimentalEnabled({ BOT_VIDEO_EXPERIMENTAL: 'false' })).toBe(false);
+    expect(botVideoExperimentalEnabled({ BOT_VIDEO_EXPERIMENTAL: 'off' })).toBe(false);
+    expect(botVideoExperimentalEnabled({ BOT_VIDEO_EXPERIMENTAL: 'no' })).toBe(false);
+  });
+});
+
+describe('botVideoAiModel', () => {
+  it('ritorna l’agent FreeLLMAPI scelto, o undefined (scelta automatica della riserva)', () => {
+    expect(botVideoAiModel({})).toBeUndefined();
+    expect(botVideoAiModel({ BOT_VIDEO_AI_MODEL: '   ' })).toBeUndefined();
+    expect(botVideoAiModel({ BOT_VIDEO_AI_MODEL: 'llama-3.3-70b-versatile' })).toBe(
+      'llama-3.3-70b-versatile',
+    );
   });
 });
 
@@ -82,6 +95,22 @@ describe('interpretVideoRequest', () => {
     expect(intent.url).toBeNull();
     expect(intent.query).toBe('maneskin sanremo 2021');
     expect(intent.title).toBe('Måneskin — Sanremo 2021');
+  });
+
+  it('usa l’agent FreeLLMAPI scelto (BOT_VIDEO_AI_MODEL) nella chiamata AI', async () => {
+    mocks.freellmapiJson.mockResolvedValue({ query: 'x', title: 'y' });
+    await interpretVideoRequest('un video', { BOT_VIDEO_AI_MODEL: 'gpt-oss-120b' });
+    expect(mocks.freellmapiJson).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'gpt-oss-120b' }),
+    );
+  });
+
+  it('senza modello scelto, lascia decidere alla riserva (model undefined)', async () => {
+    mocks.freellmapiJson.mockResolvedValue({ query: 'x', title: 'y' });
+    await interpretVideoRequest('un video', {});
+    expect(mocks.freellmapiJson).toHaveBeenCalledWith(
+      expect.objectContaining({ model: undefined }),
+    );
   });
 
   it('se l’AI fallisce, ricade sul testo grezzo', async () => {

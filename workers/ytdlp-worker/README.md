@@ -62,12 +62,21 @@ Tutte e tre leggono il `Dockerfile` e passano `$PORT`.
 - **Render**: New → Web Service → "Docker" dal repo (root `workers/ytdlp-worker`) → aggiungi la env `WORKER_API_KEY`. URL `https://<app>.onrender.com`.
 - **Railway**: New → Deploy from repo (root `workers/ytdlp-worker`) → Variables: `WORKER_API_KEY`. Espone un dominio pubblico.
 
-## Collega a Solco (3 variabili su Vercel + redeploy)
+## Collega a Solco (2 variabili su Vercel + redeploy)
+
+La funzione è **accesa di default**: basta configurare il worker e avere la tua chat tra gli owner.
 
 1. `YTDLP_SERVICE_URL` = l'URL **HTTPS pubblico** del worker (es. `https://tuo-worker.fly.dev`).
 2. `YTDLP_SERVICE_KEY` = lo stesso valore di `WORKER_API_KEY` (se l'hai impostato).
-3. `BOT_VIDEO_EXPERIMENTAL` = `1`.
-4. Assicurati che la **tua** chat Telegram sia in `SKYNET_TELEGRAM_CHAT_IDS` (owner-only).
+3. Assicurati che la **tua** chat Telegram sia in `SKYNET_TELEGRAM_CHAT_IDS` (owner-only).
+
+Opzionali:
+
+- `BOT_VIDEO_AI_MODEL` = l'**agent FreeLLMAPI** che interpreta le richieste in linguaggio naturale
+  (un id dal catalogo in **Admin → Monitoraggio**, es. `llama-3.3-70b-versatile`). Vuoto = scelta
+  automatica della riserva (`FREELLMAPI_MODEL` o `auto`, sul miglior provider disponibile).
+- `BOT_VIDEO_EXPERIMENTAL` = `0` per **spegnere** la funzione (interruttore di sicurezza). Qualsiasi
+  altro valore, o nessun valore, la lascia accesa.
 
 Poi redeploy di Solco e, in **chat privata** col bot: `/video <url o descrizione>`.
 
