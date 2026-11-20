@@ -37,7 +37,9 @@ from pydantic import BaseModel
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("ytdlp-worker")
 
-API_KEY = os.environ.get("WORKER_API_KEY", "").strip()
+# Chiave/segreto condiviso: WORKER_API_KEY (preferito) oppure YTDLP_SERVICE_KEY come alias — così lo
+# STESSO nome usato su Vercel (YTDLP_SERVICE_KEY) vale anche qui, evitando errori di naming fra i due lati.
+API_KEY = (os.environ.get("WORKER_API_KEY") or os.environ.get("YTDLP_SERVICE_KEY") or "").strip()
 # Fail-closed: senza chiave il worker rifiuta tutto, a meno di questo opt-in esplicito (solo dev locale).
 ALLOW_OPEN = os.environ.get("WORKER_ALLOW_OPEN", "").strip().lower() in {"1", "true", "yes", "on"}
 MODE = os.environ.get("WORKER_MODE", "extract").strip().lower()
