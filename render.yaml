@@ -25,6 +25,10 @@ services:
         value: serve
       - key: WORKER_API_KEY
         sync: false                      # secret — set it in the dashboard (= YTDLP_SERVICE_KEY on Vercel)
-      # Optional, only if YouTube blocks the datacenter IP ("Sign in to confirm you're not a bot"):
+      # Optional, only if YouTube blocks the datacenter IP ("Sign in to confirm you're not a bot").
+      # The worker detects it, retries with other clients, and GET /antibot tells you if it passes;
+      # these two secrets are the real fixes when it doesn't (see workers/ytdlp-worker/README.md):
       # - key: YTDLP_COOKIES
+      #   sync: false
+      # - key: YTDLP_PROXY
       #   sync: false

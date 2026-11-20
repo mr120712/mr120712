@@ -167,6 +167,38 @@ describe('resolveVideoDownload', () => {
     ).toBe('failed');
   });
 
+  it('codici d’errore del worker → il dettaglio dice il rimedio, non un generico HTTP 502', async () => {
+    const failure = async (status: number, body: unknown) => {
+      const fetchMock = vi.fn(async () => new Response(JSON.stringify(body), { status }));
+      const out = await resolveVideoDownload(intent, env, fetchMock as unknown as typeof fetch);
+      return out.status === 'failed' ? out.detail : `unexpected:${out.status}`;
+    };
+
+    const botCheck = await failure(502, { detail: 'youtube_bot_check' });
+    expect(botCheck).toContain('controllo anti-bot');
+    expect(botCheck).toContain('YTDLP_COOKIES');
+    expect(await failure(502, { detail: 'rate_limited' })).toContain('troppe richieste');
+    expect(await failure(502, { detail: 'login_required' })).toContain('YTDLP_COOKIES');
+    expect(await failure(502, { detail: 'unavailable' })).toContain('non è disponibile');
+    expect(await failure(413, { detail: 'file too large or not downloadable' })).toContain(
+      'troppo grande',
+    );
+    // Chiave diversa fra i due lati (401) e worker senza chiave (503): errori di configurazione.
+    expect(await failure(401, { detail: 'unauthorized' })).toContain('stesso valore');
+    expect(await failure(503, { detail: 'worker not configured: set WORKER_API_KEY' })).toContain(
+      'WORKER_API_KEY',
+    );
+    // Codice sconosciuto o corpo non JSON → resta lo stato HTTP, come prima.
+    expect(await failure(502, { detail: 'download failed' })).toBe(
+      'il servizio ha risposto HTTP 502',
+    );
+    expect(await failure(500, 'x')).toBe('il servizio ha risposto HTTP 500');
+    // Un `detail` non stringa (es. errori di validazione FastAPI) non rompe nulla.
+    expect(await failure(422, { detail: [{ msg: 'field required' }] })).toBe(
+      'il servizio ha risposto HTTP 422',
+    );
+  });
+
   it('rete che cade → failed', async () => {
     const fetchMock = vi.fn(async () => {
       throw new Error('ECONNRESET');

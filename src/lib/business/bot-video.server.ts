@@ -185,6 +185,43 @@ export type BotVideoOutcome =
 export type FetchLike = typeof fetch;
 
 /**
+ * Codici d'errore del worker (campo `detail` del corpo JSON) → cosa dire all'owner. Il worker distingue
+ * il controllo anti-bot di YouTube dagli altri fallimenti, così il messaggio indica il RIMEDIO invece di
+ * un generico "HTTP 502". Niente segreti: solo nomi di variabili, e il comando è visibile al solo owner.
+ */
+const WORKER_FAILURE_HINTS = new Map<string, string>([
+  [
+    'youtube_bot_check',
+    'YouTube ha fermato il worker con il controllo anti-bot («Sign in to confirm you’re not a bot»), anche provando gli altri client: imposta YTDLP_COOKIES (o YTDLP_PROXY) sul worker',
+  ],
+  ['rate_limited', 'YouTube sta limitando il worker (troppe richieste): riprova più tardi'],
+  [
+    'login_required',
+    'il video richiede un accesso (limite d’età, privato o riservato agli iscritti): servono i cookie di un account, YTDLP_COOKIES sul worker',
+  ],
+  [
+    'unavailable',
+    'il video non è disponibile (rimosso, privato o bloccato nella regione del worker)',
+  ],
+  ['file too large or not downloadable', 'il file è troppo grande o non è scaricabile'],
+]);
+
+/** Dettaglio leggibile di una risposta non-2xx del worker: codice noto → rimedio, altrimenti lo stato. */
+async function workerFailureDetail(res: Response): Promise<string> {
+  const body = (await res.json().catch(() => null)) as { detail?: unknown } | null;
+  const code = typeof body?.detail === 'string' ? body.detail : '';
+  const hint = WORKER_FAILURE_HINTS.get(code);
+  if (hint) return hint;
+  if (res.status === 401) {
+    return 'il worker ha rifiutato la chiave: YTDLP_SERVICE_KEY (su Vercel) e WORKER_API_KEY (sul worker) devono avere lo stesso valore';
+  }
+  if (res.status === 503 && code.startsWith('worker not configured')) {
+    return 'il worker non ha ancora una chiave: imposta WORKER_API_KEY sul worker e ridistribuiscilo';
+  }
+  return `il servizio ha risposto HTTP ${res.status}`;
+}
+
+/**
  * Chiama il worker yt-dlp esterno (POST <base>/download con {url|query}) e normalizza la risposta in un
  * VideoResult. Mai throw: rete/timeout/HTTP non-2xx/corpo non valido → esito `failed` con un dettaglio
  * breve e senza segreti; worker non configurato → `not_configured`.
@@ -216,10 +253,7 @@ export async function resolveVideoDownload(
     return { status: 'failed', detail: 'il servizio di download non ha risposto in tempo' };
   }
 
-  if (!res.ok) {
-    await res.body?.cancel().catch(() => undefined);
-    return { status: 'failed', detail: `il servizio ha risposto HTTP ${res.status}` };
-  }
+  if (!res.ok) return { status: 'failed', detail: await workerFailureDetail(res) };
 
   const data = (await res.json().catch(() => null)) as unknown;
   const parsed = BotVideoWorkerResponseSchema.safeParse(data);

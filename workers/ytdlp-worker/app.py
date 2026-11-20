@@ -14,10 +14,17 @@
 # Uso consentito: contenuti tuoi o liberi — non elude DRM/paywall (yt-dlp non lo fa).
 #
 # YouTube da IP datacenter (Fly/Render/…) spesso risponde "Sign in to confirm you're not a bot".
-# Mitigazioni, via env (vedi README):
-#   - YTDLP_COOKIES       = contenuto di un cookies.txt (formato Netscape) → scritto su file e passato a yt-dlp
-#   - YTDLP_COOKIES_FILE  = percorso a un cookies.txt già montato nel container (alternativa a YTDLP_COOKIES)
-#   - YTDLP_PLAYER_CLIENT = client YouTube da forzare, CSV (es. "android" o "ios,web"); vuoto = default yt-dlp
+# ANTI-BOT (vedi README):
+#   1) RILEVA il controllo anti-bot e lo distingue dagli altri errori (codici: youtube_bot_check,
+#      rate_limited, login_required, unavailable) → Solco può dire all'owner COSA fare.
+#   2) RIPROVA da solo con altri client YouTube (YTDLP_FALLBACK_CLIENTS) e ricorda quello che passa.
+#   3) SONDA: GET /antibot (con chiave) dice se questo worker supera il controllo, senza scaricare nulla.
+# Leve via env:
+#   - YTDLP_COOKIES          = contenuto di un cookies.txt (formato Netscape) → scritto su file e passato a yt-dlp
+#   - YTDLP_COOKIES_FILE     = percorso a un cookies.txt già montato nel container (alternativa a YTDLP_COOKIES)
+#   - YTDLP_PLAYER_CLIENT    = client YouTube da forzare, CSV (es. "android" o "ios,web"); vuoto = default yt-dlp
+#   - YTDLP_FALLBACK_CLIENTS = client da provare, uno alla volta, DOPO un controllo anti-bot; vuoto = nessuno
+#   - YTDLP_PROXY            = proxy in uscita per yt-dlp (es. residenziale); è un SEGRETO se contiene credenziali
 import asyncio
 import hashlib
 import hmac
@@ -26,8 +33,11 @@ import mimetypes
 import os
 import time
 import uuid
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
+from urllib.parse import urlsplit
 
 import yt_dlp
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -51,11 +61,51 @@ PLAYER_CLIENT = os.environ.get("YTDLP_PLAYER_CLIENT", "").strip()
 COOKIES_FILE_ENV = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
 _COOKIES_INLINE = os.environ.get("YTDLP_COOKIES", "")
 
+
+def _csv(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+# Anti-bot: client YouTube provati UNO ALLA VOLTA quando il tentativo normale riceve il controllo anti-bot.
+# È un tentativo a costo zero, non una garanzia: se l'IP è bloccato servono i cookie o un proxy.
+FALLBACK_CLIENTS = _csv(os.environ.get("YTDLP_FALLBACK_CLIENTS", "tv,android_vr,web_safari,mweb"))
+# Tempo massimo oltre il quale non si INIZIANO altri tentativi (il bot di Solco aspetta 40s in tutto).
+ANTIBOT_BUDGET_SECONDS = float(os.environ.get("YTDLP_ANTIBOT_BUDGET_SECONDS", "25"))
+PROXY = os.environ.get("YTDLP_PROXY", "").strip()
+# Video pubblico e stabile usato dalla sonda GET /antibot (solo estrazione, nessun download).
+PROBE_URL = os.environ.get("YTDLP_PROBE_URL", "https://www.youtube.com/watch?v=jNQXAC9IVRw").strip()
+
 # Formato pre-muxato (audio+video insieme): evita il merge ffmpeg e dà un singolo file/URL riproducibile.
 FORMAT = "best[acodec!=none][vcodec!=none]/best"
 
 # Risolto una volta allo startup (lifespan): percorso a un cookies.txt usabile, o None.
 COOKIEFILE: str | None = None
+
+# Stato anti-bot del processo: il client che ha superato il controllo (riusato per primo) e l'ultimo esito.
+_PREFERRED_CLIENT: str | None = None
+_LAST_OUTCOME: dict[str, Any] = {"status": None, "client": None, "at": None}
+
+# Cosa fare per ogni esito (mostrato dalla sonda /antibot).
+_HINTS = {
+    "ok": "YouTube risponde: nessun controllo anti-bot per questo worker.",
+    "youtube_bot_check": (
+        "L'IP del worker è fermato dal controllo anti-bot. Imposta YTDLP_COOKIES (cookies.txt di un "
+        "account YouTube, meglio secondario) oppure YTDLP_PROXY, poi ridistribuisci."
+    ),
+    "rate_limited": "YouTube sta limitando questo IP (troppe richieste): aspetta, o usa YTDLP_PROXY.",
+    "login_required": "Il contenuto richiede un accesso: imposta YTDLP_COOKIES.",
+    "unavailable": "Il video di prova non è disponibile da questo worker: cambia YTDLP_PROBE_URL.",
+    "failed": "Errore non riconosciuto: guarda i log del worker per il motivo preciso di yt-dlp.",
+}
+
+
+class UpstreamFailure(Exception):
+    """yt-dlp non è riuscito. `kind` è un codice stabile (_classify_error), `tried` i client provati."""
+
+    def __init__(self, kind: str, tried: list[str]):
+        super().__init__(kind)
+        self.kind = kind
+        self.tried = tried
 
 
 class DownloadRequest(BaseModel):
@@ -80,7 +130,8 @@ def _resolve_cookies() -> str | None:
 
 
 def _base_opts() -> dict:
-    """Opzioni yt-dlp comuni a extract/serve, con anti-bot (cookies/client) e retry."""
+    """Opzioni yt-dlp comuni a extract/serve: retry, cookie e proxy. Il client YouTube lo sceglie
+    _run_with_antibot, tentativo per tentativo."""
     opts: dict = {
         "quiet": True,
         "no_warnings": True,
@@ -90,12 +141,117 @@ def _base_opts() -> dict:
         "retries": 3,
         "fragment_retries": 3,
     }
-    clients = [c.strip() for c in PLAYER_CLIENT.split(",") if c.strip()]
-    if clients:
-        opts["extractor_args"] = {"youtube": {"player_client": clients}}
     if COOKIEFILE:
         opts["cookiefile"] = COOKIEFILE
+    if PROXY:
+        opts["proxy"] = PROXY
     return opts
+
+
+def _redact(text: str) -> str:
+    """Toglie dai log l'URL del proxy (può contenere utente e password)."""
+    if not PROXY:
+        return text
+    text = text.replace(PROXY, "[proxy]")
+    password = urlsplit(PROXY).password
+    return text.replace(password, "***") if password else text
+
+
+def _classify_error(exc: BaseException) -> str:
+    """Riduce l'errore di yt-dlp a un codice stabile. L'ordine conta: il controllo anti-bot contiene
+    anche "Sign in", quindi va riconosciuto PRIMA del login generico."""
+    text = str(exc).replace("’", "'").lower()
+    if "not a bot" in text:
+        return "youtube_bot_check"
+    if "http error 429" in text or "too many requests" in text or "try again later" in text:
+        return "rate_limited"
+    if (
+        "sign in" in text
+        or "login required" in text
+        or "members-only" in text
+        or "private video" in text
+    ):
+        return "login_required"
+    if (
+        "video unavailable" in text
+        or "is unavailable" in text
+        or "has been removed" in text
+        or "not available in your country" in text
+    ):
+        return "unavailable"
+    return "failed"
+
+
+def _client_plan() -> list[tuple[str, list[str] | None]]:
+    """Ordine dei tentativi: il client che ha già superato l'anti-bot, poi la configurazione
+    (YTDLP_PLAYER_CLIENT, o il default di yt-dlp), poi i fallback. Senza doppioni."""
+    configured = _csv(PLAYER_CLIENT)
+    plan: list[tuple[str, list[str] | None]] = []
+
+    def add(label: str, clients: list[str] | None) -> None:
+        if all(existing != label for existing, _ in plan):
+            plan.append((label, clients))
+
+    if _PREFERRED_CLIENT:
+        add(_PREFERRED_CLIENT, [_PREFERRED_CLIENT])
+    add(",".join(configured) if configured else "default", configured or None)
+    for client in FALLBACK_CLIENTS:
+        add(client, [client])
+    return plan
+
+
+def _note_outcome(status: str, client: str | None) -> None:
+    _LAST_OUTCOME.update(status=status, client=client, at=int(time.time()))
+
+
+def _run_with_antibot(
+    opts: dict,
+    work: Callable[[Any], Any],
+    cleanup: Callable[[], None] | None = None,
+) -> tuple[Any, list[str]]:
+    """Esegue `work(ydl)`; se YouTube risponde col controllo anti-bot riprova con i client di fallback.
+
+    Ritorna (risultato, client provati — l'ultimo è quello riuscito). Solleva UpstreamFailure con il
+    codice dell'ULTIMO errore. Solo il controllo anti-bot fa cambiare client: video rimosso, 429 o login
+    non si risolvono così e fermano subito i tentativi.
+    """
+    global _PREFERRED_CLIENT
+    deadline = time.monotonic() + ANTIBOT_BUDGET_SECONDS
+    tried: list[str] = []
+    kind = "failed"
+    for label, clients in _client_plan():
+        if tried and time.monotonic() >= deadline:
+            log.warning("anti-bot: budget di %.0fs esaurito dopo %s", ANTIBOT_BUDGET_SECONDS, tried)
+            break
+        attempt = dict(opts)
+        if clients:
+            attempt["extractor_args"] = {"youtube": {"player_client": clients}}
+        tried.append(label)
+        try:
+            with yt_dlp.YoutubeDL(attempt) as ydl:
+                result = work(ydl)
+        except Exception as exc:  # yt-dlp mette il motivo nel testo di DownloadError/ExtractorError
+            kind = _classify_error(exc)
+            log.warning("yt-dlp fallito (client=%s, esito=%s): %s", label, kind, _redact(str(exc))[:300])
+            if cleanup:
+                cleanup()
+            if kind != "youtube_bot_check":
+                break
+            if label == _PREFERRED_CLIENT:
+                _PREFERRED_CLIENT = None  # non passa più: si riparte dalla configurazione
+            continue
+        if len(tried) > 1 and clients and len(clients) == 1:
+            _PREFERRED_CLIENT = clients[0]
+            log.info("anti-bot: superato con il client %s (dopo %s)", label, tried[:-1])
+        _note_outcome("ok", label)
+        return result, tried
+    _note_outcome(kind, tried[-1] if tried else None)
+    raise UpstreamFailure(kind, tried)
+
+
+def _upstream_http(failure: UpstreamFailure, generic: str) -> HTTPException:
+    """502 con `detail` = codice riconosciuto (es. youtube_bot_check) o il messaggio generico di prima."""
+    return HTTPException(status_code=502, detail=generic if failure.kind == "failed" else failure.kind)
 
 
 def _check_auth(authorization: str | None) -> None:
@@ -148,8 +304,14 @@ async def lifespan(_app: FastAPI):
     COOKIEFILE = _resolve_cookies()
     auth_state = "required" if API_KEY else ("open(DEV!)" if ALLOW_OPEN else "UNCONFIGURED→503")
     log.info(
-        "avvio worker: mode=%s auth=%s cookies=%s player_client=%s max=%sMB",
-        MODE, auth_state, "si" if COOKIEFILE else "no", PLAYER_CLIENT or "default", MAX_FILESIZE_MB,
+        "avvio worker: mode=%s auth=%s cookies=%s proxy=%s player_client=%s fallback=%s max=%sMB",
+        MODE,
+        auth_state,
+        "si" if COOKIEFILE else "no",
+        "si" if PROXY else "no",
+        PLAYER_CLIENT or "default",
+        ",".join(FALLBACK_CLIENTS) or "nessuno",
+        MAX_FILESIZE_MB,
     )
     if not API_KEY and not ALLOW_OPEN:
         log.warning("WORKER_API_KEY non impostata: ogni richiesta risponderà 503 finché non la imposti.")
@@ -170,6 +332,39 @@ def health() -> dict:
         "auth": "required" if API_KEY else ("open" if ALLOW_OPEN else "unconfigured"),
         "cookies": bool(COOKIEFILE),
         "player_client": PLAYER_CLIENT or None,
+        # Stato anti-bot (nessun segreto): le leve attive e l'esito dell'ULTIMA richiesta a monte.
+        "antibot": {
+            "fallback_clients": FALLBACK_CLIENTS,
+            "preferred_client": _PREFERRED_CLIENT,
+            "proxy": bool(PROXY),
+            "last": dict(_LAST_OUTCOME),
+        },
+    }
+
+
+@app.get("/antibot")
+def antibot(authorization: str | None = Header(default=None)) -> dict:
+    """Sonda anti-bot: ESTRAE (senza scaricare) un video pubblico di YouTube e dice se questo worker
+    supera il controllo. Richiede la chiave come /download, perché genera traffico in uscita."""
+    _check_auth(authorization)
+    started = time.monotonic()
+    try:
+        # process=False: basta la risposta del player (dove scatta il controllo), niente scelta formati.
+        _, tried = _run_with_antibot(
+            _base_opts(),
+            lambda ydl: ydl.extract_info(PROBE_URL, download=False, process=False),
+        )
+        status = "ok"
+    except UpstreamFailure as failure:
+        status, tried = failure.kind, failure.tried
+    return {
+        "youtube": status,
+        "client": tried[-1] if status == "ok" and tried else None,
+        "tried": tried,
+        "cookies": bool(COOKIEFILE),
+        "proxy": bool(PROXY),
+        "seconds": round(time.monotonic() - started, 1),
+        "hint": _HINTS.get(status, _HINTS["failed"]),
     }
 
 
@@ -208,11 +403,12 @@ def _extract_url(target: str, fmt: str | None) -> dict:
     """Modalità extract: nessun download, solo l'URL diretto del media."""
     ydl_opts = {**_base_opts(), "skip_download": True, "format": fmt or FORMAT}
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = _pick_entry(ydl.extract_info(target, download=False))
-    except Exception as exc:
-        log.warning("extraction failed per %s: %s", target[:200], exc)
-        raise HTTPException(status_code=502, detail="extraction failed") from None
+        info, _ = _run_with_antibot(
+            ydl_opts, lambda ydl: _pick_entry(ydl.extract_info(target, download=False))
+        )
+    except UpstreamFailure as failure:
+        log.warning("extraction failed per %s: %s (client provati: %s)", target[:200], failure.kind, failure.tried)
+        raise _upstream_http(failure, "extraction failed") from None
 
     media_url = info.get("url")
     if not media_url:
@@ -241,13 +437,24 @@ def _serve_download(target: str, request: Request, fmt: str | None) -> dict:
         "outtmpl": str(DOWNLOAD_DIR / f"{token}.%(ext)s"),
         "max_filesize": MAX_FILESIZE_MB * 1024 * 1024,
     }
+
+    def work(ydl: Any) -> tuple[dict, Path]:
+        entry = _pick_entry(ydl.extract_info(target, download=True))
+        return entry, Path(ydl.prepare_filename(entry))
+
+    def cleanup() -> None:
+        # Un tentativo fallito può lasciare file parziali: via prima di riprovare con un altro client.
+        for leftover in DOWNLOAD_DIR.glob(f"{token}.*"):
+            try:
+                leftover.unlink()
+            except OSError:
+                pass
+
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = _pick_entry(ydl.extract_info(target, download=True))
-            path = Path(ydl.prepare_filename(info))
-    except Exception as exc:
-        log.warning("download failed per %s: %s", target[:200], exc)
-        raise HTTPException(status_code=502, detail="download failed") from None
+        (info, path), _ = _run_with_antibot(ydl_opts, work, cleanup)
+    except UpstreamFailure as failure:
+        log.warning("download failed per %s: %s (client provati: %s)", target[:200], failure.kind, failure.tried)
+        raise _upstream_http(failure, "download failed") from None
 
     if not path.is_file():
         # max_filesize superato o nessun formato scaricabile.

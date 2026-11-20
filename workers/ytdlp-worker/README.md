@@ -98,14 +98,40 @@ Poi redeploy di Solco e, in **chat privata** col bot: `/video <url o descrizione
 
 ## YouTube: «Sign in to confirm you're not a bot»
 
-Da un IP datacenter (Fly, Render, …) YouTube spesso blocca i download con questo messaggio. Il worker lo
-**logga** (`fly logs`) e risponde `download failed`. Due leve, via env:
+Da un IP datacenter (Fly, Render, …) YouTube spesso blocca i download con questo messaggio. Il worker ha
+un **anti-bot** in tre parti:
+
+1. **Rileva** il controllo e lo distingue dagli altri errori. `/download` risponde `502` con un codice in
+   `detail`: `youtube_bot_check`, `rate_limited`, `login_required`, `unavailable` (oppure il generico
+   `download failed` / `extraction failed`). Il bot di Solco traduce il codice nel rimedio da applicare.
+2. **Riprova da solo** con altri client YouTube (`YTDLP_FALLBACK_CLIENTS`, uno alla volta, entro
+   `YTDLP_ANTIBOT_BUDGET_SECONDS`) e **ricorda** quello che passa, usandolo per primo alle richieste dopo.
+   È un tentativo a costo zero, non una garanzia: se l'IP è bloccato servono i cookie o un proxy.
+3. **Sonda**: `GET /antibot` (con la chiave, come `/download`) estrae un video pubblico senza scaricarlo e
+   dice se questo worker passa il controllo, con che client e cosa fare se no:
+
+   ```bash
+   curl -H "Authorization: Bearer $WORKER_API_KEY" https://<worker>/antibot
+   # {"youtube":"ok","client":"default","tried":["default"],"cookies":false,"proxy":false,...}
+   # {"youtube":"youtube_bot_check","client":null,"tried":["default","tv",...],"hint":"...YTDLP_COOKIES..."}
+   ```
+
+`GET /health` (pubblico, nessun segreto) mostra lo stato in `antibot`: i client di fallback, quello
+preferito e l'esito dell'**ultima** richiesta (`last.status`).
 
 | Variabile | Effetto |
 |---|---|
-| `YTDLP_PLAYER_CLIENT` | Forza un client YouTube (CSV), es. `android` o `ios,web`. Rimedio leggero: a volte sblocca senza cookie. |
 | `YTDLP_COOKIES` | Contenuto di un `cookies.txt` (formato Netscape) dei TUOI cookie YouTube. Rimedio forte, il più affidabile. **È un SEGRETO** → impostalo come secret, mai in chiaro nel repo o in `fly.toml`. |
 | `YTDLP_COOKIES_FILE` | In alternativa, il percorso a un `cookies.txt` già montato nel container. |
+| `YTDLP_PROXY` | Proxy in uscita per yt-dlp (es. `http://utente:password@host:porta`), utile se l'IP del worker è bloccato. **SEGRETO** se contiene credenziali; non finisce mai nei log. |
+| `YTDLP_PLAYER_CLIENT` | Forza il client del PRIMO tentativo (CSV), es. `android` o `ios,web`. Vuoto = default di yt-dlp. |
+| `YTDLP_FALLBACK_CLIENTS` | Client provati dopo un controllo anti-bot (default `tv,android_vr,web_safari,mweb`). Vuoto = nessun fallback. |
+| `YTDLP_ANTIBOT_BUDGET_SECONDS` | Oltre questo tempo non si iniziano altri tentativi (default `25`; il bot di Solco aspetta 40 s). |
+| `YTDLP_PROBE_URL` | Video usato da `GET /antibot` (default: un video pubblico e stabile). |
+
+**Runtime JavaScript.** `requirements.txt` installa `yt-dlp[default]` (con `yt-dlp-ejs`) e `deno`: YouTube
+protegge i formati con "challenge" JavaScript e yt-dlp, senza un runtime che le risolva, ripiega
+sull'estrazione senza JavaScript, che dichiara deprecata e con formati mancanti.
 
 Esporta i cookie con un'estensione «Get cookies.txt» dal browser dove sei loggato su YouTube, poi:
 
@@ -123,9 +149,17 @@ fly secrets set YTDLP_COOKIES="$(cat cookies.txt)" -a solco-ytdlp-worker
 ## Diagnostica
 
 Il worker logga su stdout (`fly logs -a solco-ytdlp-worker`): all'avvio stampa la config risolta
-(`mode`, `auth on/OFF`, `cookies si/no`, `player_client`), poi ogni richiesta (`richiesta download: …`),
-l'esito (`download ok …`) e, su errore, il **motivo preciso** di yt-dlp (`download failed per <url>: <errore>`).
-`GET /health` riporta anche `{"auth": …, "cookies": true|false, "player_client": …}` per confermare al volo che l'env è attivo.
+(`mode`, `auth`, `cookies`, `proxy`, `player_client`, `fallback`), poi ogni richiesta (`richiesta download: …`),
+l'esito (`download ok …`) e, su errore, il **motivo preciso** di yt-dlp per ogni client provato
+(`yt-dlp fallito (client=tv, esito=youtube_bot_check): …`).
+`GET /health` riporta anche `{"auth": …, "cookies": true|false, "player_client": …, "antibot": {…}}` per
+confermare al volo che l'env è attivo.
+
+Test dell'anti-bot (yt-dlp finto, nessuna rete), dalla cartella del worker:
+
+```bash
+pip install -r requirements.txt httpx && python -m unittest -v test_antibot
+```
 
 ## Sicurezza (cifratura end-to-end)
 
