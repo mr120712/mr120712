@@ -593,10 +593,39 @@ export const TELEGRAM_BOT_COMMANDS = [
   { command: 'help', description: 'Cosa può fare questo bot' },
 ] as const;
 
-/** Registra i comandi del bot (menu "/"). Best-effort: ritorna solo l'esito. */
+/** Comando owner-only: /video (sperimentale). Mostrato SOLO alle chat admin, via scope per-chat. */
+const VIDEO_COMMAND = {
+  command: 'video',
+  description: '🎬 Scarica un video da un link (sperimentale)',
+} as const;
+
+/** Comandi mostrati agli owner (le chat in SKYNET_TELEGRAM_CHAT_IDS): i pubblici + /video. */
+export const TELEGRAM_OWNER_COMMANDS = [...TELEGRAM_BOT_COMMANDS, VIDEO_COMMAND] as const;
+
+/** Le chat admin/owner da SKYNET_TELEGRAM_CHAT_IDS (CSV di id numerici). */
+function ownerTelegramChatIds(): number[] {
+  return (process.env.SKYNET_TELEGRAM_CHAT_IDS ?? '')
+    .split(',')
+    .map((id) => Number(id.trim()))
+    .filter((id) => Number.isFinite(id) && id !== 0);
+}
+
+/**
+ * Registra i comandi del bot (menu "/"). Best-effort.
+ * - Pubblici (scope default) per TUTTI gli utenti.
+ * - Owner (con /video) SOLO nelle chat admin, con scope per-chat → invisibile agli altri utenti.
+ */
 export async function setTelegramCommands(): Promise<boolean> {
-  const res = await telegramApi('setMyCommands', { commands: TELEGRAM_BOT_COMMANDS });
-  return Boolean(res?.ok);
+  const base = await telegramApi('setMyCommands', { commands: TELEGRAM_BOT_COMMANDS });
+  let scopedOk = true;
+  for (const chat_id of ownerTelegramChatIds()) {
+    const res = await telegramApi('setMyCommands', {
+      commands: TELEGRAM_OWNER_COMMANDS,
+      scope: { type: 'chat', chat_id },
+    });
+    scopedOk = scopedOk && Boolean(res?.ok);
+  }
+  return Boolean(base?.ok) && scopedOk;
 }
 
 /** Imposta descrizione breve (schermata chat vuota) e lunga (profilo) del bot. Best-effort. */
