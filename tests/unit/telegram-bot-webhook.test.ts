@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   deleteMany: vi.fn(async () => ({})),
   upsert: vi.fn(async () => ({})),
   findUnique: vi.fn(),
+  findUser: vi.fn(),
   enforceRateLimit: vi.fn(),
   botSearch: vi.fn(async (_query?: string) => [] as unknown[]),
   sendAudio: vi.fn(async (_chatId?: string, _url?: string, _opts?: unknown) => true),
@@ -62,6 +63,7 @@ vi.mock('@/lib/db', () => ({
       upsert: mocks.upsert,
       findUnique: mocks.findUnique,
     },
+    user: { findUnique: mocks.findUser },
   },
 }));
 
@@ -108,6 +110,7 @@ beforeEach(() => {
   mocks.send.mockResolvedValue(true);
   mocks.ensureCode.mockResolvedValue('ABC123');
   mocks.findUnique.mockResolvedValue(null);
+  mocks.findUser.mockResolvedValue(null);
   mocks.consume.mockResolvedValue(null);
   mocks.enforceRateLimit.mockResolvedValue(null);
   mocks.botSearch.mockResolvedValue([]);
@@ -397,7 +400,57 @@ describe('POST /api/telegram/webhook (bot)', () => {
 describe('POST /api/telegram/webhook — /id e comando riservato /video', () => {
   afterEach(() => {
     delete process.env.SKYNET_TELEGRAM_CHAT_IDS;
+    delete process.env.SKYNET_TELEGRAM_OWNER_USERNAMES;
     delete process.env.YTDLP_SERVICE_URL;
+  });
+
+  /** La chat 123 (username «u») è collegata, col codice monouso, a un amministratore verificato. */
+  function linkedToAdmin() {
+    mocks.findUnique.mockResolvedValue({ userId: 'admin-1' });
+    mocks.findUser.mockResolvedValue({ role: 'admin', emailVerified: true });
+  }
+
+  it('gate sicuro: la chat collegata a un account amministratore è owner (/id lo conferma, /video parte)', async () => {
+    linkedToAdmin();
+    await POST(req(msg('/id')));
+    expect(lastSend().text).toContain('riconosciuta come owner');
+
+    mocks.send.mockClear();
+    await POST(req(msg('/video https://youtu.be/abc')));
+    const texts = mocks.send.mock.calls.map((call) => String(call[1]));
+    expect(texts.some((text) => text.includes('YTDLP_SERVICE_URL'))).toBe(true);
+  });
+
+  it('gate sicuro: collegata a un utente NON amministratore → /video resta muto, /id non conferma', async () => {
+    mocks.findUnique.mockResolvedValue({ userId: 'user-1' });
+    mocks.findUser.mockResolvedValue({ role: 'user', emailVerified: true });
+    await POST(req(msg('/video https://youtu.be/abc')));
+    expect(mocks.send).not.toHaveBeenCalled();
+    await POST(req(msg('/id')));
+    expect(lastSend().text).not.toContain('owner');
+    expect(lastSend().text).not.toContain('username');
+  });
+
+  it('secondo fattore username: admin collegato ma da un altro Telegram → muto, e /id spiega il motivo', async () => {
+    linkedToAdmin();
+    process.env.SKYNET_TELEGRAM_OWNER_USERNAMES = 'Solco_music';
+    await POST(req(msg('/video https://youtu.be/abc')));
+    expect(mocks.send).not.toHaveBeenCalled();
+    await POST(req(msg('/id')));
+    expect(lastSend().text).toContain('username Telegram non è fra quelli autorizzati');
+
+    // Lo stesso admin, scrivendo dallo username autorizzato (maiuscole/minuscole non contano), passa.
+    mocks.send.mockClear();
+    await POST(
+      req({
+        message: {
+          text: '/id',
+          chat: { id: 123, type: 'private' },
+          from: { username: 'solco_MUSIC' },
+        },
+      }),
+    );
+    expect(lastSend().text).toContain('riconosciuta come owner');
   });
 
   it('/id dice l’ID della chat a chiunque, senza accennare ai comandi riservati', async () => {

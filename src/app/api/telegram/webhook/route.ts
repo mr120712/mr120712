@@ -9,7 +9,6 @@ import { timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import {
   botVideoExperimentalEnabled,
-  isAdminTelegramChat,
   requestBotVideo,
   videoCommandRegex,
 } from '@/lib/business/bot-video.server';
@@ -31,6 +30,7 @@ import {
   TELEGRAM_MENU_CALLBACKS,
 } from '@/lib/business/telegram-bot.server';
 import { consumeTelegramLinkChallenge } from '@/lib/business/telegram-link';
+import { checkTelegramOwner } from '@/lib/business/telegram-owner.server';
 import { prisma } from '@/lib/db';
 import { env } from '@/lib/env';
 import { publicUploadsEnabled } from '@/lib/features';
@@ -150,14 +150,20 @@ async function handleUpdate(
     return;
   }
 
-  // /id → l'ID numerico di QUESTA chat: serve all'owner per compilare SKYNET_TELEGRAM_CHAT_IDS (il valore
-  // che sblocca i comandi riservati). Non elencato nel menu e non rivela nulla di quei comandi: la
-  // conferma «riconosciuta come owner» compare SOLO nella chat privata dell'owner stesso.
+  // /id → l'ID numerico di QUESTA chat e, solo in privato, l'esito del gate owner (telegram-owner.server).
+  // Non elencato nel menu e non rivela nulla dei comandi riservati: chi non è owner vede solo il proprio
+  // ID. L'avviso sullo username compare soltanto a chi ha GIÀ provato di essere un amministratore
+  // (account admin collegato col codice monouso), quindi non dà indizi a un estraneo.
   if (/^\/id(@\w+)?$/.test(text)) {
-    const owner = chatType === 'private' && isAdminTelegramChat(chatId);
+    const check = chatType === 'private' ? await checkTelegramOwner(chatId, username) : null;
+    const note = check?.owner
+      ? '\n✅ Chat riconosciuta come owner.'
+      : check?.reason === 'username-mismatch'
+        ? '\n⚠️ Account amministratore collegato, ma questo username Telegram non è fra quelli autorizzati.'
+        : '';
     await sendTelegramMessage(
       chatId,
-      `ID di questa chat: <code>${escapeTelegramHtml(chatId)}</code>${owner ? '\n✅ Chat riconosciuta come owner.' : ''}`,
+      `ID di questa chat: <code>${escapeTelegramHtml(chatId)}</code>${note}`,
       { parseMode: 'HTML' },
     );
     return;
@@ -277,16 +283,16 @@ async function handleUpdate(
 
   // /video <url|descrizione> → SPERIMENTALE, owner-only (chat admin, in privato): l'AI interpreta la
   // richiesta e un worker yt-dlp ESTERNO risolve il media; il bot risponde col link. Gestito solo quando
-  // la funzione è accesa (BOT_VIDEO_EXPERIMENTAL) E la chat è autorizzata (SKYNET_TELEGRAM_CHAT_IDS):
-  // altrimenti SILENZIO totale (obscuration): nessuna risposta, come se il comando non esistesse.
+  // la funzione è accesa (BOT_VIDEO_EXPERIMENTAL) E la chat è dell'owner (gate di telegram-owner.server:
+  // ID esplicito, oppure account amministratore collegato col codice monouso): altrimenti SILENZIO
+  // totale (obscuration): nessuna risposta, come se il comando non esistesse.
   const video = videoCommandRegex().exec(text);
   if (video) {
     // Obscuration: la funzione yt-dlp + AI è INVISIBILE a chi non è owner. Se non ricorrono TUTTE le
-    // condizioni (feature accesa + chat owner + chat privata) → SILENZIO, nessun messaggio: non se ne
+    // condizioni (feature accesa + chat privata + chat owner) → SILENZIO, nessun messaggio: non se ne
     // rivela l'esistenza né a estranei né nei gruppi (dove una risposta sarebbe visibile a tutti).
-    if (!botVideoExperimentalEnabled() || !isAdminTelegramChat(chatId) || chatType !== 'private') {
-      return;
-    }
+    if (!botVideoExperimentalEnabled() || chatType !== 'private') return;
+    if (!(await checkTelegramOwner(chatId, username)).owner) return;
     const input = (video[1] ?? '').trim().slice(0, 500);
     if (!input) {
       await sendTelegramMessage(

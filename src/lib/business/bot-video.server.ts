@@ -1,9 +1,10 @@
 // @polsia:user-owned — funzionalità SPERIMENTALE del bot Telegram: /video <url|descrizione>.
 // yt-dlp NON può girare nel runtime serverless di Solco (niente Python/binario/ffmpeg, limiti di
 // tempo e dimensione): questa funzione è un SOTTILE connettore verso un worker yt-dlp ESTERNO (uno
-// che ospiti tu, o un'API compatibile tipo Cobalt). Il comando è spento di default e triplo-gated:
-//   1) BOT_VIDEO_EXPERIMENTAL=1  — accende la funzione;
-//   2) la chat è fra gli admin (SKYNET_TELEGRAM_CHAT_IDS) e in privato — owner-only;
+// che ospiti tu, o un'API compatibile tipo Cobalt). Il comando è triplo-gated:
+//   1) BOT_VIDEO_EXPERIMENTAL — interruttore (acceso di default; 0/false/off/no lo spegne);
+//   2) la chat è privata ed è dell'OWNER: lo decide il gate di telegram-owner.server (ID esplicito in
+//      SKYNET_TELEGRAM_CHAT_IDS, oppure account amministratore collegato col codice monouso);
 //   3) YTDLP_SERVICE_URL punta a un worker HTTPS pubblico — altrimenti risponde "non configurato".
 // L'AI (la riserva interna) interpreta la richiesta in linguaggio naturale → URL o query + titolo;
 // il worker fa il lavoro di yt-dlp e restituisce un URL diretto al media, che il bot rimanda come
