@@ -466,7 +466,10 @@ describe('GET /api/music/featured/sections/<id>', () => {
     }
     expect(body.tracks[0]).toMatchObject({
       streamUrl: `/api/music/home-tracks/stream?p=${encodeURIComponent(CANT_1)}`,
-      artworkUrl: `/api/music/home-tracks/cover?p=${encodeURIComponent('Cantautori/cover.jpg')}`,
+      // La copertina versiona l'URL (&v=<data di caricamento>): basta il percorso + pathname.
+      artworkUrl: expect.stringContaining(
+        `/api/music/home-tracks/cover?p=${encodeURIComponent('Cantautori/cover.jpg')}`,
+      ),
       artistSlug: 'lucio-dalla',
     });
     expect(JSON.stringify(body)).not.toContain('Rip');

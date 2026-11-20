@@ -203,14 +203,20 @@ describe('sezioni, artista e copertine', () => {
     const art = Object.fromEntries(
       sections.flatMap((section) => section.items.map((item) => [item.id, item.artworkUrl])),
     );
+    // La copertina versiona l'URL con la data di caricamento del blob (cache-busting): sostituire una
+    // copertina cambia l'URL e invalida la miniatura in cache sulla CDN.
+    const vJan1 = new Date('2026-01-01T00:00:00.000Z').getTime();
+    const vJan3 = new Date('2026-01-03T00:00:00.000Z').getTime();
     // Immagine pubblica con lo stesso nome (maiuscole indifferenti): dal proxy, che la riduce.
     expect(art['Rock/Artista - Uno.mp3']).toBe(
-      '/api/music/home-tracks/cover?p=Rock%2Fartista%20-%20uno.JPG&pub=1',
+      `/api/music/home-tracks/cover?p=Rock%2Fartista%20-%20uno.JPG&pub=1&v=${vJan1}`,
     );
     // Nessuna immagine con il suo nome: copertina (privata) della cartella, via proxy.
-    expect(art['Rock/Due.m4a']).toBe('/api/music/home-tracks/cover?p=Rock%2FCover.png');
+    expect(art['Rock/Due.m4a']).toBe(`/api/music/home-tracks/cover?p=Rock%2FCover.png&v=${vJan1}`);
     // Nessuna immagine: copertina incorporata nell'MP3 (file pubblico).
-    expect(art['Jazz/Tre.mp3']).toBe('/api/music/home-tracks/cover?p=Jazz%2FTre.mp3&pub=1');
+    expect(art['Jazz/Tre.mp3']).toBe(
+      `/api/music/home-tracks/cover?p=Jazz%2FTre.mp3&pub=1&v=${vJan3}`,
+    );
     // WAV: niente copertina incorporata da leggere.
     expect(art['Jazz/Quattro.wav']).toBeNull();
     // Le immagini non diventano brani.

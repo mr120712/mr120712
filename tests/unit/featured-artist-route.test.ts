@@ -247,7 +247,10 @@ describe('GET /api/music/featured/artists/<slug>', () => {
     }
     expect(body.tracks[0]).toMatchObject({
       streamUrl: `/api/music/home-tracks/stream?p=${encodeURIComponent(DECLARED_1)}`,
-      artworkUrl: `/api/music/home-tracks/cover?p=${encodeURIComponent('Cantautori/cover.jpg')}`,
+      // La copertina versiona l'URL (&v=<data di caricamento>): basta il percorso + pathname.
+      artworkUrl: expect.stringContaining(
+        `/api/music/home-tracks/cover?p=${encodeURIComponent('Cantautori/cover.jpg')}`,
+      ),
     });
     expect(mocks.enforceRateLimit).toHaveBeenCalledWith('music.search', 'user:user-1');
   });

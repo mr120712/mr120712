@@ -121,7 +121,10 @@ describe('searchFeaturedTracks: cancello dei diritti', () => {
       title: 'Caruso',
       artist: 'Lucio Dalla',
       streamUrl: `/api/music/home-tracks/stream?p=${encodeURIComponent('Rock italiano/Lucio Dalla - Caruso.mp3')}`,
-      artworkUrl: `/api/music/home-tracks/cover?p=${encodeURIComponent('Rock italiano/cover.jpg')}`,
+      // La copertina ora versiona l'URL (&v=<data di caricamento>); qui basta il percorso + pathname.
+      artworkUrl: expect.stringContaining(
+        `/api/music/home-tracks/cover?p=${encodeURIComponent('Rock italiano/cover.jpg')}`,
+      ),
     });
   });
 

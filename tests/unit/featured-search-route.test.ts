@@ -184,7 +184,10 @@ describe('GET /api/music/search-all: brani in evidenza', () => {
       artist: 'Lucio Dalla',
       streamUrl: `/api/music/home-tracks/stream?p=${encodeURIComponent(DECLARED)}`,
       durationSeconds: 0,
-      artworkUrl: `/api/music/home-tracks/cover?p=${encodeURIComponent(DECLARED)}`,
+      // La copertina (incorporata) versiona l'URL (&v=<data di caricamento>): percorso + pathname.
+      artworkUrl: expect.stringContaining(
+        `/api/music/home-tracks/cover?p=${encodeURIComponent(DECLARED)}`,
+      ),
       // Link alla pagina dell'artista: il brano è dichiarato, quindi la pagina non è vuota.
       artistSlug: 'lucio-dalla',
       // Licenza "licenza" senza "offline": true → solo streaming (nessuna copia offline).

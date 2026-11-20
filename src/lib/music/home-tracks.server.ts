@@ -141,9 +141,16 @@ export function supportsEmbeddedArtwork(pathname: string): boolean {
   return isHomeAudioBlob(pathname) && EMBEDDED_ARTWORK_EXTENSIONS.has(fileExtension(pathname));
 }
 
-/** Percorso same-origin della copertina (immagine privata o copertina incorporata nel brano). */
-export function homeTrackCoverPath(pathname: string, isPublic = false): string {
-  return `${HOME_TRACK_COVER_PREFIX}?p=${encodeURIComponent(pathname)}${isPublic ? '&pub=1' : ''}`;
+/**
+ * Percorso same-origin della copertina (immagine privata o copertina incorporata nel brano). `version`
+ * (la data di caricamento del blob, in ms) entra come `&v=`: se una copertina viene SOSTITUITA nello
+ * store (stesso nome), l'URL cambia e la CDN smette di servire la vecchia miniatura in cache (24h). La
+ * rotta ignora `v` (legge solo p/pub): serve solo a invalidare la cache per contenuto, non alla lettura.
+ */
+export function homeTrackCoverPath(pathname: string, isPublic = false, version?: number): string {
+  const pub = isPublic ? '&pub=1' : '';
+  const v = typeof version === 'number' && Number.isFinite(version) ? `&v=${version}` : '';
+  return `${HOME_TRACK_COVER_PREFIX}?p=${encodeURIComponent(pathname)}${pub}${v}`;
 }
 
 /** Cartella di un oggetto ('' per la radice). */
@@ -371,6 +378,11 @@ function newestFirst(a: ListedBlob, b: ListedBlob): number {
   return b.uploadedAt.getTime() - a.uploadedAt.getTime();
 }
 
+/** La data di caricamento del blob in ms (per invalidare la cache della copertina), o undefined. */
+function blobVersion(blob: ListedBlob): number | undefined {
+  return blob.uploadedAt instanceof Date ? blob.uploadedAt.getTime() : undefined;
+}
+
 /** Copertina di ogni brano: stesso nome, poi copertina della cartella, poi quella incorporata. */
 function artworkResolver(images: ListedBlob[]) {
   const byStem = new Map<string, ListedBlob>();
@@ -392,9 +404,12 @@ function artworkResolver(images: ListedBlob[]) {
       byFolder.get(directoryOf(audio.pathname).toLowerCase())?.blob;
     // Sempre dal proxy, anche per le immagini pubbliche: lì la copertina viene ridotta (512 px)
     // e messa in cache, invece di scaricare l'originale (anche di molti MB) per una miniatura.
-    if (image) return homeTrackCoverPath(image.pathname, isPublicBlobUrl(image.url));
+    // `v` = data di caricamento del blob: una copertina sostituita cambia URL e invalida la cache CDN.
+    if (image) {
+      return homeTrackCoverPath(image.pathname, isPublicBlobUrl(image.url), blobVersion(image));
+    }
     return supportsEmbeddedArtwork(audio.pathname)
-      ? homeTrackCoverPath(audio.pathname, isPublicBlobUrl(audio.url))
+      ? homeTrackCoverPath(audio.pathname, isPublicBlobUrl(audio.url), blobVersion(audio))
       : null;
   };
 }
