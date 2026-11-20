@@ -1,0 +1,135 @@
+/* @polsia:user-owned — stili del pannello «Riserva AI · provider». Tema-consapevole: usa i token
+   semantici per struttura e tre accenti di stato (verde/ambra/neutro) leggibili in chiaro e scuro. */
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.muted {
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+.summary {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  font-size: 0.95rem;
+  color: var(--muted-foreground);
+}
+.summary strong {
+  color: var(--foreground);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.row {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius, 0.6rem);
+  background: color-mix(in srgb, var(--card, var(--background)) 92%, transparent);
+}
+
+.icon {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+  color: var(--muted-foreground);
+}
+.row[data-status="live"] .icon {
+  color: #16a34a;
+}
+.row[data-status="failing"] .icon {
+  color: #d97706;
+}
+
+.rowMain {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.rowHead {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin: 0;
+}
+
+.name {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.08rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted-foreground);
+}
+.badge[data-status="live"] {
+  color: #16a34a;
+  border-color: color-mix(in srgb, #16a34a 45%, transparent);
+  background: color-mix(in srgb, #16a34a 12%, transparent);
+}
+.badge[data-status="failing"] {
+  color: #b45309;
+  border-color: color-mix(in srgb, #d97706 45%, transparent);
+  background: color-mix(in srgb, #d97706 12%, transparent);
+}
+
+.models {
+  font-size: 0.78rem;
+  color: var(--muted-foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  margin: 0.1rem 0 0;
+  word-break: break-word;
+}
+
+.hint {
+  font-size: 0.82rem;
+  margin: 0.15rem 0 0;
+  color: var(--foreground);
+}
+.hint code {
+  font-size: 0.78rem;
+  padding: 0.05rem 0.3rem;
+  border-radius: 0.3rem;
+  background: color-mix(in srgb, var(--muted, var(--border)) 60%, transparent);
+}
+.hint a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.foot {
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+  margin: 0.1rem 0 0;
+}
+.foot code {
+  font-size: 0.76rem;
+  padding: 0.05rem 0.3rem;
+  border-radius: 0.3rem;
+  background: color-mix(in srgb, var(--muted, var(--border)) 60%, transparent);
+}

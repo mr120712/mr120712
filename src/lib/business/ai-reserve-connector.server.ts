@@ -114,6 +114,8 @@ interface ProviderDef {
   label: string;
   baseUrl: string;
   keyVar: string;
+  /** Dove ottenere una chiave gratuita (mostrato nel pannello admin per i provider non configurati). */
+  signupUrl: string;
   models: (env: Env) => string[];
   extraHeaders?: Record<string, string>;
 }
@@ -125,6 +127,7 @@ const PROVIDER_DEFS: ProviderDef[] = [
     label: 'Groq',
     baseUrl: GROQ_BASE_URL,
     keyVar: 'GROQ_API_KEY',
+    signupUrl: 'https://console.groq.com/keys',
     models: (env) => [reserveDefaultModel(env), FALLBACK_RESERVE_MODEL],
   },
   {
@@ -132,6 +135,7 @@ const PROVIDER_DEFS: ProviderDef[] = [
     label: 'Cerebras',
     baseUrl: 'https://api.cerebras.ai/v1',
     keyVar: 'CEREBRAS_API_KEY',
+    signupUrl: 'https://cloud.cerebras.ai',
     models: (env) => [
       clean(env.CEREBRAS_MODEL) ?? 'llama-3.3-70b',
       clean(env.CEREBRAS_FALLBACK_MODEL) ?? 'llama3.1-8b',
@@ -142,6 +146,7 @@ const PROVIDER_DEFS: ProviderDef[] = [
     label: 'Google Gemini',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
     keyVar: 'GEMINI_API_KEY',
+    signupUrl: 'https://aistudio.google.com/apikey',
     // gemini-2.0-flash/1.5-flash sono stati ritirati nel 2026 (quota free azzerata): si usano i
     // Flash correnti, gratuiti nel free tier. Sovrascrivibili con GEMINI_MODEL/GEMINI_FALLBACK_MODEL.
     models: (env) => [
@@ -154,6 +159,7 @@ const PROVIDER_DEFS: ProviderDef[] = [
     label: 'Mistral',
     baseUrl: 'https://api.mistral.ai/v1',
     keyVar: 'MISTRAL_API_KEY',
+    signupUrl: 'https://console.mistral.ai/api-keys',
     models: (env) => [clean(env.MISTRAL_CHAT_MODEL) ?? 'mistral-small-latest'],
   },
   {
@@ -161,6 +167,7 @@ const PROVIDER_DEFS: ProviderDef[] = [
     label: 'OpenRouter',
     baseUrl: 'https://openrouter.ai/api/v1',
     keyVar: 'OPENROUTER_API_KEY',
+    signupUrl: 'https://openrouter.ai/keys',
     // Default: NVIDIA Nemotron 3 Ultra (gratis su OpenRouter, 550B MoE, contesto 1M). Attenzione:
     // free tier basso (~50 richieste/giorno), disponibilità ~80% e NON supporta response_format
     // (json_object); se rifiuta (400/404/429) il failover passa al modello di scorta — Llama 3.3 70B,
@@ -229,6 +236,28 @@ export function reserveProviderLabels(env: Env = process.env): string[] {
 /** I nomi delle variabili-chiave di tutti i provider conosciuti (per i messaggi "non configurato"). */
 export function reserveProviderKeyNames(): string[] {
   return PROVIDER_DEFS.map((def) => def.keyVar);
+}
+
+/** Scheda statica di un provider conosciuto (nessun segreto): per il pannello admin. */
+export interface ReserveKnownProvider {
+  id: string;
+  label: string;
+  baseUrl: string;
+  keyVar: string;
+  signupUrl: string;
+  models: string[];
+}
+
+/** Il registro COMPLETO dei provider conosciuti (attivi o no), con modelli e dove prendere la chiave. */
+export function reserveKnownProviders(env: Env = process.env): ReserveKnownProvider[] {
+  return PROVIDER_DEFS.map((def) => ({
+    id: def.id,
+    label: def.label,
+    baseUrl: def.baseUrl,
+    keyVar: def.keyVar,
+    signupUrl: def.signupUrl,
+    models: dedupe(def.models(env)),
+  }));
 }
 
 function jsonResponse(data: unknown, status: number): Response {
