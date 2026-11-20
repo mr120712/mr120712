@@ -23,16 +23,12 @@ primary_region = "iad"
 [http_service]
   internal_port = 8080
   force_https = true
+  # Scale-to-zero: a riposo spende ~0, riparte da sola alla prima richiesta (entro i 40s di timeout del bot).
   auto_stop_machines = "stop"
   auto_start_machines = true
   min_machines_running = 0
-
-  [[http_service.checks]]
-    method = "GET"
-    path = "/health"
-    interval = "30s"
-    timeout = "5s"
-    grace_period = "10s"
+  # Nessun health-check HTTP: non serve a un worker così, e un check mal tarato farebbe marcare la
+  # macchina «unhealthy» → 502. Fly instrada comunque alla macchina avviata in ascolto su 8080.
 
 [[vm]]
   cpu_kind = "shared"
