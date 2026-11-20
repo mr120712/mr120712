@@ -8,6 +8,8 @@
 #   {"name": "...", "clients": ["web"], "pot": "never|auto|always", "player_skip": ["webpage"],
 #    "impersonate": "chrome"}
 # `pot` governa i PO Token (youtube:fetch_pot): "never" = come se il provider non ci fosse.
+# PROBE_PROXY fa uscire ogni richiesta da un proxy (per misurare un'altra uscita, es. una VPN locale):
+# in quel caso girano solo le configurazioni senza PO Token, perché il provider non passa dal proxy.
 # Nessun segreto: solo richieste anonime a YouTube. Esce sempre con 0: è una misura, non un test.
 import json
 import os
@@ -46,6 +48,8 @@ DEFAULT_CONFIGS = [
     {"name": "pot/tv_simply", "clients": ["tv_simply"], "pot": "always"},
     {"name": "pot/web_music", "clients": ["web_music"], "pot": "always"},
 ]
+
+PROXY = os.environ.get("PROBE_PROXY", "").strip()
 
 # Le righe del log di yt-dlp che spiegano un esito.
 INTERESTING = re.compile(
@@ -110,6 +114,8 @@ def options(config: dict, capture: Capture) -> dict:
         "format": FORMAT,
         "extractor_args": {"youtube": youtube},
     }
+    if PROXY:
+        opts["proxy"] = PROXY
     if config.get("impersonate"):
         from yt_dlp.networking.impersonate import ImpersonateTarget
 
@@ -161,10 +167,13 @@ def main() -> int:
     url = os.environ.get("PROBE_URL", "").strip() or "https://www.youtube.com/watch?v=hTWKbfoikeg"
     raw = os.environ.get("PROBE_CONFIGS", "").strip()
     configs = json.loads(raw) if raw else DEFAULT_CONFIGS
+    if PROXY and not raw:
+        configs = [config for config in configs if "pot" not in config]
     pause = float(os.environ.get("PROBE_PAUSE", "4"))
     download = os.environ.get("PROBE_DOWNLOAD", "ok").strip().lower() == "ok"
     download_max = int(os.environ.get("PROBE_DOWNLOAD_MAX", "4"))
-    print(f"yt-dlp {yt_dlp.version.__version__} · {url} · {len(configs)} configurazioni", flush=True)
+    exit_point = "da un proxy" if PROXY else "diretta"
+    print(f"yt-dlp {yt_dlp.version.__version__} · {url} · {len(configs)} configurazioni · uscita {exit_point}", flush=True)
 
     results = []
     for index, config in enumerate(configs):
@@ -208,7 +217,9 @@ def main() -> int:
                     f"| {label}{result['name']} | {result['outcome']} | {result['seconds']} | "
                     f"{result['tokens']} | {detail} |"
                 )
-        Path(summary).open("a").write(f"### Controllo anti-bot · {url}\n\n" + "\n".join(rows) + "\n")
+        Path(summary).open("a").write(
+            f"### Controllo anti-bot · {url} · uscita {exit_point}\n\n" + "\n".join(rows) + "\n\n"
+        )
     return 0
 
 
