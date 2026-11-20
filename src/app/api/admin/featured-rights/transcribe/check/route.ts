@@ -13,19 +13,12 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { consumeRateLimit, rateLimitResponse } from '@/lib/business/rate-limit.server';
-import {
-  TranscriptionCheckResponseSchema,
-  type TranscriptionEngineProbe,
-} from '@/lib/contracts/lyrics-transcription';
+import { TranscriptionCheckResponseSchema } from '@/lib/contracts/lyrics-transcription';
 import { transcriptionRefusalResponse } from '@/lib/music/lyrics-transcription.server';
+import { engineProbe } from '@/lib/music/transcription-check-probe.server';
 import { probeProvider } from '@/lib/music/transcription-engines.server';
-import {
-  apiKeyShape,
-  configuredTranscriptionProviders,
-  type TranscriptionProvider,
-  transcriptionEngineLabel,
-} from '@/lib/music/transcription-provider.server';
-import { probeMessage, type WhisperProbeResult } from '@/lib/music/whisper.server';
+import { configuredTranscriptionProviders } from '@/lib/music/transcription-provider.server';
+import type { WhisperProbeResult } from '@/lib/music/whisper.server';
 import { sameOrigin } from '@/lib/same-origin';
 
 export const dynamic = 'force-dynamic';
@@ -51,37 +44,6 @@ async function requireAdmin(request: Request): Promise<AdminAccess> {
   } catch {
     return { allowed: false, response: failure('session_unavailable', 503) };
   }
-}
-
-/**
- * Il messaggio della prova con la diagnosi che serve all'amministratore: lo stato HTTP del
- * servizio e, per una chiave rifiutata, com'è fatta la chiave su Vercel (lunghezza, prefisso,
- * caratteri estranei), mai la chiave stessa.
- */
-export function probeDiagnosis(
-  provider: TranscriptionProvider,
-  probe: { error: string; message: string; status?: number },
-): string {
-  const base = probeMessage(probe.message);
-  const http = probe.status === undefined ? 'nessuna risposta HTTP' : `HTTP ${probe.status}`;
-  if (probe.error === 'invalid_key') {
-    return `${base} ${provider.vendor} ha risposto ${http}; la chiave su Vercel: ${apiKeyShape(provider)}.`;
-  }
-  return probe.status === undefined ? base : `${base} (${provider.vendor}: ${http})`;
-}
-
-/** L'esito di un motore nel contratto: tempo di risposta e, se fallisce, la diagnosi. */
-export function engineProbe(
-  provider: TranscriptionProvider,
-  probe: WhisperProbeResult,
-): TranscriptionEngineProbe {
-  return {
-    id: provider.id,
-    label: transcriptionEngineLabel(provider),
-    ok: probe.ok,
-    elapsedMs: probe.elapsedMs,
-    message: probe.ok ? null : probeDiagnosis(provider, probe),
-  };
 }
 
 export async function POST(request: Request) {

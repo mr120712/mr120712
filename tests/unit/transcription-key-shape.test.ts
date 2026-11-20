@@ -19,10 +19,8 @@ vi.mock('@/lib/business/rate-limit.server', async (importOriginal) => ({
   consumeRateLimit: mocks.consume,
 }));
 
-import {
-  POST as check,
-  probeDiagnosis,
-} from '@/app/api/admin/featured-rights/transcribe/check/route';
+import { POST as check } from '@/app/api/admin/featured-rights/transcribe/check/route';
+import { probeDiagnosis } from '@/lib/music/transcription-check-probe.server';
 import {
   apiKeyShape,
   GROQ_TARGET,
