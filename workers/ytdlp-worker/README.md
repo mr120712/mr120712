@@ -125,4 +125,15 @@ fly secrets set YTDLP_COOKIES="$(cat cookies.txt)" -a solco-ytdlp-worker
 Il worker logga su stdout (`fly logs -a solco-ytdlp-worker`): all'avvio stampa la config risolta
 (`mode`, `auth on/OFF`, `cookies si/no`, `player_client`), poi ogni richiesta (`richiesta download: …`),
 l'esito (`download ok …`) e, su errore, il **motivo preciso** di yt-dlp (`download failed per <url>: <errore>`).
-`GET /health` riporta anche `{"cookies": true|false, "player_client": …}` per confermare al volo che l'env è attivo.
+`GET /health` riporta anche `{"auth": …, "cookies": true|false, "player_client": …}` per confermare al volo che l'env è attivo.
+
+## Sicurezza (cifratura end-to-end)
+
+| Livello | Come |
+|---|---|
+| **Trasporto (in transito)** | TLS ovunque: `force_https` in `fly.toml` cifra sia Solco→worker (`/download`) sia Telegram/utente→worker (`/file`). Niente HTTP in chiaro. |
+| **Auth — FAIL-CLOSED** | Senza `WORKER_API_KEY` il worker risponde **503 a tutto** (non parte mai «aperto» per sbaglio). `/download` esige `Authorization: Bearer <WORKER_API_KEY>`, confronto a tempo costante. Per i soli test locali: `WORKER_ALLOW_OPEN=1`. |
+| **Link ai file — FIRMATI + a scadenza** | In modalità `serve` l'URL è `/file/<id>?exp=<ts>&sig=<hmac>`: HMAC-SHA256 con `WORKER_API_KEY`, legato al nome file e a una scadenza = `FILE_TTL_SECONDS`. Non falsificabile senza la chiave e non riusabile dopo la scadenza; il file viene comunque cancellato alla stessa scadenza. Telegram può prelevarlo senza conoscere la chiave (basta il link firmato). |
+| **Segreti (a riposo)** | `WORKER_API_KEY` e `YTDLP_COOKIES` vanno impostati come **secret di Fly** (`fly secrets set …`) — cifrati a riposo, mai nel repo né in `fly.toml`. I log non stampano mai chiavi né cookie. |
+
+In breve: imposta `WORKER_API_KEY` come secret (lo STESSO valore di `YTDLP_SERVICE_KEY` su Vercel) e il canale è cifrato end-to-end, autenticato e con link usa-e-getta. `GET /health` → `"auth":"required"` conferma che è chiuso correttamente (`"unconfigured"` = manca la chiave = tutto 503).

@@ -6,8 +6,12 @@
 #   - "serve": SCARICA il media e lo SERVE da questo worker a /file/<id>, con pulizia automatica dopo
 #       FILE_TTL_SECONDS. Robusto per YouTube (il link è del worker) e permette a Telegram di prelevarlo.
 #
-# Tienilo PRIVATO: imposta WORKER_API_KEY e non diffondere l'URL. Uso consentito: contenuti tuoi o
-# liberi — non elude DRM/paywall (yt-dlp non lo fa).
+# SICUREZZA (cifratura "perfetta"):
+#   - Trasporto: TLS end-to-end (Fly `force_https`), sia Solco→worker sia Telegram/utente→/file.
+#   - Auth FAIL-CLOSED: senza WORKER_API_KEY il worker rifiuta tutto (503). Per test locali: WORKER_ALLOW_OPEN=1.
+#   - Segreti (WORKER_API_KEY, YTDLP_COOKIES) cifrati a riposo come secret di Fly.
+#   - Link /file FIRMATI (HMAC-SHA256 con WORKER_API_KEY) e a SCADENZA: non falsificabili né riusabili dopo il TTL.
+# Uso consentito: contenuti tuoi o liberi — non elude DRM/paywall (yt-dlp non lo fa).
 #
 # YouTube da IP datacenter (Fly/Render/…) spesso risponde "Sign in to confirm you're not a bot".
 # Mitigazioni, via env (vedi README):
@@ -15,6 +19,7 @@
 #   - YTDLP_COOKIES_FILE  = percorso a un cookies.txt già montato nel container (alternativa a YTDLP_COOKIES)
 #   - YTDLP_PLAYER_CLIENT = client YouTube da forzare, CSV (es. "android" o "ios,web"); vuoto = default yt-dlp
 import asyncio
+import hashlib
 import hmac
 import logging
 import mimetypes
@@ -33,6 +38,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("ytdlp-worker")
 
 API_KEY = os.environ.get("WORKER_API_KEY", "").strip()
+# Fail-closed: senza chiave il worker rifiuta tutto, a meno di questo opt-in esplicito (solo dev locale).
+ALLOW_OPEN = os.environ.get("WORKER_ALLOW_OPEN", "").strip().lower() in {"1", "true", "yes", "on"}
 MODE = os.environ.get("WORKER_MODE", "extract").strip().lower()
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
 FILE_TTL_SECONDS = int(os.environ.get("FILE_TTL_SECONDS", "900"))
@@ -90,12 +97,28 @@ def _base_opts() -> dict:
 
 
 def _check_auth(authorization: str | None) -> None:
-    # Nessuna chiave impostata = aperto: in quel caso TIENI il servizio non pubblico.
+    # FAIL-CLOSED: senza WORKER_API_KEY il worker RIFIUTA tutto (503), a meno di WORKER_ALLOW_OPEN=1
+    # (solo per test locali). Così non resta mai pubblico per sbaglio.
     if not API_KEY:
-        return
+        if ALLOW_OPEN:
+            return
+        raise HTTPException(status_code=503, detail="worker not configured: set WORKER_API_KEY")
     expected = f"Bearer {API_KEY}"
     if not authorization or not hmac.compare_digest(authorization, expected):
         raise HTTPException(status_code=401, detail="unauthorized")
+
+
+def _sign(name: str, exp: int) -> str:
+    """Firma HMAC-SHA256 (con WORKER_API_KEY) di <name>:<exp>: lega il link al file e alla scadenza."""
+    return hmac.new(API_KEY.encode(), f"{name}:{exp}".encode(), hashlib.sha256).hexdigest()
+
+
+def _signed_path(name: str) -> str:
+    """URL del file: con la chiave è FIRMATO e a SCADENZA (?exp&sig); senza (solo dev) è nudo."""
+    if not API_KEY:
+        return f"/file/{name}"
+    exp = int(time.time()) + FILE_TTL_SECONDS
+    return f"/file/{name}?exp={exp}&sig={_sign(name, exp)}"
 
 
 def _sweep() -> None:
@@ -121,14 +144,13 @@ async def lifespan(_app: FastAPI):
     if MODE == "serve":
         DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
     COOKIEFILE = _resolve_cookies()
+    auth_state = "required" if API_KEY else ("open(DEV!)" if ALLOW_OPEN else "UNCONFIGURED→503")
     log.info(
         "avvio worker: mode=%s auth=%s cookies=%s player_client=%s max=%sMB",
-        MODE,
-        "on" if API_KEY else "OFF(APERTO!)",
-        "si" if COOKIEFILE else "no",
-        PLAYER_CLIENT or "default",
-        MAX_FILESIZE_MB,
+        MODE, auth_state, "si" if COOKIEFILE else "no", PLAYER_CLIENT or "default", MAX_FILESIZE_MB,
     )
+    if not API_KEY and not ALLOW_OPEN:
+        log.warning("WORKER_API_KEY non impostata: ogni richiesta risponderà 503 finché non la imposti.")
     task = asyncio.create_task(_cleanup_loop()) if MODE == "serve" else None
     yield
     if task:
@@ -140,7 +162,13 @@ app = FastAPI(title="Solco yt-dlp worker", lifespan=lifespan)
 
 @app.get("/health")
 def health() -> dict:
-    return {"ok": True, "mode": MODE, "cookies": bool(COOKIEFILE), "player_client": PLAYER_CLIENT or None}
+    return {
+        "ok": True,
+        "mode": MODE,
+        "auth": "required" if API_KEY else ("open" if ALLOW_OPEN else "unconfigured"),
+        "cookies": bool(COOKIEFILE),
+        "player_client": PLAYER_CLIENT or None,
+    }
 
 
 def _target(req: DownloadRequest) -> str:
@@ -202,7 +230,7 @@ def _extract_url(target: str, fmt: str | None) -> dict:
 
 
 def _serve_download(target: str, request: Request, fmt: str | None) -> dict:
-    """Modalità serve: scarica il media e restituisce un URL di questo worker (/file/<id>)."""
+    """Modalità serve: scarica il media e restituisce un URL FIRMATO di questo worker (/file/<id>?exp&sig)."""
     _sweep()
     token = uuid.uuid4().hex
     ydl_opts = {
@@ -226,7 +254,7 @@ def _serve_download(target: str, request: Request, fmt: str | None) -> dict:
     base = PUBLIC_BASE_URL or str(request.base_url).rstrip("/")
     duration = info.get("duration")
     return {
-        "url": f"{base}/file/{path.name}",
+        "url": f"{base}{_signed_path(path.name)}",
         "title": info.get("title"),
         "ext": info.get("ext"),
         "durationSeconds": int(duration) if isinstance(duration, (int, float)) else None,
@@ -235,10 +263,20 @@ def _serve_download(target: str, request: Request, fmt: str | None) -> dict:
 
 
 @app.get("/file/{name}")
-def serve_file(name: str) -> FileResponse:
+def serve_file(name: str, exp: int | None = None, sig: str | None = None) -> FileResponse:
     # Solo un nome di file semplice dentro DOWNLOAD_DIR: niente "/" né "..".
     if "/" in name or "\\" in name or name in ("", ".", ".."):
         raise HTTPException(status_code=400, detail="bad name")
+    # Link FIRMATO e a SCADENZA quando c'è la chiave (fail-closed, come /download).
+    if API_KEY:
+        if exp is None or not sig:
+            raise HTTPException(status_code=403, detail="missing signature")
+        if time.time() > exp:
+            raise HTTPException(status_code=403, detail="link expired")
+        if not hmac.compare_digest(sig, _sign(name, exp)):
+            raise HTTPException(status_code=403, detail="bad signature")
+    elif not ALLOW_OPEN:
+        raise HTTPException(status_code=503, detail="worker not configured")
     path = (DOWNLOAD_DIR / name).resolve()
     if DOWNLOAD_DIR.resolve() not in path.parents or not path.is_file():
         raise HTTPException(status_code=404, detail="not found")
