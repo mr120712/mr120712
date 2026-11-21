@@ -657,17 +657,35 @@ describe('catalogue checks', () => {
     expect(broken.status).toBe('fail');
   });
 
-  it('email: ok only with both RESEND_API_KEY and EMAIL_FROM, never a network call', async () => {
+  it('email: the real channel — Resend with a real sender, or the platform proxy; no network call', async () => {
     const fetcher = makeFetch();
-    expect((await runCheck('email', makeDeps({ fetch: fetcher as never }))).status).toBe('ok');
-    const missing = await runCheck(
-      'email',
-      makeDeps({ fetch: fetcher as never, env: { ...ENV, RESEND_API_KEY: '' } }),
-    );
-    expect(missing).toMatchObject({
-      status: 'warn',
-      detail: 'Email non configurate: le email di verifica non partono',
+    const run = (env: Record<string, string | undefined>) =>
+      runCheck('email', makeDeps({ fetch: fetcher as never, env: { ...ENV, ...env } }));
+    // 1) Resend + a verified sender
+    expect(await run({})).toMatchObject({
+      status: 'ok',
+      detail: 'Invio diretto con Resend, mittente @solco.test',
     });
+    // 1b) Resend without EMAIL_FROM (or on resend.dev): the test sender only reaches the account owner
+    for (const from of [undefined, '', 'Solco <onboarding@resend.dev>']) {
+      const test = await run({ EMAIL_FROM: from });
+      expect(test.status).toBe('fail');
+      expect(test.detail).toMatch(/onboarding@resend\.dev/);
+    }
+    // 2) no Resend: the platform proxy is a working channel (it used to be reported as "not sent")
+    const proxy = await run({
+      RESEND_API_KEY: '',
+      POLSIA_EMAIL_PROXY_URL: 'https://polsia.test/api/proxy/email/send',
+      POLSIA_API_KEY: 'polsia-fake-key-0123456789',
+    });
+    expect(proxy).toMatchObject({
+      status: 'ok',
+      detail: 'Invio tramite il proxy email della piattaforma',
+    });
+    // 3) neither
+    const none = await run({ RESEND_API_KEY: '', POLSIA_EMAIL_PROXY_URL: '', POLSIA_API_KEY: '' });
+    expect(none.status).toBe('warn');
+    expect(none.detail).toMatch(/Nessun canale email/);
     expect(fetcher).not.toHaveBeenCalled();
   });
 });

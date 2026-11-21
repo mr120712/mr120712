@@ -460,11 +460,32 @@ const checkJamendo: Check = async (deps) => {
   return fail('Jamendo non restituisce brani');
 };
 
+/**
+ * Come partono davvero le email (verifica account, recupero password), stesso ordine del codice
+ * (verification-email.server.ts, reset-password-email.server.ts):
+ * 1) con RESEND_API_KEY, direttamente da Resend, dal mittente EMAIL_FROM. Senza EMAIL_FROM il
+ *    mittente è onboarding@resend.dev, il mittente di PROVA di Resend, che consegna solo
+ *    all'indirizzo del titolare dell'account Resend: gli utenti non ricevono nulla;
+ * 2) altrimenti dal proxy email della piattaforma (POLSIA_EMAIL_PROXY_URL + POLSIA_API_KEY).
+ */
 const checkEmail: Check = async ({ env }) => {
-  if (present(env, 'RESEND_API_KEY') && present(env, 'EMAIL_FROM')) {
-    return ok('Invio email configurato');
+  if (present(env, 'RESEND_API_KEY')) {
+    const from = env.EMAIL_FROM?.trim() ?? '';
+    const domain = from.match(/@([^>\s]+)>?\s*$/)?.[1]?.toLowerCase() ?? '';
+    if (!from || domain === 'resend.dev') {
+      return fail(
+        'Resend usa il mittente di prova onboarding@resend.dev: consegna solo al titolare ' +
+          'dell’account Resend, gli utenti non ricevono le email. Imposta EMAIL_FROM su un dominio verificato',
+      );
+    }
+    return ok(`Invio diretto con Resend, mittente @${domain}`);
   }
-  return warn('Email non configurate: le email di verifica non partono');
+  if (present(env, 'POLSIA_EMAIL_PROXY_URL') && present(env, 'POLSIA_API_KEY')) {
+    return ok('Invio tramite il proxy email della piattaforma');
+  }
+  return warn(
+    'Nessun canale email configurato (RESEND_API_KEY o proxy della piattaforma): le email di verifica non partono',
+  );
 };
 
 const checkAnthropic: Check = async (deps) => {
