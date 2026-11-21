@@ -11,6 +11,11 @@ name: 'AI agents: performance review'
 on:
   workflow_dispatch:
     inputs:
+      target:
+        description: 'What to review: the live site (7 agents) or the yt-dlp worker (4 agents on its code + /health)'
+        type: choice
+        options: [site, ytdlp-worker]
+        default: site
       pages:
         description: 'Pages to measure, comma-separated (empty = the default list)'
         type: string
@@ -25,14 +30,17 @@ concurrency:
 
 jobs:
   review:
-    name: 'Measure, 7 agents + lead'
+    name: 'Review (${{ inputs.target || ''site'' }})'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          sparse-checkout: workers/ai-agents
+          # Cone mode also brings the root files (render.yaml), read by the worker review.
+          sparse-checkout: |
+            workers/ai-agents
+            workers/ytdlp-worker
 
       - uses: actions/setup-node@v4
         with:
@@ -48,6 +56,7 @@ jobs:
           SOLCO_RESERVE_KEY: ${{ secrets.SOLCO_RESERVE_KEY }}
           MWAPI_MODEL: ${{ vars.MWAPI_MODEL || 'claude-sonnet-5' }}
           REVIEW_PAGES: ${{ inputs.pages }}
+          REVIEW_TARGET: ${{ inputs.target || 'site' }}
           REPORT_FILE: ${{ runner.temp }}/report.txt
         run: node workers/ai-agents/agents.mjs
 

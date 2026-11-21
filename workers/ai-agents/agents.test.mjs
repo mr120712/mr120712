@@ -18,6 +18,7 @@ import {
   solveChallenge,
 } from './lib.mjs';
 import { createHash } from 'node:crypto';
+import { collectWorker, extractPython, WORKER_SPECIALISTS } from './worker-review.mjs';
 
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -264,4 +265,58 @@ test('«auto» on MWAPI: ask /models with the key, pick a real chat model, list 
   const none = await resolveAutoModels([backends[0]], { fetchImpl: async () => json({ error: 'x' }, 401) });
   assert.deepEqual(none.backends, []);
   assert.ok(none.notes.some((n) => n.includes('HTTP 401')));
+});
+
+test('worker review: functions extracted by name, 4 specialists + lead, each sees only its code', async () => {
+  const py = [
+    'import os',
+    'LIMIT = 5',
+    '',
+    'def _base_opts():',
+    '    return {"a": 1}',
+    '',
+    '@app.get("/health")',
+    'def health():',
+    '    return {}',
+    '',
+    'class WarpExit:',
+    '    def renew(self):',
+    '        pass',
+    '',
+    'X = 1',
+  ].join('\n');
+  assert.equal(extractPython(py, ['__header__']), 'import os\nLIMIT = 5\n');
+  assert.equal(extractPython(py, ['health']), '@app.get("/health")\ndef health():\n    return {}');
+  assert.match(extractPython(py, ['WarpExit']), /def renew/);
+  assert.doesNotMatch(extractPython(py, ['WarpExit']), /X = 1/);
+  assert.equal(extractPython(py, ['missing']), '');
+
+  // Real files from the repo, fake /health
+  const m = await collectWorker({
+    root: new URL('../../', import.meta.url),
+    fetchImpl: async () => json({ ok: true, antibot: { last: { status: 'ok', exit: 'warp', attempts: 1, seconds: 9.5 } } }),
+  });
+  assert.ok(m.files.app.includes('def _run_with_antibot'));
+  assert.equal(m.health.antibot.last.exit, 'warp');
+  assert.equal(WORKER_SPECIALISTS.length, 4);
+  const facts = Object.fromEntries(WORKER_SPECIALISTS.map((a) => [a.id, a.facts(m)]));
+  assert.match(facts.antibot, /def _run_with_antibot/);
+  assert.match(facts.antibot, /"exit":"warp"/);
+  assert.doesNotMatch(facts.pipeline, /class WarpExit/);
+  assert.match(facts.startup, /FROM python/);
+  assert.doesNotMatch(facts.startup, /solco-ai-agents/); // only the worker's service from render.yaml
+  for (const text of Object.values(facts)) assert.ok(text.length < 24_000, 'each agent fits its budget');
+
+  const prompts = [];
+  const ai = async (_url, init) => {
+    const { messages } = JSON.parse(init.body);
+    prompts.push(messages);
+    return answer(messages.at(-1).content.startsWith('Sei il capo') ? 'PIANO WORKER' : 'ok');
+  };
+  const backends = [{ name: 'mwapi', base: 'https://api.mwapi.dev/v1', key: 'mw-key-1', model: 'claude-sonnet-5' }];
+  const review = await runReview(m, backends, { fetchImpl: ai, specialists: WORKER_SPECIALISTS, subject: 'SUBJ worker', clipChars: 24_000 });
+  assert.equal(review.specialists.length, 4);
+  assert.equal(review.lead.text, 'PIANO WORKER');
+  assert.ok(prompts.every((msgs) => msgs[0].content.startsWith('SUBJ worker')));
+  assert.match(renderReport(m, review, 'Worker yt-dlp — revisione prestazioni'), /^Worker yt-dlp/);
 });

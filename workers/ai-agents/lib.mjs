@@ -375,19 +375,20 @@ export const SPECIALISTS = [
   { id: 'html-mobile', title: 'HTML, mobile e PWA', facts: (m) => ({ pages: m.pages.map(({ path, bytes, html }) => ({ path, htmlBytes: bytes, viewport: html?.hasViewport, manifest: html?.hasManifest, blockedByFirewall: html?.blocked })), serviceWorker: { status: m.serviceWorker.status, headers: m.serviceWorker.headers } }) },
 ];
 
-const SYSTEM = (language) =>
-  `Sei un ingegnere delle prestazioni web e revisioni Solco, un sito Next.js 16 su Vercel. ` +
+const SITE_SUBJECT = 'Sei un ingegnere delle prestazioni web e revisioni Solco, un sito Next.js 16 su Vercel.';
+const SYSTEM = (language, subject = SITE_SUBJECT) =>
+  `${subject} ` +
   `Usa SOLO le misure che ricevi: non inventare numeri, pagine o file. Se un dato manca, dillo. ` +
   `Rispondi in ${language}, conciso: massimo 6 punti, ognuno con il problema, la misura che lo prova ` +
   `e una correzione concreta. Se tutto è già buono nella tua area, dillo in una riga.`;
 
 const clip = (value, max = 6000) => {
-  const text = JSON.stringify(value);
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
   return text.length > max ? `${text.slice(0, max)}…(troncato)` : text;
 };
 
 /** Runs `tasks` with at most `limit` in flight (free tiers dislike bursts). */
-async function pool(tasks, limit) {
+export async function pool(tasks, limit) {
   const results = new Array(tasks.length);
   let next = 0;
   async function lane() {
@@ -401,17 +402,21 @@ async function pool(tasks, limit) {
 }
 
 /** The 7 specialists in parallel, then the 8th (lead) agent merges them into one prioritized plan. */
-export async function runReview(measurements, backends, { fetchImpl = fetch, concurrency = 3, language = 'italiano', timeoutMs } = {}) {
+export async function runReview(
+  measurements,
+  backends,
+  { fetchImpl = fetch, concurrency = 3, language = 'italiano', timeoutMs, specialists: team = SPECIALISTS, subject, clipChars = 6000, maxTokens } = {},
+) {
   const specialists = await pool(
-    SPECIALISTS.map((agent) => async () => {
+    team.map((agent) => async () => {
       try {
         const { text, backend } = await chat(
           [
-            { role: 'system', content: SYSTEM(language) },
-            { role: 'user', content: `Area: ${agent.title}\nMisure (JSON):\n${clip(agent.facts(measurements))}` },
+            { role: 'system', content: SYSTEM(language, subject) },
+            { role: 'user', content: `Area: ${agent.title}\nMateriale:\n${clip(agent.facts(measurements), clipChars)}` },
           ],
           backends,
-          { fetchImpl, timeoutMs },
+          { fetchImpl, timeoutMs, ...(maxTokens ? { maxTokens } : {}) },
         );
         return { id: agent.id, title: agent.title, ok: true, backend, text };
       } catch (error) {
@@ -428,7 +433,7 @@ export async function runReview(measurements, backends, { fetchImpl = fetch, con
   }
   const lead = await chat(
     [
-      { role: 'system', content: SYSTEM(language) },
+      { role: 'system', content: SYSTEM(language, subject) },
       {
         role: 'user',
         content:
@@ -445,16 +450,16 @@ export async function runReview(measurements, backends, { fetchImpl = fetch, con
 }
 
 /** The final report as plain text (Telegram-safe, no markup). */
-export function renderReport(measurements, review) {
-  const lines = [`Solco — revisione prestazioni (${measurements.measuredAt})`, ''];
-  const slow = [...measurements.pages].filter((p) => typeof p.ttfbMs === 'number').sort((a, b) => b.ttfbMs - a.ttfbMs)[0];
+export function renderReport(measurements, review, title = 'Solco — revisione prestazioni') {
+  const lines = [`${title} (${measurements.measuredAt})`, ''];
+  const slow = [...(measurements.pages ?? [])].filter((p) => typeof p.ttfbMs === 'number').sort((a, b) => b.ttfbMs - a.ttfbMs)[0];
   if (slow) lines.push(`Pagina più lenta a rispondere: ${slow.path} (${slow.ttfbMs} ms al primo byte)`);
   if (measurements.gate?.gateMs) {
     lines.push(`Verifica anti-bot di Solco superata in ${measurements.gate.gateMs} ms (difficoltà ${measurements.gate.difficulty} bit)`);
   }
-  const gated = measurements.pages.filter((p) => p.headers?.['x-solco-gate']).map((p) => p.path);
+  const gated = (measurements.pages ?? []).filter((p) => p.headers?.['x-solco-gate']).map((p) => p.path);
   if (gated.length) lines.push(`Attenzione: misurata la pagina di verifica anti-bot, non la pagina vera, per ${gated.join(', ')}`);
-  const blocked = measurements.pages.filter((p) => p.html?.blocked).map((p) => p.path);
+  const blocked = (measurements.pages ?? []).filter((p) => p.html?.blocked).map((p) => p.path);
   if (blocked.length) lines.push(`Attenzione: il firewall di Vercel ha bloccato la misura di ${blocked.join(', ')}`);
   lines.push('', '== Piano (capo squadra) ==', review.lead.text || `non disponibile (${review.lead.error ?? 'nessuna risposta'})`, '');
   for (const s of review.specialists) {
