@@ -12,8 +12,8 @@ export const MWAPI_DEFAULT_MODEL = 'claude-sonnet-5';
 const SOLCO_HOSTS = new Set(['solcomusic.online', 'www.solcomusic.online']);
 const USER_AGENT = 'SolcoPerfAgents/1.0 (+render-cron)';
 
-/** Public pages the review measures by default (from src/lib/nav.ts). */
-export const DEFAULT_PAGES = ['/', '/search', '/radio', '/podcasts', '/generi', '/piani', '/app', '/blog'];
+/** Public pages the review measures by default: real routes from src/lib/nav.ts (not its comments). */
+export const DEFAULT_PAGES = ['/', '/search', '/radio', '/podcasts', '/generi', '/piani', '/app', '/classici'];
 /** API endpoints the review times (Solco, its AI reserve, the Render yt-dlp worker). */
 export const DEFAULT_APIS = [
   `${SOLCO_ORIGIN}/health`,
