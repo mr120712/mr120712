@@ -530,6 +530,7 @@ describe('POST /api/telegram/webhook — /skynet, la chat della sentinella', () 
     expect(mocks.askSkynet).toHaveBeenCalledWith({
       messages: [{ role: 'user', content: 'Cosa è successo oggi?' }],
       source: 'telegram',
+      owner: true,
     });
     expect(texts()).toEqual([
       '🛰️ Cerco in tutte le fonti…',
@@ -584,6 +585,7 @@ describe('POST /api/telegram/webhook — /skynet, la chat della sentinella', () 
     expect(mocks.askSkynet).toHaveBeenCalledWith({
       messages: [{ role: 'user', content: 'pausa autodifesa 2 ore' }],
       source: 'telegram',
+      owner: true,
     });
     expect(texts()).toEqual([
       '<b>🛰️ Skynet</b>\nFatto: autodifesa in pausa.\n\n<i>Comando eseguito senza AI</i>',

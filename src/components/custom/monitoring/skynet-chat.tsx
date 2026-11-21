@@ -197,9 +197,9 @@ export function SkynetChat({ onCommand }: { onCommand?: () => void }) {
         </Button>
       </form>
       <p className={styles.note}>
-        Skynet legge soltanto: non può cambiare nulla. I soli comandi sono «pausa autodifesa 2 ore»
-        e «riprendi autodifesa», scritti così. Non scriva password o chiavi: non le vede e non le
-        chiede. Gli indirizzi IP restano mascherati.
+        Skynet legge soltanto: non può cambiare nulla. I soli comandi, riservati al proprietario,
+        sono «pausa autodifesa 2 ore» e «riprendi autodifesa», scritti così. Non scriva password o
+        chiavi: non le vede e non le chiede. Gli indirizzi IP restano mascherati.
       </p>
     </section>
   );

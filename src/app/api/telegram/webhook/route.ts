@@ -388,6 +388,8 @@ async function handleUpdate(
       const answer = await askSkynet({
         messages: [{ role: 'user', content: question }],
         source: 'telegram',
+        // Già controllato sopra con checkTelegramOwner: qui scrive solo il proprietario.
+        owner: true,
       });
       await sendTelegramMessage(chatId, telegramChatText(answer), {
         parseMode: 'HTML',

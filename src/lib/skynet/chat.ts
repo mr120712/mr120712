@@ -64,6 +64,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export type OwnerCommand = { kind: 'pause'; minutes: number } | { kind: 'resume' };
 
+/**
+ * Nel pannello il proprietario è l'amministratore con email verificata uguale a POLSIA_OWNER_EMAIL
+ * (la stessa che src/lib/auth.ts promuove ad admin). Senza quella variabile non c'è proprietario nel
+ * pannello: i comandi restano su /skynet in Telegram, che ha il suo controllo del proprietario.
+ */
+export function isPanelOwner(
+  user: { role?: string | null; email?: string | null; emailVerified?: boolean | null },
+  ownerEmail: string | undefined,
+): boolean {
+  const owner = ownerEmail?.trim().toLowerCase();
+  if (!owner || user.role !== 'admin' || user.emailVerified !== true) return false;
+  return (user.email ?? '').trim().toLowerCase() === owner;
+}
+
 const PAUSE_COMMAND =
   /^(?:metti in pausa|pausa|sospendi|ferma) (?:l['’] ?)?autodifesa(?: (?:per )?(\d{1,4}) ?(minut[oi]|min|or[ae]|h))? ?[.!]?$/i;
 const RESUME_COMMAND = /^(?:riprendi|riattiva|riaccendi|sblocca) (?:l['’] ?)?autodifesa ?[.!]?$/i;

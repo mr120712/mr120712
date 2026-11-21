@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   sameOrigin: vi.fn(),
   enforceRateLimit: vi.fn(),
   askSkynet: vi.fn(),
+  env: { POLSIA_OWNER_EMAIL: 'owner@solco.test' } as Record<string, string | undefined>,
 }));
 
 vi.mock('server-only', () => ({}));
@@ -18,6 +19,7 @@ vi.mock('@/lib/auth', () => ({ auth: { api: { getSession: mocks.getSession } } }
 vi.mock('@/lib/same-origin', () => ({ sameOrigin: mocks.sameOrigin }));
 vi.mock('@/lib/business/rate-limit.server', () => ({ enforceRateLimit: mocks.enforceRateLimit }));
 vi.mock('@/lib/skynet/chat.server', () => ({ askSkynet: mocks.askSkynet }));
+vi.mock('@/lib/env', () => ({ env: mocks.env }));
 
 import { POST } from '@/app/api/admin/skynet/chat/route';
 import {
@@ -27,7 +29,8 @@ import {
   SkynetChatResponseSchema,
 } from '@/lib/contracts/skynet-chat';
 
-const admin = { id: 'admin-1', role: 'admin', emailVerified: true };
+const admin = { id: 'admin-1', role: 'admin', email: 'altro@solco.test', emailVerified: true };
+const owner = { ...admin, id: 'owner-1', email: 'Owner@solco.test' };
 type Turn = { role: 'user' | 'assistant'; content: string };
 
 function request(body: unknown, raw = false) {
@@ -42,6 +45,7 @@ const question: Turn[] = [{ role: 'user', content: 'Cosa è successo oggi?' }];
 
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.env.POLSIA_OWNER_EMAIL = 'owner@solco.test';
   mocks.sameOrigin.mockReturnValue(true);
   mocks.getSession.mockResolvedValue({ user: admin });
   mocks.enforceRateLimit.mockResolvedValue(null);
@@ -54,6 +58,23 @@ beforeEach(() => {
 });
 
 describe('chat di Skynet, la route', () => {
+  it('i comandi dell’autodifesa valgono solo per il proprietario (POLSIA_OWNER_EMAIL)', async () => {
+    mocks.getSession.mockResolvedValue({ user: owner });
+    await ask(question);
+    expect(mocks.askSkynet).toHaveBeenLastCalledWith({
+      messages: question,
+      source: 'pannello',
+      owner: true,
+    });
+    mocks.env.POLSIA_OWNER_EMAIL = undefined;
+    await ask(question);
+    expect(mocks.askSkynet).toHaveBeenLastCalledWith({
+      messages: question,
+      source: 'pannello',
+      owner: false,
+    });
+  });
+
   it('risponde all’amministratore verificato, senza cache, con il motore chiamato dal pannello', async () => {
     const response = await ask(question);
     expect(response.status).toBe(200);
@@ -64,7 +85,11 @@ describe('chat di Skynet, la route', () => {
       sources: ['stato e segnali', 'diario'],
       missing: [],
     });
-    expect(mocks.askSkynet).toHaveBeenCalledWith({ messages: question, source: 'pannello' });
+    expect(mocks.askSkynet).toHaveBeenCalledWith({
+      messages: question,
+      source: 'pannello',
+      owner: false,
+    });
     expect(mocks.enforceRateLimit).toHaveBeenCalledWith('skynet.chat', 'user:admin-1');
   });
 
