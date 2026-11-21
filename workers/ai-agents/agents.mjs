@@ -56,6 +56,17 @@ async function main() {
     log(`config: ${error.message}`);
     return 1;
   }
+  // «measure»: only the site measurements, no AI (e.g. REVIEW_PAGES=/piani,/,/search,/ to see whether
+  // a slow page is slow every time or only on its first, cold request).
+  if (env.REVIEW_TARGET?.trim() === 'measure') {
+    const pages = env.REVIEW_PAGES?.split(',').map((p) => p.trim()).filter((p) => p.startsWith('/'));
+    const m = await measure({ ...(pages?.length ? { pages } : {}), apis: [], maxAssets: 0 });
+    log(`gate: ${m.gate.gateMs ?? '-'} ms, difficoltà ${m.gate.difficulty ?? '-'}`);
+    for (const p of m.pages) {
+      log(`misura: ${p.path.padEnd(10)} ${p.status} ttfb=${p.ttfbMs} ms totale=${p.totalMs} ms ${p.bytes ?? '-'} B cache=${p.headers?.['x-vercel-cache'] ?? '-'}${p.headers?.['x-solco-gate'] ? ' GATE' : ''}`);
+    }
+    return 0;
+  }
   // «models»: only list what each key unlocks (models-only check, nothing measured, no agent runs).
   const listOnly = env.REVIEW_TARGET?.trim() === 'models';
   const resolved = await resolveAutoModels(
