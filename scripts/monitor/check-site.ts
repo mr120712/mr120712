@@ -253,6 +253,7 @@ export const INTERNAL_CHECKS: Record<string, { label: string; critical: boolean 
   freellmapi: { label: 'Riserva AI gratuita (Solco)', critical: false },
   solco_ai: { label: 'Solco AI (trascrizione testi)', critical: false },
   stripe: { label: 'Pagamenti Stripe', critical: false },
+  telegram_bot: { label: 'Bot Telegram', critical: false },
   cron_cleanup: { label: 'Pulizia giornaliera', critical: false },
 };
 

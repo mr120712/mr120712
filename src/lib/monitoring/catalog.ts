@@ -90,6 +90,11 @@ export const MONITOR_CHECKS: Record<MonitorCheckId, MonitorCheckInfo> = {
     critical: false,
     help: 'La chiave Stripe è valida.',
   },
+  telegram_bot: {
+    label: 'Bot Telegram',
+    critical: false,
+    help: 'Telegram consegna i messaggi al bot (getWebhookInfo): webhook registrato sull’indirizzo di Solco, nessun errore di consegna recente, coda di messaggi in attesa breve. Il cron giornaliero ri-registra il webhook da solo; non configurato = avviso, non guasto.',
+  },
   cron_cleanup: {
     label: 'Pulizia giornaliera',
     critical: false,
