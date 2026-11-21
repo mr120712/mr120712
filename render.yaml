@@ -50,6 +50,7 @@ services:
   # calls. Every Monday it measures the live site (pages, JS/CSS, APIs, this yt-dlp worker's /health),
   # runs 7 specialist agents + 1 lead agent and prints the report (Logs), optionally to Telegram.
   # AI backends, in order (policy in lib.mjs: anything else is refused, so keys never leave them):
+  #   0) MagnetAPI https://api.magnetapi.org/v1 (MAGNETAPI_API_KEY), the most capable model it lists;
   #   1) MWAPI https://api.mwapi.dev/v1, key 1 then key 2 (MWAPI_API_KEY, MWAPI_API_KEY_2);
   #   2) your PRIVATE FreeLLMAPI on Render's private network (FREELLMAPI_PRIVATE_URL, see below);
   #   3) Solco's reserve https://www.solcomusic.online/api/ai-reserve/v1 (SOLCO_RESERVE_KEY).
@@ -67,6 +68,10 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "24"
+      - key: MAGNETAPI_API_KEY           # MagnetAPI key (agents only; tried first)
+        sync: false
+      - key: MAGNETAPI_MODEL             # optional: a MagnetAPI model id; empty = the best it lists
+        sync: false
       - key: MWAPI_API_KEY               # your first MWAPI key
         sync: false
       - key: MWAPI_API_KEY_2             # your second MWAPI key (used when the first is limited)

@@ -9,6 +9,11 @@ export const SOLCO_RESERVE_URL = `${SOLCO_ORIGIN}/api/ai-reserve/v1`;
 export const MWAPI_URL = 'https://api.mwapi.dev/v1';
 /** The MWAPI model the owner chose (both keys serve Claude models); MWAPI_MODEL overrides it, "auto" picks from /models. */
 export const MWAPI_DEFAULT_MODEL = 'claude-sonnet-5';
+/**
+ * MagnetAPI, a third-party reseller of model access (OpenAI-compatible /v1, Bearer key). Used by the
+ * agents ONLY, never by the site: they send public site data and code, not users' text.
+ */
+export const MAGNETAPI_URL = 'https://api.magnetapi.org/v1';
 const SOLCO_HOSTS = new Set(['solcomusic.online', 'www.solcomusic.online']);
 const USER_AGENT = 'SolcoPerfAgents/1.0 (+render-cron)';
 
@@ -29,6 +34,7 @@ export const DEFAULT_APIS = [
  *   e.g. `http://freellmapi:3001/v1`). Not reachable from the internet; your license stays there.
  * - Solco's reserve: HTTPS on solcomusic.online only.
  * - MWAPI: exactly https://api.mwapi.dev/v1.
+ * - MagnetAPI: exactly https://api.magnetapi.org/v1.
  * Anything else (a public host, an IP, localhost, a non-/v1 path) is refused, so no key is ever sent
  * outside these two places.
  */
@@ -45,6 +51,11 @@ export function backendPolicy(raw, kind) {
   const host = url.hostname.toLowerCase();
   const base = `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
   if (!/\/v1$/.test(url.pathname.replace(/\/+$/, ''))) return { ok: false, reason: 'path must end in /v1' };
+  if (kind === 'magnetapi') {
+    return url.protocol === 'https:' && base === MAGNETAPI_URL
+      ? { ok: true, base }
+      : { ok: false, reason: 'MagnetAPI must be https://api.magnetapi.org/v1' };
+  }
   if (kind === 'mwapi') {
     return url.protocol === 'https:' && host === 'api.mwapi.dev' && base === MWAPI_URL
       ? { ok: true, base }
@@ -63,12 +74,20 @@ export function backendPolicy(raw, kind) {
 }
 
 /**
- * The backends from the environment, in order: MWAPI key 1 and key 2, your private FreeLLMAPI,
- * then Solco's reserve. Throws if none passes the policy.
+ * The backends from the environment, in order: MagnetAPI (the most capable models), MWAPI key 1 and
+ * key 2, your private FreeLLMAPI, then Solco's reserve. Throws if none passes the policy.
  */
 export function backendsFrom(env) {
   const backends = [];
   const errors = [];
+  if (env.MAGNETAPI_API_KEY?.trim()) {
+    backends.push({
+      name: 'magnetapi',
+      base: MAGNETAPI_URL,
+      key: env.MAGNETAPI_API_KEY.trim(),
+      model: env.MAGNETAPI_MODEL?.trim() || 'auto',
+    });
+  }
   const mwapiModel = env.MWAPI_MODEL?.trim() || MWAPI_DEFAULT_MODEL;
   for (const [name, key] of [
     ['mwapi', env.MWAPI_API_KEY],
@@ -95,7 +114,7 @@ export function backendsFrom(env) {
   }
   if (backends.length === 0) {
     throw new Error(
-      `no usable AI backend (${errors.join('; ') || 'set MWAPI_API_KEY / MWAPI_API_KEY_2, FREELLMAPI_PRIVATE_URL or SOLCO_RESERVE_KEY'})`,
+      `no usable AI backend (${errors.join('; ') || 'set MAGNETAPI_API_KEY, MWAPI_API_KEY / MWAPI_API_KEY_2, FREELLMAPI_PRIVATE_URL or SOLCO_RESERVE_KEY'})`,
     );
   }
   return { backends, warnings: errors };
@@ -111,6 +130,24 @@ const PREFERRED_MODELS = [
   /qwen[\w.-]*(plus|turbo|instruct)/i,
   /llama-3\.3-70b/i,
 ];
+/**
+ * For MagnetAPI («the best models»): the most capable first. Matched loosely on the ids the key
+ * really lists (never a guessed id): newest Opus, then GPT-6.x from the highest minor, then the others.
+ */
+const BEST_MODELS = [
+  /opus[\w.-]*5[.-]5/i,
+  /gpt[\w.-]*6[.-]2/i,
+  /gpt[\w.-]*6[.-]1/i,
+  /opus[\w.-]*5(?![.-]\d)/i,
+  /gpt[\w.-]*6(?![.-]\d)/i,
+  /opus/i,
+  /fable/i,
+  /sonnet[\w.-]*5[.-]5/i,
+  /sonnet/i,
+  /gpt/i,
+  /gemini|argon|carbon/i,
+  /deepseek/i,
+];
 const NOT_CHAT = /(embed|whisper|tts|dall-e|image|moderation|rerank|audio|realtime|vision-preview)/i;
 
 /**
@@ -123,7 +160,8 @@ export async function resolveAutoModels(backends, { fetchImpl = fetch, timeoutMs
   const notes = [];
   const out = [];
   for (const backend of backends) {
-    if (backend.model !== 'auto' || !backend.name.startsWith('mwapi')) {
+    const gateway = backend.name.startsWith('mwapi') || backend.name === 'magnetapi';
+    if (backend.model !== 'auto' || !gateway) {
       out.push(backend);
       continue;
     }
@@ -140,10 +178,13 @@ export async function resolveAutoModels(backends, { fetchImpl = fetch, timeoutMs
       notes.push(`${backend.name}: /models ${error?.name || 'network error'}`);
     }
     const chatIds = ids.filter((id) => !NOT_CHAT.test(id));
-    const chosen = PREFERRED_MODELS.map((re) => chatIds.find((id) => re.test(id))).find(Boolean) ?? chatIds[0];
-    if (ids.length) notes.push(`${backend.name}: ${ids.length} modelli (${ids.slice(0, 25).join(', ')}${ids.length > 25 ? ', …' : ''})`);
+    const ranking = backend.name === 'magnetapi' ? BEST_MODELS : PREFERRED_MODELS;
+    const chosen = ranking.map((re) => chatIds.find((id) => re.test(id))).find(Boolean) ?? chatIds[0];
+    const shown = backend.name === 'magnetapi' ? 80 : 25;
+    if (ids.length) notes.push(`${backend.name}: ${ids.length} modelli (${ids.slice(0, shown).join(', ')}${ids.length > shown ? ', …' : ''})`);
     if (chosen) {
-      notes.push(`${backend.name}: uso il modello ${chosen} (imposta MWAPI_MODEL per sceglierne un altro)`);
+      const variable = backend.name === 'magnetapi' ? 'MAGNETAPI_MODEL' : 'MWAPI_MODEL';
+      notes.push(`${backend.name}: uso il modello ${chosen} (imposta ${variable} per sceglierne un altro)`);
       out.push({ ...backend, model: chosen });
     } else {
       notes.push(`${backend.name}: nessun modello di chat trovato, salto questo backend`);

@@ -372,3 +372,34 @@ test('TikTok ad: 6 specialists, facts from the repo (Pro not advertised), storyb
   assert.throws(() => parseStoryboard('nessun json'), /JSON valido/);
   assert.throws(() => parseStoryboard('```json\n{"scenes":[]}\n```'), /almeno 3 scene/);
 });
+
+test('MagnetAPI: agents only, exact address, first in line, best real model from /v1/models', async () => {
+  assert.equal(backendPolicy('https://api.magnetapi.org/v1', 'magnetapi').ok, true);
+  for (const bad of ['http://api.magnetapi.org/v1', 'https://magnetapi.org/v1', 'https://api.magnetapi.org.evil.example/v1', 'https://api.magnetapi.org/v2']) {
+    assert.equal(backendPolicy(bad, 'magnetapi').ok, false, bad);
+  }
+  const { backends } = backendsFrom({ MAGNETAPI_API_KEY: 'mg-key-1', MWAPI_API_KEY: 'mw-key-1', SOLCO_RESERVE_KEY: 'reserve-key' });
+  assert.deepEqual(backends.map((b) => b.name), ['magnetapi', 'mwapi', 'solco-reserve']);
+  assert.equal(backends[0].model, 'auto');
+  assert.equal(backendsFrom({ MAGNETAPI_API_KEY: 'mg-key-1', MAGNETAPI_MODEL: 'gpt-6-1-sol' }).backends[0].model, 'gpt-6-1-sol');
+
+  // The ranking only ever picks an id the key really lists: newest Opus first, then GPT-6.x.
+  const pick = async (ids) =>
+    (await resolveAutoModels([backends[0]], { fetchImpl: async () => json({ data: ids.map((id) => ({ id })) }) })).backends[0]?.model;
+  assert.equal(await pick(['claude-sonnet-5-5', 'gpt-6-astra', 'claude-opus-5-5', 'text-embedding-3']), 'claude-opus-5-5');
+  assert.equal(await pick(['claude-sonnet-5-5', 'gpt-6-astra', 'gpt-6.1-sol']), 'gpt-6.1-sol');
+  assert.equal(await pick(['gpt-6.2', 'gpt-6.1-sol', 'claude-sonnet-5']), 'gpt-6.2');
+  assert.equal(await pick(['deepseek-chat', 'claude-sonnet-5']), 'claude-sonnet-5');
+  assert.equal(await pick(['whisper-1', 'some-model']), 'some-model');
+
+  // The models list is logged for the owner (ids only, never the key).
+  const { notes } = await resolveAutoModels([backends[0]], {
+    fetchImpl: async (_url, init) => {
+      assert.equal(init.headers.authorization, 'Bearer mg-key-1');
+      return json({ data: [{ id: 'claude-opus-5-5' }, { id: 'gpt-6.1-sol' }] });
+    },
+  });
+  assert.ok(notes.some((n) => n.includes('2 modelli') && n.includes('gpt-6.1-sol')));
+  assert.ok(notes.some((n) => n.includes('MAGNETAPI_MODEL')));
+  assert.ok(notes.every((n) => !n.includes('mg-key-1')));
+});

@@ -19,6 +19,7 @@ import { collectWorker, WORKER_SPECIALISTS, WORKER_SUBJECT } from './worker-revi
 
 const env = process.env;
 const secrets = [
+  env.MAGNETAPI_API_KEY,
   env.MWAPI_API_KEY,
   env.MWAPI_API_KEY_2,
   env.FREELLMAPI_PRIVATE_KEY,
@@ -54,8 +55,13 @@ async function main() {
     log(`config: ${error.message}`);
     return 1;
   }
-  const resolved = await resolveAutoModels(backends);
+  // «models»: only list what each key unlocks (models-only check, nothing measured, no agent runs).
+  const listOnly = env.REVIEW_TARGET?.trim() === 'models';
+  const resolved = await resolveAutoModels(
+    listOnly ? backends.map((b) => (b.name === 'magnetapi' || b.name.startsWith('mwapi') ? { ...b, model: 'auto' } : b)) : backends,
+  );
   for (const note of resolved.notes) log(`modelli: ${note}`);
+  if (listOnly) return resolved.backends.length > 0 ? 0 : 2;
   backends = resolved.backends;
   if (backends.length === 0) {
     log('config: nessun backend con un modello utilizzabile');
@@ -87,7 +93,7 @@ async function main() {
     options = common;
     title = 'Solco — revisione prestazioni';
   } else {
-    log(`config: REVIEW_TARGET sconosciuto (${target}): usa site, ytdlp-worker o tiktok-ad`);
+    log(`config: REVIEW_TARGET sconosciuto (${target}): usa site, ytdlp-worker, tiktok-ad o models`);
     return 1;
   }
 

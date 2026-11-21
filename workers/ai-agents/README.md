@@ -19,6 +19,7 @@ The agents only use the measurements they receive: no tools, no browsing, no inv
 
 | Order | Backend | Variable | Notes |
 |---|---|---|---|
+| 0 | **MagnetAPI** (`https://api.magnetapi.org/v1`) | `MAGNETAPI_API_KEY`, `MAGNETAPI_MODEL` | Third-party **reseller** of model access (Claude, ChatGPT, …). **Agents only, never the site**: they send public site data and code, not users' text. The model is the most capable one the key really lists (`/v1/models`: newest Opus, then GPT-6.x, …) unless `MAGNETAPI_MODEL` is set. A reseller's key can stop working without notice: the next backend takes over. |
 | 1 | **MWAPI** (`https://api.mwapi.dev/v1`), key 1 then key 2 | `MWAPI_API_KEY`, `MWAPI_API_KEY_2`, `MWAPI_MODEL` | Third-party AI gateway serving Claude models. The model is `claude-sonnet-5` unless `MWAPI_MODEL` says otherwise (`auto` picks one from `/v1/models`); if MWAPI refuses it, the next backend takes over. |
 | 2 | **Your FreeLLMAPI**, private on Render | `FREELLMAPI_PRIVATE_URL` (+ `FREELLMAPI_PRIVATE_KEY`) | Uses your **license key**. A Render *private service* has no public URL. |
 | 3 | **Solco's reserve** | `SOLCO_RESERVE_KEY` | `https://www.solcomusic.online/api/ai-reserve/v1` (Groq · Cerebras · OpenRouter). Same value as `FREELLMAPI_API_KEY` on Vercel. |
@@ -28,7 +29,7 @@ Security policy (`lib.mjs`, `backendPolicy`), checked before any request:
 - the private backend must be a **single-label host** on Render's private network (for example
   `http://freellmapi:3001/v1`);
 - the reserve must be **https on solcomusic.online**;
-- MWAPI must be exactly **`https://api.mwapi.dev/v1`**;
+- MWAPI must be exactly **`https://api.mwapi.dev/v1`**, MagnetAPI exactly **`https://api.magnetapi.org/v1`**;
 - anything else (a public host, an IP such as `192.168.0.117`, `localhost`, URLs with credentials)
   is **refused**, so a key is never sent anywhere else.
 
@@ -66,6 +67,11 @@ Render cron jobs are not on the free plan. `starter` is billed by the minutes th
 Vercel's firewall can answer automated requests with its *Security Checkpoint*. The report flags
 pages measured that way. If it hits `/api/ai-reserve/v1/*`, add a manual Vercel firewall rule that
 **bypasses** the challenge for that path prefix. That endpoint already requires the Bearer key.
+
+## List the models a key unlocks
+
+Run the workflow with target **`models`**: it only lists the model ids each configured key returns
+(MagnetAPI, MWAPI), shows which one would be used, and stops. Nothing is measured or generated.
 
 ## Tests
 
