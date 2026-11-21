@@ -44,3 +44,52 @@ services:
       # GET /health → antibot.proxy_info shows whether it was read (never the host or the credentials).
       # - key: YTDLP_PROXY
       #   sync: false
+
+  # ── Solco AI performance agents (code in workers/ai-agents/) ─────────────────────────────────────
+  # A Render CRON JOB: no public port, nothing to attack from the internet; it only makes outbound
+  # calls. Every Monday it measures the live site (pages, JS/CSS, APIs, this yt-dlp worker's /health),
+  # runs 7 specialist agents + 1 lead agent and prints the report (Logs), optionally to Telegram.
+  # AI backends, in order (policy in lib.mjs: anything else is refused, so keys never leave them):
+  #   1) your PRIVATE FreeLLMAPI on Render's private network (FREELLMAPI_PRIVATE_URL, see below);
+  #   2) Solco's reserve https://www.solcomusic.online/api/ai-reserve/v1 (SOLCO_RESERVE_KEY).
+  # Cron jobs are not on Render's free plan: "starter" is billed by the minutes it actually runs.
+  # The build runs the tests, so a broken worker never replaces a working one.
+  - type: cron
+    name: solco-ai-agents
+    runtime: node
+    rootDir: workers/ai-agents
+    region: ohio
+    plan: starter
+    schedule: "23 5 * * 1"               # Mondays 05:23 UTC; "Trigger Run" in the dashboard runs it now
+    buildCommand: node --test agents.test.mjs
+    startCommand: node agents.mjs
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: SOLCO_RESERVE_KEY           # = FREELLMAPI_API_KEY on Vercel (the reserve's Bearer)
+        sync: false
+      - key: FREELLMAPI_PRIVATE_URL      # e.g. http://freellmapi:3001/v1 (Render private network only)
+        sync: false
+      - key: FREELLMAPI_PRIVATE_KEY      # the API key your FreeLLMAPI instance gives its clients
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN          # optional: send the report to Telegram
+        sync: false
+      - key: TELEGRAM_CHAT_ID            # optional: your chat id (the one in SKYNET_TELEGRAM_CHAT_IDS)
+        sync: false
+
+  # ── Your FreeLLMAPI, PRIVATE (uses your license key) ─────────────────────────────────────────────
+  # Uncomment after filling in the image and the license variable name from FreeLLMAPI's install
+  # guide (not guessed here). A private service ("pserv") has NO public URL: only your other Render
+  # services in the same region reach it, at http://freellmapi:3001/v1.
+  # - type: pserv
+  #   name: freellmapi
+  #   runtime: image
+  #   image:
+  #     url: <FreeLLMAPI Docker image from its install guide>
+  #   region: ohio
+  #   plan: starter
+  #   envVars:
+  #     - key: PORT
+  #       value: "3001"
+  #     - key: <FreeLLMAPI license variable name>
+  #       sync: false                    # your license key: set it in the dashboard, never in Git
