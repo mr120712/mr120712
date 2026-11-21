@@ -73,3 +73,6 @@ __pycache__/
 
 # Binario compilato dello strumento Go locale (scripts/solco-cc-dl)
 /scripts/solco-cc-dl/solco-cc-dl
+
+# Python bytecode from tools/ (e.g. tools/tiktok-ad/render.py)
+__pycache__/

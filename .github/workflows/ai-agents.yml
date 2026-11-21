@@ -11,6 +11,11 @@ name: 'AI agents: performance review'
 on:
   workflow_dispatch:
     inputs:
+      target:
+        description: 'site (7 agents on the live site), ytdlp-worker (4 agents on its code + /health) or tiktok-ad (6 agents write a TikTok ad storyboard)'
+        type: choice
+        options: [site, ytdlp-worker, tiktok-ad]
+        default: site
       pages:
         description: 'Pages to measure, comma-separated (empty = the default list)'
         type: string
@@ -25,14 +30,18 @@ concurrency:
 
 jobs:
   review:
-    name: 'Measure, 7 agents + lead'
+    name: 'Review (${{ inputs.target || ''site'' }})'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          sparse-checkout: workers/ai-agents
+          # Cone mode also brings the root files (render.yaml), read by the worker review.
+          sparse-checkout: |
+            workers/ai-agents
+            workers/ytdlp-worker
+            src/lib
 
       - uses: actions/setup-node@v4
         with:
@@ -48,7 +57,9 @@ jobs:
           SOLCO_RESERVE_KEY: ${{ secrets.SOLCO_RESERVE_KEY }}
           MWAPI_MODEL: ${{ vars.MWAPI_MODEL || 'claude-sonnet-5' }}
           REVIEW_PAGES: ${{ inputs.pages }}
+          REVIEW_TARGET: ${{ inputs.target || 'site' }}
           REPORT_FILE: ${{ runner.temp }}/report.txt
+          STORYBOARD_FILE: ${{ runner.temp }}/storyboard.json
         run: node workers/ai-agents/agents.mjs
 
       - name: Report in the run summary
@@ -64,6 +75,8 @@ jobs:
         if: always()
         with:
           name: ai-agents-report
-          path: ${{ runner.temp }}/report.txt
+          path: |
+            ${{ runner.temp }}/report.txt
+            ${{ runner.temp }}/storyboard.json
           if-no-files-found: ignore
           retention-days: 14

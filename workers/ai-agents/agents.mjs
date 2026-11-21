@@ -14,6 +14,8 @@ import {
   resolveAutoModels,
   runReview,
 } from './lib.mjs';
+import { AD_LEAD_PROMPT, AD_SPECIALISTS, AD_SYSTEM, collectAdFacts, parseStoryboard } from './tiktok-ad.mjs';
+import { collectWorker, WORKER_SPECIALISTS, WORKER_SUBJECT } from './worker-review.mjs';
 
 const env = process.env;
 const secrets = [
@@ -61,22 +63,55 @@ async function main() {
   }
   log(`backend: ${backends.map((b) => `${b.name} (${b.model})`).join(' → ')}`);
 
-  const pages = env.REVIEW_PAGES?.split(',').map((p) => p.trim()).filter((p) => p.startsWith('/'));
-  const measurements = await measure({ ...(pages?.length ? { pages } : {}) });
-  log(`misure: ${measurements.pages.length} pagine, ${measurements.assets.length} file JS/CSS, ${measurements.apis.length} API`);
+  // REVIEW_TARGET: «site» (default, 7 agents on the live site) or «ytdlp-worker» (4 agents on the
+  // worker's code and live /health).
+  const target = env.REVIEW_TARGET?.trim() || 'site';
+  const common = { concurrency: Number(env.AGENT_CONCURRENCY) || 3, language: env.REPORT_LANGUAGE?.trim() || 'italiano' };
+  let measurements;
+  let options;
+  let title;
+  if (target === 'ytdlp-worker') {
+    measurements = await collectWorker({ root: new URL('../../', import.meta.url) });
+    log(`misure: worker /health ${measurements.healthTiming.status ?? measurements.healthTiming.error} in ${measurements.healthTiming.totalMs} ms, app.py ${measurements.files.app.length} caratteri`);
+    options = { ...common, specialists: WORKER_SPECIALISTS, subject: WORKER_SUBJECT, clipChars: 24_000, maxTokens: 1400 };
+    title = 'Worker yt-dlp — revisione prestazioni';
+  } else if (target === 'tiktok-ad') {
+    measurements = await collectAdFacts({ root: new URL('../../', import.meta.url) });
+    log(`fatti: ${measurements.facts.sections.length} sezioni, ${Object.keys(measurements.screens).length} schermi, Pro in vendita: ${measurements.facts.proOnSale}`);
+    options = { ...common, specialists: AD_SPECIALISTS, system: AD_SYSTEM, leadPrompt: AD_LEAD_PROMPT, clipChars: 12_000, maxTokens: 1400, leadMaxTokens: 2200 };
+    title = 'Solco — spot TikTok';
+  } else if (target === 'site') {
+    const pages = env.REVIEW_PAGES?.split(',').map((p) => p.trim()).filter((p) => p.startsWith('/'));
+    measurements = await measure({ ...(pages?.length ? { pages } : {}) });
+    log(`misure: ${measurements.pages.length} pagine, ${measurements.assets.length} file JS/CSS, ${measurements.apis.length} API`);
+    options = common;
+    title = 'Solco — revisione prestazioni';
+  } else {
+    log(`config: REVIEW_TARGET sconosciuto (${target}): usa site, ytdlp-worker o tiktok-ad`);
+    return 1;
+  }
 
   let review;
   try {
-    review = await runReview(measurements, backends, {
-      concurrency: Number(env.AGENT_CONCURRENCY) || 3,
-      language: env.REPORT_LANGUAGE?.trim() || 'italiano',
-    });
+    review = await runReview(measurements, backends, options);
   } catch (error) {
     log(`agenti: ${error.message}`);
     return 2;
   }
-  const report = renderReport(measurements, review);
+  const report = renderReport(measurements, review, title);
   log(report);
+  // The ad's storyboard, validated, as a separate file the renderer reads (STORYBOARD_FILE).
+  if (target === 'tiktok-ad') {
+    try {
+      const storyboard = parseStoryboard(review.lead.text);
+      log(`storyboard: ${storyboard.scenes.length} scene, ${storyboard.durationSeconds} s`);
+      log(`STORYBOARD_JSON ${JSON.stringify(storyboard)}`);
+      if (env.STORYBOARD_FILE?.trim()) await writeFile(env.STORYBOARD_FILE.trim(), `${JSON.stringify(storyboard, null, 2)}\n`);
+    } catch (error) {
+      log(error.message);
+      return 2;
+    }
+  }
   // GitHub Actions / other runners: also write the report to a file (REPORT_FILE), already redacted.
   if (env.REPORT_FILE?.trim()) await writeFile(env.REPORT_FILE.trim(), `${redact(report, secrets)}\n`);
   await sendTelegram(report);

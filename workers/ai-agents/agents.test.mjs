@@ -18,6 +18,8 @@ import {
   solveChallenge,
 } from './lib.mjs';
 import { createHash } from 'node:crypto';
+import { AD_SCREENS, AD_SPECIALISTS, collectAdFacts, parseStoryboard } from './tiktok-ad.mjs';
+import { collectWorker, extractPython, WORKER_SPECIALISTS } from './worker-review.mjs';
 
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -264,4 +266,109 @@ test('«auto» on MWAPI: ask /models with the key, pick a real chat model, list 
   const none = await resolveAutoModels([backends[0]], { fetchImpl: async () => json({ error: 'x' }, 401) });
   assert.deepEqual(none.backends, []);
   assert.ok(none.notes.some((n) => n.includes('HTTP 401')));
+});
+
+test('worker review: functions extracted by name, 4 specialists + lead, each sees only its code', async () => {
+  const py = [
+    'import os',
+    'LIMIT = 5',
+    '',
+    'def _base_opts():',
+    '    return {"a": 1}',
+    '',
+    '@app.get("/health")',
+    'def health():',
+    '    return {}',
+    '',
+    'class WarpExit:',
+    '    def renew(self):',
+    '        pass',
+    '',
+    'X = 1',
+  ].join('\n');
+  assert.equal(extractPython(py, ['__header__']), 'import os\nLIMIT = 5\n');
+  assert.equal(extractPython(py, ['health']), '@app.get("/health")\ndef health():\n    return {}');
+  assert.match(extractPython(py, ['WarpExit']), /def renew/);
+  assert.doesNotMatch(extractPython(py, ['WarpExit']), /X = 1/);
+  assert.equal(extractPython(py, ['missing']), '');
+
+  // Real files from the repo, fake /health
+  const m = await collectWorker({
+    root: new URL('../../', import.meta.url),
+    fetchImpl: async () => json({ ok: true, antibot: { last: { status: 'ok', exit: 'warp', attempts: 1, seconds: 9.5 } } }),
+  });
+  assert.ok(m.files.app.includes('def _run_with_antibot'));
+  assert.equal(m.health.antibot.last.exit, 'warp');
+  assert.equal(WORKER_SPECIALISTS.length, 4);
+  const facts = Object.fromEntries(WORKER_SPECIALISTS.map((a) => [a.id, a.facts(m)]));
+  assert.match(facts.antibot, /def _run_with_antibot/);
+  assert.match(facts.antibot, /"exit":"warp"/);
+  assert.doesNotMatch(facts.pipeline, /class WarpExit/);
+  assert.match(facts.startup, /FROM python/);
+  assert.doesNotMatch(facts.startup, /solco-ai-agents/); // only the worker's service from render.yaml
+  for (const text of Object.values(facts)) assert.ok(text.length < 24_000, 'each agent fits its budget');
+
+  const prompts = [];
+  const ai = async (_url, init) => {
+    const { messages } = JSON.parse(init.body);
+    prompts.push(messages);
+    return answer(messages.at(-1).content.startsWith('Sei il capo') ? 'PIANO WORKER' : 'ok');
+  };
+  const backends = [{ name: 'mwapi', base: 'https://api.mwapi.dev/v1', key: 'mw-key-1', model: 'claude-sonnet-5' }];
+  const review = await runReview(m, backends, { fetchImpl: ai, specialists: WORKER_SPECIALISTS, subject: 'SUBJ worker', clipChars: 24_000 });
+  assert.equal(review.specialists.length, 4);
+  assert.equal(review.lead.text, 'PIANO WORKER');
+  assert.ok(prompts.every((msgs) => msgs[0].content.startsWith('SUBJ worker')));
+  assert.match(renderReport(m, review, 'Worker yt-dlp — revisione prestazioni'), /^Worker yt-dlp/);
+});
+
+test('TikTok ad: 6 specialists, facts from the repo (Pro not advertised), storyboard validated', async () => {
+  assert.equal(AD_SPECIALISTS.length, 6);
+  const f = await collectAdFacts({
+    root: new URL('../../', import.meta.url),
+    fetchImpl: async (url) =>
+      new Response(`<html><title>Solco</title><h1>Tutta la musica</h1><p>10 iscritti a Solco</p><ul><li>Gratis</li><li>40 ascolti al mese</li><li>Radio e YouTube senza limiti</li></ul><script>x()</script></html>`, {
+        headers: { 'content-type': 'text/html' },
+      }),
+  });
+  assert.equal(f.facts.name, 'Solco');
+  assert.match(f.facts.description, /radio dal vivo e podcast/i);
+  assert.equal(f.facts.proOnSale, false); // the checkout is blocked in solco-pro-billing.ts
+  assert.match(f.text, /NON pubblicizzarlo/);
+  assert.ok(f.facts.sections.includes('Radio'));
+  assert.ok(!f.facts.sections.includes('Privacy'));
+  assert.match(f.text, /40 ascolti al mese/); // the Free plan's limit reaches the compliance agent
+  assert.match(f.text, /Radio e YouTube senza limiti/);
+  assert.doesNotMatch(f.text, /iscritti a Solco/); // the live counter is left out
+  assert.doesNotMatch(f.text, /x\(\)/);
+
+  const board = parseStoryboard(
+    'Ecco:\n```json\n' +
+      JSON.stringify({
+        title: 'Tutta la tua musica',
+        durationSeconds: 15,
+        scenes: [
+          { start: 0, end: 2, screen: 'logo', motion: 'zoom-in', headline: 'Musica, radio e podcast' },
+          { start: 2, end: 5, screen: 'hero', motion: 'pan-down', headline: 'Radio dal vivo', subline: 'in un tap' },
+          { start: 5, end: 8, screen: '/radio', motion: 'spin', headline: 'schermo non visibile: scartato' },
+          { start: 8, end: 11, screen: 'text', motion: 'spin', headline: 'x'.repeat(80) },
+          { start: 11, end: 14, screen: 'free-plan', motion: 'pan-up', headline: 'Inizia gratis' },
+        ],
+        cta: 'Ascolta gratis ora',
+        hashtags: ['musica', '#radio!', 'podcast', 'a', 'b', 'c'],
+        music: { mood: 'lo-fi energico', bpm: 118, librarySearch: 'upbeat lofi' },
+        compliance: ['ok'],
+      }) +
+      '\n```',
+  );
+  assert.deepEqual(board.scenes.map((s) => s.screen), ['logo', 'hero', 'text', 'free-plan', 'end-card']);
+  assert.equal(board.scenes[0].start, 0);
+  for (let i = 1; i < board.scenes.length; i += 1) assert.equal(board.scenes[i].start, board.scenes[i - 1].end);
+  assert.equal(board.scenes[2].motion, 'static'); // unknown motion → static
+  assert.equal(board.scenes[2].headline.length, 32);
+  assert.equal(board.durationSeconds, board.scenes.at(-1).end);
+  assert.deepEqual(board.hashtags, ['#musica', '#radio', '#podcast', '#a', '#b']);
+  assert.ok(board.scenes.every((s) => AD_SCREENS.includes(s.screen)));
+  assert.throws(() => parseStoryboard('nessun json'), /JSON valido/);
+  assert.throws(() => parseStoryboard('```json\n{"scenes":[]}\n```'), /almeno 3 scene/);
 });

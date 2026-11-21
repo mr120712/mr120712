@@ -163,6 +163,8 @@ spazio utente (19 MB di memoria, pronto in 3 secondi) e funziona anche senza alc
 | `YTDLP_PLAYER_CLIENT` | Forza il client del PRIMO tentativo (CSV), es. `android` o `ios,web`. Vuoto = default di yt-dlp. |
 | `YTDLP_FALLBACK_CLIENTS` | Client provati quando il precedente non dà il file (default `tv_samsung,mweb,android_vr,web_embedded`, quelli che nella misura danno un file unico audio+video). Vuoto = nessun fallback. |
 | `YTDLP_ANTIBOT_BUDGET_SECONDS` | Oltre questo tempo non si iniziano altri tentativi (default `25`; il bot di Solco aspetta 40 s). |
+| `YTDLP_SOCKET_TIMEOUT` | Secondi che yt-dlp aspetta un socket fermo prima di rinunciare (default `15`, prima `30`): una connessione appesa dietro WARP non consuma i 40 s del bot. |
+| `MAX_CONCURRENT_DOWNLOADS` | Download contemporanei (default `2`). Oltre, `POST /download` risponde subito `503 busy` con `Retry-After: 30`, invece di rallentare tutti su 0,1 CPU / 512 MB. |
 | `YTDLP_PROBE_URL` | Video usato da `GET /antibot` (default: un video pubblico e stabile). |
 
 **Runtime JavaScript.** `requirements.txt` installa `yt-dlp[default]` (con `yt-dlp-ejs`) e `deno`: YouTube
