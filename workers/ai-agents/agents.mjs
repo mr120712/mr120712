@@ -16,6 +16,7 @@ import {
   runReview,
 } from './lib.mjs';
 import { AD_LEAD_PROMPT, AD_SPECIALISTS, AD_SYSTEM, collectAdFacts, parseStoryboard } from './tiktok-ad.mjs';
+import { collectFlutter, FLUTTER_LEAD_PROMPT, FLUTTER_SPECIALISTS, FLUTTER_SUBJECT } from './flutter-review.mjs';
 import { collectWorker, WORKER_SPECIALISTS, WORKER_SUBJECT } from './worker-review.mjs';
 
 const env = process.env;
@@ -107,6 +108,12 @@ async function main() {
     log(`misure: worker /health ${measurements.healthTiming.status ?? measurements.healthTiming.error} in ${measurements.healthTiming.totalMs} ms, app.py ${measurements.files.app.length} caratteri`);
     options = { ...common, specialists: WORKER_SPECIALISTS, subject: WORKER_SUBJECT, clipChars: 24_000, maxTokens: 1400 };
     title = 'Worker yt-dlp — revisione prestazioni';
+  } else if (target === 'android-app') {
+    measurements = await collectFlutter({ root: new URL('../../', import.meta.url) });
+    const chars = Object.values(measurements.files).reduce((n, text) => n + text.length, 0);
+    log(`codice: ${Object.keys(measurements.files).length} file dell'app Flutter, ${chars} caratteri${measurements.missing.length ? `, mancanti: ${measurements.missing.join(', ')}` : ''}`);
+    options = { ...common, specialists: FLUTTER_SPECIALISTS, subject: FLUTTER_SUBJECT, leadPrompt: FLUTTER_LEAD_PROMPT, clipChars: 56_000, maxTokens: 1600, leadMaxTokens: 2600 };
+    title = 'App Android (Flutter) — revisione prestazioni';
   } else if (target === 'tiktok-ad') {
     measurements = await collectAdFacts({ root: new URL('../../', import.meta.url) });
     log(`fatti: ${measurements.facts.sections.length} sezioni, ${Object.keys(measurements.screens).length} schermi, Pro in vendita: ${measurements.facts.proOnSale}`);
@@ -119,7 +126,7 @@ async function main() {
     options = common;
     title = 'Solco — revisione prestazioni';
   } else {
-    log(`config: REVIEW_TARGET sconosciuto (${target}): usa site, ytdlp-worker, tiktok-ad o models`);
+    log(`config: REVIEW_TARGET sconosciuto (${target}): usa site, ytdlp-worker, android-app, tiktok-ad, models o measure`);
     return 1;
   }
 
