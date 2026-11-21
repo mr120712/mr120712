@@ -21,8 +21,29 @@ export const GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
 export const DEFAULT_RESERVE_MODEL = 'llama-3.3-70b-versatile';
 /** Modello di ripiego di Groq se il primario è stato ritirato (HTTP 400/404 lato upstream). */
 export const FALLBACK_RESERVE_MODEL = 'llama-3.1-8b-instant';
-/** Sotto il limite della route che chiama (maxDuration = 60). */
-export const RESERVE_UPSTREAM_TIMEOUT_MS = 55_000;
+/**
+ * Budget dell'INTERA catena di failover di una chat (tutti i provider e modelli insieme): sotto il
+ * limite della route che chiama (maxDuration = 60), così Vercel non taglia la richiesta a metà.
+ */
+export const RESERVE_CHAIN_BUDGET_MS = 50_000;
+/**
+ * Massimo per UN tentativo (un provider, un modello). Prima era 55 s: un provider lento si mangiava
+ * tutto il budget e il failover non arrivava mai al successivo. Con 20 s restano almeno due altri
+ * provider dentro il budget della catena.
+ */
+export const RESERVE_ATTEMPT_TIMEOUT_MS = 20_000;
+/** Massimo per UN /models (verifica di salute, nessun token speso): breve, è solo un ping. */
+export const RESERVE_MODELS_TIMEOUT_MS = 8_000;
+/** Sotto questo margine non si inizia un altro tentativo: non farebbe in tempo a rispondere. */
+const MIN_ATTEMPT_MS = 2_000;
+/** Compatibilità: il vecchio nome del timeout di un tentativo. */
+export const RESERVE_UPSTREAM_TIMEOUT_MS = RESERVE_ATTEMPT_TIMEOUT_MS;
+
+/** Durate sovrascrivibili via env (ms interi positivi), per tarare la catena senza un deploy di codice. */
+function durationFrom(env: Record<string, string | undefined>, key: string, fallback: number) {
+  const value = Number.parseInt(env[key]?.trim() ?? '', 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
 
 type Env = Record<string, string | undefined>;
 export type FetchLike = typeof fetch;
@@ -372,6 +393,7 @@ async function callProviderChat(
   model: string,
   body: ReserveChatBody,
   fetchImpl: FetchLike,
+  timeoutMs: number,
 ): Promise<Response> {
   const payload = {
     model,
@@ -388,7 +410,7 @@ async function callProviderChat(
     headers: providerHeaders(provider, { 'content-type': 'application/json' }),
     body: JSON.stringify(payload),
     cache: 'no-store',
-    signal: AbortSignal.timeout(RESERVE_UPSTREAM_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
 }
 
@@ -399,7 +421,9 @@ async function callProviderChat(
  * un errore di modello (400/404) passa al modello successivo, qualunque altro errore (401/403/429/
  * 5xx) o caduta di rete passa al PROVIDER successivo. Un modello esplicito è provato tale e quale su
  * ogni provider, finché uno lo riconosce. Senza alcun provider configurato → 503; se tutti falliscono
- * → 502 (upstream_error con l'ultimo status, o upstream_unreachable se nessuno ha mai risposto).
+ * → 502 (upstream_error con l'ultimo status, o upstream_unreachable se nessuno ha mai risposto);
+ * se il budget della catena (RESERVE_CHAIN_BUDGET_MS) finisce o i provider sono solo lenti → 504
+ * upstream_timeout. Ogni tentativo dura al più RESERVE_ATTEMPT_TIMEOUT_MS e mai più del tempo che resta.
  * Se la rotazione è accesa (AI_RESERVE_ROTATE), la catena parte da un provider diverso a ogni finestra
  * temporale (rotatedProviders), per spalmare il consumo sui tier gratuiti; il failover resta identico.
  */
@@ -414,28 +438,57 @@ export async function forwardChat(
 
   const requested = body.model?.trim();
   const explicit = requested && requested.toLowerCase() !== 'auto' ? requested : null;
+  // Una sola scadenza per tutta la catena: ogni tentativo ha al più RESERVE_ATTEMPT_TIMEOUT_MS e mai
+  // più del tempo che resta, così un provider lento cede il posto al successivo invece di esaurire
+  // il limite della route.
+  const deadline =
+    Date.now() + durationFrom(env, 'AI_RESERVE_CHAIN_BUDGET_MS', RESERVE_CHAIN_BUDGET_MS);
+  const attemptCap = durationFrom(env, 'AI_RESERVE_ATTEMPT_TIMEOUT_MS', RESERVE_ATTEMPT_TIMEOUT_MS);
 
   let sawHttpError = false;
   let lastStatus = 0;
-  for (const provider of providers) {
+  let outOfTime = false;
+  let sawTimeout = false;
+  chain: for (const provider of providers) {
     const candidates = explicit ? [explicit] : provider.models;
     for (const model of candidates) {
+      const left = deadline - Date.now();
+      if (left < Math.min(MIN_ATTEMPT_MS, attemptCap)) {
+        outOfTime = true;
+        break chain;
+      }
       let upstream: Response;
+      let text: string | null = null;
       try {
-        upstream = await callProviderChat(provider, model, body, fetchImpl);
-      } catch {
-        break; // rete caduta su questo provider → provider successivo
+        upstream = await callProviderChat(
+          provider,
+          model,
+          body,
+          fetchImpl,
+          Math.min(attemptCap, left),
+        );
+        // Anche la lettura del corpo sta dentro il timeout del tentativo (stesso segnale).
+        if (upstream.ok) text = await upstream.text();
+      } catch (error) {
+        // Provider lento (il tentativo ha superato il suo tempo) o rete caduta → provider successivo.
+        if (
+          error instanceof Error &&
+          (error.name === 'TimeoutError' || error.name === 'AbortError')
+        ) {
+          sawTimeout = true;
+        }
+        continue chain;
       }
-      if (upstream.ok) {
-        const text = await upstream.text().catch(() => '');
-        return passthrough(text);
-      }
+      if (upstream.ok) return passthrough(text ?? '');
       sawHttpError = true;
       lastStatus = upstream.status;
       await upstream.body?.cancel().catch(() => undefined);
       if (looksLikeModelError(upstream.status)) continue; // modello ritirato → prova lo scorta
       break; // 401/403/429/5xx → provider successivo
     }
+  }
+  if (!sawHttpError && (outOfTime || sawTimeout)) {
+    return jsonResponse({ error: 'upstream_timeout' }, 504);
   }
   return jsonResponse(
     sawHttpError
@@ -465,7 +518,9 @@ export async function listModels(
       upstream = await fetchImpl(`${provider.baseUrl}/models`, {
         headers: providerHeaders(provider),
         cache: 'no-store',
-        signal: AbortSignal.timeout(RESERVE_UPSTREAM_TIMEOUT_MS),
+        signal: AbortSignal.timeout(
+          durationFrom(env, 'AI_RESERVE_MODELS_TIMEOUT_MS', RESERVE_MODELS_TIMEOUT_MS),
+        ),
       });
     } catch {
       continue; // provider irraggiungibile → prova il successivo

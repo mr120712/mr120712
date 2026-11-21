@@ -60,6 +60,10 @@ curl -s -o /dev/null -w "%{http_code}\n" \
 - **503** → `reserve_not_configured` (manca `FREELLMAPI_API_KEY` su Vercel) oppure
   `upstream_not_configured` (nessuna chiave provider): aggiungi la variabile che manca.
 - **502** → tutti i provider hanno fallito in quel momento: riprova più tardi.
+- **504** → `upstream_timeout`: i provider erano solo lenti. Ogni tentativo ha al più 20 s e l'intera
+  catena di failover 50 s (sotto i 60 s della route), così un provider lento passa la mano al
+  successivo invece di bloccare la richiesta. Tarabili con `AI_RESERVE_ATTEMPT_TIMEOUT_MS`,
+  `AI_RESERVE_CHAIN_BUDGET_MS` e, per `/models`, `AI_RESERVE_MODELS_TIMEOUT_MS` (8 s).
 
 Il controllo **«Riserva AI gratuita»** in Amministrazione → Monitoraggio fa la stessa verifica senza
 spendere token: «non configurata» è un avviso, non un guasto.

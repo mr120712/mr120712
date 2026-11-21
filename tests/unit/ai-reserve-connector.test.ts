@@ -267,6 +267,65 @@ describe('forwardChat: failover fra provider', () => {
   });
 });
 
+/** Un provider che non risponde mai: si ferma solo quando il segnale del tentativo scade. */
+function hangsUntilAborted(init?: RequestInit): Promise<Response> {
+  return new Promise((_, reject) => {
+    const signal = init?.signal;
+    if (!signal) return; // senza segnale resterebbe appeso per sempre: il test lo scoprirebbe
+    signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+  });
+}
+
+describe('forwardChat: budget della catena e timeout per tentativo', () => {
+  const multi = {
+    GROQ_API_KEY: GROQ,
+    OPENROUTER_API_KEY: 'or_key',
+    // Durate piccole per il test; in produzione 20 s per tentativo e 50 s per la catena.
+    AI_RESERVE_ATTEMPT_TIMEOUT_MS: '60',
+    AI_RESERVE_CHAIN_BUDGET_MS: '5000',
+  };
+
+  it('un provider lento cede il posto al successivo dopo il timeout del tentativo', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const host = new URL(String(input)).hostname;
+      if (host === 'api.groq.com') return hangsUntilAborted(init);
+      return groqResponse({ choices: [{ message: { content: 'da openrouter' } }] });
+    });
+    const started = Date.now();
+    const res = await forwardChat(CHAT, multi, fetchMock as unknown as typeof fetch);
+    expect(res.status).toBe(200);
+    expect((await res.json()).choices[0].message.content).toBe('da openrouter');
+    // Groq è stato lasciato al primo tentativo lento (niente modello di scorta sullo stesso provider).
+    const hosts = fetchMock.mock.calls.map((c) => new URL(String(c[0])).hostname);
+    expect(hosts).toEqual(['api.groq.com', 'openrouter.ai']);
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it('ogni tentativo ha un segnale con scadenza (mai una richiesta senza limite)', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      return groqResponse({ choices: [{ message: { content: 'ok' } }] });
+    });
+    expect((await forwardChat(CHAT, multi, fetchMock as unknown as typeof fetch)).status).toBe(200);
+  });
+
+  it('budget esaurito con tutti i provider lenti → 504 upstream_timeout, entro il budget', async () => {
+    const env = {
+      ...multi,
+      AI_RESERVE_ATTEMPT_TIMEOUT_MS: '80',
+      AI_RESERVE_CHAIN_BUDGET_MS: '150',
+    };
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
+      hangsUntilAborted(init),
+    );
+    const started = Date.now();
+    const res = await forwardChat(CHAT, env, fetchMock as unknown as typeof fetch);
+    expect(res.status).toBe(504);
+    expect(await res.json()).toEqual({ error: 'upstream_timeout' });
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+});
+
 describe('listModels: failover fra provider', () => {
   it('Groq 500 → prova OpenRouter e torna 200', async () => {
     const fetchMock = byHost({
