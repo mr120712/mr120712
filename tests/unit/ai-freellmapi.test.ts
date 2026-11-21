@@ -11,6 +11,7 @@ import {
   freellmapiConfigured,
   freellmapiJson,
   freellmapiModel,
+  isSelfHostedReserveUrl,
   usesBuiltInConnector,
   verifyFreellmapi,
 } from '@/lib/business/ai-freellmapi.server';
@@ -129,6 +130,37 @@ describe('riserva: override non usabili → connettore interno (in-process)', ()
       const env = envBuiltIn({ FREELLMAPI_BASE_URL: bad });
       expect(freellmapiBaseUrl(env)).toBe(BUILT_IN);
       expect(usesBuiltInConnector(env)).toBe(true);
+    }
+  });
+
+  it('self-host: FREELLMAPI_BASE_URL = l’URL di Solco → connettore interno, mai un giro HTTP', () => {
+    for (const app of ['https://www.solcomusic.online', 'https://solcomusic.online']) {
+      for (const raw of [
+        'https://www.solcomusic.online/api/ai-reserve/v1',
+        'https://solcomusic.online/api/ai-reserve/v1/',
+        'https://WWW.SolcoMusic.online/api/ai-reserve/v1',
+      ]) {
+        const env = { NEXT_PUBLIC_APP_URL: app, FREELLMAPI_BASE_URL: raw };
+        expect(freellmapiBaseUrl(env)).toBe(`${app}/api/ai-reserve/v1`);
+        expect(usesBuiltInConnector(env)).toBe(true);
+      }
+    }
+    // Anche sul dominio di NEXT_PUBLIC_APP_URL (anteprime, domini di riserva).
+    const preview = {
+      NEXT_PUBLIC_APP_URL: 'https://solco.polsia.app',
+      FREELLMAPI_BASE_URL: 'https://solco.polsia.app/api/ai-reserve/v1',
+    };
+    expect(usesBuiltInConnector(preview)).toBe(true);
+    // Non è self-host: altro percorso, http, query, dominio simile.
+    for (const raw of [
+      'https://www.solcomusic.online/api/ai-reserve/v2',
+      'http://www.solcomusic.online/api/ai-reserve/v1',
+      'https://www.solcomusic.online/api/ai-reserve/v1?x=1',
+      'https://solcomusic.online.evil.example/api/ai-reserve/v1',
+    ]) {
+      expect(
+        isSelfHostedReserveUrl(raw, { NEXT_PUBLIC_APP_URL: 'https://www.solcomusic.online' }),
+      ).toBe(false);
     }
   });
 

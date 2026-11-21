@@ -1,62 +1,69 @@
-# Riserva AI gratuita — freellmapi
+# Riserva AI gratuita — FreeLLMAPI ospitato da Solco
 
-[freellmapi](https://freellmapi.co) è un proxy **OpenAI-compatibile** **self-hosted** che mette
-insieme le free-tier di molti provider LLM. In Solco è la **riserva gratuita** delle funzioni AI di
-testo: **Claude resta primario** (qualità), ma se la chiave Claude manca, è rifiutata, è sopra il
-tetto di spesa o il servizio è occupato, le funzioni ripiegano su freellmapi **senza far pagare
-nulla**.
+La **riserva gratuita** delle funzioni AI di testo: **Claude resta primario** (qualità), ma se la
+chiave Claude manca, è rifiutata, è sopra il tetto di spesa o il servizio è occupato, le funzioni
+ripiegano qui **senza far pagare nulla**. È *best-effort*: usa modelli **aperti** (non OpenAI).
 
-> È *best-effort*: freellmapi non è un substrato di inferenza garantito. Usa un modello **aperto**
-> (non OpenAI).
+## Self-hosted su Solco
 
-## ⚠️ freellmapi è self-hosted: serve un endpoint PUBBLICO
+Il router FreeLLMAPI è **ospitato dentro Solco**: un endpoint **OpenAI-compatibile** davanti alle
+free-tier di più provider, con failover automatico.
 
-**Non esiste un'API ospitata.** `https://freellmapi.co/v1` è solo il **sito/dashboard** e risponde
-**404** a `/v1/models`: non è un endpoint API. L'API la serve il **router freellmapi** che installi
-tu.
+```
+https://www.solcomusic.online/api/ai-reserve/v1/chat/completions   (POST, Bearer)
+https://www.solcomusic.online/api/ai-reserve/v1/models             (GET,  Bearer)
+https://www.solcomusic.online/api/ai-reserve/health                (GET,  pubblico: quali provider sono attivi)
+```
 
-Perché la riserva funzioni **sul sito live (Vercel)**, il router dev'essere raggiungibile da internet:
+- **Dentro Solco** la riserva chiama i provider **in-process** (`src/lib/business/ai-reserve-connector.server.ts`):
+  nessun giro HTTP sull'app, quindi niente firewall di Vercel, cold-start o redirect.
+- **Da fuori** (Claude Code, il connettore MCP in `tools/mcp-free-ai/`, uno script) si usa l'URL qui
+  sopra con il Bearer `FREELLMAPI_API_KEY`.
+- Un provider si accende da solo quando la sua chiave è su Vercel: `GROQ_API_KEY`,
+  `CEREBRAS_API_KEY`, `GEMINI_API_KEY`, `MISTRAL_API_KEY`, `OPENROUTER_API_KEY`.
 
-- Un router su **`localhost:3001`** (come quello che configura `freellmapi setup-claude` per il tuo
-  Claude Code locale) **non funziona**: i server di Vercel non raggiungono il tuo computer.
-- Devi **pubblicare il router su un URL pubblico** (es. un piccolo deploy su un host tuo) e usare
-  quell'URL.
+Non serve installare né pubblicare un router a parte: `freellmapi.co` è solo il sito del progetto
+(404 a `/v1/models`), e un router su `localhost` non è raggiungibile dai server di Vercel.
 
-## Variabili d'ambiente (segreti server-side su Vercel → Production)
+## Variabili d'ambiente (Vercel → Settings → Environment Variables → Production)
 
 | Variabile | Obbligo | Valore |
 |---|---|---|
-| `FREELLMAPI_BASE_URL` | **sì** | l'URL **`/v1` pubblico** del tuo router freellmapi (es. `https://il-tuo-router.example/v1`). **Mai** `localhost`. Senza questa, la riserva è «non configurata». |
-| `FREELLMAPI_API_KEY` | **sì** | il token del router (formato `fla_…`), valido **per quell'endpoint**. |
-| `FREELLMAPI_MODEL` | consigliata | un id di modello **aperto** disponibile sul router; predefinito `auto`. |
+| `FREELLMAPI_API_KEY` | **sì** | il segreto condiviso (Bearer) che i chiamanti esterni presentano all'endpoint. Generalo tu, lungo e casuale, ad esempio con `openssl rand -hex 32`. Alias accettato: `FREELLMAPI_TOKEN`. |
+| `FREELLMAPI_BASE_URL` | no | `https://www.solcomusic.online/api/ai-reserve/v1` (self-host). Si può anche lasciare vuota: il default è già il router di Solco su `NEXT_PUBLIC_APP_URL`. Con o senza `www`, con o senza `/` finale, l'URL di Solco è sempre servito in-process. |
+| `FREELLMAPI_MODEL` | no | predefinito `auto` (ogni provider sceglie un suo modello, con scorta). Imposta un id preciso solo per forzare un modello. |
+| almeno una chiave provider | **sì** | `GROQ_API_KEY` basta per partire; le altre aggiungono failover. |
+
+Solo un URL **HTTPS pubblico di un altro dominio** in `FREELLMAPI_BASE_URL` fa usare un router
+esterno. Valori non usabili (`localhost`, `http`, IP privati, `freellmapi.co`) sono ignorati e resta il
+router di Solco, così una variabile sbagliata non spegne la riserva.
 
 Dopo ogni modifica su Vercel serve un **Redeploy** perché le variabili vengano lette.
 
-## Verifica rapida della chiave + endpoint
+## Verifica
 
-Dalla macchina dove gira il router (o verso l'URL pubblico):
 ```
-curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization: Bearer <LA-TUA-CHIAVE>" <BASE_URL>/models
+# pubblico: quali provider rispondono
+curl -s https://www.solcomusic.online/api/ai-reserve/health
+
+# con la chiave: 200 = chiave giusta
+curl -s -o /dev/null -w "%{http_code}\n" \
+  -X POST https://www.solcomusic.online/api/ai-reserve/v1/chat/completions \
+  -H "Authorization: Bearer $FREELLMAPI_API_KEY" -H "Content-Type: application/json" \
+  -d '{"model":"auto","messages":[{"role":"user","content":"ciao"}]}'
 ```
-- **200** → chiave ed endpoint validi → su Vercel metti quello stesso `FREELLMAPI_BASE_URL` + chiave, Redeploy.
-- **404** → quell'URL non è un'API freellmapi (es. stai puntando a `freellmapi.co/v1`).
-- **401/403** → chiave non valida per quell'endpoint.
 
-## Monitoraggio
+- **200** → riserva pronta.
+- **401** → `FREELLMAPI_API_KEY` diversa da quella su Vercel (o non ancora ridistribuita).
+- **503** → `reserve_not_configured` (manca `FREELLMAPI_API_KEY` su Vercel) oppure
+  `upstream_not_configured` (nessuna chiave provider): aggiungi la variabile che manca.
+- **502** → tutti i provider hanno fallito in quel momento: riprova più tardi.
 
-Il controllo **«Riserva AI gratuita (freellmapi.co)»** fa un `GET <BASE_URL>/models` (non spende
-token):
-- **non configurata** (manca chiave o URL) = **avviso**, non guasto;
-- chiave rifiutata, 404, o router irraggiungibile = **guasto**.
-
-## Se non hai un router pubblico
-
-La riserva è **facoltativa**. Lascia pure `FREELLMAPI_API_KEY` e `FREELLMAPI_BASE_URL` **vuote**: il
-check resta «non configurata» (avviso), il sito è verde e **Claude continua a funzionare** come
-motore primario.
+Il controllo **«Riserva AI gratuita»** in Amministrazione → Monitoraggio fa la stessa verifica senza
+spendere token: «non configurata» è un avviso, non un guasto.
 
 ## Privacy
 
-Quando la riserva entra in gioco, la richiesta dell'utente (la descrizione di ricerca) va al tuo
-router freellmapi. La funzione resta riservata ai piani Premium e con limite di frequenza; nessun
+Quando la riserva entra in gioco, la richiesta (per esempio la descrizione di ricerca) va al provider
+gratuito che risponde. La funzione resta riservata ai piani Premium e con limite di frequenza; nessun
 dato personale dell'account viene inoltrato. Nessun log registra la chiave, il prompt o la risposta.
