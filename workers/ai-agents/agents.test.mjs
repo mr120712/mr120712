@@ -12,6 +12,7 @@ import {
   passGate,
   redact,
   renderReport,
+  resolveAutoModels,
   runReview,
   SPECIALISTS,
   solveChallenge,
@@ -200,7 +201,7 @@ test('no gate (or gate off) → measure without a cookie', async () => {
   assert.equal(m.gate.reason, 'no gate');
 });
 
-test('MWAPI: first, key 1 then key 2, only https://api.mwapi.dev/v1, model auto or MWAPI_MODEL', async () => {
+test('MWAPI: first, key 1 then key 2, only https://api.mwapi.dev/v1, model claude-sonnet-5 or MWAPI_MODEL', async () => {
   assert.equal(backendPolicy('https://api.mwapi.dev/v1', 'mwapi').ok, true);
   for (const bad of ['http://api.mwapi.dev/v1', 'https://mwapi.dev/v1', 'https://api.mwapi.dev/v2', 'https://api.mwapi.dev.evil.example/v1']) {
     assert.equal(backendPolicy(bad, 'mwapi').ok, false, bad);
@@ -212,7 +213,8 @@ test('MWAPI: first, key 1 then key 2, only https://api.mwapi.dev/v1, model auto 
     SOLCO_RESERVE_KEY: 'reserve-key',
   });
   assert.deepEqual(backends.map((b) => b.name), ['mwapi', 'mwapi-2', 'freellmapi-private', 'solco-reserve']);
-  assert.equal(backends[0].model, 'auto');
+  assert.equal(backends[0].model, 'claude-sonnet-5'); // the owner's choice, unless MWAPI_MODEL says otherwise
+  assert.equal(backendsFrom({ MWAPI_API_KEY: 'mw-key-1', MWAPI_MODEL: 'auto' }).backends[0].model, 'auto');
   assert.equal(backendsFrom({ MWAPI_API_KEY: 'mw-key-1', MWAPI_MODEL: 'gpt-4o-mini' }).backends[0].model, 'gpt-4o-mini');
 
   // key 1 exhausted (429 twice) → key 2 answers; the reserve is never called
@@ -236,4 +238,30 @@ test('MWAPI: first, key 1 then key 2, only https://api.mwapi.dev/v1, model auto 
   });
   assert.equal(next.backend, 'freellmapi-private');
   assert.deepEqual(refused, ['api.mwapi.dev', 'freellmapi']);
+});
+
+test('«auto» on MWAPI: ask /models with the key, pick a real chat model, list the ids', async () => {
+  const backends = [
+    { name: 'mwapi', base: 'https://api.mwapi.dev/v1', key: 'mw-key-1', model: 'auto' },
+    { name: 'mwapi-2', base: 'https://api.mwapi.dev/v1', key: 'mw-key-2', model: 'claude-3-5-haiku' },
+    { name: 'solco-reserve', base: 'https://www.solcomusic.online/api/ai-reserve/v1', key: 'r-123456', model: 'auto' },
+  ];
+  const asked = [];
+  const { backends: out, notes } = await resolveAutoModels(backends, {
+    fetchImpl: async (url, init) => {
+      asked.push(`${url} ${init.headers.authorization}`);
+      return json({ data: [{ id: 'text-embedding-3-small' }, { id: 'gpt-4o' }, { id: 'gpt-4o-mini' }] });
+    },
+  });
+  assert.deepEqual(asked, ['https://api.mwapi.dev/v1/models Bearer mw-key-1']); // only the «auto» MWAPI one
+  assert.deepEqual(out.map((b) => b.model), ['gpt-4o-mini', 'claude-3-5-haiku', 'auto']);
+  assert.ok(notes.some((n) => n.includes('3 modelli') && n.includes('gpt-4o')));
+  assert.ok(notes.every((n) => !n.includes('mw-key-1')));
+
+  // no preferred match → first chat model; nothing usable → the backend is skipped
+  const first = await resolveAutoModels([backends[0]], { fetchImpl: async () => json({ data: [{ id: 'whisper-1' }, { id: 'some-chat' }] }) });
+  assert.equal(first.backends[0].model, 'some-chat');
+  const none = await resolveAutoModels([backends[0]], { fetchImpl: async () => json({ error: 'x' }, 401) });
+  assert.deepEqual(none.backends, []);
+  assert.ok(none.notes.some((n) => n.includes('HTTP 401')));
 });

@@ -19,7 +19,7 @@ The agents only use the measurements they receive: no tools, no browsing, no inv
 
 | Order | Backend | Variable | Notes |
 |---|---|---|---|
-| 1 | **MWAPI** (`https://api.mwapi.dev/v1`), key 1 then key 2 | `MWAPI_API_KEY`, `MWAPI_API_KEY_2`, `MWAPI_MODEL` | Third-party AI gateway. The model is `auto` unless `MWAPI_MODEL` is set; if MWAPI refuses it, the next backend takes over. |
+| 1 | **MWAPI** (`https://api.mwapi.dev/v1`), key 1 then key 2 | `MWAPI_API_KEY`, `MWAPI_API_KEY_2`, `MWAPI_MODEL` | Third-party AI gateway serving Claude models. The model is `claude-sonnet-5` unless `MWAPI_MODEL` says otherwise (`auto` picks one from `/v1/models`); if MWAPI refuses it, the next backend takes over. |
 | 2 | **Your FreeLLMAPI**, private on Render | `FREELLMAPI_PRIVATE_URL` (+ `FREELLMAPI_PRIVATE_KEY`) | Uses your **license key**. A Render *private service* has no public URL. |
 | 3 | **Solco's reserve** | `SOLCO_RESERVE_KEY` | `https://www.solcomusic.online/api/ai-reserve/v1` (Groq · Cerebras · OpenRouter). Same value as `FREELLMAPI_API_KEY` on Vercel. |
 
