@@ -290,7 +290,7 @@ export async function resolveVideoDownload(
       signal: AbortSignal.timeout(BOT_VIDEO_WORKER_TIMEOUT_MS),
     });
   } catch {
-    return { status: 'failed', detail: 'il servizio di download non ha risposto in tempo' };
+    return { status: 'failed', detail: WORKER_TIMEOUT_DETAIL };
   }
 
   if (!res.ok) return { status: 'failed', detail: await workerFailureDetail(res) };
@@ -311,14 +311,60 @@ export async function resolveVideoDownload(
   };
 }
 
-/** Interpreta la richiesta e risolve il download in un solo passo (AI + worker). Mai throw. */
+const WORKER_TIMEOUT_DETAIL = 'il servizio di download non ha risposto in tempo';
+/** Il worker gratuito su Render dorme dopo 15 minuti: svegliarlo richiede ~15-20 s (misurato). */
+export const WORKER_COLD_START_DETAIL =
+  'il servizio di download si stava avviando dopo una pausa (piano gratuito): riprova fra 30 secondi';
+/** Un /health più lento di così vuol dire che il worker si stava svegliando. */
+export const WORKER_COLD_START_MS = 8_000;
+
+/**
+ * Sveglia il worker (GET /health: pubblico, nessuna chiave) senza aspettarlo. Ritorna quanto ci ha
+ * messo, o null se non ha risposto entro il timeout del download.
+ */
+export function wakeVideoWorker(
+  env: Env = process.env,
+  fetchImpl: FetchLike = fetch,
+): Promise<number | null> {
+  const base = ytdlpServiceUrl(env);
+  if (!base) return Promise.resolve(null);
+  const started = Date.now();
+  return fetchImpl(`${base}/health`, {
+    cache: 'no-store',
+    signal: AbortSignal.timeout(BOT_VIDEO_WORKER_TIMEOUT_MS + BOT_VIDEO_AI_TIMEOUT_MS),
+  })
+    .then(async (res) => {
+      await res.body?.cancel().catch(() => undefined);
+      return Date.now() - started;
+    })
+    .catch(() => null);
+}
+
+/**
+ * Interpreta la richiesta e risolve il download in un solo passo (AI + worker). Mai throw. Mentre l'AI
+ * interpreta, il worker viene svegliato in parallelo; se il download scade mentre il worker si stava
+ * ancora avviando, il messaggio lo dice (e un nuovo tentativo, a worker sveglio, è veloce).
+ */
 export async function requestBotVideo(
   input: string,
   env: Env = process.env,
   fetchImpl: FetchLike = fetch,
 ): Promise<BotVideoOutcome> {
+  const wake = wakeVideoWorker(env, fetchImpl);
   const intent = await interpretVideoRequest(input, env).catch(
     (): VideoIntent => ({ url: extractUrl(input), query: input, title: input }),
   );
-  return resolveVideoDownload(intent, env, fetchImpl);
+  const result = await resolveVideoDownload(intent, env, fetchImpl);
+  if (result.status === 'failed' && result.detail === WORKER_TIMEOUT_DETAIL) {
+    // Il risveglio è finito? Si aspetta al più un attimo: se è ancora in corso, il worker dormiva.
+    const pending = Symbol('pending');
+    const wakeMs = await Promise.race([
+      wake,
+      new Promise<typeof pending>((r) => setTimeout(() => r(pending), 50)),
+    ]);
+    if (wakeMs === pending || wakeMs === null || wakeMs >= WORKER_COLD_START_MS) {
+      return { status: 'failed', detail: WORKER_COLD_START_DETAIL };
+    }
+  }
+  return result;
 }

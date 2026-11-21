@@ -17,8 +17,11 @@ import {
   extractUrl,
   interpretVideoRequest,
   isAdminTelegramChat,
+  requestBotVideo,
   resolveVideoDownload,
   type VideoIntent,
+  WORKER_COLD_START_DETAIL,
+  wakeVideoWorker,
   ytdlpServiceUrl,
 } from '@/lib/business/bot-video.server';
 
@@ -268,5 +271,68 @@ describe('resolveVideoDownload', () => {
     const out = await resolveVideoDownload(intent, env, fetchMock as unknown as typeof fetch);
     expect(out.status).toBe('ok');
     if (out.status === 'ok') expect(out.result.filesize).toBeNull();
+  });
+});
+
+describe('requestBotVideo: il worker gratuito che dorme', () => {
+  const env = { YTDLP_SERVICE_URL: 'https://ytdlp.example.com', YTDLP_SERVICE_KEY: 'k' };
+  const timeout = () =>
+    Promise.reject(Object.assign(new Error('timeout'), { name: 'TimeoutError' }));
+  const done = (body: unknown = { url: 'https://cdn.example.com/v.mp4', title: 'V' }) =>
+    Promise.resolve(new Response(JSON.stringify(body), { status: 200 }));
+
+  it('sveglia il worker con GET /health (senza chiave) in parallelo alla richiesta', async () => {
+    const calls: { url: string; auth?: string; method?: string }[] = [];
+    const fetchMock = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({
+        url: String(url),
+        method: init?.method,
+        auth: (init?.headers as Record<string, string>)?.authorization,
+      });
+      return String(url).endsWith('/health') ? new Response('{}') : done();
+    });
+    const out = await requestBotVideo(
+      'https://youtu.be/abc',
+      env,
+      fetchMock as unknown as typeof fetch,
+    );
+    expect(out.status).toBe('ok');
+    const health = calls.find((c) => c.url === 'https://ytdlp.example.com/health');
+    expect(health).toBeDefined();
+    expect(health?.auth).toBeUndefined(); // /health è pubblico: la chiave non viaggia
+    expect(calls.some((c) => c.url.endsWith('/download') && c.method === 'POST')).toBe(true);
+  });
+
+  it('download scaduto mentre il worker si svegliava → messaggio di avvio a freddo', async () => {
+    const fetchMock = vi.fn(async (url: RequestInfo | URL) =>
+      String(url).endsWith('/health') ? new Promise<Response>(() => {}) : timeout(),
+    );
+    const out = await requestBotVideo(
+      'https://youtu.be/abc',
+      env,
+      fetchMock as unknown as typeof fetch,
+    );
+    expect(out).toEqual({ status: 'failed', detail: WORKER_COLD_START_DETAIL });
+  });
+
+  it('worker sveglio (health veloce) ma download scaduto → resta il messaggio di timeout', async () => {
+    const fetchMock = vi.fn(async (url: RequestInfo | URL) =>
+      String(url).endsWith('/health') ? new Response('{}') : timeout(),
+    );
+    const out = await requestBotVideo(
+      'https://youtu.be/abc',
+      env,
+      fetchMock as unknown as typeof fetch,
+    );
+    expect(out).toEqual({
+      status: 'failed',
+      detail: 'il servizio di download non ha risposto in tempo',
+    });
+  });
+
+  it('senza worker configurato non sveglia nulla', async () => {
+    const fetchMock = vi.fn();
+    expect(await wakeVideoWorker({}, fetchMock as unknown as typeof fetch)).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
