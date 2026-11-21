@@ -204,6 +204,27 @@ const PROVIDER_DEFS: ProviderDef[] = [
     ],
     extraHeaders: { 'HTTP-Referer': 'https://www.solcomusic.online', 'X-Title': 'Solco' },
   },
+  // MWAPI (api.mwapi.dev): gateway AI di terze parti, OpenAI-compatibile su /v1/chat/completions.
+  // ULTIMO nella catena di proposito: è un intermediario senza documentazione pubblica né termini
+  // verificabili, quindi il testo degli utenti ci passa solo se i provider gratuiti sopra falliscono
+  // (l'ordine si cambia con AI_RESERVE_PROVIDERS). Due chiavi = due anelli: se una è limitata o
+  // esaurita, prova l'altra. Il modello «auto» è sovrascrivibile con MWAPI_MODEL.
+  {
+    id: 'mwapi',
+    label: 'MWAPI',
+    baseUrl: 'https://api.mwapi.dev/v1',
+    keyVar: 'MWAPI_API_KEY',
+    signupUrl: 'https://api.mwapi.dev',
+    models: (env) => [clean(env.MWAPI_MODEL) ?? 'auto'],
+  },
+  {
+    id: 'mwapi-2',
+    label: 'MWAPI (chiave 2)',
+    baseUrl: 'https://api.mwapi.dev/v1',
+    keyVar: 'MWAPI_API_KEY_2',
+    signupUrl: 'https://api.mwapi.dev',
+    models: (env) => [clean(env.MWAPI_MODEL) ?? 'auto'],
+  },
 ];
 
 function dedupe(values: string[]): string[] {

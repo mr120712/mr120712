@@ -5,6 +5,8 @@ import { createHash } from 'node:crypto';
 
 export const SOLCO_ORIGIN = 'https://www.solcomusic.online';
 export const SOLCO_RESERVE_URL = `${SOLCO_ORIGIN}/api/ai-reserve/v1`;
+/** MWAPI, a third-party AI gateway (OpenAI-compatible /v1/chat/completions). */
+export const MWAPI_URL = 'https://api.mwapi.dev/v1';
 const SOLCO_HOSTS = new Set(['solcomusic.online', 'www.solcomusic.online']);
 const USER_AGENT = 'SolcoPerfAgents/1.0 (+render-cron)';
 
@@ -24,6 +26,7 @@ export const DEFAULT_APIS = [
  * - the PRIVATE FreeLLMAPI on Render's private network: http(s) to a single-label host (no dots,
  *   e.g. `http://freellmapi:3001/v1`). Not reachable from the internet; your license stays there.
  * - Solco's reserve: HTTPS on solcomusic.online only.
+ * - MWAPI: exactly https://api.mwapi.dev/v1.
  * Anything else (a public host, an IP, localhost, a non-/v1 path) is refused, so no key is ever sent
  * outside these two places.
  */
@@ -40,6 +43,11 @@ export function backendPolicy(raw, kind) {
   const host = url.hostname.toLowerCase();
   const base = `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
   if (!/\/v1$/.test(url.pathname.replace(/\/+$/, ''))) return { ok: false, reason: 'path must end in /v1' };
+  if (kind === 'mwapi') {
+    return url.protocol === 'https:' && host === 'api.mwapi.dev' && base === MWAPI_URL
+      ? { ok: true, base }
+      : { ok: false, reason: 'MWAPI must be https://api.mwapi.dev/v1' };
+  }
   if (kind === 'private') {
     const singleLabel = /^[a-z0-9][a-z0-9-]{0,62}$/.test(host) && host !== 'localhost';
     if (!singleLabel) return { ok: false, reason: 'private backend must be a Render private-network host' };
@@ -52,10 +60,20 @@ export function backendPolicy(raw, kind) {
   return { ok: true, base };
 }
 
-/** The backends from the environment, primary first. Throws if none passes the policy. */
+/**
+ * The backends from the environment, in order: MWAPI key 1 and key 2, your private FreeLLMAPI,
+ * then Solco's reserve. Throws if none passes the policy.
+ */
 export function backendsFrom(env) {
   const backends = [];
   const errors = [];
+  const mwapiModel = env.MWAPI_MODEL?.trim() || 'auto';
+  for (const [name, key] of [
+    ['mwapi', env.MWAPI_API_KEY],
+    ['mwapi-2', env.MWAPI_API_KEY_2],
+  ]) {
+    if (key?.trim()) backends.push({ name, base: MWAPI_URL, key: key.trim(), model: mwapiModel });
+  }
   if (env.FREELLMAPI_PRIVATE_URL?.trim()) {
     const p = backendPolicy(env.FREELLMAPI_PRIVATE_URL, 'private');
     if (p.ok) {

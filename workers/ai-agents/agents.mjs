@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 // @polsia:user-owned — Solco AI performance review, run by a Render Cron Job (no public port).
-// Measures the live site, runs 7 specialist agents + 1 lead agent on FreeLLMAPI (your private
-// instance first, Solco's reserve as fallback) and prints the report; optionally sends it to
+// Measures the live site, runs 7 specialist agents + 1 lead agent (MWAPI key 1 and key 2 first,
+// then your private FreeLLMAPI, then Solco's reserve) and prints the report; optionally sends it to
 // Telegram. Exit codes: 0 report produced · 1 configuration refused · 2 no AI backend answered.
 import process from 'node:process';
 import { backendsFrom, chunks, measure, redact, renderReport, runReview } from './lib.mjs';
 
 const env = process.env;
 const secrets = [
+  env.MWAPI_API_KEY,
+  env.MWAPI_API_KEY_2,
   env.FREELLMAPI_PRIVATE_KEY,
   env.SOLCO_RESERVE_KEY,
   env.FREELLMAPI_API_KEY,

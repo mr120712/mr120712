@@ -33,11 +33,19 @@ beforeEach(() => {
 });
 
 describe('reserveKnownProviders', () => {
-  it('elenca i 5 provider con variabile-chiave, URL di registrazione e modelli', () => {
+  it('elenca i 7 provider con variabile-chiave, URL di registrazione e modelli', () => {
     const known = reserveKnownProviders({});
-    expect(known.map((p) => p.id)).toEqual(['groq', 'cerebras', 'gemini', 'mistral', 'openrouter']);
+    expect(known.map((p) => p.id)).toEqual([
+      'groq',
+      'cerebras',
+      'gemini',
+      'mistral',
+      'openrouter',
+      'mwapi',
+      'mwapi-2',
+    ]);
     for (const provider of known) {
-      expect(provider.keyVar).toMatch(/_API_KEY$/);
+      expect(provider.keyVar).toMatch(/_API_KEY(_\d)?$/);
       expect(provider.signupUrl).toMatch(/^https:\/\//);
       expect(provider.models.length).toBeGreaterThan(0);
     }
@@ -75,7 +83,7 @@ describe('reserveProvidersOverview', () => {
 
     expect(overview.liveCount).toBe(1);
     expect(overview.configuredCount).toBe(2);
-    expect(overview.total).toBe(5);
+    expect(overview.total).toBe(7);
     expect(overview.discoveredTotal).toBe(2);
     expect(overview.checkedAt).toBe(now.toISOString());
   });
@@ -99,7 +107,7 @@ describe('reserveProvidersOverview', () => {
     expect(overview.providers.every((p) => p.status === 'not_configured')).toBe(true);
     expect(overview.liveCount).toBe(0);
     expect(overview.configuredCount).toBe(0);
-    expect(overview.total).toBe(5);
+    expect(overview.total).toBe(7);
     expect(overview.discoveredTotal).toBe(0);
   });
 });

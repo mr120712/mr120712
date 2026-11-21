@@ -224,7 +224,38 @@ describe('reserveProviderLabels / reserveProviderKeyNames', () => {
       'GEMINI_API_KEY',
       'MISTRAL_API_KEY',
       'OPENROUTER_API_KEY',
+      'MWAPI_API_KEY',
+      'MWAPI_API_KEY_2',
     ]);
+  });
+
+  it('MWAPI: ultimo della catena, due chiavi in failover, modello «auto» o MWAPI_MODEL', async () => {
+    const env = { GROQ_API_KEY: GROQ, MWAPI_API_KEY: 'mw_key_1', MWAPI_API_KEY_2: 'mw_key_2' };
+    expect(activeProviders(env).map((p) => p.id)).toEqual(['groq', 'mwapi', 'mwapi-2']);
+    expect(activeProviders(env).find((p) => p.id === 'mwapi')?.models).toEqual(['auto']);
+    expect(
+      activeProviders({ ...env, MWAPI_MODEL: 'gpt-4o-mini' }).find((p) => p.id === 'mwapi-2')
+        ?.models,
+    ).toEqual(['gpt-4o-mini']);
+
+    const auths: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const host = new URL(String(input)).hostname;
+      auths.push(`${host} ${(init?.headers as Record<string, string>)?.authorization ?? ''}`);
+      if (host === 'api.groq.com') return groqResponse({ error: 'down' }, 503);
+      const auth = (init?.headers as Record<string, string>)?.authorization;
+      if (auth === 'Bearer mw_key_1') return groqResponse({ error: 'quota' }, 429);
+      return groqResponse({ choices: [{ message: { content: 'da mwapi chiave 2' } }] });
+    });
+    const res = await forwardChat(CHAT, env, fetchMock as unknown as typeof fetch);
+    expect(res.status).toBe(200);
+    expect((await res.json()).choices[0].message.content).toBe('da mwapi chiave 2');
+    expect(auths.map((a) => a.split(' ')[0])).toEqual([
+      'api.groq.com',
+      'api.mwapi.dev',
+      'api.mwapi.dev',
+    ]);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('https://api.mwapi.dev/v1/chat/completions');
   });
 });
 

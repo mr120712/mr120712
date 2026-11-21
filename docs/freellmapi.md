@@ -20,7 +20,13 @@ https://www.solcomusic.online/api/ai-reserve/health                (GET,  pubbli
 - **Da fuori** (Claude Code, il connettore MCP in `tools/mcp-free-ai/`, uno script) si usa l'URL qui
   sopra con il Bearer `FREELLMAPI_API_KEY`.
 - Un provider si accende da solo quando la sua chiave è su Vercel: `GROQ_API_KEY`,
-  `CEREBRAS_API_KEY`, `GEMINI_API_KEY`, `MISTRAL_API_KEY`, `OPENROUTER_API_KEY`.
+  `CEREBRAS_API_KEY`, `GEMINI_API_KEY`, `MISTRAL_API_KEY`, `OPENROUTER_API_KEY`, `MWAPI_API_KEY`,
+  `MWAPI_API_KEY_2`.
+- **MWAPI** (`api.mwapi.dev`) è un gateway AI di terze parti, senza documentazione pubblica né
+  termini verificabili: per questo è **ultimo** nella catena, e il testo degli utenti ci passa solo
+  quando i provider gratuiti sopra non rispondono. Le due chiavi sono due anelli in failover. Modello
+  `auto`, o `MWAPI_MODEL`. Per metterlo prima, usa `AI_RESERVE_PROVIDERS` (es.
+  `mwapi,mwapi-2,groq,cerebras,openrouter`).
 
 Non serve installare né pubblicare un router a parte: `freellmapi.co` è solo il sito del progetto
 (404 a `/v1/models`). Una chiave «premium» di FreeLLMAPI non apre nulla da sola: la riserva accetta
