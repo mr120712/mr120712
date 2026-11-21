@@ -4,6 +4,7 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
+import { isAuthorizedAdmin } from '@/lib/business/admin-account-policy';
 import { publishBotInviteNow } from '@/lib/business/build-announcement.server';
 import { consumeRateLimit } from '@/lib/business/rate-limit.server';
 import { sameOrigin } from '@/lib/same-origin';
@@ -28,7 +29,7 @@ async function requireAdmin(request: Request): Promise<AdminAccess> {
   try {
     const session = await auth.api.getSession({ headers: request.headers });
     if (!session?.user) return { allowed: false, response: failure('unauthorized', 401) };
-    if (session.user.role !== 'admin' || session.user.emailVerified !== true) {
+    if (!isAuthorizedAdmin(session.user)) {
       return { allowed: false, response: failure('forbidden', 403) };
     }
     return { allowed: true, userId: session.user.id };

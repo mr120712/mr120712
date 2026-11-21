@@ -3,6 +3,7 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { AiConfigurationError, chat } from '@/lib/ai/client';
 import { auth } from '@/lib/auth';
+import { isAuthorizedAdmin } from '@/lib/business/admin-account-policy';
 import {
   buildAdminAssistantMessages,
   containsCredentialRequest,
@@ -31,7 +32,7 @@ export async function POST(request: Request) {
 
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) return failure('unauthorized', 401);
-  if (session.user.role !== 'admin' || session.user.emailVerified !== true) {
+  if (!isAuthorizedAdmin(session.user)) {
     return failure('forbidden', 403);
   }
 

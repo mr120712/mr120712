@@ -5,6 +5,7 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
+import { isAuthorizedAdmin } from '@/lib/business/admin-account-policy';
 import { enforceRateLimit } from '@/lib/business/rate-limit.server';
 
 export const ACCOUNT_ADMIN_HEADERS = { 'Cache-Control': 'private, no-store', Vary: 'Cookie' };
@@ -36,8 +37,7 @@ export async function requireAccountAdmin(request: Request): Promise<AccountAdmi
         response: accountAdminError('unauthorized', 401, 'La sessione è scaduta: accedi di nuovo.'),
       };
     }
-    const roles = (session.user.role ?? '').split(',').map((role: string) => role.trim());
-    if (!roles.includes('admin') || session.user.emailVerified !== true) {
+    if (!isAuthorizedAdmin(session.user)) {
       return {
         allowed: false,
         response: accountAdminError(

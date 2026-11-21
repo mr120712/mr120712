@@ -28,7 +28,6 @@ import type { BetterAuthOptions, BetterAuthPlugin } from 'better-auth';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { phoneNumber } from 'better-auth/plugins/phone-number';
 import { after } from 'next/server';
-import { getDesignatedAdminUserId } from '@/lib/business/admin-account-identity';
 import { resolveInitialSignupRole } from '@/lib/business/admin-account-policy';
 import { resolveAppleClientSecret } from '@/lib/business/apple-client-secret';
 import { guardAuthRequest } from '@/lib/business/auth-guards.server';
@@ -56,13 +55,28 @@ const appleCredentials = appleOAuthCredentials(
 
 const MAX_USER_NAME_LENGTH = 80;
 
-async function persistCanonicalRole(user: { id: string; email: string; emailVerified: boolean }) {
-  if (resolveInitialSignupRole(user, getDesignatedAdminUserId()) !== 'admin') return;
-  if (!user.emailVerified) return;
-
+/**
+ * Dopo ogni creazione o modifica di un account (e dopo l'hook del framework che promuove
+ * POLSIA_OWNER_EMAIL): admin SOLO per l'account designato con l'email verificata. Un altro account
+ * con il ruolo admin torna subito utente normale.
+ */
+async function persistCanonicalRole(user: {
+  id: string;
+  email: string;
+  emailVerified: boolean;
+  role?: unknown;
+}) {
+  if (resolveInitialSignupRole(user) === 'admin') {
+    await prisma.user.updateMany({
+      where: { id: user.id, email: user.email, emailVerified: true },
+      data: { role: 'admin' },
+    });
+    return;
+  }
+  // Rilegge il ruolo salvato: l'hook del framework può averlo appena scritto.
   await prisma.user.updateMany({
-    where: { id: user.id, email: user.email, emailVerified: user.emailVerified },
-    data: { role: 'admin' },
+    where: { id: user.id, role: { contains: 'admin' } },
+    data: { role: 'user' },
   });
 }
 

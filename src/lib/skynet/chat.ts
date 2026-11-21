@@ -13,6 +13,8 @@
 //   commit) passano ripuliti e accorciati, e il modello li tratta come dati, non come istruzioni;
 // - il modello non ha strumenti: non può cambiare nulla. I soli comandi sono due frasi fisse del
 //   proprietario, riconosciute dal codice e non dall'AI: «pausa autodifesa …» e «riprendi autodifesa».
+
+import { isAuthorizedAdmin } from '@/lib/business/admin-account-policy';
 import type { AdminSignups } from '@/lib/contracts/admin-signups';
 import type { AdminVisitors } from '@/lib/contracts/admin-visitors';
 import type { MonitorHeartbeat, MonitorRun } from '@/lib/contracts/monitoring';
@@ -63,6 +65,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 // ------------------------------------------------------------------ comandi del proprietario
 
 export type OwnerCommand = { kind: 'pause'; minutes: number } | { kind: 'resume' };
+
+/**
+ * Nel pannello il proprietario è l'unico amministratore: l'account designato
+ * (REQUESTED_ADMIN_EMAIL in admin-account-policy.ts) con l'email verificata.
+ */
+export function isPanelOwner(user: {
+  role?: string | null;
+  email?: string | null;
+  emailVerified?: boolean | null;
+}): boolean {
+  return isAuthorizedAdmin(user);
+}
 
 const PAUSE_COMMAND =
   /^(?:metti in pausa|pausa|sospendi|ferma) (?:l['’] ?)?autodifesa(?: (?:per )?(\d{1,4}) ?(minut[oi]|min|or[ae]|h))? ?[.!]?$/i;

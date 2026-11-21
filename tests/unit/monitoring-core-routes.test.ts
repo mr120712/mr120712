@@ -86,7 +86,7 @@ import {
 import { PublicStatusDeadlineError } from '@/lib/monitoring/monitor.server';
 
 const CRON_SECRET = 'fake-cron-secret-0123456789abcdef';
-const admin = { id: 'admin-1', role: 'admin', emailVerified: true };
+const admin = { id: 'admin-1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true };
 
 const run: MonitorRun = {
   id: 'run-1',

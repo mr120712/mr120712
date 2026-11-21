@@ -2,6 +2,7 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
+import { isAuthorizedAdmin } from '@/lib/business/admin-account-policy';
 
 const privateHeaders = {
   'Cache-Control': 'private, no-store, no-cache, must-revalidate',
@@ -28,7 +29,7 @@ export async function requireVerifiedMusicRightsAdmin(
   try {
     const session = await auth.api.getSession({ headers: request.headers });
     if (!session?.user) return denied('unauthorized', 401);
-    if (session.user.role !== 'admin' || session.user.emailVerified !== true) {
+    if (!isAuthorizedAdmin(session.user)) {
       return denied('admin_required', 403);
     }
     return { allowed: true, user: { id: session.user.id } };

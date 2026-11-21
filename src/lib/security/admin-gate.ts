@@ -62,7 +62,11 @@ export function isAdminPath(pathname: string): boolean {
   return /^\/admin(?:$|[/.;])/.test(path);
 }
 
-export type AdminSessionUser = { role?: string | null; emailVerified?: boolean } | null;
+export type AdminSessionUser = {
+  role?: string | null;
+  email?: string | null;
+  emailVerified?: boolean;
+} | null;
 /** Legge l'utente della sessione dalla richiesta (lancia se non è leggibile). */
 export type AdminSessionReader = (headers: Headers) => Promise<AdminSessionUser>;
 

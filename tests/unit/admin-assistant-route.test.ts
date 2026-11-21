@@ -27,7 +27,7 @@ import {
   safeAssistantReply,
 } from '@/lib/business/admin-assistant';
 
-const admin = { id: 'admin-1', role: 'admin', emailVerified: true };
+const admin = { id: 'admin-1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true };
 
 function request(messages: Array<{ role: 'user' | 'assistant'; content: string }>) {
   return new Request('https://solco.test/api/admin/assistant', {

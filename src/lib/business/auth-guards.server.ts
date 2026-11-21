@@ -70,6 +70,17 @@ export const BLOCKED_AUTH_PATHS = new Set([
   '/sign-in/phone-number',
 ]);
 
+/**
+ * Gli endpoint del plugin admin di better-auth (/admin/set-role, /admin/create-user,
+ * /admin/update-user, /admin/impersonate-user, …): Solco non li usa (la gestione account passa da
+ * /api/admin/accounts) e restano chiusi per tutti, così nessuno può dare il ruolo admin a un altro
+ * account né impersonarlo. L'unico amministratore è l'account designato (admin-account-policy.ts).
+ */
+export function isAdminPluginPath(path: string): boolean {
+  const normalized = path.replace(/\/+/g, '/').toLowerCase();
+  return normalized === '/admin' || normalized.startsWith('/admin/');
+}
+
 /** Gli unici endpoint che possono ricevere un numero di telefono. */
 const PHONE_PATHS = new Set(['/phone-number/send-otp', '/phone-number/verify']);
 const PHONE_FIELDS = ['phoneNumber', 'phoneNumberVerified'] as const;
@@ -177,7 +188,7 @@ export async function guardAuthRequest(
   deps: Deps = defaultDeps,
 ): Promise<GuardRejection | null> {
   const { path, body } = input;
-  if (BLOCKED_AUTH_PATHS.has(path)) return NOT_FOUND;
+  if (BLOCKED_AUTH_PATHS.has(path) || isAdminPluginPath(path)) return NOT_FOUND;
   if (!PHONE_PATHS.has(path) && carriesPhoneField(body)) return PHONE_FIELD_NOT_ALLOWED;
 
   const emailField = EMAIL_FIELD_BY_PATH[path];

@@ -309,15 +309,21 @@ export function defaultChatDeps(): ChatDeps {
 
 // ------------------------------------------------------------------ una domanda
 
+/** Un comando dell'autodifesa scritto da chi non è il proprietario: non si esegue nulla. */
+export const OWNER_ONLY_COMMAND =
+  'Solo il proprietario può mettere in pausa o riprendere l’autodifesa. Non è stato cambiato nulla.';
+
 const EMPTY_QUESTION =
   'Mi scriva una domanda: per esempio «Cosa è successo oggi?» o «Chi sta attaccando il sito?».';
 
 /**
- * Una domanda del proprietario. `messages` è la conversazione (l'ultimo è la domanda), `source` da
- * dove arriva. Lancia solo se un comando non si riesce a eseguire; a una domanda risponde sempre.
+ * Una domanda a Skynet. `messages` è la conversazione (l'ultimo è la domanda), `source` da dove
+ * arriva, `owner` se chi scrive è il proprietario: solo allora i due comandi dell'autodifesa si
+ * eseguono (per gli altri amministratori la risposta lo dice e non cambia nulla). Lancia solo se
+ * un comando non si riesce a eseguire; a una domanda risponde sempre.
  */
 export async function askSkynet(
-  input: { messages: ChatTurn[]; source: OwnerSource },
+  input: { messages: ChatTurn[]; source: OwnerSource; owner: boolean },
   options: Partial<ChatDeps> = {},
 ): Promise<ChatAnswer> {
   const deps: ChatDeps = { ...defaultChatDeps(), ...options };
@@ -328,6 +334,9 @@ export async function askSkynet(
 
   const command = parseOwnerCommand(question);
   if (command) {
+    if (input.owner !== true) {
+      return { reply: OWNER_ONLY_COMMAND, engine: 'command', sources: [], missing: [] };
+    }
     const outcome = await deps.switchAutodefense(command, input.source);
     return {
       reply: commandReply(command, outcome.pausedUntil),

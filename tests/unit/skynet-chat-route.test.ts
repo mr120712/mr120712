@@ -27,7 +27,7 @@ import {
   SkynetChatResponseSchema,
 } from '@/lib/contracts/skynet-chat';
 
-const admin = { id: 'admin-1', role: 'admin', emailVerified: true };
+const admin = { id: 'admin-1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true };
 type Turn = { role: 'user' | 'assistant'; content: string };
 
 function request(body: unknown, raw = false) {
@@ -54,6 +54,13 @@ beforeEach(() => {
 });
 
 describe('chat di Skynet, la route', () => {
+  it('un admin con un’altra email non è amministratore: 403, il motore non parte', async () => {
+    mocks.getSession.mockResolvedValue({ user: { ...admin, email: 'altro@solco.test' } });
+    const response = await ask(question);
+    expect(response.status).toBe(403);
+    expect(mocks.askSkynet).not.toHaveBeenCalled();
+  });
+
   it('risponde all’amministratore verificato, senza cache, con il motore chiamato dal pannello', async () => {
     const response = await ask(question);
     expect(response.status).toBe(200);
@@ -64,7 +71,11 @@ describe('chat di Skynet, la route', () => {
       sources: ['stato e segnali', 'diario'],
       missing: [],
     });
-    expect(mocks.askSkynet).toHaveBeenCalledWith({ messages: question, source: 'pannello' });
+    expect(mocks.askSkynet).toHaveBeenCalledWith({
+      messages: question,
+      source: 'pannello',
+      owner: true,
+    });
     expect(mocks.enforceRateLimit).toHaveBeenCalledWith('skynet.chat', 'user:admin-1');
   });
 

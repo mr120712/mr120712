@@ -9,7 +9,9 @@ vi.mock('server-only', () => ({}));
 import { authConfig } from '@/lib/auth-config';
 import {
   demoteRevokedAdmins,
+  demoteUndesignatedAdmins,
   formatRequestedAdminStatus,
+  isAuthorizedAdmin,
   isRevokedAdminEmail,
   normalizePersistedAdminRoles,
   REQUESTED_ADMIN_EMAIL,
@@ -34,11 +36,17 @@ const OWNER_ADMIN_EMAIL = 'bestmr12@icloud.com';
 const REVOKED_EMAIL = 'francescorogantini9@gmail.com';
 
 describe('identità autorizzate per il ruolo amministratore', () => {
-  it('riconosce l’ID Better Auth configurato e l’email richiesta solo dopo verifica', () => {
+  it('solo l’email designata verificata dà admin; ADMIN_USER_ID da solo non basta più', () => {
     expect(
       resolveInitialSignupRole(
         { id: bestmr12UserId, emailVerified: true, role: 'user' },
         bestmr12UserId,
+      ),
+    ).toBe('user');
+    expect(
+      resolveInitialSignupRole(
+        { id: 'qualunque', email: ' BestMR12@icloud.com ', emailVerified: true },
+        undefined,
       ),
     ).toBe('admin');
     expect(
@@ -235,8 +243,41 @@ describe('assegnazione controllata e accesso', () => {
     expect(resolveAdminAccess(false, { role: 'admin', emailVerified: false })).toBe('forbidden');
   });
 
-  it('consente a entrambi gli account amministrativi verificati di aprire l’area', () => {
-    expect(resolveAdminAccess(false, { role: 'admin', emailVerified: true })).toBe('authorized');
-    expect(resolveAdminAccess(true, { role: 'admin', emailVerified: true })).toBe('loading');
+  it('apre l’area solo all’account designato: un altro admin, anche verificato, no', () => {
+    const owner = { role: 'admin', email: OWNER_ADMIN_EMAIL, emailVerified: true };
+    expect(resolveAdminAccess(false, owner)).toBe('authorized');
+    expect(resolveAdminAccess(true, owner)).toBe('loading');
+    expect(resolveAdminAccess(false, { role: 'admin', emailVerified: true })).toBe('forbidden');
+    expect(
+      resolveAdminAccess(false, {
+        role: 'admin',
+        email: 'altro@example.test',
+        emailVerified: true,
+      }),
+    ).toBe('forbidden');
+    expect(resolveAdminAccess(false, { ...owner, emailVerified: false })).toBe('forbidden');
+    expect(resolveAdminAccess(false, { ...owner, role: 'user' })).toBe('forbidden');
+    expect(isAuthorizedAdmin({ ...owner, role: 'user, admin' })).toBe(true);
+  });
+
+  it('all’avvio ogni admin diverso dall’account designato verificato torna utente', async () => {
+    const rows = [
+      { id: 'owner', email: OWNER_ADMIN_EMAIL, emailVerified: true, role: 'admin' },
+      { id: 'owner-non-verificato', email: 'x@y.z', emailVerified: false, role: 'admin' },
+      { id: 'altro-admin', email: 'altro@example.test', emailVerified: true, role: 'user,admin' },
+      { id: 'utente', email: 'u@example.test', emailVerified: true, role: 'user' },
+      { id: 'finto', email: 'f@example.test', emailVerified: true, role: 'superadmin' },
+    ];
+    const updateMany = vi.fn(async () => ({ count: 0 }));
+    const findMany = vi.fn(async () => rows);
+    expect(await demoteUndesignatedAdmins({ findMany, updateMany })).toBe(2);
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['owner-non-verificato', 'altro-admin'] } },
+      data: { role: 'user' },
+    });
+    updateMany.mockClear();
+    findMany.mockResolvedValueOnce(rows.slice(0, 1));
+    expect(await demoteUndesignatedAdmins({ findMany, updateMany })).toBe(0);
+    expect(updateMany).not.toHaveBeenCalled();
   });
 });

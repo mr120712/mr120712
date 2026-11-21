@@ -24,7 +24,9 @@ function req() {
   return new Request('https://solco.test/api/admin/telegram-bot-post', { method: 'POST' });
 }
 
-const admin = { user: { id: 'u1', role: 'admin', emailVerified: true } };
+const admin = {
+  user: { id: 'u1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true },
+};
 
 beforeEach(() => {
   vi.clearAllMocks();

@@ -74,7 +74,7 @@ import { featuredRelevance } from '@/lib/music/unified-search';
 
 const PUBLIC = 'https://store.public.blob.vercel-storage.com';
 const PRIVATE = 'https://store.private.blob.vercel-storage.com';
-const admin = { id: 'admin-1', role: 'admin', emailVerified: true };
+const admin = { id: 'admin-1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true };
 
 function blob(
   pathname: string,

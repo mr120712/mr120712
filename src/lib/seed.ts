@@ -15,8 +15,8 @@
 //   3. NOT for recurring work (that's polsia.toml `[[crons]]`) or per-user/
 //      request-time logic (that's an /api route handler). There is no request here.
 //
-// Preserve all existing roles and grant admin only to the Better Auth record
-// matched by the exact requested email.
+// Admin belongs ONLY to the Better Auth record with the designated email
+// (REQUESTED_ADMIN_EMAIL), verified: it is promoted here, every other admin is demoted.
 import { describeDatabaseUrls, preferPooledDatabaseUrl } from '@/lib/runtime-database-url';
 import { hardenGlobalPrototypes } from '@/lib/security/prototype-guard';
 
@@ -34,6 +34,7 @@ export async function seed(): Promise<void> {
     { prisma },
     {
       demoteRevokedAdmins,
+      demoteUndesignatedAdmins,
       formatRequestedAdminStatus,
       normalizePersistedAdminRoles,
       REQUESTED_ADMIN_EMAIL,
@@ -67,6 +68,16 @@ export async function seed(): Promise<void> {
   }
   // Account a cui il ruolo admin è stato tolto: tornano utenti normali (dopo la promozione sopra).
   await demoteRevokedAdmins({ updateMany: (args) => prisma.user.updateMany(args) });
+  // Un solo amministratore: chiunque altro abbia il ruolo admin (da POLSIA_OWNER_EMAIL,
+  // ADMIN_USER_ID, un vecchio ruolo o un altro admin) torna utente normale. Nei log solo il numero.
+  const demoted = await demoteUndesignatedAdmins({
+    findMany: (args) => prisma.user.findMany(args),
+    updateMany: (args) => prisma.user.updateMany(args),
+  });
+  if (demoted > 0) {
+    // biome-ignore lint/suspicious/noConsole: riga di stato all'avvio, senza email né id.
+    console.info(`[solco] Amministratori non designati riportati a utente: ${demoted}`);
+  }
 
   // Gestione account: l'UID leggibile a ogni account che non l'ha ancora e il Premium illimitato
   // predefinito (SEEDED_GRANT_EMAILS: vale solo con l'email verificata, es. accesso con Google).

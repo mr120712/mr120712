@@ -104,7 +104,7 @@ const Errors = Anthropic as unknown as Record<
 
 const ORIGIN = 'https://solco.test';
 const SONG = 'Cantautori/Autrice - Canzone.mp3';
-const admin = { id: 'admin-1', role: 'admin', emailVerified: true };
+const admin = { id: 'admin-1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true };
 
 /** La bozza di Solco AI (Enhanced LRC) con due refusi: «celo» e «me». */
 const DRAFT = [

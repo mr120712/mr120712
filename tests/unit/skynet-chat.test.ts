@@ -42,6 +42,7 @@ import {
   dossierSources,
   factsAnswer,
   firewallBrief,
+  isPanelOwner,
   maskIpsInText,
   parseOwnerCommand,
   plain,
@@ -54,7 +55,12 @@ import {
   stateBrief,
   untrusted,
 } from '@/lib/skynet/chat';
-import { askSkynet, type ChatDeps, gatherDossier } from '@/lib/skynet/chat.server';
+import {
+  askSkynet,
+  type ChatDeps,
+  gatherDossier,
+  OWNER_ONLY_COMMAND,
+} from '@/lib/skynet/chat.server';
 import { skynetNote } from '@/lib/skynet/hunter';
 
 const TOKEN = 'vercel-token-di-prova-0123456789';
@@ -409,7 +415,11 @@ function chatDeps(overrides: Partial<ChatDeps> = {}) {
 
 const ask = (question: string, deps: ChatDeps, history: ChatTurn[] = []) =>
   askSkynet(
-    { messages: [...history, { role: 'user', content: question }], source: 'pannello' },
+    {
+      messages: [...history, { role: 'user', content: question }],
+      source: 'pannello',
+      owner: true,
+    },
     deps,
   );
 
@@ -474,12 +484,44 @@ describe('chat di Skynet: i comandi del proprietario', () => {
     expect(claude).toEqual([]);
     expect(reserve).toEqual([]);
     const resumed = await askSkynet(
-      { messages: [{ role: 'user', content: 'riprendi autodifesa' }], source: 'telegram' },
+      {
+        messages: [{ role: 'user', content: 'riprendi autodifesa' }],
+        source: 'telegram',
+        owner: true,
+      },
       deps,
     );
     expect(switches.at(-1)).toEqual({ command: { kind: 'resume' }, source: 'telegram' });
     expect(resumed.reply).toContain('autodifesa ripresa');
     expect(commandReply({ kind: 'resume' }, null)).toBe(resumed.reply);
+  });
+
+  it('un amministratore che non è il proprietario non mette in pausa né riprende nulla', async () => {
+    const { deps, claude, reserve, switches } = chatDeps();
+    for (const content of ['pausa autodifesa 2 ore', 'riprendi autodifesa']) {
+      const answer = await askSkynet(
+        { messages: [{ role: 'user', content }], source: 'pannello', owner: false },
+        deps,
+      );
+      expect(answer).toEqual({
+        reply: OWNER_ONLY_COMMAND,
+        engine: 'command',
+        sources: [],
+        missing: [],
+      });
+    }
+    expect(switches).toEqual([]);
+    expect(claude).toEqual([]);
+    expect(reserve).toEqual([]);
+  });
+
+  it('nel pannello il proprietario è solo l’admin designato (bestmr12@icloud.com), verificato', () => {
+    const owner = { role: 'admin', email: 'BestMR12@icloud.com ', emailVerified: true };
+    expect(isPanelOwner(owner)).toBe(true);
+    expect(isPanelOwner({ ...owner, email: 'altro@solco.test' })).toBe(false);
+    expect(isPanelOwner({ ...owner, emailVerified: false })).toBe(false);
+    expect(isPanelOwner({ ...owner, role: 'user' })).toBe(false);
+    expect(isPanelOwner({ role: 'admin', email: null, emailVerified: true })).toBe(false);
   });
 
   it('chiedere come si fa passa dal modello e non cambia nulla', async () => {
@@ -1104,7 +1146,11 @@ describe('chat di Skynet: si protegge da sola', () => {
   it('una domanda vuota non legge e non chiama nulla', async () => {
     const { deps, claude } = chatDeps();
     const answer = await askSkynet(
-      { messages: [{ role: 'assistant', content: 'solo una risposta' }], source: 'pannello' },
+      {
+        messages: [{ role: 'assistant', content: 'solo una risposta' }],
+        source: 'pannello',
+        owner: true,
+      },
       deps,
     );
     expect(answer.engine).toBe('facts');

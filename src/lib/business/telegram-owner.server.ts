@@ -46,7 +46,7 @@ export async function checkTelegramOwner(
     if (!link) return { owner: false, reason: 'not-linked' };
     const user = await prisma.user.findUnique({
       where: { id: link.userId },
-      select: { role: true, emailVerified: true },
+      select: { role: true, email: true, emailVerified: true },
     });
     if (resolveAdminAccess(false, user) !== 'authorized') {
       return { owner: false, reason: 'not-admin' };

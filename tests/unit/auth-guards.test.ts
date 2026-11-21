@@ -8,6 +8,7 @@ vi.mock('@/lib/db', () => ({ prisma: {} }));
 import {
   BLOCKED_AUTH_PATHS,
   guardAuthRequest,
+  isAdminPluginPath,
   networkIdentity,
   SMS_NOT_SENT,
 } from '@/lib/business/auth-guards.server';
@@ -153,8 +154,6 @@ describe('guardAuthRequest', () => {
       ['/sign-up/email', { email: 'a@b.it', password: 'x', name: 'x', phoneNumberVerified: true }],
       ['/update-user', { phoneNumber: victim }],
       ['/update-user', { phoneNumber: null }],
-      ['/admin/create-user', { email: 'a@b.it', data: { phoneNumber: victim } }],
-      ['/admin/update-user', { userId: 'u1', data: { phoneNumber: victim } }],
     ] as const) {
       const result = await guardAuthRequest({ path, body, headers }, deps);
       expect(result?.status).toBe('BAD_REQUEST');
@@ -229,12 +228,34 @@ describe('guardAuthRequest', () => {
     expect(consume).not.toHaveBeenCalled();
   });
 
+  it('gli endpoint del plugin admin di better-auth sono chiusi per tutti (404)', async () => {
+    for (const path of [
+      '/admin/set-role',
+      '/admin/create-user',
+      '/admin/update-user',
+      '/admin/impersonate-user',
+      '/admin/set-user-password',
+      '/admin/remove-user',
+      '/admin/list-users',
+      '/Admin/Set-Role',
+      '//admin//set-role',
+    ]) {
+      const result = await guardAuthRequest(
+        { path, body: { userId: 'u1', role: 'admin' }, headers },
+        deps,
+      );
+      expect(result?.status).toBe('NOT_FOUND');
+    }
+    expect(isAdminPluginPath('/administrator')).toBe(false);
+    expect(isAdminPluginPath('/sign-in/email')).toBe(false);
+    expect(consume).not.toHaveBeenCalled();
+  });
+
   it('il dominio email riservato ai telefoni non si può registrare né impostare', async () => {
     const reserved = ' 393331234567@TELEFONO.solcomusic.invalid ';
     for (const [path, body] of [
       ['/sign-up/email', { email: reserved, password: 'x', name: 'x' }],
       ['/change-email', { newEmail: reserved }],
-      ['/admin/create-user', { email: reserved }],
       ['/send-verification-email', { email: reserved }],
     ] as const) {
       const result = await guardAuthRequest({ path, body, headers }, deps);

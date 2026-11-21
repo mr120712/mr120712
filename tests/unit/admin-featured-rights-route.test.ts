@@ -34,7 +34,7 @@ import { clearFeaturedSearchCacheForTests } from '@/lib/music/featured-search.se
 const PRIVATE = 'https://store.private.blob.vercel-storage.com';
 const MARKER = 'TESTO-SEGRETO-4e8b1d';
 const encoder = new TextEncoder();
-const admin = { id: 'admin-1', role: 'admin', emailVerified: true };
+const admin = { id: 'admin-1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true };
 
 type StoreFile = { pathname: string; bytes: Uint8Array };
 

@@ -18,7 +18,7 @@ vi.mock('@/lib/db', () => ({
 
 import { checkTelegramOwner, ownerTelegramUsernames } from '@/lib/business/telegram-owner.server';
 
-const admin = { role: 'admin', emailVerified: true };
+const admin = { role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true };
 
 beforeEach(() => {
   vi.clearAllMocks();

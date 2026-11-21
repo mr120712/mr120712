@@ -36,7 +36,7 @@ describe('autorizzazione amministrativa dei diritti musicali', () => {
 
   it('accetta solo la sessione server-side di admin verificato e chiude in caso di errore auth', async () => {
     mocks.getSession.mockResolvedValueOnce({
-      user: { id: 'admin-1', role: 'admin', emailVerified: true },
+      user: { id: 'admin-1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true },
     });
     expect(await requireVerifiedMusicRightsAdmin(request)).toEqual({
       allowed: true,

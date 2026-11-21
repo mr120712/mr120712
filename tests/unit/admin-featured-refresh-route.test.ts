@@ -42,7 +42,7 @@ import {
 
 const PRIVATE = 'https://store.private.blob.vercel-storage.com';
 const DECLARED = 'Cantautori/Lucio Dalla - Caruso.mp3';
-const admin = { id: 'admin-1', role: 'admin', emailVerified: true };
+const admin = { id: 'admin-1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true };
 
 function blob(pathname: string, uploadedAt = '2026-10-01T00:00:00.000Z', size = 1000) {
   const url = `${PRIVATE}/${pathname.split('/').map(encodeURIComponent).join('/')}`;

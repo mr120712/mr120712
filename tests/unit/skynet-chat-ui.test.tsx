@@ -244,7 +244,7 @@ describe('pannello Skynet: autodifesa e chat', () => {
         }),
       ),
     ).toMatch(
-      /^In pausa fino al 20\/11\/(20)?26, 15:30: per riprendere scriva «riprendi autodifesa»/,
+      /^In pausa fino al 20\/11\/(20)?26, 15:30: il proprietario la riprende scrivendo «riprendi autodifesa»/,
     );
     expect(autodefenseText(overview({ autodefense: { ...base, mode: 'disabled' } }))).toContain(
       'Spenta (SKYNET_AUTODEFENSE=off)',

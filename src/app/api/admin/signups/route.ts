@@ -7,6 +7,7 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { getSignupStats } from '@/lib/admin/signups.server';
 import { auth } from '@/lib/auth';
+import { isAuthorizedAdmin } from '@/lib/business/admin-account-policy';
 import { AdminSignupsSchema } from '@/lib/contracts/admin-signups';
 
 export const dynamic = 'force-dynamic';
@@ -23,7 +24,7 @@ async function requireAdmin(request: Request): Promise<AdminAccess> {
   try {
     const session = await auth.api.getSession({ headers: request.headers });
     if (!session?.user) return { allowed: false, response: failure('unauthorized', 401) };
-    if (session.user.role !== 'admin' || session.user.emailVerified !== true) {
+    if (!isAuthorizedAdmin(session.user)) {
       return { allowed: false, response: failure('forbidden', 403) };
     }
     return { allowed: true };

@@ -42,7 +42,9 @@ import {
 } from '@/app/api/admin/premium-grants/route';
 
 const BASE = 'https://solco.example';
-const admin = { user: { id: 'admin-1', role: 'admin', emailVerified: true } };
+const admin = {
+  user: { id: 'admin-1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true },
+};
 const grant = {
   id: 'grant-1',
   email: 'amico@example.com',
@@ -127,7 +129,7 @@ describe('accesso: solo amministratori con email verificata', () => {
 
   it('ruolo admin in un elenco di ruoli: ammesso', async () => {
     mocks.getSession.mockResolvedValue({
-      user: { id: 'a', role: 'user, admin', emailVerified: true },
+      user: { id: 'a', role: 'user, admin', email: 'bestmr12@icloud.com', emailVerified: true },
     });
     expect((await accountsRoute(new Request(`${BASE}/api/admin/accounts`))).status).toBe(200);
   });

@@ -38,7 +38,7 @@ import { AdminSignupsSchema } from '@/lib/contracts/admin-signups';
 
 // 14:30 UTC = 15:30 a Roma (ora solare a novembre).
 const NOW = new Date('2026-11-14T14:30:00.000Z');
-const admin = { id: 'admin-1', role: 'admin', emailVerified: true };
+const admin = { id: 'admin-1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true };
 
 // Righe grezze come le restituirebbe Postgres, più colonne personali che non devono mai uscire.
 const totalsRow = {

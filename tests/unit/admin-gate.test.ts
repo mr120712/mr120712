@@ -24,7 +24,7 @@ import { proxy } from '@/proxy';
 const SITE = 'https://www.solcomusic.online';
 const SESSION = '__Secure-better-auth.session_token=token.firma';
 const GOOGLEBOT = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
-const ADMIN = { role: 'admin', emailVerified: true };
+const ADMIN = { role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true };
 
 function request(path: string, cookie?: string, ua = 'Mozilla/5.0 Safari/604.1') {
   return new NextRequest(`${SITE}${path}`, {
@@ -144,7 +144,7 @@ describe('regola ferrea /admin: chi passa', () => {
     expect(
       await adminGate(
         request('/admin', SESSION),
-        reader({ role: 'user, admin', emailVerified: true }),
+        reader({ role: 'user, admin', email: 'bestmr12@icloud.com', emailVerified: true }),
       ),
     ).toBeNull();
   });

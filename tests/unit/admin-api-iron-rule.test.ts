@@ -134,7 +134,7 @@ describe('regola ferrea: API di amministrazione', () => {
   it('controprova: per un amministratore verificato la stessa route arriva ai dati', async () => {
     const module = await import('@/app/api/admin/signups/route');
     mocks.getSession.mockResolvedValue({
-      user: { id: 'a1', role: 'admin', emailVerified: true, email: 'admin@x.it' },
+      user: { id: 'a1', role: 'admin', emailVerified: true, email: 'bestmr12@icloud.com' },
     });
     await module.GET(request('signups/route.ts', 'GET'));
     // Il database finto lancia: conta solo che l'admin ci sia arrivato.

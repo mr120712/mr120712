@@ -63,7 +63,7 @@ const ORIGIN = 'https://solco.test';
 const PRIVATE = 'https://store.private.blob.vercel-storage.com';
 const SECRET = 'segreto-di-prova-0123456789abcdef-0123456789';
 const KEY = 'sk-test-CHIAVE-71c2';
-const admin = { id: 'admin-1', role: 'admin', emailVerified: true };
+const admin = { id: 'admin-1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true };
 const encoder = new TextEncoder();
 const TRANSCRIBE = '/api/admin/featured-rights/transcribe';
 

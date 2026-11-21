@@ -68,35 +68,40 @@ describe('contenuto dell’area amministrativa', () => {
     expect(markup).not.toContain('Contenuto amministrativo riservato');
   });
 
-  it('rende il contenuto riservato per entrambi gli account amministrativi verificati', () => {
-    const admins = [
-      {
-        id: 'configured-bestmr12-id',
-        email: 'bestmr12 account',
-        role: 'admin',
-        emailVerified: true,
+  it('rende il contenuto riservato solo all’account designato; un altro admin non lo vede', () => {
+    mocks.useSession.mockReturnValue({
+      data: {
+        user: { id: 'owner', email: 'bestmr12@icloud.com', role: 'admin', emailVerified: true },
       },
-      {
-        id: 'requested-admin-id',
-        email: 'francescorogantini9@gmail.com',
-        role: 'admin',
-        emailVerified: true,
+      isPending: false,
+    });
+    const markup = renderToStaticMarkup(
+      <AdminShell>
+        <p>Contenuto amministrativo riservato</p>
+      </AdminShell>,
+    );
+    expect(markup).toContain('Contenuto amministrativo riservato');
+    expect(markup).toContain('bestmr12@icloud.com');
+    expect(markup).toContain('href="/admin/assistente"');
+    expect(markup).not.toContain('/admin/music-previews');
+
+    mocks.useSession.mockReturnValue({
+      data: {
+        user: {
+          id: 'other',
+          email: 'francescorogantini9@gmail.com',
+          role: 'admin',
+          emailVerified: true,
+        },
       },
-    ];
-
-    for (const user of admins) {
-      mocks.useSession.mockReturnValue({ data: { user }, isPending: false });
-      const markup = renderToStaticMarkup(
-        <AdminShell>
-          <p>Contenuto amministrativo riservato</p>
-        </AdminShell>,
-      );
-
-      expect(markup).toContain('Contenuto amministrativo riservato');
-      expect(markup).toContain(user.email);
-      expect(markup).toContain('href="/admin/assistente"');
-      expect(markup).not.toContain('/admin/music-previews');
-    }
+      isPending: false,
+    });
+    const other = renderToStaticMarkup(
+      <AdminShell>
+        <p>Contenuto amministrativo riservato</p>
+      </AdminShell>,
+    );
+    expect(other).not.toContain('Contenuto amministrativo riservato');
   });
 
   it('email non verificata: il pulsante per farsi rimandare il link (poi diventa admin da solo)', () => {

@@ -57,7 +57,7 @@ function json(body: unknown, status = 200) {
 }
 
 function admin(id = 'admin-1') {
-  return { user: { id, role: 'admin', emailVerified: true } };
+  return { user: { id, role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true } };
 }
 
 function loginRequest(headers: Record<string, string> = { 'sec-fetch-site': 'same-origin' }) {

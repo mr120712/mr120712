@@ -108,7 +108,7 @@ export function autodefenseText(data: SkynetOverview): string {
           timeStyle: 'short',
         })
       : '';
-    return `In pausa${until ? ` fino al ${until}` : ''}: per riprendere scriva «riprendi autodifesa» nella chat`;
+    return `In pausa${until ? ` fino al ${until}` : ''}: il proprietario la riprende scrivendo «riprendi autodifesa» nella chat`;
   }
   const watching = [
     auto.watching.firewall ? 'firewall' : '',
