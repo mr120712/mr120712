@@ -383,14 +383,30 @@ test('MagnetAPI: agents only, exact address, first in line, best real model from
   assert.equal(backends[0].model, 'auto');
   assert.equal(backendsFrom({ MAGNETAPI_API_KEY: 'mg-key-1', MAGNETAPI_MODEL: 'gpt-6-1-sol' }).backends[0].model, 'gpt-6-1-sol');
 
-  // The ranking only ever picks an id the key really lists: newest Opus first, then GPT-6.x.
-  const pick = async (ids) =>
-    (await resolveAutoModels([backends[0]], { fetchImpl: async () => json({ data: ids.map((id) => ({ id })) }) })).backends[0]?.model;
-  assert.equal(await pick(['claude-sonnet-5-5', 'gpt-6-astra', 'claude-opus-5-5', 'text-embedding-3']), 'claude-opus-5-5');
-  assert.equal(await pick(['claude-sonnet-5-5', 'gpt-6-astra', 'gpt-6.1-sol']), 'gpt-6.1-sol');
-  assert.equal(await pick(['gpt-6.2', 'gpt-6.1-sol', 'claude-sonnet-5']), 'gpt-6.2');
-  assert.equal(await pick(['deepseek-chat', 'claude-sonnet-5']), 'claude-sonnet-5');
-  assert.equal(await pick(['whisper-1', 'some-model']), 'some-model');
+  // Only ids the key really lists; GPT 6.2 first (the owner's choice), then Opus 5.5, Fable 5.2, GPT 6.1.
+  const chain = async (ids) =>
+    (await resolveAutoModels([backends[0]], { fetchImpl: async () => json({ data: ids.map((id) => ({ id })) }) })).backends.map((b) => b.model);
+  const real = ['gemini-4-hydrogen', 'gemini-4-carbon', 'deepseek-flash', 'gemini-4-argon', 'gpt-6.1-sol', 'gpt-6.2-sol', 'claude-sonnet-5-5', 'gpt-6-sol', 'power-ai', 'gpt-6-astra', 'gpt-5.6-sol', 'claude-opus-5-5', 'claude-fable-5-2', 'claude-fable-5-1'];
+  assert.deepEqual(await chain(real), ['gpt-6.2-sol', 'claude-opus-5-5', 'claude-fable-5-2', 'gpt-6.1-sol']);
+  assert.deepEqual(await chain(['claude-sonnet-5-5', 'gpt-6-astra', 'claude-opus-5-5', 'text-embedding-3']), ['claude-opus-5-5', 'gpt-6-astra', 'claude-sonnet-5-5']);
+  assert.deepEqual(await chain(['deepseek-chat', 'claude-sonnet-5']), ['claude-sonnet-5', 'deepseek-chat']);
+  assert.deepEqual(await chain(['whisper-1', 'some-model']), ['some-model']);
+
+  // The chain fails over model by model on the same key: GPT 6.2 refused (400) → Opus answers.
+  const asked = [];
+  const out = await chat(
+    [{ role: 'user', content: 'x' }],
+    (await resolveAutoModels([backends[0]], { fetchImpl: async () => json({ data: real.map((id) => ({ id })) }) })).backends,
+    {
+      fetchImpl: async (_url, init) => {
+        const { model } = JSON.parse(init.body);
+        asked.push(model);
+        return model === 'gpt-6.2-sol' ? json({ error: 'model_not_available' }, 400) : answer(`da ${model}`);
+      },
+    },
+  );
+  assert.equal(out.text, 'da claude-opus-5-5');
+  assert.deepEqual(asked, ['gpt-6.2-sol', 'claude-opus-5-5']);
 
   // The models list is logged for the owner (ids only, never the key).
   const { notes } = await resolveAutoModels([backends[0]], {
@@ -400,6 +416,6 @@ test('MagnetAPI: agents only, exact address, first in line, best real model from
     },
   });
   assert.ok(notes.some((n) => n.includes('2 modelli') && n.includes('gpt-6.1-sol')));
-  assert.ok(notes.some((n) => n.includes('MAGNETAPI_MODEL')));
+  assert.ok(notes.some((n) => n.includes('catena claude-opus-5-5 → gpt-6.1-sol') && n.includes('MAGNETAPI_MODEL')));
   assert.ok(notes.every((n) => !n.includes('mg-key-1')));
 });

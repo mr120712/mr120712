@@ -131,12 +131,13 @@ const PREFERRED_MODELS = [
   /llama-3\.3-70b/i,
 ];
 /**
- * For MagnetAPI («the best models»): the most capable first. Matched loosely on the ids the key
- * really lists (never a guessed id): newest Opus, then GPT-6.x from the highest minor, then the others.
+ * For MagnetAPI («GPT 6.2 and the other best models», as the owner asked): GPT 6.2 first, then the
+ * newest Opus, Fable and GPT 6.1. Matched loosely on the ids the key really lists (never a guessed id).
  */
 const BEST_MODELS = [
-  /opus[\w.-]*5[.-]5/i,
   /gpt[\w.-]*6[.-]2/i,
+  /opus[\w.-]*5[.-]5/i,
+  /fable[\w.-]*5[.-]2/i,
   /gpt[\w.-]*6[.-]1/i,
   /opus[\w.-]*5(?![.-]\d)/i,
   /gpt[\w.-]*6(?![.-]\d)/i,
@@ -149,6 +150,8 @@ const BEST_MODELS = [
   /deepseek/i,
 ];
 const NOT_CHAT = /(embed|whisper|tts|dall-e|image|moderation|rerank|audio|realtime|vision-preview)/i;
+/** How many of MagnetAPI's best models form the chain (one refused or busy → the next). */
+export const MAGNETAPI_CHAIN = 4;
 
 /**
  * A gateway such as MWAPI has no model called «auto»: ask its /models with the backend's key and
@@ -179,13 +182,21 @@ export async function resolveAutoModels(backends, { fetchImpl = fetch, timeoutMs
     }
     const chatIds = ids.filter((id) => !NOT_CHAT.test(id));
     const ranking = backend.name === 'magnetapi' ? BEST_MODELS : PREFERRED_MODELS;
-    const chosen = ranking.map((re) => chatIds.find((id) => re.test(id))).find(Boolean) ?? chatIds[0];
+    const ranked = [...new Set(ranking.map((re) => chatIds.find((id) => re.test(id))).filter(Boolean))];
+    const chosen = ranked[0] ?? chatIds[0];
     const shown = backend.name === 'magnetapi' ? 80 : 25;
     if (ids.length) notes.push(`${backend.name}: ${ids.length} modelli (${ids.slice(0, shown).join(', ')}${ids.length > shown ? ', …' : ''})`);
     if (chosen) {
       const variable = backend.name === 'magnetapi' ? 'MAGNETAPI_MODEL' : 'MWAPI_MODEL';
-      notes.push(`${backend.name}: uso il modello ${chosen} (imposta ${variable} per sceglierne un altro)`);
-      out.push({ ...backend, model: chosen });
+      if (backend.name === 'magnetapi') {
+        // A chain of the best models on the same key: a refused or busy model hands over to the next.
+        const chain = (ranked.length ? ranked : [chosen]).slice(0, MAGNETAPI_CHAIN);
+        notes.push(`${backend.name}: catena ${chain.join(' → ')} (imposta ${variable} per usarne uno solo)`);
+        for (const model of chain) out.push({ ...backend, model });
+      } else {
+        notes.push(`${backend.name}: uso il modello ${chosen} (imposta ${variable} per sceglierne un altro)`);
+        out.push({ ...backend, model: chosen });
+      }
     } else {
       notes.push(`${backend.name}: nessun modello di chat trovato, salto questo backend`);
     }
