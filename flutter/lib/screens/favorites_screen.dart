@@ -7,6 +7,7 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/mini_player.dart';
 import 'player_screen.dart';
+import '../widgets/cover_cache.dart';
 
 /// Sezione dedicata ai Preferiti: i brani salvati col cuore, riproducibili e rimovibili.
 class FavoritesScreen extends ConsumerWidget {
@@ -149,7 +150,7 @@ class _FavArt extends StatelessWidget {
         width: 48,
         height: 48,
         child: url != null
-            ? CachedNetworkImage(imageUrl: url!, fit: BoxFit.cover)
+            ? CachedNetworkImage(imageUrl: url!, memCacheWidth: coverCachePx(context, 48), fit: BoxFit.cover)
             : const ColoredBox(color: kSolcoNavyCard, child: Icon(Icons.music_note, color: kSolcoLime)),
       ),
     );

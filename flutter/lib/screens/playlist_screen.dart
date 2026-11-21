@@ -7,6 +7,7 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/mini_player.dart';
 import 'player_screen.dart';
+import '../widgets/cover_cache.dart';
 
 /// Dettaglio di una playlist: i brani, con riproduzione dei soli brani Audius.
 class PlaylistScreen extends ConsumerWidget {
@@ -112,7 +113,7 @@ class _ItemArt extends StatelessWidget {
         height: 48,
         child: url != null
             ? CachedNetworkImage(
-                imageUrl: url!,
+                imageUrl: url!, memCacheWidth: coverCachePx(context, 48),
                 fit: BoxFit.cover,
                 placeholder: (_, __) => const ColoredBox(color: kSolcoNavyCard),
                 errorWidget: (_, __, ___) => _fallback(),

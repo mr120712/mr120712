@@ -7,6 +7,7 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/mini_player.dart';
 import 'youtube_player_screen.dart';
+import '../widgets/cover_cache.dart';
 
 /// Ricerca YouTube e riproduzione col player ufficiale (WebView). La ricerca
 /// parte solo all'invio (consenso esplicito), come sul sito.
@@ -42,7 +43,12 @@ class _YouTubeScreenState extends ConsumerState<YouTubeScreen> {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: TextField(
+            // Il campo si ricostruisce a ogni modifica del testo: così la «x» per cancellare compare
+            // appena si scrive e sparisce quando il campo è vuoto (prima restava com'era fino a un
+            // altro rebuild della schermata).
+            child: ValueListenableBuilder<TextEditingValue>(
+              valueListenable: _controller,
+              builder: (context, value, _) => TextField(
               controller: _controller,
               textInputAction: TextInputAction.search,
               onSubmitted: (value) =>
@@ -50,7 +56,7 @@ class _YouTubeScreenState extends ConsumerState<YouTubeScreen> {
               decoration: InputDecoration(
                 hintText: 'Cerca su YouTube…',
                 prefixIcon: const Icon(Icons.search),
-                suffixIcon: _controller.text.isEmpty
+                suffixIcon: value.text.isEmpty
                     ? null
                     : IconButton(
                         icon: const Icon(Icons.clear),
@@ -60,6 +66,7 @@ class _YouTubeScreenState extends ConsumerState<YouTubeScreen> {
                         },
                       ),
               ),
+            ),
             ),
           ),
           Expanded(
@@ -131,7 +138,7 @@ class _Thumb extends StatelessWidget {
         height: 48,
         child: url != null
             ? CachedNetworkImage(
-                imageUrl: url!,
+                imageUrl: url!, memCacheWidth: coverCachePx(context, 86),
                 fit: BoxFit.cover,
                 placeholder: (_, __) => const ColoredBox(color: kSolcoNavyCard),
                 errorWidget: (_, __, ___) => _fallback(),

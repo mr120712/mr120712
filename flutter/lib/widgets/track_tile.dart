@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../api/models.dart';
 import '../theme.dart';
+import 'cover_cache.dart';
 
 class TrackTile extends StatelessWidget {
   const TrackTile({super.key, required this.track, required this.onTap, this.playing = false});
@@ -22,7 +23,7 @@ class TrackTile extends StatelessWidget {
           height: 48,
           child: track.artworkUrl != null
               ? CachedNetworkImage(
-                  imageUrl: track.artworkUrl!,
+                  imageUrl: track.artworkUrl!, memCacheWidth: coverCachePx(context, 48),
                   fit: BoxFit.cover,
                   placeholder: (_, __) => const ColoredBox(color: kSolcoNavyCard),
                   errorWidget: (_, __, ___) => const _ArtFallback(),

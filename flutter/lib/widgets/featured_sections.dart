@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../api/models.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
+import 'cover_cache.dart';
 
 /// Le sezioni «Brani in evidenza» (self-hosted, dall'amministratore) in cima alla Home. Rende un
 /// riquadro vuoto se non ce ne sono (o se non sono ancora arrivati), così non disturba la Home.
@@ -94,7 +95,7 @@ class _FeaturedCard extends StatelessWidget {
                   children: [
                     if (coverUrl != null)
                       CachedNetworkImage(
-                        imageUrl: coverUrl!,
+                        imageUrl: coverUrl!, memCacheWidth: coverCachePx(context, 150),
                         httpHeaders: coverHeaders.isEmpty ? null : coverHeaders,
                         fit: BoxFit.cover,
                         placeholder: (_, __) => const _CoverFallback(),

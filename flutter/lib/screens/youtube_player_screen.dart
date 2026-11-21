@@ -6,6 +6,7 @@ import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 import '../api/models.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
+import '../widgets/cover_cache.dart';
 
 /// Riproduce un video YouTube con il PLAYER UFFICIALE (IFrame Player API in un
 /// WebView): niente download né estrazione, conforme ai termini di YouTube.
@@ -121,7 +122,7 @@ class _Thumb extends StatelessWidget {
         height: 48,
         child: url != null
             ? CachedNetworkImage(
-                imageUrl: url!,
+                imageUrl: url!, memCacheWidth: coverCachePx(context, 86),
                 fit: BoxFit.cover,
                 placeholder: (_, __) => const ColoredBox(color: kSolcoNavyCard),
                 errorWidget: (_, __, ___) => _fallback(),

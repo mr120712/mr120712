@@ -8,6 +8,7 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/mini_player.dart';
 import 'player_screen.dart';
+import '../widgets/cover_cache.dart';
 
 /// Record Pool: brani royalty-free che gli artisti hanno reso scaricabili su Audius
 /// (Open Music License). Si ascoltano e si scaricano dentro Solco.
@@ -113,7 +114,7 @@ class _PoolArt extends StatelessWidget {
         width: 48,
         height: 48,
         child: url != null
-            ? CachedNetworkImage(imageUrl: url!, fit: BoxFit.cover)
+            ? CachedNetworkImage(imageUrl: url!, memCacheWidth: coverCachePx(context, 48), fit: BoxFit.cover)
             : const ColoredBox(color: kSolcoNavyCard, child: Icon(Icons.music_note, color: kSolcoLime)),
       ),
     );
@@ -127,8 +128,8 @@ class _PoolDownloadButton extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final downloads = ref.watch(downloadsProvider).valueOrNull ?? const <DownloadedTrack>[];
-    final already = downloads.any((d) => d.qualifiedId == track.qualifiedId);
+    final already =
+        ref.watch(downloadedIdsProvider.select((ids) => ids.contains(track.qualifiedId)));
     if (already) {
       return const Icon(Icons.download_done, color: kSolcoLime);
     }

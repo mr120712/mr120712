@@ -7,6 +7,7 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/mini_player.dart';
 import 'podcast_detail_screen.dart';
+import '../widgets/cover_cache.dart';
 
 /// Scoperta podcast: cerca o sfoglia la classifica, apri un podcast per gli episodi.
 class PodcastsScreen extends ConsumerStatefulWidget {
@@ -110,7 +111,7 @@ class _PodcastArt extends StatelessWidget {
         height: 48,
         child: url != null
             ? CachedNetworkImage(
-                imageUrl: url!,
+                imageUrl: url!, memCacheWidth: coverCachePx(context, 48),
                 fit: BoxFit.cover,
                 placeholder: (_, __) => const ColoredBox(color: kSolcoNavyCard),
                 errorWidget: (_, __, ___) => _fallback(),

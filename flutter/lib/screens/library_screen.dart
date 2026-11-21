@@ -9,6 +9,7 @@ import 'favorites_screen.dart';
 import 'player_screen.dart';
 import 'playlist_screen.dart';
 import 'podcast_detail_screen.dart';
+import '../widgets/cover_cache.dart';
 
 /// La libreria: cronologia, playlist, radio salvate e podcast seguiti.
 /// I brani Audius della cronologia e delle playlist si riproducono; le altre
@@ -42,22 +43,27 @@ class LibraryScreen extends ConsumerWidget {
       color: kSolcoLime,
       backgroundColor: kSolcoNavyCard,
       onRefresh: () => _refresh(ref),
-      child: ListView(
-        padding: const EdgeInsets.only(bottom: 24),
-        children: [
+      // Una sliver per sezione: le righe si costruiscono solo quando entrano nello schermo (prima
+      // ogni sezione era una Column con TUTTE le sue righe, anche quelle fuori schermo).
+      child: CustomScrollView(
+        slivers: [
           // I brani scaricati funzionano anche offline: li mostriamo sempre, in cima.
           _DownloadsSection(downloads: downloads),
-          ...library.when(
+          ...library.when<List<Widget>>(
             loading: () => const [
-              Padding(
-                padding: EdgeInsets.all(48),
-                child: Center(child: CircularProgressIndicator(color: kSolcoLime)),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.all(48),
+                  child: Center(child: CircularProgressIndicator(color: kSolcoLime)),
+                ),
               ),
             ],
             error: (err, _) => const [
-              _InlineNotice(
-                text:
-                    'La libreria online non è raggiungibile ora. I brani scaricati qui sopra funzionano comunque.',
+              SliverToBoxAdapter(
+                child: _InlineNotice(
+                  text:
+                      'La libreria online non è raggiungibile ora. I brani scaricati qui sopra funzionano comunque.',
+                ),
               ),
             ],
             data: (data) {
@@ -67,9 +73,11 @@ class LibraryScreen extends ConsumerWidget {
               final hasFavorites = favorites != null && favorites.items.isNotEmpty;
               if (downloads.isEmpty && data.isEmpty && playlists.isEmpty && !hasFavorites) {
                 return const [
-                  _InlineNotice(
-                    text:
-                        'La tua libreria è vuota.\nAscolta qualcosa, crea una playlist o scarica un brano.',
+                  SliverToBoxAdapter(
+                    child: _InlineNotice(
+                      text:
+                          'La tua libreria è vuota.\nAscolta qualcosa, crea una playlist o scarica un brano.',
+                    ),
                   ),
                 ];
               }
@@ -82,10 +90,25 @@ class LibraryScreen extends ConsumerWidget {
               ];
             },
           ),
+          const SliverToBoxAdapter(child: SizedBox(height: 24)),
         ],
       ),
     );
   }
+}
+
+/// Una sezione della libreria come sliver: l'intestazione, poi [count] righe costruite pigramente.
+/// Senza righe la sezione non occupa spazio.
+Widget _sectionSliver({
+  required Widget header,
+  required int count,
+  required Widget Function(BuildContext context, int index) row,
+}) {
+  if (count == 0) return const SliverToBoxAdapter(child: SizedBox.shrink());
+  return SliverList.builder(
+    itemCount: count + 1,
+    itemBuilder: (context, i) => i == 0 ? header : row(context, i - 1),
+  );
 }
 
 class _DownloadsSection extends ConsumerWidget {
@@ -94,15 +117,12 @@ class _DownloadsSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (downloads.isEmpty) return const SizedBox.shrink();
-    final items = downloads.map((d) => d.toPlayable()).toList();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const _SectionHeader('Scaricati'),
-        ...downloads.asMap().entries.map((entry) {
-          final i = entry.key;
-          final d = entry.value;
+    // La coda di riproduzione si crea al tocco, non a ogni build della libreria.
+    return _sectionSliver(
+      header: const _SectionHeader('Scaricati'),
+      count: downloads.length,
+      row: (context, i) {
+          final d = downloads[i];
           return ListTile(
             leading: _Art(url: d.artworkUrl, icon: Icons.download_done),
             title: Text(d.title, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -117,12 +137,11 @@ class _DownloadsSection extends ConsumerWidget {
               },
             ),
             onTap: () {
-              ref.read(playerProvider)?.playItems(items, i);
+              ref.read(playerProvider)?.playItems(downloads.map((t) => t.toPlayable()).toList(), i);
               _openPlayer(context);
             },
           );
-        }),
-      ],
+      },
     );
   }
 }
@@ -170,14 +189,13 @@ class _FavoritesSection extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final fav = favorites;
-    if (fav == null || fav.items.isEmpty) return const SizedBox.shrink();
+    if (fav == null || fav.items.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
     final audiusTracks = fav.audiusTracks;
     final preview = fav.items.take(4).toList();
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _SectionHeader(
+    return _sectionSliver(
+      count: preview.length,
+      header: _SectionHeader(
           'Preferiti',
           trailing: TextButton(
             onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
@@ -186,7 +204,8 @@ class _FavoritesSection extends ConsumerWidget {
             child: const Text('Vedi tutti'),
           ),
         ),
-        ...preview.map((item) {
+      row: (context, i) {
+          final item = preview[i];
           final playable = item.isAudius;
           return ListTile(
             leading: ClipRRect(
@@ -195,7 +214,7 @@ class _FavoritesSection extends ConsumerWidget {
                 width: 48,
                 height: 48,
                 child: item.artworkUrl != null
-                    ? CachedNetworkImage(imageUrl: item.artworkUrl!, fit: BoxFit.cover)
+                    ? CachedNetworkImage(imageUrl: item.artworkUrl!, memCacheWidth: coverCachePx(context, 48), fit: BoxFit.cover)
                     : const ColoredBox(
                         color: kSolcoNavyCard, child: Icon(Icons.favorite, color: kSolcoLime)),
               ),
@@ -224,8 +243,7 @@ class _FavoritesSection extends ConsumerWidget {
               ));
             },
           );
-        }),
-      ],
+      },
     );
   }
 }
@@ -236,22 +254,31 @@ class _HistorySection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (history.isEmpty) return const SizedBox.shrink();
-    final playable = history.where((e) => e.toPlayable() != null).toList();
-    final items = playable.map((e) => e.toPlayable()!).toList();
+    if (history.isEmpty) return const SliverToBoxAdapter(child: SizedBox.shrink());
+    // Una sola conversione per voce (prima: tre). La coda è l'INTERA cronologia riproducibile;
+    // [startOf] dà la posizione in coda della prima voce con quell'id.
+    final items = <PlayableItem>[];
+    final startOf = <String, int>{};
+    for (final e in history) {
+      final p = e.toPlayable();
+      if (p == null) continue;
+      startOf.putIfAbsent(e.qualifiedId, () => items.length);
+      items.add(p);
+    }
+    final shown = history.length > 30 ? history.sublist(0, 30) : history;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _SectionHeader(
+    return _sectionSliver(
+      count: shown.length,
+      header: _SectionHeader(
           'Cronologia',
           trailing: TextButton(
             onPressed: () => _confirmClear(context, ref),
             child: const Text('Svuota', style: TextStyle(color: Colors.white54)),
           ),
         ),
-        ...history.take(30).map((entry) {
-          final canPlay = entry.toPlayable() != null;
+      row: (context, i) {
+          final entry = shown[i];
+          final canPlay = startOf.containsKey(entry.qualifiedId);
           return ListTile(
             leading: _Art(url: entry.artworkUrl),
             title: Text(entry.title, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -269,14 +296,11 @@ class _HistorySection extends ConsumerWidget {
                 ));
                 return;
               }
-              final startIndex =
-                  playable.indexWhere((e) => e.qualifiedId == entry.qualifiedId);
-              ref.read(playerProvider)?.playItems(items, startIndex < 0 ? 0 : startIndex);
+              ref.read(playerProvider)?.playItems(items, startOf[entry.qualifiedId] ?? 0);
               _openPlayer(context);
             },
           );
-        }),
-      ],
+      },
     );
   }
 
@@ -312,12 +336,12 @@ class _PlaylistSection extends StatelessWidget {
   final List<Playlist> playlists;
   @override
   Widget build(BuildContext context) {
-    if (playlists.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const _SectionHeader('Playlist'),
-        ...playlists.map((p) => ListTile(
+    return _sectionSliver(
+      header: const _SectionHeader('Playlist'),
+      count: playlists.length,
+      row: (context, i) {
+        final p = playlists[i];
+        return ListTile(
               leading: const _Art(url: null, icon: Icons.queue_music),
               title: Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis),
               subtitle: Text('${p.items.length} brani'),
@@ -325,8 +349,8 @@ class _PlaylistSection extends StatelessWidget {
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute<void>(builder: (_) => PlaylistScreen(playlist: p)),
               ),
-            )),
-      ],
+            );
+      },
     );
   }
 }
@@ -336,12 +360,12 @@ class _StationsSection extends ConsumerWidget {
   final List<SavedStation> stations;
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (stations.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const _SectionHeader('Radio salvate'),
-        ...stations.map((s) => ListTile(
+    return _sectionSliver(
+      header: const _SectionHeader('Radio salvate'),
+      count: stations.length,
+      row: (context, i) {
+        final s = stations[i];
+        return ListTile(
               leading: _Art(url: s.artworkUrl, icon: Icons.radio),
               title: Text(s.name, maxLines: 1, overflow: TextOverflow.ellipsis),
               subtitle: s.country != null ? Text(s.country!) : null,
@@ -359,8 +383,8 @@ class _StationsSection extends ConsumerWidget {
                   } catch (_) {}
                 },
               ),
-            )),
-      ],
+            );
+      },
     );
   }
 }
@@ -370,12 +394,12 @@ class _PodcastsSection extends ConsumerWidget {
   final List<FollowedPodcast> podcasts;
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (podcasts.isEmpty) return const SizedBox.shrink();
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const _SectionHeader('Podcast seguiti'),
-        ...podcasts.map((p) => ListTile(
+    return _sectionSliver(
+      header: const _SectionHeader('Podcast seguiti'),
+      count: podcasts.length,
+      row: (context, i) {
+        final p = podcasts[i];
+        return ListTile(
               leading: _Art(url: p.artworkUrl, icon: Icons.podcasts),
               title: Text(p.title, maxLines: 1, overflow: TextOverflow.ellipsis),
               subtitle: p.author != null ? Text(p.author!) : null,
@@ -396,8 +420,8 @@ class _PodcastsSection extends ConsumerWidget {
                   } catch (_) {}
                 },
               ),
-            )),
-      ],
+            );
+      },
     );
   }
 }
@@ -415,7 +439,7 @@ class _Art extends StatelessWidget {
         height: 48,
         child: url != null
             ? CachedNetworkImage(
-                imageUrl: url!,
+                imageUrl: url!, memCacheWidth: coverCachePx(context, 48),
                 fit: BoxFit.cover,
                 placeholder: (_, __) => const ColoredBox(color: kSolcoNavyCard),
                 errorWidget: (_, __, ___) => _fallback(),
