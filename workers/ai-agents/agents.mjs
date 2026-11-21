@@ -87,7 +87,7 @@ async function main() {
   // REVIEW_TARGET: «site» (default, 7 agents on the live site) or «ytdlp-worker» (4 agents on the
   // worker's code and live /health).
   const target = env.REVIEW_TARGET?.trim() || 'site';
-  const common = { concurrency: Number(env.AGENT_CONCURRENCY) || 3, language: env.REPORT_LANGUAGE?.trim() || 'italiano' };
+  const common = { concurrency: Number(env.AGENT_CONCURRENCY) || 2, language: env.REPORT_LANGUAGE?.trim() || 'italiano' };
   let measurements;
   let options;
   let title;

@@ -217,8 +217,23 @@ export function redact(text, secrets) {
  * One chat completion with failover: each backend gets `attempts` tries (a 429/5xx/timeout is
  * retried, a 4xx is not), then the next backend. Returns { text, backend }.
  */
-export async function chat(messages, backends, { fetchImpl = fetch, timeoutMs = 60_000, attempts = 2, maxTokens = 900 } = {}) {
+/** Wait before retrying a 429/5xx: the server's Retry-After if given, else 2 s, 4 s, … capped. */
+export function retryDelayMs(res, attempt, maxMs = 20_000) {
+  const header = res?.headers?.get?.('retry-after');
+  const seconds = header && /^\d+(\.\d+)?$/.test(header.trim()) ? Number(header) : null;
+  const ms = seconds !== null ? seconds * 1000 : 2000 * 2 ** (attempt - 1);
+  return Math.min(maxMs, Math.max(0, ms));
+}
+
+const sleepFor = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+export async function chat(
+  messages,
+  backends,
+  { fetchImpl = fetch, timeoutMs = 60_000, attempts = 2, maxTokens = 900, sleep = sleepFor, waitBudgetMs = 45_000 } = {},
+) {
   const failures = [];
+  let waited = 0; // total time spent backing off in this call: rate limits are per key, not per model
   for (const backend of backends) {
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       let res;
@@ -240,13 +255,19 @@ export async function chat(messages, backends, { fetchImpl = fetch, timeoutMs = 
       if (res.ok) {
         const data = await res.json().catch(() => null);
         const text = data?.choices?.[0]?.message?.content;
-        if (typeof text === 'string' && text.trim()) return { text: text.trim(), backend: backend.name };
+        if (typeof text === 'string' && text.trim()) return { text: text.trim(), backend: backend.name, model: backend.model };
         failures.push(`${backend.name}: empty answer`);
         break;
       }
       await res.body?.cancel?.().catch(() => undefined);
       failures.push(`${backend.name}: HTTP ${res.status}`);
       if (!(res.status === 429 || res.status >= 500)) break; // 401/403/400: retrying will not help
+      // 429/5xx: back off before the retry (or before the next model on the same key), within a budget.
+      const delay = Math.min(retryDelayMs(res, attempt), waitBudgetMs - waited);
+      if (delay > 0) {
+        waited += delay;
+        await sleep(delay);
+      }
     }
   }
   const error = new Error(`all AI backends failed (${failures.join(', ')})`);
@@ -470,21 +491,22 @@ export async function runReview(
     leadPrompt, // what the lead agent must produce (default: the 10 most useful fixes)
     leadSystem, // system prompt for the lead only
     leadMaxTokens = 1400,
+    sleep, // injectable back-off (tests)
   } = {},
 ) {
   const systemFor = system ?? SYSTEM(language, subject);
   const specialists = await pool(
     team.map((agent) => async () => {
       try {
-        const { text, backend } = await chat(
+        const { text, backend, model } = await chat(
           [
             { role: 'system', content: systemFor },
             { role: 'user', content: `Area: ${agent.title}\nMateriale:\n${clip(agent.facts(measurements), clipChars)}` },
           ],
           backends,
-          { fetchImpl, timeoutMs, ...(maxTokens ? { maxTokens } : {}) },
+          { fetchImpl, timeoutMs, ...(sleep ? { sleep } : {}), ...(maxTokens ? { maxTokens } : {}) },
         );
-        return { id: agent.id, title: agent.title, ok: true, backend, text };
+        return { id: agent.id, title: agent.title, ok: true, backend, model, text };
       } catch (error) {
         return { id: agent.id, title: agent.title, ok: false, text: '', error: error.message };
       }
@@ -512,7 +534,7 @@ export async function runReview(
       },
     ],
     backends,
-    { fetchImpl, timeoutMs, maxTokens: leadMaxTokens },
+    { fetchImpl, timeoutMs, ...(sleep ? { sleep } : {}), maxTokens: leadMaxTokens },
   ).catch((error) => ({ text: '', backend: null, error: error.message }));
   return { specialists, lead };
 }
@@ -529,9 +551,10 @@ export function renderReport(measurements, review, title = 'Solco — revisione 
   if (gated.length) lines.push(`Attenzione: misurata la pagina di verifica anti-bot, non la pagina vera, per ${gated.join(', ')}`);
   const blocked = (measurements.pages ?? []).filter((p) => p.html?.blocked).map((p) => p.path);
   if (blocked.length) lines.push(`Attenzione: il firewall di Vercel ha bloccato la misura di ${blocked.join(', ')}`);
-  lines.push('', '== Piano (capo squadra) ==', review.lead.text || `non disponibile (${review.lead.error ?? 'nessuna risposta'})`, '');
+  const leadBy = review.lead.backend ? ` [${review.lead.backend}${review.lead.model ? ` · ${review.lead.model}` : ''}]` : '';
+  lines.push('', `== Piano (capo squadra)${leadBy} ==`, review.lead.text || `non disponibile (${review.lead.error ?? 'nessuna risposta'})`, '');
   for (const s of review.specialists) {
-    lines.push(`== ${s.title}${s.ok ? ` [${s.backend}]` : ''} ==`, s.ok ? s.text : `nessuna risposta (${s.error})`, '');
+    lines.push(`== ${s.title}${s.ok ? ` [${s.backend}${s.model ? ` · ${s.model}` : ''}]` : ''} ==`, s.ok ? s.text : `nessuna risposta (${s.error})`, '');
   }
   return lines.join('\n');
 }

@@ -12,6 +12,7 @@ import {
   passGate,
   redact,
   renderReport,
+  retryDelayMs,
   resolveAutoModels,
   runReview,
   SPECIALISTS,
@@ -76,8 +77,10 @@ test('chat: retries 5xx, skips a refusing backend, falls back, sends the Bearer 
     if (url.startsWith('http://freellmapi')) return json({ error: 'busy' }, 503);
     return answer('ciao');
   };
-  const out = await chat([{ role: 'user', content: 'x' }], backends, { fetchImpl, timeoutMs: 1000 });
-  assert.deepEqual(out, { text: 'ciao', backend: 'solco-reserve' });
+  const waits = [];
+  const out = await chat([{ role: 'user', content: 'x' }], backends, { fetchImpl, timeoutMs: 1000, sleep: async (ms) => waits.push(ms) });
+  assert.deepEqual(out, { text: 'ciao', backend: 'solco-reserve', model: 'auto' });
+  assert.deepEqual(waits, [2000, 4000]); // backed off after each 503 instead of retrying at once
   assert.equal(calls.length, 3); // two tries on the private one (503 is retryable), then the reserve
   assert.equal(calls[0].auth, 'Bearer priv-key-1');
   assert.equal(calls[2].auth, 'Bearer res-key-2');
@@ -222,12 +225,13 @@ test('MWAPI: first, key 1 then key 2, only https://api.mwapi.dev/v1, model claud
   // key 1 exhausted (429 twice) → key 2 answers; the reserve is never called
   const calls = [];
   const out = await chat([{ role: 'user', content: 'x' }], backends, {
+    sleep: async () => {},
     fetchImpl: async (url, init) => {
       calls.push(`${new URL(url).hostname} ${init.headers.authorization}`);
       return init.headers.authorization === 'Bearer mw-key-1' ? json({ error: 'quota' }, 429) : answer('da mwapi 2');
     },
   });
-  assert.deepEqual(out, { text: 'da mwapi 2', backend: 'mwapi-2' });
+  assert.deepEqual(out, { text: 'da mwapi 2', backend: 'mwapi-2', model: 'claude-sonnet-5' });
   assert.deepEqual(calls, ['api.mwapi.dev Bearer mw-key-1', 'api.mwapi.dev Bearer mw-key-1', 'api.mwapi.dev Bearer mw-key-2']);
 
   // model 'auto' refused (400) → no retry, the next backend takes over
@@ -418,4 +422,37 @@ test('MagnetAPI: agents only, exact address, first in line, best real model from
   assert.ok(notes.some((n) => n.includes('2 modelli') && n.includes('gpt-6.1-sol')));
   assert.ok(notes.some((n) => n.includes('catena claude-opus-5-5 → gpt-6.1-sol') && n.includes('MAGNETAPI_MODEL')));
   assert.ok(notes.every((n) => !n.includes('mg-key-1')));
+});
+
+test('429 from a reseller: honour Retry-After, back off within a budget, then the next backend', async () => {
+  assert.equal(retryDelayMs(new Response('', { status: 429, headers: { 'retry-after': '7' } }), 1), 7000);
+  assert.equal(retryDelayMs(new Response('', { status: 429 }), 1), 2000);
+  assert.equal(retryDelayMs(new Response('', { status: 429 }), 3), 8000);
+  assert.equal(retryDelayMs(new Response('', { status: 429, headers: { 'retry-after': '600' } }), 1), 20_000);
+
+  const backends = [
+    { name: 'magnetapi', base: 'https://api.magnetapi.org/v1', key: 'mg-1', model: 'gpt-6.2-sol' },
+    { name: 'magnetapi', base: 'https://api.magnetapi.org/v1', key: 'mg-1', model: 'claude-opus-5-5' },
+  ];
+  // Busy on the first try, then GPT 6.2 answers after the wait (no need to change model).
+  let n = 0;
+  const waits = [];
+  const out = await chat([{ role: 'user', content: 'x' }], backends, {
+    sleep: async (ms) => waits.push(ms),
+    fetchImpl: async () => (n++ === 0 ? new Response('', { status: 429, headers: { 'retry-after': '3' } }) : answer('ok')),
+  });
+  assert.deepEqual(out, { text: 'ok', backend: 'magnetapi', model: 'gpt-6.2-sol' });
+  assert.deepEqual(waits, [3000]);
+
+  // Always 429: the waits stop at the budget, then the error names every attempt.
+  const capped = [];
+  await assert.rejects(
+    chat([{ role: 'user', content: 'x' }], backends, {
+      sleep: async (ms) => capped.push(ms),
+      waitBudgetMs: 10_000,
+      fetchImpl: async () => new Response('', { status: 429 }),
+    }),
+    /magnetapi: HTTP 429/,
+  );
+  assert.equal(capped.reduce((a, b) => a + b, 0), 10_000);
 });
