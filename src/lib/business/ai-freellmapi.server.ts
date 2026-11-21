@@ -65,6 +65,39 @@ export function builtInReserveBaseUrl(
   return `${appUrl.replace(/\/+$/, '')}${RESERVE_CONNECTOR_PATH}`;
 }
 
+/** I domini di Solco: un FREELLMAPI_BASE_URL su uno di questi È il connettore interno (self-host). */
+const SOLCO_HOSTS = new Set(['solcomusic.online', 'www.solcomusic.online']);
+
+/**
+ * True se `raw` punta al router ospitato da Solco stesso (`https://<dominio Solco>/api/ai-reserve/v1`,
+ * con o senza www e slash finale, o sul dominio di NEXT_PUBLIC_APP_URL). È la configurazione
+ * self-hosted: FREELLMAPI_BASE_URL = l'URL di Solco. Va servita IN-PROCESS, mai con un giro HTTP
+ * sull'app, che passerebbe dal firewall di Vercel (verifica del browser) e da un cold-start.
+ */
+export function isSelfHostedReserveUrl(
+  raw: string,
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'https:' || url.search || url.hash || url.username || url.password) {
+    return false;
+  }
+  if (url.pathname.replace(/\/+$/, '') !== RESERVE_CONNECTOR_PATH) return false;
+  const host = url.hostname.toLowerCase();
+  if (SOLCO_HOSTS.has(host)) return true;
+  try {
+    const app = env.NEXT_PUBLIC_APP_URL?.trim();
+    return Boolean(app) && new URL(app as string).hostname.toLowerCase() === host;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Base URL OpenAI-compatibile della riserva. Di DEFAULT è il connettore interno di Solco
  * (builtInReserveBaseUrl): nessun router esterno da pubblicare. FREELLMAPI_BASE_URL resta un OVERRIDE
@@ -75,6 +108,9 @@ export function freellmapiBaseUrl(
   env: Record<string, string | undefined> = process.env,
 ): string | null {
   const raw = env.FREELLMAPI_BASE_URL?.trim();
+  // Self-host: l'URL di Solco stesso → il connettore interno (in-process), anche se NEXT_PUBLIC_APP_URL
+  // differisce (con/senza www).
+  if (raw && isSelfHostedReserveUrl(raw, env)) return builtInReserveBaseUrl(env);
   if (raw && isUsableExternalRouter(raw)) {
     return raw.replace(/\/+$/, '');
   }
