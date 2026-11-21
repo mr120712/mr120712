@@ -79,7 +79,7 @@ export const AD_LEAD_PROMPT =
   '{"title": string, "durationSeconds": number (15-20), "scenes": [{"start": number, "end": number, ' +
   `"screen": one of ${JSON.stringify(AD_SCREENS)}, "motion": one of ${JSON.stringify(MOTIONS)}, ` +
   '"headline": string (max 32 caratteri), "subline": string (max 48, anche "")}], "cta": string (max 24), ' +
-  '"caption": string (testo del post, max 150), "hashtags": [string] (max 5), "music": {"mood": string, ' +
+  '"caption": string (testo dell’annuncio, max 100 caratteri: limite di TikTok Ads Manager), "hashtags": [string] (max 5), "music": {"mood": string, ' +
   '"bpm": number, "librarySearch": string}, "compliance": [string]}\n' +
   `Schermi: ${SCREEN_HELP}. ` +
   'La prima scena è l’hook (max 2,5 s), l’ultima è end-card con la CTA. Le scene sono contigue da 0 a ' +
@@ -131,7 +131,7 @@ export function parseStoryboard(text) {
     durationSeconds: Number(t.toFixed(2)),
     scenes,
     cta: clean(data.cta, 24) || 'Ascolta su Solco',
-    caption: clean(data.caption, 150),
+    caption: clean(data.caption, 100), // TikTok Ads Manager: ad text up to 100 characters
     hashtags: (Array.isArray(data.hashtags) ? data.hashtags : [])
       .map((h) => `#${String(h).replace(/^#+/, '').replace(/[^\p{L}\p{N}_]/gu, '')}`)
       .filter((h) => h.length > 1)
