@@ -7,6 +7,7 @@ import { writeFile } from 'node:fs/promises';
 import process from 'node:process';
 import {
   backendsFrom,
+  chat,
   chunks,
   measure,
   redact,
@@ -19,6 +20,7 @@ import { collectWorker, WORKER_SPECIALISTS, WORKER_SUBJECT } from './worker-revi
 
 const env = process.env;
 const secrets = [
+  env.MAGNETAPI_API_KEY,
   env.MWAPI_API_KEY,
   env.MWAPI_API_KEY_2,
   env.FREELLMAPI_PRIVATE_KEY,
@@ -54,8 +56,27 @@ async function main() {
     log(`config: ${error.message}`);
     return 1;
   }
-  const resolved = await resolveAutoModels(backends);
+  // «models»: only list what each key unlocks (models-only check, nothing measured, no agent runs).
+  const listOnly = env.REVIEW_TARGET?.trim() === 'models';
+  const resolved = await resolveAutoModels(
+    listOnly ? backends.map((b) => (b.name === 'magnetapi' || b.name.startsWith('mwapi') ? { ...b, model: 'auto' } : b)) : backends,
+  );
   for (const note of resolved.notes) log(`modelli: ${note}`);
+  if (listOnly) {
+    // A tiny real request per model (5 tokens): listed is not the same as answering.
+    let answering = 0;
+    for (const backend of resolved.backends) {
+      const started = Date.now();
+      try {
+        const { text } = await chat([{ role: 'user', content: 'Rispondi solo: ok' }], [backend], { attempts: 1, maxTokens: 5, timeoutMs: 45_000 });
+        answering += 1;
+        log(`prova: ${backend.name} ${backend.model} ✅ risponde in ${Date.now() - started} ms («${text.slice(0, 20)}»)`);
+      } catch (error) {
+        log(`prova: ${backend.name} ${backend.model} ❌ ${error.message.replace(/^all AI backends failed /, '')}`);
+      }
+    }
+    return answering > 0 ? 0 : 2;
+  }
   backends = resolved.backends;
   if (backends.length === 0) {
     log('config: nessun backend con un modello utilizzabile');
@@ -87,7 +108,7 @@ async function main() {
     options = common;
     title = 'Solco — revisione prestazioni';
   } else {
-    log(`config: REVIEW_TARGET sconosciuto (${target}): usa site, ytdlp-worker o tiktok-ad`);
+    log(`config: REVIEW_TARGET sconosciuto (${target}): usa site, ytdlp-worker, tiktok-ad o models`);
     return 1;
   }
 

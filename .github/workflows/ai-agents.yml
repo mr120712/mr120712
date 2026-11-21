@@ -2,9 +2,11 @@
 # Same worker as the Render cron job (workers/ai-agents/): it measures the live site, runs 7
 # specialist agents + 1 lead agent and writes the report to the run summary and as an artifact.
 # Keys come ONLY from repository secrets (Settings → Secrets and variables → Actions):
-#   MWAPI_API_KEY, MWAPI_API_KEY_2   your MWAPI keys (tried first, key 1 then key 2)
+#   MAGNETAPI_API_KEY                MagnetAPI key (tried first: the most capable model it lists)
+#   MWAPI_API_KEY, MWAPI_API_KEY_2   your MWAPI keys (then key 1 and key 2)
 #   SOLCO_RESERVE_KEY                optional: = FREELLMAPI_API_KEY on Vercel (Solco's reserve, fallback)
 #   MWAPI_MODEL                      optional repository VARIABLE (not secret): a model id, empty = claude-sonnet-5
+#   MAGNETAPI_MODEL                  optional repository VARIABLE: a MagnetAPI model id, empty = best listed
 # GitHub masks secrets in logs and the worker redacts them again. Read-only token, no write access.
 name: 'AI agents: performance review'
 
@@ -12,9 +14,9 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: 'site (7 agents on the live site), ytdlp-worker (4 agents on its code + /health) or tiktok-ad (6 agents write a TikTok ad storyboard)'
+        description: 'site (7 agents on the live site), ytdlp-worker (4 agents on its code + /health), tiktok-ad (6 agents write a TikTok ad storyboard) or models (only list the models each key unlocks)'
         type: choice
-        options: [site, ytdlp-worker, tiktok-ad]
+        options: [site, ytdlp-worker, tiktok-ad, models]
         default: site
       pages:
         description: 'Pages to measure, comma-separated (empty = the default list)'
@@ -52,6 +54,8 @@ jobs:
 
       - name: Run the agents
         env:
+          MAGNETAPI_API_KEY: ${{ secrets.MAGNETAPI_API_KEY }}
+          MAGNETAPI_MODEL: ${{ vars.MAGNETAPI_MODEL }}
           MWAPI_API_KEY: ${{ secrets.MWAPI_API_KEY }}
           MWAPI_API_KEY_2: ${{ secrets.MWAPI_API_KEY_2 }}
           SOLCO_RESERVE_KEY: ${{ secrets.SOLCO_RESERVE_KEY }}
