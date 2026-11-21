@@ -19,18 +19,21 @@ The agents only use the measurements they receive: no tools, no browsing, no inv
 
 | Order | Backend | Variable | Notes |
 |---|---|---|---|
-| 1 | **Your FreeLLMAPI**, private on Render | `FREELLMAPI_PRIVATE_URL` (+ `FREELLMAPI_PRIVATE_KEY`) | Uses your **license key**. A Render *private service* has no public URL. |
-| 2 | **Solco's reserve** | `SOLCO_RESERVE_KEY` | `https://www.solcomusic.online/api/ai-reserve/v1` (Groq · Cerebras · OpenRouter). Same value as `FREELLMAPI_API_KEY` on Vercel. |
+| 1 | **MWAPI** (`https://api.mwapi.dev/v1`), key 1 then key 2 | `MWAPI_API_KEY`, `MWAPI_API_KEY_2`, `MWAPI_MODEL` | Third-party AI gateway. The model is `auto` unless `MWAPI_MODEL` is set; if MWAPI refuses it, the next backend takes over. |
+| 2 | **Your FreeLLMAPI**, private on Render | `FREELLMAPI_PRIVATE_URL` (+ `FREELLMAPI_PRIVATE_KEY`) | Uses your **license key**. A Render *private service* has no public URL. |
+| 3 | **Solco's reserve** | `SOLCO_RESERVE_KEY` | `https://www.solcomusic.online/api/ai-reserve/v1` (Groq · Cerebras · OpenRouter). Same value as `FREELLMAPI_API_KEY` on Vercel. |
 
 Security policy (`lib.mjs`, `backendPolicy`), checked before any request:
 
 - the private backend must be a **single-label host** on Render's private network (for example
   `http://freellmapi:3001/v1`);
 - the reserve must be **https on solcomusic.online**;
+- MWAPI must be exactly **`https://api.mwapi.dev/v1`**;
 - anything else (a public host, an IP such as `192.168.0.117`, `localhost`, URLs with credentials)
   is **refused**, so a key is never sent anywhere else.
 
-Each backend gets two tries on 429/5xx/timeout and one on 401/403, then the next backend takes over.
+Each backend gets two tries on 429/5xx/timeout and one on 400/401/403, then the next backend takes
+over. With both MWAPI keys set, an exhausted first key hands over to the second.
 Keys are removed from every log line (`redact`).
 
 ## Your FreeLLMAPI license key
