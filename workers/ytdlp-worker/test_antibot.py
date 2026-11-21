@@ -11,6 +11,7 @@ import stat
 import sys
 import tempfile
 import textwrap
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -219,6 +220,39 @@ class AntibotTest(unittest.TestCase):
         self.assertTrue(files[0].endswith(".mp4"))
         self.assertIn(f"/file/{files[0]}?exp=", res.json()["url"])
         self.assertEqual(res.json()["filesize"], 10)
+
+    def test_serve_mode_refuses_a_file_over_the_limit_and_leaves_nothing_on_disk(self):
+        # yt-dlp scrive 10 byte; con un limite di 0 MB il file vero supera max_filesize (caso HLS/DASH).
+        with mock.patch.object(worker, "MODE", "serve"), mock.patch.object(worker, "MAX_FILESIZE_MB", 0):
+            res = self.post()
+        self.assertEqual((res.status_code, res.json()["detail"]), (413, "file too large or not downloadable"))
+        self.assertEqual(list(Path(_TMP).iterdir()), [])
+
+    def test_serve_mode_refuses_early_without_disk_space(self):
+        fake = mock.Mock(free=1024)
+        with mock.patch.object(worker, "MODE", "serve"), mock.patch.object(worker.shutil, "disk_usage", return_value=fake):
+            res = self.post()
+        self.assertEqual((res.status_code, res.json()["detail"]), (507, "insufficient storage"))
+        self.assertEqual(FakeYDL.calls, [])  # yt-dlp non parte nemmeno
+
+    def test_busy_worker_answers_503_at_once_and_frees_the_slot_after(self):
+        slots = threading.BoundedSemaphore(1)
+        with mock.patch.object(worker, "_DOWNLOAD_SLOTS", slots):
+            self.assertTrue(slots.acquire(blocking=False))  # un download già in corso
+            res = self.post()
+            self.assertEqual((res.status_code, res.json()["detail"]), (503, "busy"))
+            self.assertEqual(res.headers.get("retry-after"), "30")
+            self.assertEqual(FakeYDL.calls, [])
+            slots.release()
+            self.assertEqual(self.post().status_code, 200)
+            # Il posto torna libero anche dopo un errore.
+            FakeYDL.script = {"default": "ERROR: Video unavailable"}
+            self.post()
+            self.assertTrue(slots.acquire(blocking=False))
+            slots.release()
+
+    def test_socket_timeout_is_short_enough_for_the_bot(self):
+        self.assertLessEqual(worker._base_opts()["socket_timeout"], 15)
 
     def proxied(self, reachable: bool = True) -> None:
         """Fino a fine test: YTDLP_PROXY impostato, e il controllo TCP verso il proxy dà `reachable`."""

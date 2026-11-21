@@ -70,6 +70,12 @@ MODE = os.environ.get("WORKER_MODE", "extract").strip().lower()
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
 FILE_TTL_SECONDS = int(os.environ.get("FILE_TTL_SECONDS", "900"))
 MAX_FILESIZE_MB = int(os.environ.get("MAX_FILESIZE_MB", "200"))
+# Download contemporanei: su Render free (0,1 CPU, 512 MB) due yt-dlp + ffmpeg insieme rischiano di
+# finire la memoria. Oltre il limite si risponde subito 503 + Retry-After invece di rallentare tutti.
+MAX_CONCURRENT_DOWNLOADS = max(1, int(os.environ.get("MAX_CONCURRENT_DOWNLOADS", "2")))
+# Secondi che yt-dlp aspetta un socket fermo prima di rinunciare (prima 30): una connessione appesa
+# dietro WARP non deve mangiarsi i 40 s che il bot di Solco concede a una richiesta.
+SOCKET_TIMEOUT_SECONDS = float(os.environ.get("YTDLP_SOCKET_TIMEOUT", "15"))
 DOWNLOAD_DIR = Path(os.environ.get("DOWNLOAD_DIR", "/tmp/ytdlp-serve"))
 PLAYER_CLIENT = os.environ.get("YTDLP_PLAYER_CLIENT", "").strip()
 COOKIES_FILE_ENV = os.environ.get("YTDLP_COOKIES_FILE", "").strip()
@@ -395,7 +401,7 @@ def _base_opts() -> dict:
         "logger": _SilentLogger(),
         "noplaylist": True,
         "default_search": "ytsearch",
-        "socket_timeout": 30,
+        "socket_timeout": SOCKET_TIMEOUT_SECONDS,
         "retries": 3,
         "fragment_retries": 3,
     }
@@ -1067,6 +1073,9 @@ def _pick_entry(info: dict) -> dict:
     return entries[0] if entries else info
 
 
+_DOWNLOAD_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_DOWNLOADS)
+
+
 @app.post("/download")
 def download(
     req: DownloadRequest,
@@ -1075,12 +1084,20 @@ def download(
 ) -> dict:
     _check_auth(authorization)
     target = _target(req)
-    log.info("richiesta download: mode=%s target=%s", MODE, target[:200])
-    result = (
-        _serve_download(target, request, req.format)
-        if MODE == "serve"
-        else _extract_url(target, req.format)
-    )
+    # Non si accoda: con tutti i posti occupati si risponde subito, così il bot lo dice all'utente
+    # invece di aspettare a vuoto i suoi 40 s.
+    if not _DOWNLOAD_SLOTS.acquire(blocking=False):
+        log.warning("download rifiutato: %s già in corso", MAX_CONCURRENT_DOWNLOADS)
+        raise HTTPException(status_code=503, detail="busy", headers={"Retry-After": "30"})
+    try:
+        log.info("richiesta download: mode=%s target=%s", MODE, target[:200])
+        result = (
+            _serve_download(target, request, req.format)
+            if MODE == "serve"
+            else _extract_url(target, req.format)
+        )
+    finally:
+        _DOWNLOAD_SLOTS.release()
     log.info("download ok: title=%r ext=%s bytes=%s", result.get("title"), result.get("ext"), result.get("filesize"))
     return result
 
@@ -1116,12 +1133,21 @@ def _extract_url(target: str, fmt: str | None) -> dict:
 def _serve_download(target: str, request: Request, fmt: str | None) -> dict:
     """Modalità serve: scarica il media e restituisce un URL FIRMATO di questo worker (/file/<id>?exp&sig)."""
     _sweep()
+    limit = MAX_FILESIZE_MB * 1024 * 1024
+    # Spazio prima di iniziare: scoprirlo a scrittura in corso lascerebbe un parziale e un errore opaco.
+    try:
+        free = shutil.disk_usage(DOWNLOAD_DIR).free
+    except OSError:
+        free = None
+    if free is not None and free < limit:
+        log.warning("download rifiutato: %s MB liberi, servono %s MB", free // (1024 * 1024), MAX_FILESIZE_MB)
+        raise HTTPException(status_code=507, detail="insufficient storage")
     token = uuid.uuid4().hex
     ydl_opts = {
         **_base_opts(),
         "format": fmt or FORMAT,
         "outtmpl": str(DOWNLOAD_DIR / f"{token}.%(ext)s"),
-        "max_filesize": MAX_FILESIZE_MB * 1024 * 1024,
+        "max_filesize": limit,
     }
 
     def work(ydl: Any) -> tuple[dict, Path]:
@@ -1142,8 +1168,10 @@ def _serve_download(target: str, request: Request, fmt: str | None) -> dict:
         log.warning("download failed per %s: %s (client provati: %s)", target[:200], failure.kind, failure.tried)
         raise _upstream_http(failure, "download failed") from None
 
-    if not path.is_file():
-        # max_filesize superato o nessun formato scaricabile.
+    # max_filesize vale sulla dimensione DICHIARATA: un download a frammenti (HLS/DASH) senza dimensione
+    # nota arriva intero, quindi si controlla anche quella vera. In entrambi i casi niente resta su disco.
+    if not path.is_file() or path.stat().st_size > limit:
+        cleanup()
         raise HTTPException(status_code=413, detail="file too large or not downloadable")
 
     base = PUBLIC_BASE_URL or str(request.base_url).rstrip("/")
