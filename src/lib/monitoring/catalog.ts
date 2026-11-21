@@ -68,7 +68,7 @@ export const MONITOR_CHECKS: Record<MonitorCheckId, MonitorCheckInfo> = {
   email: {
     label: 'Email',
     critical: false,
-    help: 'L’invio delle email (verifica account) è configurato.',
+    help: 'Le email (verifica account, recupero password) hanno un canale vero: Resend con un mittente su un dominio verificato (EMAIL_FROM), oppure il proxy email della piattaforma. Il mittente di prova di Resend (onboarding@resend.dev) consegna solo al titolare dell’account Resend: è un guasto.',
   },
   anthropic: {
     label: 'Ricerca AI',
