@@ -5,7 +5,15 @@
 // Telegram. Exit codes: 0 report produced · 1 configuration refused · 2 no AI backend answered.
 import { writeFile } from 'node:fs/promises';
 import process from 'node:process';
-import { backendsFrom, chunks, measure, redact, renderReport, runReview } from './lib.mjs';
+import {
+  backendsFrom,
+  chunks,
+  measure,
+  redact,
+  renderReport,
+  resolveAutoModels,
+  runReview,
+} from './lib.mjs';
 
 const env = process.env;
 const secrets = [
@@ -44,7 +52,14 @@ async function main() {
     log(`config: ${error.message}`);
     return 1;
   }
-  log(`backend: ${backends.map((b) => b.name).join(' → ')}`);
+  const resolved = await resolveAutoModels(backends);
+  for (const note of resolved.notes) log(`modelli: ${note}`);
+  backends = resolved.backends;
+  if (backends.length === 0) {
+    log('config: nessun backend con un modello utilizzabile');
+    return 2;
+  }
+  log(`backend: ${backends.map((b) => `${b.name} (${b.model})`).join(' → ')}`);
 
   const pages = env.REVIEW_PAGES?.split(',').map((p) => p.trim()).filter((p) => p.startsWith('/'));
   const measurements = await measure({ ...(pages?.length ? { pages } : {}) });

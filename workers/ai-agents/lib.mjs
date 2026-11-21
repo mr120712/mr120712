@@ -99,6 +99,57 @@ export function backendsFrom(env) {
   return { backends, warnings: errors };
 }
 
+/** Model ids preferred when a gateway is asked for «auto» (cheap, fast, good at short reports). */
+const PREFERRED_MODELS = [
+  /gpt-4o-mini/i,
+  /gpt-4\.1-mini/i,
+  /gemini-[\d.]+-flash(?!-lite)/i,
+  /claude-[\w.-]*haiku/i,
+  /deepseek-(chat|v3)/i,
+  /qwen[\w.-]*(plus|turbo|instruct)/i,
+  /llama-3\.3-70b/i,
+];
+const NOT_CHAT = /(embed|whisper|tts|dall-e|image|moderation|rerank|audio|realtime|vision-preview)/i;
+
+/**
+ * A gateway such as MWAPI has no model called «auto»: ask its /models with the backend's key and
+ * pick a real one (first match in PREFERRED_MODELS, else the first chat model listed). Backends with
+ * an explicit model, or that are not MWAPI, are left as they are. Returns { backends, notes }; the
+ * notes list the models found (ids only, never a key) so the owner can set MWAPI_MODEL.
+ */
+export async function resolveAutoModels(backends, { fetchImpl = fetch, timeoutMs = 15_000 } = {}) {
+  const notes = [];
+  const out = [];
+  for (const backend of backends) {
+    if (backend.model !== 'auto' || !backend.name.startsWith('mwapi')) {
+      out.push(backend);
+      continue;
+    }
+    let ids = [];
+    try {
+      const res = await fetchImpl(`${backend.base}/models`, {
+        headers: { authorization: `Bearer ${backend.key}`, 'user-agent': USER_AGENT },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      const data = res.ok ? await res.json().catch(() => null) : null;
+      ids = Array.isArray(data?.data) ? data.data.map((m) => String(m?.id ?? '')).filter(Boolean) : [];
+      if (!res.ok) notes.push(`${backend.name}: /models HTTP ${res.status}`);
+    } catch (error) {
+      notes.push(`${backend.name}: /models ${error?.name || 'network error'}`);
+    }
+    const chatIds = ids.filter((id) => !NOT_CHAT.test(id));
+    const chosen = PREFERRED_MODELS.map((re) => chatIds.find((id) => re.test(id))).find(Boolean) ?? chatIds[0];
+    if (ids.length) notes.push(`${backend.name}: ${ids.length} modelli (${ids.slice(0, 25).join(', ')}${ids.length > 25 ? ', …' : ''})`);
+    if (chosen) {
+      notes.push(`${backend.name}: uso il modello ${chosen} (imposta MWAPI_MODEL per sceglierne un altro)`);
+      out.push({ ...backend, model: chosen });
+    } else {
+      notes.push(`${backend.name}: nessun modello di chat trovato, salto questo backend`);
+    }
+  }
+  return { backends: out, notes };
+}
+
 /** Removes every secret value from a string before it is logged or sent anywhere. */
 export function redact(text, secrets) {
   let out = String(text ?? '');
