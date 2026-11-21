@@ -19,6 +19,7 @@ export const MONITOR_CHECK_IDS = [
   'freellmapi',
   'solco_ai',
   'stripe',
+  'telegram_bot',
   'cron_cleanup',
 ] as const;
 

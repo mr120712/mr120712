@@ -602,6 +602,84 @@ const checkStripe: Check = async (deps) => {
   return fail(`Stripe ha risposto con un errore (HTTP ${response.status})`);
 };
 
+/** Update che il bot gestisce (come WEBHOOK_ALLOWED_UPDATES in telegram-bot.server.ts). */
+const TELEGRAM_UPDATES = ['message', 'callback_query'];
+/** Un errore di consegna più recente di così è un guasto in corso; più vecchio, solo un avviso. */
+export const TELEGRAM_RECENT_ERROR_MS = 60 * 60 * 1000;
+/** Messaggi in coda oltre i quali Telegram sta accumulando (il bot non li smaltisce). */
+export const TELEGRAM_PENDING_WARN = 50;
+
+/**
+ * Il bot Telegram riceve i messaggi? Chiede a Telegram getWebhookInfo (nessun messaggio inviato):
+ * webhook registrato sull'indirizzo di Solco, con gli update del bot, senza errori di consegna
+ * recenti e senza una coda che cresce. Il token non compare MAI in un dettaglio.
+ */
+const checkTelegramBot: Check = async (deps) => {
+  const token = deps.env.TELEGRAM_BOT_TOKEN?.trim();
+  if (!token) return warn('Non configurato (TELEGRAM_BOT_TOKEN): il bot è spento');
+  const hide = (text: string) => text.split(token).join('[token]').slice(0, 160);
+  if (!deps.env.TELEGRAM_WEBHOOK_SECRET?.trim()) {
+    return fail('Manca TELEGRAM_WEBHOOK_SECRET: il webhook risponde 404 e il bot non riceve nulla');
+  }
+  const response = await request(deps, `https://api.telegram.org/bot${token}/getWebhookInfo`);
+  if (!response) return fail('Telegram non raggiungibile');
+  if (response.status === 401 || response.status === 404) {
+    await discard(response);
+    return fail('Token del bot non valido o revocato (rigeneralo con @BotFather)');
+  }
+  const body = (await response.json().catch(() => null)) as {
+    ok?: boolean;
+    result?: {
+      url?: string;
+      pending_update_count?: number;
+      last_error_date?: number;
+      last_error_message?: string;
+      allowed_updates?: unknown;
+    };
+  } | null;
+  if (!response.ok || !body?.ok || !body.result) {
+    return fail(`Telegram ha risposto con un errore (HTTP ${response.status})`);
+  }
+  const info = body.result;
+  const publicUrl = (
+    deps.env.TELEGRAM_PUBLIC_URL?.trim() || 'https://www.solcomusic.online'
+  ).replace(/\/+$/, '');
+  const expected = `${publicUrl}/api/telegram/webhook`;
+  if (!info.url) {
+    return fail(
+      'Webhook non registrato: il bot non riceve messaggi (il cron giornaliero lo ripristina)',
+    );
+  }
+  if (info.url !== expected) {
+    let host = 'un altro indirizzo';
+    try {
+      host = new URL(info.url).host;
+    } catch {
+      // URL non leggibile: resta la dicitura generica
+    }
+    return fail(`Webhook registrato su ${host}, non su Solco: i messaggi vanno altrove`);
+  }
+  const pending = Number(info.pending_update_count ?? 0);
+  const errorAt =
+    typeof info.last_error_date === 'number' ? new Date(info.last_error_date * 1000) : null;
+  const errorText = info.last_error_message ? hide(info.last_error_message) : 'errore sconosciuto';
+  if (errorAt && deps.now().getTime() - errorAt.getTime() < TELEGRAM_RECENT_ERROR_MS) {
+    return fail(
+      `Consegna non riuscita alle ${formatRome(errorAt)}: ${errorText} (${pending} in coda)`,
+    );
+  }
+  const registered = info.allowed_updates;
+  if (Array.isArray(registered) && !TELEGRAM_UPDATES.every((u) => registered.includes(u))) {
+    return warn(
+      'Il webhook non riceve tutti gli update (i tap sui pulsanti del menu restano muti)',
+    );
+  }
+  if (pending > TELEGRAM_PENDING_WARN)
+    return warn(`${pending} messaggi in coda: il bot è in ritardo`);
+  const older = errorAt ? ` · ultimo errore ${formatRome(errorAt)}: ${errorText}` : '';
+  return ok(`Webhook attivo su Solco, ${pending} in coda${older}`);
+};
+
 const checkCronCleanup: Check = async (deps) => {
   let beat: { at: Date } | null;
   try {
@@ -636,6 +714,7 @@ export const MONITOR_CHECK_FUNCTIONS: Record<MonitorCheckId, Check> = {
   freellmapi: checkFreellmapi,
   solco_ai: checkSolcoAi,
   stripe: checkStripe,
+  telegram_bot: checkTelegramBot,
   cron_cleanup: checkCronCleanup,
 };
 

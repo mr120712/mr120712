@@ -83,6 +83,8 @@ const SECRETS = {
   DATABASE_URL: 'postgresql://solco:sup3r-s3cret-pass@db.internal.test:5432/solco',
   CRON_SECRET: 'fake-cron-secret-0123456789abcdef',
   FREELLMAPI_API_KEY: 'freellmapi-fake-key-0123456789abcdef',
+  TELEGRAM_BOT_TOKEN: '123456789:AAFakeTelegramBotToken0123456789abcd',
+  TELEGRAM_WEBHOOK_SECRET: 'fake-telegram-webhook-secret-0123',
 };
 const SECRET_VALUES = Object.values(SECRETS);
 
@@ -105,6 +107,15 @@ const okRoutes: Record<string, FetchHandler> = {
   'www.googleapis.com': () => Response.json({ items: [{ id: 'video-1' }] }),
   'api.anthropic.com': () => Response.json({ data: [{ id: 'model' }] }),
   'api.groq.com': () => Response.json({ data: [{ id: 'model' }] }),
+  'api.telegram.org': () =>
+    Response.json({
+      ok: true,
+      result: {
+        url: 'https://www.solcomusic.online/api/telegram/webhook',
+        pending_update_count: 0,
+        allowed_updates: ['message', 'callback_query'],
+      },
+    }),
   'api.stripe.com': () => Response.json({ available: [] }),
 };
 
@@ -885,6 +896,108 @@ describe('stripe', () => {
   });
 });
 
+describe('telegram_bot', () => {
+  const webhook = (result: Record<string, unknown>) => () =>
+    Response.json({
+      ok: true,
+      result: {
+        url: 'https://www.solcomusic.online/api/telegram/webhook',
+        pending_update_count: 0,
+        allowed_updates: ['message', 'callback_query'],
+        ...result,
+      },
+    });
+  const run = (route: FetchHandler, env: Record<string, string | undefined> = {}) =>
+    runCheck(
+      'telegram_bot',
+      makeDeps({
+        fetch: makeFetch({ 'api.telegram.org': route }) as never,
+        env: { ...ENV, ...env },
+      }),
+    );
+
+  it('ok when the webhook is on Solco with an empty queue; asks only getWebhookInfo', async () => {
+    const fetchMock = makeFetch({ 'api.telegram.org': webhook({}) });
+    const result = await runCheck('telegram_bot', makeDeps({ fetch: fetchMock as never }));
+    expect(result.status).toBe('ok');
+    expect(result.detail).toBe('Webhook attivo su Solco, 0 in coda');
+    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(urls).toEqual([
+      `https://api.telegram.org/bot${SECRETS.TELEGRAM_BOT_TOKEN}/getWebhookInfo`,
+    ]);
+  });
+
+  it('not configured → warn; missing webhook secret → fail', async () => {
+    expect((await run(webhook({}), { TELEGRAM_BOT_TOKEN: undefined })).status).toBe('warn');
+    const noSecret = await run(webhook({}), { TELEGRAM_WEBHOOK_SECRET: undefined });
+    expect(noSecret.status).toBe('fail');
+    expect(noSecret.detail).toMatch(/TELEGRAM_WEBHOOK_SECRET/);
+  });
+
+  it('fails on a revoked token, no webhook, or a webhook pointing elsewhere', async () => {
+    const revoked = await run(() => Response.json({ ok: false }, { status: 401 }));
+    expect([revoked.status, revoked.detail]).toEqual([
+      'fail',
+      expect.stringMatching(/Token del bot/),
+    ]);
+    const none = await run(webhook({ url: '' }));
+    expect([none.status, none.detail]).toEqual(['fail', expect.stringMatching(/non registrato/)]);
+    const elsewhere = await run(webhook({ url: 'https://evil.example/hook' }));
+    expect([elsewhere.status, elsewhere.detail]).toEqual([
+      'fail',
+      expect.stringMatching(/evil\.example/),
+    ]);
+    const down = await run(() => {
+      throw new Error('ECONNRESET');
+    });
+    expect([down.status, down.detail]).toEqual(['fail', 'Telegram non raggiungibile']);
+  });
+
+  it('a delivery error in the last hour fails; an older one is only mentioned', async () => {
+    const recent = Math.floor((NOW.getTime() - 10 * 60 * 1000) / 1000);
+    const failing = await run(
+      webhook({
+        last_error_date: recent,
+        last_error_message: 'Wrong response from the webhook: 500',
+        pending_update_count: 7,
+      }),
+    );
+    expect(failing.status).toBe('fail');
+    expect(failing.detail).toMatch(/Wrong response from the webhook: 500 \(7 in coda\)/);
+    const old = Math.floor((NOW.getTime() - 5 * HOUR) / 1000);
+    const healed = await run(
+      webhook({ last_error_date: old, last_error_message: 'Connection timed out' }),
+    );
+    expect(healed.status).toBe('ok');
+    expect(healed.detail).toMatch(/ultimo errore .*Connection timed out/);
+  });
+
+  it('warns on a growing queue or when menu taps are not delivered', async () => {
+    const queue = await run(webhook({ pending_update_count: 80 }));
+    expect([queue.status, queue.detail]).toEqual([
+      'warn',
+      '80 messaggi in coda: il bot è in ritardo',
+    ]);
+    const taps = await run(webhook({ allowed_updates: ['message'] }));
+    expect([taps.status, taps.detail]).toEqual([
+      'warn',
+      expect.stringMatching(/pulsanti del menu/),
+    ]);
+  });
+
+  it('never shows the token, even inside Telegram’s own error text', async () => {
+    const recent = Math.floor((NOW.getTime() - 60 * 1000) / 1000);
+    const result = await run(
+      webhook({
+        last_error_date: recent,
+        last_error_message: `bad bot${SECRETS.TELEGRAM_BOT_TOKEN} url`,
+      }),
+    );
+    expect(result.detail).not.toContain(SECRETS.TELEGRAM_BOT_TOKEN);
+    expect(result.detail).toContain('[token]');
+  });
+});
+
 describe('cron_cleanup', () => {
   it('warns when the cleanup never ran, fails past 50 hours, ok otherwise', async () => {
     const run = async (beat: { at: Date } | null) => {
@@ -929,6 +1042,7 @@ describe('secrets never reach a detail', () => {
           'www.googleapis.com': echo(400),
           'api.anthropic.com': echo(401),
           'api.groq.com': echo(401),
+          'api.telegram.org': echo(401),
           'api.stripe.com': echo(401),
         }) as never,
         youtubeSearchHealth: thrower,
