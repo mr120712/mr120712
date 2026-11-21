@@ -405,14 +405,28 @@ export async function pool(tasks, limit) {
 export async function runReview(
   measurements,
   backends,
-  { fetchImpl = fetch, concurrency = 3, language = 'italiano', timeoutMs, specialists: team = SPECIALISTS, subject, clipChars = 6000, maxTokens } = {},
+  {
+    fetchImpl = fetch,
+    concurrency = 3,
+    language = 'italiano',
+    timeoutMs,
+    specialists: team = SPECIALISTS,
+    subject,
+    clipChars = 6000,
+    maxTokens,
+    system, // full system prompt for every agent (overrides the review one)
+    leadPrompt, // what the lead agent must produce (default: the 10 most useful fixes)
+    leadSystem, // system prompt for the lead only
+    leadMaxTokens = 1400,
+  } = {},
 ) {
+  const systemFor = system ?? SYSTEM(language, subject);
   const specialists = await pool(
     team.map((agent) => async () => {
       try {
         const { text, backend } = await chat(
           [
-            { role: 'system', content: SYSTEM(language, subject) },
+            { role: 'system', content: systemFor },
             { role: 'user', content: `Area: ${agent.title}\nMateriale:\n${clip(agent.facts(measurements), clipChars)}` },
           ],
           backends,
@@ -433,18 +447,20 @@ export async function runReview(
   }
   const lead = await chat(
     [
-      { role: 'system', content: SYSTEM(language, subject) },
+      { role: 'system', content: leadSystem ?? systemFor },
       {
         role: 'user',
         content:
-          `Sei il capo squadra. Unisci i rapporti degli specialisti in UN piano: le 10 correzioni ` +
-          `più utili in ordine di impatto, ognuna con impatto (alto/medio/basso), sforzo e la misura ` +
-          `che la giustifica. Scarta i doppioni e ciò che non è provato dalle misure.\n\n` +
+          (leadPrompt ??
+            `Sei il capo squadra. Unisci i rapporti degli specialisti in UN piano: le 10 correzioni ` +
+              `più utili in ordine di impatto, ognuna con impatto (alto/medio/basso), sforzo e la misura ` +
+              `che la giustifica. Scarta i doppioni e ciò che non è provato dalle misure.`) +
+          '\n\n' +
           answered.map((s) => `## ${s.title}\n${s.text}`).join('\n\n'),
       },
     ],
     backends,
-    { fetchImpl, timeoutMs, maxTokens: 1400 },
+    { fetchImpl, timeoutMs, maxTokens: leadMaxTokens },
   ).catch((error) => ({ text: '', backend: null, error: error.message }));
   return { specialists, lead };
 }

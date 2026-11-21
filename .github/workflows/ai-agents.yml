@@ -12,9 +12,9 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: 'What to review: the live site (7 agents) or the yt-dlp worker (4 agents on its code + /health)'
+        description: 'site (7 agents on the live site), ytdlp-worker (4 agents on its code + /health) or tiktok-ad (6 agents write a TikTok ad storyboard)'
         type: choice
-        options: [site, ytdlp-worker]
+        options: [site, ytdlp-worker, tiktok-ad]
         default: site
       pages:
         description: 'Pages to measure, comma-separated (empty = the default list)'
@@ -41,6 +41,7 @@ jobs:
           sparse-checkout: |
             workers/ai-agents
             workers/ytdlp-worker
+            src/lib
 
       - uses: actions/setup-node@v4
         with:
@@ -58,6 +59,7 @@ jobs:
           REVIEW_PAGES: ${{ inputs.pages }}
           REVIEW_TARGET: ${{ inputs.target || 'site' }}
           REPORT_FILE: ${{ runner.temp }}/report.txt
+          STORYBOARD_FILE: ${{ runner.temp }}/storyboard.json
         run: node workers/ai-agents/agents.mjs
 
       - name: Report in the run summary
@@ -73,6 +75,8 @@ jobs:
         if: always()
         with:
           name: ai-agents-report
-          path: ${{ runner.temp }}/report.txt
+          path: |
+            ${{ runner.temp }}/report.txt
+            ${{ runner.temp }}/storyboard.json
           if-no-files-found: ignore
           retention-days: 14
