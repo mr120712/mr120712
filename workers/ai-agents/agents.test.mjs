@@ -327,7 +327,7 @@ test('TikTok ad: 6 specialists, facts from the repo (Pro not advertised), storyb
   const f = await collectAdFacts({
     root: new URL('../../', import.meta.url),
     fetchImpl: async (url) =>
-      new Response(`<html><title>Radio — Solco</title><h1>Radio dal vivo</h1><h2>Stazioni <b>italiane</b></h2></html>`, {
+      new Response(`<html><title>Solco</title><h1>Tutta la musica</h1><p>10 iscritti a Solco</p><ul><li>Gratis</li><li>40 ascolti al mese</li><li>Radio e YouTube senza limiti</li></ul><script>x()</script></html>`, {
         headers: { 'content-type': 'text/html' },
       }),
   });
@@ -337,7 +337,10 @@ test('TikTok ad: 6 specialists, facts from the repo (Pro not advertised), storyb
   assert.match(f.text, /NON pubblicizzarlo/);
   assert.ok(f.facts.sections.includes('Radio'));
   assert.ok(!f.facts.sections.includes('Privacy'));
-  assert.deepEqual(f.screens['/radio'].headings, ['Radio dal vivo', 'Stazioni italiane']);
+  assert.match(f.text, /40 ascolti al mese/); // the Free plan's limit reaches the compliance agent
+  assert.match(f.text, /Radio e YouTube senza limiti/);
+  assert.doesNotMatch(f.text, /iscritti a Solco/); // the live counter is left out
+  assert.doesNotMatch(f.text, /x\(\)/);
 
   const board = parseStoryboard(
     'Ecco:\n```json\n' +
@@ -346,10 +349,10 @@ test('TikTok ad: 6 specialists, facts from the repo (Pro not advertised), storyb
         durationSeconds: 15,
         scenes: [
           { start: 0, end: 2, screen: 'logo', motion: 'zoom-in', headline: 'Musica, radio e podcast' },
-          { start: 2, end: 5, screen: '/radio', motion: 'pan-down', headline: 'Radio dal vivo', subline: 'in un tap' },
-          { start: 5, end: 8, screen: '/hacker', motion: 'spin', headline: 'schermo inesistente: scartato' },
-          { start: 8, end: 11, screen: '/podcasts', motion: 'spin', headline: 'x'.repeat(80) },
-          { start: 11, end: 14, screen: '/generi', motion: 'pan-up', headline: 'Generi underground' },
+          { start: 2, end: 5, screen: 'hero', motion: 'pan-down', headline: 'Radio dal vivo', subline: 'in un tap' },
+          { start: 5, end: 8, screen: '/radio', motion: 'spin', headline: 'schermo non visibile: scartato' },
+          { start: 8, end: 11, screen: 'text', motion: 'spin', headline: 'x'.repeat(80) },
+          { start: 11, end: 14, screen: 'free-plan', motion: 'pan-up', headline: 'Inizia gratis' },
         ],
         cta: 'Ascolta gratis ora',
         hashtags: ['musica', '#radio!', 'podcast', 'a', 'b', 'c'],
@@ -358,7 +361,7 @@ test('TikTok ad: 6 specialists, facts from the repo (Pro not advertised), storyb
       }) +
       '\n```',
   );
-  assert.deepEqual(board.scenes.map((s) => s.screen), ['logo', '/radio', '/podcasts', '/generi', 'end-card']);
+  assert.deepEqual(board.scenes.map((s) => s.screen), ['logo', 'hero', 'text', 'free-plan', 'end-card']);
   assert.equal(board.scenes[0].start, 0);
   for (let i = 1; i < board.scenes.length; i += 1) assert.equal(board.scenes[i].start, board.scenes[i - 1].end);
   assert.equal(board.scenes[2].motion, 'static'); // unknown motion → static

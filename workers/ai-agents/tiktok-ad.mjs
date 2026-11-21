@@ -5,9 +5,16 @@
 import { readFile } from 'node:fs/promises';
 import { passGate, SOLCO_ORIGIN, timedGet } from './lib.mjs';
 
-/** The only screens a scene may show: real Solco pages, plus the opening logo and the end card. */
-export const AD_SCREENS = ['logo', '/', '/radio', '/podcasts', '/generi', '/classici', '/search', 'end-card'];
-const PAGE_SCREENS = AD_SCREENS.filter((s) => s.startsWith('/'));
+/**
+ * What a scene may show. The feature pages (/radio, /podcasts, …) ask a visitor without an account to
+ * log in, so the ad uses what a visitor really sees: the home page's hero and its Free plan card, plus
+ * kinetic text on the brand background, the opening logo and the end card.
+ */
+export const AD_SCREENS = ['logo', 'hero', 'free-plan', 'text', 'end-card'];
+const SCREEN_HELP =
+  'logo = marchio Solco su fondo scuro; hero = cima della home ("TUTTA LA MUSICA. UN SOLO PLAYER.", ' +
+  'bottone "Inizia gratis"); free-plan = scheda del piano Free della home; text = solo testo grande ' +
+  'animato sul colore del marchio; end-card = chiusura con logo, CTA e solcomusic.online';
 const MOTIONS = ['zoom-in', 'zoom-out', 'pan-up', 'pan-down', 'static'];
 
 export const AD_SYSTEM =
@@ -37,7 +44,7 @@ export const AD_SPECIALISTS = [
     title: 'Regia: storyboard scena per scena',
     facts: (f) =>
       `${f.text}\n\nCompito: storyboard di 15-20 s, scene da 1,5-3,5 s. Ogni scena usa UNO di questi ` +
-      `schermi: ${AD_SCREENS.join(', ')} (logo = apertura col marchio, end-card = chiusura con CTA). ` +
+      `schermi: ${SCREEN_HELP}. ` +
       `Movimento per scena: ${MOTIONS.join(', ')}. Indica per ogni scena: tempo, schermo, movimento, testo.`,
   },
   {
@@ -74,6 +81,7 @@ export const AD_LEAD_PROMPT =
   '"headline": string (max 32 caratteri), "subline": string (max 48, anche "")}], "cta": string (max 24), ' +
   '"caption": string (testo del post, max 150), "hashtags": [string] (max 5), "music": {"mood": string, ' +
   '"bpm": number, "librarySearch": string}, "compliance": [string]}\n' +
+  `Schermi: ${SCREEN_HELP}. ` +
   'La prima scena è l’hook (max 2,5 s), l’ultima è end-card con la CTA. Le scene sono contigue da 0 a ' +
   'durationSeconds. Usa solo claim ammessi dalla conformità. Niente testo fuori dal blocco JSON.';
 
@@ -155,18 +163,27 @@ export async function collectAdFacts({ root, fetchImpl = fetch } = {}) {
       .filter((l) => !/^(Privacy|Termini|Contatti|Impostazioni|Stato|Messaggi)$/.test(l)),
     proOnSale: !/checkout resta bloccato|accesso pro resta bloccato/i.test(billing),
   };
+  // The home page as a visitor without an account sees it: its visible text includes the plans and
+  // their limits (the Free plan has a monthly cap), which the compliance agent needs.
   const gate = await passGate(SOLCO_ORIGIN, fetchImpl).catch(() => ({ cookie: null }));
-  const screens = {};
-  for (const path of PAGE_SCREENS) {
-    const r = await timedGet(new URL(path, SOLCO_ORIGIN).href, fetchImpl, 20_000, gate.cookie);
-    const html = typeof r.body === 'string' ? r.body : '';
-    const title = html.match(/<title>([^<]*)<\/title>/i)?.[1]?.trim() ?? '';
-    const headings = [...html.matchAll(/<h[1-3][^>]*>([\s\S]*?)<\/h[1-3]>/gi)]
-      .map((m) => m[1].replace(/<[^>]+>/g, ' ').replace(/&[a-z#0-9]+;/gi, ' ').replace(/\s+/g, ' ').trim())
-      .filter(Boolean)
-      .slice(0, 8);
-    screens[path] = { title, headings };
-  }
+  const home = await timedGet(new URL('/', SOLCO_ORIGIN).href, fetchImpl, 20_000, gate.cookie);
+  const html = typeof home.body === 'string' ? home.body : '';
+  const visibleText = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<(?:li|p|h[1-6]|div|section|button|a)\b[^>]*>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&#x27;|&#39;|&rsquo;/g, '’')
+    .replace(/&[a-z#0-9]+;/gi, ' ')
+    .split('\n')
+    .map((l) => l.replace(/\s+/g, ' ').trim())
+    .filter((l) => l.length > 1)
+    .filter((l) => !/iscritti a Solco|nuovi negli ultimi/i.test(l)) // a live counter, not a claim to reuse
+    .join('\n')
+    .slice(0, 3500);
+  const screens = { home: { visibleText } };
   const text =
     `FATTI SU SOLCO (gli unici da usare):\n` +
     `- Nome: ${facts.name}. Sito: solcomusic.online (web app; c'è anche l'app da installare).\n` +
@@ -174,9 +191,8 @@ export async function collectAdFacts({ root, fetchImpl = fetch } = {}) {
     `- Tagline: ${facts.tagline}\n` +
     `- Sezioni reali del sito: ${facts.sections.join(', ')}\n` +
     `- Solco Pro (24 € una tantum): ${facts.proOnSale ? 'in vendita' : 'NON acquistabile ora (checkout bloccato): NON pubblicizzarlo, niente prezzi'}\n` +
-    `- Schermi disponibili per le scene (titolo e intestazioni reali):\n` +
-    Object.entries(screens)
-      .map(([path, s]) => `  ${path}: ${s.title}${s.headings.length ? ` — ${s.headings.join(' · ')}` : ''}`)
-      .join('\n');
+    `- Le pagine delle funzioni (radio, podcast, …) chiedono di accedere: nello spot si vede la home.\n` +
+    `- Schermi per le scene: ${SCREEN_HELP}.\n` +
+    `- Testo visibile della home (piani e limiti compresi, è la fonte dei claim):\n${visibleText}`;
   return { measuredAt: new Date().toISOString(), facts, screens, text };
 }
