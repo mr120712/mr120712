@@ -177,8 +177,12 @@ WARP_READY_SECONDS = float(os.environ.get("YTDLP_WARP_READY_SECONDS", "20"))
 # ripiegare sull'uscita diretta: deve restare tempo per scaricare entro i 40 secondi del bot.
 WARP_WAIT_SECONDS = float(os.environ.get("YTDLP_WARP_WAIT_SECONDS", "15"))
 # Quante volte, in una richiesta, si cambia indirizzo di uscita quando YouTube ferma quello in uso.
-# Nelle misure è fermato circa un indirizzo su tre, e cambiarlo costa poco più di un secondo.
-WARP_RENEWALS = int(os.environ.get("YTDLP_WARP_RENEWALS", "3"))
+# Nelle misure è fermato circa un indirizzo su tre, e cambiarlo costa poco più di un secondo: con 5
+# cambi la probabilità di trovare solo indirizzi fermati scende sotto lo 0,1%. Il budget della richiesta
+# (YTDLP_ANTIBOT_BUDGET_SECONDS) resta il limite vero: oltre, non si inizia un altro tentativo.
+WARP_RENEWALS = int(os.environ.get("YTDLP_WARP_RENEWALS", "5"))
+# Margine lasciato a un tentativo di yt-dlp quando si aspetta il tunnel: sotto, non vale la pena.
+WARP_MIN_ATTEMPT_SECONDS = float(os.environ.get("YTDLP_WARP_MIN_ATTEMPT_SECONDS", "3"))
 WARP_IGNORED = "non usata: c'è YTDLP_PROXY, che è l'uscita scelta dall'owner"
 # Video pubblico e stabile usato dalla sonda GET /antibot (solo estrazione, nessun download).
 PROBE_URL = os.environ.get("YTDLP_PROBE_URL", "https://www.youtube.com/watch?v=jNQXAC9IVRw").strip()
@@ -750,6 +754,22 @@ def _first_exit(deadline: float) -> tuple[str, str | None]:
     return "direct", None
 
 
+def _wait_for_warp(deadline: float) -> str | None:
+    """Il tunnel WARP sta ripartendo (cambio d'indirizzo lento, o caduto e riavviato da solo dopo qualche
+    secondo): lo si aspetta finché resta budget per un tentativo. Ritorna il proxy, o None."""
+    while True:
+        left = deadline - time.monotonic() - WARP_MIN_ATTEMPT_SECONDS
+        if left <= 0:
+            return None
+        proxy = WARP.proxy(wait=min(WARP_WAIT_SECONDS, left))
+        if proxy:
+            return proxy
+        if WARP.state not in ("starting", "failed"):
+            return None
+        # «failed» si riavvia da solo dopo una breve pausa: si ricontrolla fra poco.
+        time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
+
+
 def _note_outcome(status: str, tried: list[str], started: float | None = None) -> None:
     """Registra l'esito per /health: l'ultimo tentativo («tv», oppure «warp/tv» uscendo da WARP),
     quanti ne sono serviti e quanto è durato tutto — il bot di Solco aspetta 40 secondi."""
@@ -783,7 +803,9 @@ def _run_with_antibot(
       ripete lo stesso client, fino a WARP_RENEWALS volte; poi, come senza WARP, si provano gli altri
       client, che è un tentativo a costo zero ma di rado basta;
     - gli altri rifiuti riguardano il CLIENT: si passa al successivo dalla stessa uscita;
-    - se il tunnel WARP cade si ricomincia dall'uscita diretta.
+    - se il cambio d'indirizzo è lento, o il tunnel cade, lo si aspetta finché c'è budget (una sola
+      ripartenza per richiesta): l'IP del worker è fermato da YouTube, quindi la diretta è l'ultima
+      risorsa, solo quando WARP non torna.
     """
     global _PREFERRED_CLIENT
     if PROXY and not _proxy_reachable():
@@ -799,6 +821,7 @@ def _run_with_antibot(
     # lei dal controllo anti-bot («blocked»).
     warp = "down" if WARP_ENABLED and not PROXY and exit_name != "warp" else None
     renewals = 0
+    restarts = 0
     plan = _client_plan()
     position = 0
 
@@ -827,8 +850,16 @@ def _run_with_antibot(
             if cleanup:
                 cleanup()
             if exit_name == "warp" and failure == "proxy_error":
-                # Il tunnel è caduto: non è una risposta di YouTube. Lo si riavvia e si riparte dalla diretta.
+                # Il tunnel è caduto: non è una risposta di YouTube. Lo si riavvia e, se torna entro il
+                # budget, si riparte da WARP; la diretta (fermata da YouTube) solo se il tunnel non torna.
                 WARP.report_failure()
+                proxy = None
+                if restarts < 1:  # una sola ripartenza per richiesta: un tunnel instabile non è un'uscita
+                    restarts += 1
+                    proxy = _wait_for_warp(deadline)
+                if proxy:
+                    position = 0
+                    continue
                 warp, exit_name, proxy, position = "down", "direct", None, 0
                 continue
             kind = failure
@@ -841,6 +872,10 @@ def _run_with_antibot(
                 if renewals < WARP_RENEWALS:
                     renewals += 1
                     proxy = WARP.renew(wait=max(1.0, min(WARP_WAIT_SECONDS, deadline - time.monotonic())))
+                    if not proxy:
+                        # Riavvio lento o fallito: si aspetta il tunnel ancora, nel budget, invece di
+                        # spendere i tentativi sull'IP del worker, che YouTube ferma sempre (misurato).
+                        proxy = _wait_for_warp(deadline)
                     if proxy:
                         log.info("anti-bot: indirizzo di uscita cambiato (%s di %s), riprovo %s", renewals, WARP_RENEWALS, name)
                         continue  # stesso client, indirizzo nuovo

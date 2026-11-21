@@ -347,9 +347,35 @@ class WarpLadderTest(unittest.TestCase):
         self.assertEqual((probe["youtube"], probe["exit"], probe["warp"]), ("youtube_bot_check", None, "ready"))
         self.assertIn("anche l'uscita da Cloudflare WARP è fermata", probe["hint"])
 
+    def test_a_slow_address_change_is_waited_for_instead_of_using_the_blocked_direct_exit(self):
+        # Il riavvio non è pronto entro l'attesa di renew, ma il tunnel torna poco dopo: si resta su WARP.
+        FakeYDL.script = {"warp/default": BOT_CHECK}
+
+        def slow_renew(wait):
+            FakeYDL.script.clear()
+            return None
+
+        self.tunnel.renew.side_effect = slow_renew
+        res = self.post()
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(FakeYDL.calls, ["warp/default", "warp/default"])
+        self.assertEqual(self.client.get("/health").json()["antibot"]["last"]["exit"], "warp")
+
     def test_a_tunnel_that_does_not_come_back_leaves_the_direct_exit(self):
         FakeYDL.script = {"warp/default": BOT_CHECK}
         self.tunnel.renew.return_value = None
+
+        def gone(wait=0.0):
+            self.tunnel.state = "off"
+            return None
+
+        calls = {"n": 0}
+
+        def first_then_gone(wait=0.0):
+            calls["n"] += 1
+            return WARP_URL if calls["n"] == 1 else gone(wait)
+
+        self.tunnel.proxy.side_effect = first_then_gone
         res = self.post()
         self.assertEqual(res.status_code, 200, res.text)
         self.assertEqual(FakeYDL.calls, ["warp/default", "default"])
@@ -364,11 +390,22 @@ class WarpLadderTest(unittest.TestCase):
         self.assertEqual(FakeYDL.calls, ["default", "tv", "android_vr"])
         self.assertIn("non disponibile", self.client.get("/antibot", headers=AUTH).json()["hint"])
 
+    def test_a_tunnel_that_drops_and_comes_back_keeps_the_request_on_warp(self):
+        FakeYDL.script = {"warp/default": SOCKS_DOWN}
+        self.tunnel.report_failure.side_effect = FakeYDL.script.clear
+        res = self.post()
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(FakeYDL.calls, ["warp/default", "warp/default"])
+        self.tunnel.report_failure.assert_called_once_with()
+        self.assertEqual(self.client.get("/health").json()["antibot"]["last"]["exit"], "warp")
+
     def test_a_tunnel_that_drops_is_restarted_and_the_direct_exit_takes_over(self):
+        # Cade, riparte, ricade: una sola ripartenza per richiesta, poi la diretta.
         FakeYDL.script = {"warp/default": SOCKS_DOWN}
         self.assertEqual(self.post().status_code, 200)
-        self.assertEqual(FakeYDL.calls, ["warp/default", "default"])
-        self.tunnel.report_failure.assert_called_once_with()
+        self.assertEqual(FakeYDL.calls, ["warp/default", "warp/default", "default"])
+        self.assertEqual(self.tunnel.report_failure.call_count, 2)
+        FakeYDL.calls = []
 
         # Se anche la diretta è fermata, il codice dice che WARP è giù: non che il proxy dell'owner è rotto.
         FakeYDL.script.update({"default": BOT_CHECK, "tv": BOT_CHECK, "android_vr": BOT_CHECK})
