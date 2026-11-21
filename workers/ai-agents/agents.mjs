@@ -7,6 +7,7 @@ import { writeFile } from 'node:fs/promises';
 import process from 'node:process';
 import {
   backendsFrom,
+  chat,
   chunks,
   measure,
   redact,
@@ -61,7 +62,21 @@ async function main() {
     listOnly ? backends.map((b) => (b.name === 'magnetapi' || b.name.startsWith('mwapi') ? { ...b, model: 'auto' } : b)) : backends,
   );
   for (const note of resolved.notes) log(`modelli: ${note}`);
-  if (listOnly) return resolved.backends.length > 0 ? 0 : 2;
+  if (listOnly) {
+    // A tiny real request per model (5 tokens): listed is not the same as answering.
+    let answering = 0;
+    for (const backend of resolved.backends) {
+      const started = Date.now();
+      try {
+        const { text } = await chat([{ role: 'user', content: 'Rispondi solo: ok' }], [backend], { attempts: 1, maxTokens: 5, timeoutMs: 45_000 });
+        answering += 1;
+        log(`prova: ${backend.name} ${backend.model} ✅ risponde in ${Date.now() - started} ms («${text.slice(0, 20)}»)`);
+      } catch (error) {
+        log(`prova: ${backend.name} ${backend.model} ❌ ${error.message.replace(/^all AI backends failed /, '')}`);
+      }
+    }
+    return answering > 0 ? 0 : 2;
+  }
   backends = resolved.backends;
   if (backends.length === 0) {
     log('config: nessun backend con un modello utilizzabile');
