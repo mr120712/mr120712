@@ -9,7 +9,6 @@ import {
   freellmapiApiKey,
   freellmapiBaseUrl,
   freellmapiModel,
-  usesBuiltInConnector,
 } from '@/lib/business/ai-freellmapi.server';
 import { anthropicApiKey } from '@/lib/business/ai-music-search.server';
 import {
@@ -498,38 +497,21 @@ const checkFreellmapi: Check = async (deps) => {
       'Riserva non disponibile: manca NEXT_PUBLIC_APP_URL, il connettore interno (/api/ai-reserve/v1) non ha un URL pubblico',
     );
   }
-  if (usesBuiltInConnector(deps.env)) {
-    // Router INTERNO: interroga i provider gratuiti in-process (nessun loopback HTTP, nessun Bearer
-    // da perdere), col failover del connettore. Un 200 = almeno un provider pronto.
-    const probe = await listModels(deps.env);
-    await discard(probe);
-    if (probe.status === 200) {
-      const labels = reserveProviderLabels(deps.env);
-      const chain = labels.length > 0 ? labels.join(', ') : 'provider gratuiti';
-      return ok(`Riserva pronta (${chain}; modello: ${freellmapiModel(deps.env)})`);
-    }
-    if (probe.status === 503) {
-      return warn(
-        `Riserva spenta: nessun provider gratuito configurato (${reserveProviderKeyNames().join(', ')})`,
-      );
-    }
-    return fail(`La riserva interna ha risposto con un errore (HTTP ${probe.status})`);
+  // Sempre il router INTERNO: interroga i provider gratuiti in-process (nessun loopback HTTP, nessun
+  // Bearer da perdere), col failover del connettore. Un 200 = almeno un provider pronto.
+  const probe = await listModels(deps.env, deps.fetch);
+  await discard(probe);
+  if (probe.status === 200) {
+    const labels = reserveProviderLabels(deps.env);
+    const chain = labels.length > 0 ? labels.join(', ') : 'provider gratuiti';
+    return ok(`Riserva pronta su Solco (${chain}; modello: ${freellmapiModel(deps.env)})`);
   }
-  const response = await request(deps, `${base}/models`, {
-    headers: { authorization: `Bearer ${key}`, accept: 'application/json' },
-  });
-  if (!response) return fail('Router esterno freellmapi non raggiungibile');
-  await discard(response);
-  if (response.status === 200) return ok(`Riserva pronta (modello: ${freellmapiModel(deps.env)})`);
-  if (response.status === 401 || response.status === 403) {
-    return fail('Chiave non valida o revocata');
-  }
-  if (response.status === 404) {
-    return fail(
-      'Il router non ha /v1 (HTTP 404): FREELLMAPI_BASE_URL non è un’API freellmapi valida',
+  if (probe.status === 503) {
+    return warn(
+      `Riserva spenta: nessun provider gratuito configurato (${reserveProviderKeyNames().join(', ')})`,
     );
   }
-  return fail(`Il router freellmapi ha risposto con un errore (HTTP ${response.status})`);
+  return fail(`La riserva interna ha risposto con un errore (HTTP ${probe.status})`);
 };
 
 /**

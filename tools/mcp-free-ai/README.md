@@ -1,4 +1,4 @@
-# Connettore MCP — AI gratuita (riserva Solco / FreeLLMAPI)
+# Connettore MCP — AI gratuita (riserva FreeLLMAPI di Solco)
 
 Un server **MCP** (Model Context Protocol) a **zero dipendenze** che espone un endpoint
 LLM **OpenAI-compatibile** come strumenti per Claude Code / Claude Desktop e qualunque
@@ -11,32 +11,23 @@ Due strumenti:
 - **`chat`** — manda un prompt al modello gratuito e restituisce la risposta (non-streaming).
 - **`list_models`** — elenca i modelli serviti dall'endpoint (usa la chiave per «trovarli»).
 
-## Configurazione — scegli UNA sorgente
+## Configurazione — solo la riserva di Solco
 
-Si imposta tutto con due variabili d'ambiente, `LLM_BASE_URL` e `LLM_API_KEY`.
-
-### A) Riserva di Solco — **consigliata** (pubblica, nessun server da tenere acceso)
-
-L'endpoint multi-provider già ospitato da Solco (Groq → OpenRouter/Nemotron → … con
-failover automatico):
+La rete FreeLLMAPI gira **solo su Solco**: il connettore parla esclusivamente con il router
+multi-provider ospitato dal sito (Groq, Cerebras, OpenRouter, … con failover automatico).
 
 ```
-LLM_BASE_URL = https://www.solcomusic.online/api/ai-reserve/v1
 LLM_API_KEY  = <il tuo FREELLMAPI_API_KEY>   # il Bearer della riserva, lo stesso impostato su Vercel
+LLM_BASE_URL = https://www.solcomusic.online/api/ai-reserve/v1   # facoltativa: è già il default
 ```
 
-### B) FreeLLMAPI self-hosted — sul **tuo** computer
+`LLM_BASE_URL` accetta solo un host di Solco (`solcomusic.online` o `www.solcomusic.online`) in
+HTTPS: qualunque altro indirizzo (un'istanza su `localhost`, un router esterno) viene rifiutato,
+così la chiave non esce mai da Solco.
 
-> ⚠️ La chiave premium di `freellmapi.co` funziona **solo** con un'istanza FreeLLMAPI che
-> gira in locale (è self-hosted, non c'è un'API pubblica da chiamare). Devi avere FreeLLMAPI
-> avviato (Docker, porta 3001) sulla stessa macchina dove gira questo connettore.
-
-```
-LLM_BASE_URL = http://localhost:3001/v1
-LLM_API_KEY  = <la tua chiave unificata/premium FreeLLMAPI>
-```
-
-Qualsiasi altra base URL OpenAI-compatibile (`/v1`) funziona allo stesso modo.
+> La chiave «premium» di `freellmapi.co` non apre nulla da sola: la riserva di Solco accetta solo il
+> valore di `FREELLMAPI_API_KEY` impostato su Vercel. Puoi usare quella stringa come
+> `FREELLMAPI_API_KEY`: basta che sia identica su Vercel e qui.
 
 ## Aggiungerlo a Claude Code
 
@@ -73,8 +64,8 @@ usa `chat`.
 
 | Variabile | Obbligatoria | Default | Descrizione |
 |---|---|---|---|
-| `LLM_BASE_URL` | sì | — | Base URL OpenAI-compatibile che termina con `/v1`. |
-| `LLM_API_KEY` | sì (per endpoint autenticati) | — | Il Bearer: `FREELLMAPI_API_KEY` per la riserva Solco, o la chiave FreeLLMAPI per l'istanza locale. |
+| `LLM_API_KEY` | sì | — | Il Bearer della riserva: `FREELLMAPI_API_KEY`, lo stesso valore impostato su Vercel. |
+| `LLM_BASE_URL` | no | `https://www.solcomusic.online/api/ai-reserve/v1` | Solo un host di Solco in HTTPS; altri indirizzi sono rifiutati. |
 | `LLM_MODEL` | no | `auto` | Modello di default per `chat` (`auto` lascia scegliere al router). |
 | `LLM_TIMEOUT_MS` | no | `60000` | Timeout per richiesta. |
 

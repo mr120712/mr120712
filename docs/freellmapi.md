@@ -23,20 +23,22 @@ https://www.solcomusic.online/api/ai-reserve/health                (GET,  pubbli
   `CEREBRAS_API_KEY`, `GEMINI_API_KEY`, `MISTRAL_API_KEY`, `OPENROUTER_API_KEY`.
 
 Non serve installare né pubblicare un router a parte: `freellmapi.co` è solo il sito del progetto
-(404 a `/v1/models`), e un router su `localhost` non è raggiungibile dai server di Vercel.
+(404 a `/v1/models`). Una chiave «premium» di FreeLLMAPI non apre nulla da sola: la riserva accetta
+solo il valore di `FREELLMAPI_API_KEY` su Vercel (puoi usare quella stringa, purché sia identica nei
+due punti).
 
 ## Variabili d'ambiente (Vercel → Settings → Environment Variables → Production)
 
 | Variabile | Obbligo | Valore |
 |---|---|---|
 | `FREELLMAPI_API_KEY` | **sì** | il segreto condiviso (Bearer) che i chiamanti esterni presentano all'endpoint. Generalo tu, lungo e casuale, ad esempio con `openssl rand -hex 32`. Alias accettato: `FREELLMAPI_TOKEN`. |
-| `FREELLMAPI_BASE_URL` | no | `https://www.solcomusic.online/api/ai-reserve/v1` (self-host). Si può anche lasciare vuota: il default è già il router di Solco su `NEXT_PUBLIC_APP_URL`. Con o senza `www`, con o senza `/` finale, l'URL di Solco è sempre servito in-process. |
+| `FREELLMAPI_BASE_URL` | no | **ignorata**: la rete gira solo su Solco. Puoi toglierla da Vercel. |
 | `FREELLMAPI_MODEL` | no | predefinito `auto` (ogni provider sceglie un suo modello, con scorta). Imposta un id preciso solo per forzare un modello. |
 | almeno una chiave provider | **sì** | `GROQ_API_KEY` basta per partire; le altre aggiungono failover. |
 
-Solo un URL **HTTPS pubblico di un altro dominio** in `FREELLMAPI_BASE_URL` fa usare un router
-esterno. Valori non usabili (`localhost`, `http`, IP privati, `freellmapi.co`) sono ignorati e resta il
-router di Solco, così una variabile sbagliata non spegne la riserva.
+La rete **non esce da Solco**: non esistono router esterni, e né `FREELLMAPI_BASE_URL` né un'istanza
+FreeLLMAPI su `localhost` possono spostare la riserva altrove. Il connettore MCP in
+`tools/mcp-free-ai/` accetta solo un host di Solco, così la chiave non viene mai mandata fuori.
 
 Dopo ogni modifica su Vercel serve un **Redeploy** perché le variabili vengano lette.
 

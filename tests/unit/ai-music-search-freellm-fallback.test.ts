@@ -1,6 +1,6 @@
 // @vitest-environment node
-// La riserva gratuita (freellmapi.co) di «Cerca con l'AI»: quando Claude non è usabile, il piano
-// arriva da freellmapi.co con lo stesso schema. Quando la riserva non è configurata, resta l'errore.
+// La riserva gratuita (ospitata da Solco) di «Cerca con l'AI»: quando Claude non è usabile, il piano
+// arriva dalla riserva di Solco con lo stesso schema. Quando la riserva non è configurata, resta l'errore.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
@@ -63,7 +63,10 @@ const OLD_ENV = { ...process.env };
 beforeEach(() => {
   process.env.ANTHROPIC_API_KEY = ''; // Claude non configurato
   process.env.FREELLMAPI_API_KEY = 'fla_FAKEKEY0123456789';
-  process.env.FREELLMAPI_BASE_URL = 'https://router.example/v1'; // router pubblico (obbligatorio)
+  // La riserva gira su Solco: serve il suo URL pubblico e almeno un provider gratuito (Groq).
+  process.env.NEXT_PUBLIC_APP_URL = 'https://app.test';
+  process.env.GROQ_API_KEY = 'gsk_test_key';
+  delete process.env.FREELLMAPI_BASE_URL;
   delete process.env.FREELLMAPI_MODEL;
 });
 
@@ -73,7 +76,7 @@ afterEach(() => {
   process.env = { ...OLD_ENV };
 });
 
-describe('Cerca con l’AI: riserva freellmapi.co', () => {
+describe('Cerca con l’AI: riserva di Solco', () => {
   it('senza Claude, il piano arriva dalla riserva', async () => {
     const fetchMock = vi.fn(async () => planResponse());
     vi.stubGlobal('fetch', fetchMock);
@@ -83,9 +86,9 @@ describe('Cerca con l’AI: riserva freellmapi.co', () => {
       expect(out.plan.intro).toContain('techno');
       expect(out.plan.youtubeQueries.length).toBeGreaterThan(0);
     }
-    // Ha chiamato l’endpoint OpenAI-compatibile del router configurato.
+    // In-process: dritto al provider gratuito, mai a un router fuori da Solco né all'app stessa.
     const url = String((fetchMock.mock.calls[0] as unknown as [string])[0]);
-    expect(url).toBe('https://router.example/v1/chat/completions');
+    expect(url).toBe('https://api.groq.com/openai/v1/chat/completions');
   });
 
   it('senza Claude e senza riserva, resta not_configured', async () => {

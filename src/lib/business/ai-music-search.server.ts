@@ -43,7 +43,7 @@ import { prisma } from '@/lib/db';
 export { anthropicApiKey };
 /**
  * Usable as far as this instance knows, without a network call. La funzione è attiva se è usabile la
- * chiave Claude OPPURE è configurata la riserva gratuita (freellmapi.co): così, se il proprietario
+ * chiave Claude OPPURE è configurata la riserva gratuita (ospitata da Solco): così, se il proprietario
  * imposta solo la riserva, «Cerca con l'AI» resta visibile.
  */
 export function aiSearchConfigured(now = new Date()) {
@@ -126,7 +126,7 @@ function readPlan(response: Anthropic.Beta.BetaMessage) {
   }
 }
 
-// La riserva gratuita (freellmapi.co) deve produrre lo STESSO oggetto ClaudePlan; i modelli aperti non
+// La riserva gratuita (ospitata da Solco) deve produrre lo STESSO oggetto ClaudePlan; i modelli aperti non
 // hanno lo structured-output di Claude, quindi la forma la descriviamo nel prompt e la validiamo con zod.
 const FREELLM_PLAN_INSTRUCTION = `Rispondi SOLO con un oggetto JSON con ESATTAMENTE queste chiavi:
 {
@@ -141,7 +141,7 @@ Nessun testo fuori dal JSON.`;
 
 /**
  * Riserva gratuita: quando Claude non è disponibile (chiave assente, rifiutata, sopra budget o
- * occupato) prova a produrre lo stesso piano con freellmapi.co. Best-effort: ritorna null se la
+ * occupato) prova a produrre lo stesso piano con la riserva ospitata da Solco. Best-effort: ritorna null se la
  * riserva non è configurata o non riesce, così resta l'esito di Claude. Mai usata per un rifiuto di
  * sicurezza di Claude. Scrive in cache come il percorso primario.
  */
