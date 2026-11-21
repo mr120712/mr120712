@@ -4,7 +4,7 @@
 # Keys come ONLY from repository secrets (Settings → Secrets and variables → Actions):
 #   MWAPI_API_KEY, MWAPI_API_KEY_2   your MWAPI keys (tried first, key 1 then key 2)
 #   SOLCO_RESERVE_KEY                optional: = FREELLMAPI_API_KEY on Vercel (Solco's reserve, fallback)
-#   MWAPI_MODEL                      optional repository VARIABLE (not secret): a model id, empty = auto
+#   MWAPI_MODEL                      optional repository VARIABLE (not secret): a model id, empty = claude-sonnet-5
 # GitHub masks secrets in logs and the worker redacts them again. Read-only token, no write access.
 name: 'AI agents: performance review'
 
@@ -46,7 +46,7 @@ jobs:
           MWAPI_API_KEY: ${{ secrets.MWAPI_API_KEY }}
           MWAPI_API_KEY_2: ${{ secrets.MWAPI_API_KEY_2 }}
           SOLCO_RESERVE_KEY: ${{ secrets.SOLCO_RESERVE_KEY }}
-          MWAPI_MODEL: ${{ vars.MWAPI_MODEL }}
+          MWAPI_MODEL: ${{ vars.MWAPI_MODEL || 'claude-sonnet-5' }}
           REVIEW_PAGES: ${{ inputs.pages }}
           REPORT_FILE: ${{ runner.temp }}/report.txt
         run: node workers/ai-agents/agents.mjs

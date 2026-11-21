@@ -24,8 +24,8 @@ https://www.solcomusic.online/api/ai-reserve/health                (GET,  pubbli
   `MWAPI_API_KEY_2`.
 - **MWAPI** (`api.mwapi.dev`) è un gateway AI di terze parti, senza documentazione pubblica né
   termini verificabili: per questo è **ultimo** nella catena, e il testo degli utenti ci passa solo
-  quando i provider gratuiti sopra non rispondono. Le due chiavi sono due anelli in failover. Modello
-  `auto`, o `MWAPI_MODEL`. Per metterlo prima, usa `AI_RESERVE_PROVIDERS` (es.
+  quando i provider gratuiti sopra non rispondono. Le due chiavi sono due anelli in failover e servono modelli Claude:
+  `claude-sonnet-5` (o `MWAPI_MODEL`), con `claude-haiku-4-5-20251001` di scorta (`MWAPI_FALLBACK_MODEL`). Per metterlo prima, usa `AI_RESERVE_PROVIDERS` (es.
   `mwapi,mwapi-2,groq,cerebras,openrouter`).
 
 Non serve installare né pubblicare un router a parte: `freellmapi.co` è solo il sito del progetto

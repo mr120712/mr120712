@@ -229,14 +229,17 @@ describe('reserveProviderLabels / reserveProviderKeyNames', () => {
     ]);
   });
 
-  it('MWAPI: ultimo della catena, due chiavi in failover, modello «auto» o MWAPI_MODEL', async () => {
+  it('MWAPI: ultimo della catena, due chiavi in failover, claude-sonnet-5 poi haiku come scorta', async () => {
     const env = { GROQ_API_KEY: GROQ, MWAPI_API_KEY: 'mw_key_1', MWAPI_API_KEY_2: 'mw_key_2' };
     expect(activeProviders(env).map((p) => p.id)).toEqual(['groq', 'mwapi', 'mwapi-2']);
-    expect(activeProviders(env).find((p) => p.id === 'mwapi')?.models).toEqual(['auto']);
+    expect(activeProviders(env).find((p) => p.id === 'mwapi')?.models).toEqual([
+      'claude-sonnet-5',
+      'claude-haiku-4-5-20251001',
+    ]);
     expect(
-      activeProviders({ ...env, MWAPI_MODEL: 'gpt-4o-mini' }).find((p) => p.id === 'mwapi-2')
+      activeProviders({ ...env, MWAPI_MODEL: 'claude-opus-5' }).find((p) => p.id === 'mwapi-2')
         ?.models,
-    ).toEqual(['gpt-4o-mini']);
+    ).toEqual(['claude-opus-5', 'claude-haiku-4-5-20251001']);
 
     const auths: string[] = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

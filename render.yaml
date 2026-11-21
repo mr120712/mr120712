@@ -71,8 +71,8 @@ services:
         sync: false
       - key: MWAPI_API_KEY_2             # your second MWAPI key (used when the first is limited)
         sync: false
-      - key: MWAPI_MODEL                 # optional: a model id from MWAPI; empty = "auto"
-        sync: false
+      - key: MWAPI_MODEL                 # Claude via MWAPI; "auto" = pick from /models
+        value: claude-sonnet-5
       - key: SOLCO_RESERVE_KEY           # = FREELLMAPI_API_KEY on Vercel (the reserve's Bearer)
         sync: false
       - key: FREELLMAPI_PRIVATE_URL      # e.g. http://freellmapi:3001/v1 (Render private network only)

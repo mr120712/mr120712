@@ -145,6 +145,15 @@ interface ProviderDef {
   extraHeaders?: Record<string, string>;
 }
 
+/** MWAPI (entrambe le chiavi servono modelli Claude): Sonnet 5, poi Haiku 4.5 come scorta. */
+const MWAPI_DEFAULT_MODEL = 'claude-sonnet-5';
+const MWAPI_FALLBACK_MODEL = 'claude-haiku-4-5-20251001';
+function mwapiModels(env: Env): string[] {
+  const primary = clean(env.MWAPI_MODEL) ?? MWAPI_DEFAULT_MODEL;
+  const fallback = clean(env.MWAPI_FALLBACK_MODEL) ?? MWAPI_FALLBACK_MODEL;
+  return primary === fallback ? [primary] : [primary, fallback];
+}
+
 /** Ordine di priorità del failover. Groq per primo: già configurato, veloce e verde in solco_ai. */
 const PROVIDER_DEFS: ProviderDef[] = [
   {
@@ -208,14 +217,15 @@ const PROVIDER_DEFS: ProviderDef[] = [
   // ULTIMO nella catena di proposito: è un intermediario senza documentazione pubblica né termini
   // verificabili, quindi il testo degli utenti ci passa solo se i provider gratuiti sopra falliscono
   // (l'ordine si cambia con AI_RESERVE_PROVIDERS). Due chiavi = due anelli: se una è limitata o
-  // esaurita, prova l'altra. Il modello «auto» è sovrascrivibile con MWAPI_MODEL.
+  // esaurita, prova l'altra. Entrambe servono modelli Claude: si chiede claude-sonnet-5 (MWAPI_MODEL lo
+  // sovrascrive) e, se non risponde, claude-haiku-4-5 come scorta (MWAPI_FALLBACK_MODEL).
   {
     id: 'mwapi',
     label: 'MWAPI',
     baseUrl: 'https://api.mwapi.dev/v1',
     keyVar: 'MWAPI_API_KEY',
     signupUrl: 'https://api.mwapi.dev',
-    models: (env) => [clean(env.MWAPI_MODEL) ?? 'auto'],
+    models: mwapiModels,
   },
   {
     id: 'mwapi-2',
@@ -223,7 +233,7 @@ const PROVIDER_DEFS: ProviderDef[] = [
     baseUrl: 'https://api.mwapi.dev/v1',
     keyVar: 'MWAPI_API_KEY_2',
     signupUrl: 'https://api.mwapi.dev',
-    models: (env) => [clean(env.MWAPI_MODEL) ?? 'auto'],
+    models: mwapiModels,
   },
 ];
 

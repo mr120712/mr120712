@@ -7,6 +7,8 @@ export const SOLCO_ORIGIN = 'https://www.solcomusic.online';
 export const SOLCO_RESERVE_URL = `${SOLCO_ORIGIN}/api/ai-reserve/v1`;
 /** MWAPI, a third-party AI gateway (OpenAI-compatible /v1/chat/completions). */
 export const MWAPI_URL = 'https://api.mwapi.dev/v1';
+/** The MWAPI model the owner chose (both keys serve Claude models); MWAPI_MODEL overrides it, "auto" picks from /models. */
+export const MWAPI_DEFAULT_MODEL = 'claude-sonnet-5';
 const SOLCO_HOSTS = new Set(['solcomusic.online', 'www.solcomusic.online']);
 const USER_AGENT = 'SolcoPerfAgents/1.0 (+render-cron)';
 
@@ -67,7 +69,7 @@ export function backendPolicy(raw, kind) {
 export function backendsFrom(env) {
   const backends = [];
   const errors = [];
-  const mwapiModel = env.MWAPI_MODEL?.trim() || 'auto';
+  const mwapiModel = env.MWAPI_MODEL?.trim() || MWAPI_DEFAULT_MODEL;
   for (const [name, key] of [
     ['mwapi', env.MWAPI_API_KEY],
     ['mwapi-2', env.MWAPI_API_KEY_2],
