@@ -4,21 +4,34 @@
 // Zero dependencies. Speaks MCP over stdio (newline-delimited JSON-RPC 2.0), so
 // any MCP client (Claude Code, Claude Desktop, …) can call it with `node server.mjs`.
 //
-// Point it at either real endpoint via env vars:
-//   • Solco's hosted reserve router (recommended — public, no local server):
-//       LLM_BASE_URL = https://www.solcomusic.online/api/ai-reserve/v1
-//       LLM_API_KEY  = your FREELLMAPI_API_KEY (the reserve Bearer secret)
-//   • a self-hosted FreeLLMAPI instance running on your machine:
-//       LLM_BASE_URL = http://localhost:3001/v1
-//       LLM_API_KEY  = your FreeLLMAPI unified / premium key
-// Any OpenAI-compatible /v1 base URL works (Groq, OpenRouter, …).
+// It talks ONLY to Solco's hosted reserve router (the FreeLLMAPI network runs on Solco alone):
+//   LLM_BASE_URL = https://www.solcomusic.online/api/ai-reserve/v1   (default; optional)
+//   LLM_API_KEY  = your FREELLMAPI_API_KEY (the reserve Bearer secret set on Vercel)
+// LLM_BASE_URL may only point at a Solco host (solcomusic.online / www.solcomusic.online) over
+// HTTPS; anything else is refused, so the key is never sent outside Solco.
 //
 // Tools exposed:
 //   • chat         — send a prompt, get the model's reply (non-streaming)
 //   • list_models  — list the models the endpoint serves (use the key to "find" them)
 import process from 'node:process';
 
-const BASE_URL = (process.env.LLM_BASE_URL || '').replace(/\/+$/, '');
+const SOLCO_RESERVE_URL = 'https://www.solcomusic.online/api/ai-reserve/v1';
+const SOLCO_HOSTS = new Set(['solcomusic.online', 'www.solcomusic.online']);
+
+/** The reserve URL, only on a Solco host over HTTPS; '' (refused) for anything else. */
+function solcoBaseUrl(raw) {
+  const value = (raw || SOLCO_RESERVE_URL).trim().replace(/\/+$/, '');
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' || !SOLCO_HOSTS.has(url.hostname.toLowerCase())) return '';
+    if (url.username || url.password || url.search || url.hash) return '';
+    return value;
+  } catch {
+    return '';
+  }
+}
+
+const BASE_URL = solcoBaseUrl(process.env.LLM_BASE_URL);
 const API_KEY = process.env.LLM_API_KEY || '';
 const DEFAULT_MODEL = process.env.LLM_MODEL || 'auto';
 const TIMEOUT_MS = Number(process.env.LLM_TIMEOUT_MS || '60000');
@@ -65,7 +78,9 @@ const TOOLS = [
 
 async function httpJson(method, path, body) {
   if (!BASE_URL) {
-    throw new Error('LLM_BASE_URL is not set (point it at an OpenAI-compatible /v1 base URL).');
+    throw new Error(
+      `LLM_BASE_URL must be Solco's reserve over HTTPS (default ${SOLCO_RESERVE_URL}); other hosts are refused.`,
+    );
   }
   const headers = { accept: 'application/json' };
   if (API_KEY) headers.authorization = `Bearer ${API_KEY}`;
