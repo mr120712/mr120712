@@ -10,6 +10,7 @@ import { EmailVerification } from '@/components/custom/email-verification';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { useSession } from '@/lib/auth-client';
+import { isAuthorizedAdmin } from '@/lib/business/admin-account-policy';
 import { accountLabel, needsEmailVerification } from '@/lib/business/phone-auth';
 import { SIGN_OUT_FAILED_MESSAGE, signOutAndStopMusic } from '@/lib/music/player-session';
 import { DashboardNav } from './dashboard-nav';
@@ -18,19 +19,10 @@ export interface DashboardShellProps {
   children: ReactNode;
 }
 
-function hasRole(role: string | null | undefined, expected: string) {
-  return (
-    role
-      ?.split(',')
-      .map((item) => item.trim())
-      .includes(expected) ?? false
-  );
-}
-
 export function DashboardShell({ children }: DashboardShellProps) {
   const { data: session, isPending } = useSession();
   const router = useRouter();
-  const isAdmin = session?.user?.emailVerified === true && hasRole(session.user.role, 'admin');
+  const isAdmin = isAuthorizedAdmin(session?.user);
 
   useEffect(() => {
     if (!isPending && !session?.user) {

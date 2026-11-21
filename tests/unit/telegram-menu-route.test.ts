@@ -20,7 +20,9 @@ vi.mock('@/lib/same-origin', () => ({ sameOrigin: mocks.sameOrigin }));
 
 import { GET, POST } from '@/app/api/admin/telegram-menu/route';
 
-const admin = { user: { id: 'u1', role: 'admin', emailVerified: true } };
+const admin = {
+  user: { id: 'u1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true },
+};
 const status = {
   botConfigured: true,
   type: 'web_app',

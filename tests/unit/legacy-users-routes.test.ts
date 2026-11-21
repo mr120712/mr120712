@@ -31,7 +31,7 @@ import { LegacyErrorBodySchema } from '@/lib/contracts/legacy-users';
 
 const SOURCE = 'a'.repeat(32);
 const TOKEN = 'eyJ2IjoxfQ.c2lnbmF0dXJlLXByb3Zh';
-const admin = { id: 'admin-1', role: 'admin', emailVerified: true };
+const admin = { id: 'admin-1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true };
 
 const STATS = {
   users: 6,

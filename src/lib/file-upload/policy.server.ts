@@ -2,6 +2,7 @@
 
 import 'server-only';
 import { auth } from '@/lib/auth';
+import { isAuthorizedAdmin } from '@/lib/business/admin-account-policy';
 import { UploadAuthorization } from '@/modules/file-upload/proxy';
 
 /**
@@ -16,7 +17,5 @@ import { UploadAuthorization } from '@/modules/file-upload/proxy';
  */
 export async function authorizeUpload(request: Request): Promise<UploadAuthorization> {
   const session = await auth.api.getSession({ headers: request.headers });
-  return session?.user.role === 'admin' && session.user.emailVerified === true
-    ? UploadAuthorization.Allow
-    : UploadAuthorization.Deny;
+  return isAuthorizedAdmin(session?.user) ? UploadAuthorization.Allow : UploadAuthorization.Deny;
 }

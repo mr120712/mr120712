@@ -31,7 +31,7 @@ import { probeTranscription, transcribeWithWhisper } from '@/lib/music/whisper.s
 const ORIGIN = 'https://solco.test';
 /** Forma di una chiave Groq vera (56 caratteri), valore finto. */
 const KEY = `gsk_${'t3stCHIAVEfinta'.repeat(4).slice(0, 52)}`;
-const admin = { id: 'admin-1', role: 'admin', emailVerified: true };
+const admin = { id: 'admin-1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true };
 
 function groq(apiKey = KEY) {
   const provider = transcriptionProvider({ GROQ_API_KEY: apiKey });

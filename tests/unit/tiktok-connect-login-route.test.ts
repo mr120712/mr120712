@@ -7,8 +7,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 
 const mocks = vi.hoisted(() => ({
-  session: { user: { id: 'admin-1', role: 'admin', emailVerified: true } } as {
-    user: { id: string; role: string; emailVerified: boolean };
+  session: {
+    user: { id: 'admin-1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true },
+  } as {
+    user: { id: string; role: string; email?: string; emailVerified: boolean };
   } | null,
 }));
 
@@ -41,7 +43,9 @@ function req(headers: Record<string, string>) {
 }
 
 beforeEach(() => {
-  mocks.session = { user: { id: 'admin-1', role: 'admin', emailVerified: true } };
+  mocks.session = {
+    user: { id: 'admin-1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true },
+  };
 });
 
 describe('GET /api/admin/tiktok/connect/login', () => {

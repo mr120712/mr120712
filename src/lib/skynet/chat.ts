@@ -13,6 +13,8 @@
 //   commit) passano ripuliti e accorciati, e il modello li tratta come dati, non come istruzioni;
 // - il modello non ha strumenti: non può cambiare nulla. I soli comandi sono due frasi fisse del
 //   proprietario, riconosciute dal codice e non dall'AI: «pausa autodifesa …» e «riprendi autodifesa».
+
+import { isAuthorizedAdmin } from '@/lib/business/admin-account-policy';
 import type { AdminSignups } from '@/lib/contracts/admin-signups';
 import type { AdminVisitors } from '@/lib/contracts/admin-visitors';
 import type { MonitorHeartbeat, MonitorRun } from '@/lib/contracts/monitoring';
@@ -65,17 +67,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export type OwnerCommand = { kind: 'pause'; minutes: number } | { kind: 'resume' };
 
 /**
- * Nel pannello il proprietario è l'amministratore con email verificata uguale a POLSIA_OWNER_EMAIL
- * (la stessa che src/lib/auth.ts promuove ad admin). Senza quella variabile non c'è proprietario nel
- * pannello: i comandi restano su /skynet in Telegram, che ha il suo controllo del proprietario.
+ * Nel pannello il proprietario è l'unico amministratore: l'account designato
+ * (REQUESTED_ADMIN_EMAIL in admin-account-policy.ts) con l'email verificata.
  */
-export function isPanelOwner(
-  user: { role?: string | null; email?: string | null; emailVerified?: boolean | null },
-  ownerEmail: string | undefined,
-): boolean {
-  const owner = ownerEmail?.trim().toLowerCase();
-  if (!owner || user.role !== 'admin' || user.emailVerified !== true) return false;
-  return (user.email ?? '').trim().toLowerCase() === owner;
+export function isPanelOwner(user: {
+  role?: string | null;
+  email?: string | null;
+  emailVerified?: boolean | null;
+}): boolean {
+  return isAuthorizedAdmin(user);
 }
 
 const PAUSE_COMMAND =

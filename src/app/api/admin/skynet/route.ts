@@ -4,6 +4,7 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
+import { isAuthorizedAdmin } from '@/lib/business/admin-account-policy';
 import { SkynetOverviewSchema } from '@/lib/contracts/skynet';
 import { skynetOverview } from '@/lib/skynet/sentinel.server';
 
@@ -19,7 +20,7 @@ export async function GET(request: Request) {
   try {
     const session = await auth.api.getSession({ headers: request.headers });
     if (!session?.user) return failure('unauthorized', 401);
-    if (session.user.role !== 'admin' || session.user.emailVerified !== true) {
+    if (!isAuthorizedAdmin(session.user)) {
       return failure('forbidden', 403);
     }
   } catch {

@@ -5,6 +5,7 @@
 // che WebKit può marcare cross-site, con Origin/Referer di Solco: own-site-request.ts).
 import 'server-only';
 import { auth } from '@/lib/auth';
+import { isAuthorizedAdmin } from '@/lib/business/admin-account-policy';
 import {
   isFromOwnSite,
   NAVIGATION_OWN_SITES,
@@ -51,7 +52,7 @@ export async function GET(request: Request) {
   let userId: string | null = null;
   try {
     const session = await auth.api.getSession({ headers: request.headers });
-    if (session?.user?.role === 'admin' && session.user.emailVerified === true) {
+    if (session && isAuthorizedAdmin(session.user)) {
       userId = session.user.id;
     } else if (session?.user) {
       return redirect(`${config.appOrigin}${TIKTOK_ADMIN_PAGE}`);

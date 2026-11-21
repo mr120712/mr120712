@@ -18,7 +18,7 @@ import { GET } from '@/app/api/admin/visitors/route';
 import { romeDayKey } from '@/lib/admin/signups';
 import { AdminVisitorsSchema } from '@/lib/contracts/admin-visitors';
 
-const admin = { id: 'admin-1', role: 'admin', emailVerified: true };
+const admin = { id: 'admin-1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true };
 
 /** Risponde come Postgres in base al testo della query; le colonne in più non devono mai uscire. */
 function rawRows() {

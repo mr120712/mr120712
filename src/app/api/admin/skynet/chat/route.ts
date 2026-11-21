@@ -4,14 +4,14 @@
 // amministratori con email verificata (controllo prima di qualsiasi lettura), corpo limitato,
 // conversazione validata, limite di frequenza per utente; mai segreti né indirizzi IP interi nella
 // risposta. Le uniche azioni sono i due comandi dell'autodifesa, riconosciuti dal codice ed eseguiti
-// solo per il proprietario (POLSIA_OWNER_EMAIL): gli altri amministratori possono solo chiedere.
+// solo per il proprietario (l'amministratore designato): gli altri amministratori possono solo chiedere.
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
+import { isAuthorizedAdmin } from '@/lib/business/admin-account-policy';
 import { enforceRateLimit } from '@/lib/business/rate-limit.server';
 import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
 import { SkynetChatRequestSchema, SkynetChatResponseSchema } from '@/lib/contracts/skynet-chat';
-import { env } from '@/lib/env';
 import { sameOrigin } from '@/lib/same-origin';
 import { isPanelOwner } from '@/lib/skynet/chat';
 import { askSkynet } from '@/lib/skynet/chat.server';
@@ -34,11 +34,11 @@ export async function POST(request: Request) {
   try {
     const session = await auth.api.getSession({ headers: request.headers });
     if (!session?.user) return failure('unauthorized', 401);
-    if (session.user.role !== 'admin' || session.user.emailVerified !== true) {
+    if (!isAuthorizedAdmin(session.user)) {
       return failure('forbidden', 403);
     }
     userId = session.user.id;
-    owner = isPanelOwner(session.user, env.POLSIA_OWNER_EMAIL);
+    owner = isPanelOwner(session.user);
   } catch {
     return failure('session_unavailable', 503);
   }

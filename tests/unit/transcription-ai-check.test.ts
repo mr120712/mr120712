@@ -60,7 +60,7 @@ const PATH = '/api/admin/featured-rights/transcribe/check';
 const KEY = 'gsk_test_CHIAVE_SEGRETA_4b7e';
 const OPENAI_KEY = 'sk-test-CHIAVE-SEGRETA-openai-9c1d';
 const UPSTREAM_DETAIL = `Invalid API Key ${KEY}. Request id req_123`;
-const admin = { id: 'admin-1', role: 'admin', emailVerified: true };
+const admin = { id: 'admin-1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true };
 
 function groq(env: Record<string, string | undefined> = {}) {
   const provider = transcriptionProvider({ GROQ_API_KEY: KEY, ...env });

@@ -41,7 +41,7 @@ import { NOT_ELIGIBLE_MESSAGE } from '@/lib/music/lyrics-transcription.server';
 
 const ORIGIN = 'https://solco.test';
 const SONG = 'Cantautori/Autrice - Canzone.mp3';
-const admin = { id: 'admin-1', role: 'admin', emailVerified: true };
+const admin = { id: 'admin-1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true };
 
 const OFFICIAL = 'Sotto il cielo di Roma\ncanto per te stasera\n\ne la luna ci guarda';
 

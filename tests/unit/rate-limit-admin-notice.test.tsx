@@ -34,7 +34,7 @@ afterEach(async () => {
 describe('nota amministrativa sui limiti', () => {
   it('mostra i limiti di rete solo a un amministratore verificato', async () => {
     mocks.useSession.mockReturnValue({
-      data: { user: { role: 'admin', emailVerified: true } },
+      data: { user: { role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true } },
     });
     const admin = await renderNotice();
     expect(admin.textContent).toContain('Limiti e copertura della protezione');

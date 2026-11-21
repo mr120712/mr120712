@@ -104,7 +104,7 @@ function json(body: unknown, status = 200) {
 }
 
 function admin(id = 'admin-1') {
-  return { user: { id, role: 'admin', emailVerified: true } };
+  return { user: { id, role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true } };
 }
 
 function validBody(overrides: Record<string, unknown> = {}) {

@@ -43,7 +43,7 @@ function fakeDb() {
   const state = new Map<string, Row>();
   const events: Row[] = [];
   const users = [
-    { id: 'admin', role: 'admin', emailVerified: true },
+    { id: 'admin', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true },
     { id: 'admin-non-verificato', role: 'admin', emailVerified: false },
     { id: 'utente', role: 'user', emailVerified: true },
   ];

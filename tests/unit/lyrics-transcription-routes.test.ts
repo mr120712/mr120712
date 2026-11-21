@@ -74,7 +74,7 @@ const PRIVATE = 'https://store.private.blob.vercel-storage.com';
 const PUBLIC = 'https://store.public.blob.vercel-storage.com';
 const KEY = 'sk-test-CHIAVE-SEGRETA-71c2';
 const UPSTREAM_DETAIL = `Incorrect API key provided: ${KEY}. Request id req_123`;
-const admin = { id: 'admin-1', role: 'admin', emailVerified: true };
+const admin = { id: 'admin-1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true };
 const encoder = new TextEncoder();
 
 const SONG = 'Cantautori/Autrice - Canzone.mp3';

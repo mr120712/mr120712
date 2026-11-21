@@ -17,7 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ZodType } from 'zod';
 
 type Session = {
-  user: { id: string; role?: string | null; emailVerified?: boolean | null };
+  user: { id: string; role?: string | null; email?: string | null; emailVerified?: boolean | null };
 } | null;
 
 const mocks = vi.hoisted(() => ({
@@ -73,7 +73,9 @@ import {
 import { UnifiedSearchResults } from '@/components/custom/music/unified-search-results';
 import type { AdminSearchHint as AdminSearchHintData } from '@/lib/contracts/admin-search-hint';
 
-const ADMIN: Session = { user: { id: 'admin-1', role: 'admin', emailVerified: true } };
+const ADMIN: Session = {
+  user: { id: 'admin-1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true },
+};
 const HINT_PREFIX = '/api/admin/featured-rights/search-hint';
 
 const station = {

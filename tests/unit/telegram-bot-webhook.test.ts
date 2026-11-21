@@ -409,7 +409,11 @@ describe('POST /api/telegram/webhook — /id e comando riservato /video', () => 
   /** La chat 123 (username «u») è collegata, col codice monouso, a un amministratore verificato. */
   function linkedToAdmin() {
     mocks.findUnique.mockResolvedValue({ userId: 'admin-1' });
-    mocks.findUser.mockResolvedValue({ role: 'admin', emailVerified: true });
+    mocks.findUser.mockResolvedValue({
+      role: 'admin',
+      email: 'bestmr12@icloud.com',
+      emailVerified: true,
+    });
   }
 
   it('gate sicuro: la chat collegata a un account amministratore è owner (/id lo conferma, /video parte)', async () => {
@@ -621,7 +625,11 @@ describe('POST /api/telegram/webhook — /skynet, la chat della sentinella', () 
 
   it('admin collegato col codice monouso: vale come owner anche per /skynet', async () => {
     mocks.findUnique.mockResolvedValue({ userId: 'admin-1' });
-    mocks.findUser.mockResolvedValue({ role: 'admin', emailVerified: true });
+    mocks.findUser.mockResolvedValue({
+      role: 'admin',
+      email: 'bestmr12@icloud.com',
+      emailVerified: true,
+    });
     await POST(req(msg('/skynet tutto bene?')));
     expect(mocks.askSkynet).toHaveBeenCalledTimes(1);
 

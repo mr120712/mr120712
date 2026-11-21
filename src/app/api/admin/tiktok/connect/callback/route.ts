@@ -4,6 +4,7 @@
 // ?tiktok=connected oppure ?tiktok=error&reason=<motivo fisso>: nessun input riflesso.
 import 'server-only';
 import { auth } from '@/lib/auth';
+import { isAuthorizedAdmin } from '@/lib/business/admin-account-policy';
 import { TikTokError } from '@/lib/tiktok/client.server';
 import {
   notConfiguredResponse,
@@ -53,7 +54,7 @@ function fail(config: TikTokConfig, reason: Reason): Response {
 async function adminId(request: Request): Promise<string | null> {
   try {
     const session = await auth.api.getSession({ headers: request.headers });
-    if (session?.user?.role === 'admin' && session.user.emailVerified === true) {
+    if (session && isAuthorizedAdmin(session.user)) {
       return session.user.id;
     }
   } catch {

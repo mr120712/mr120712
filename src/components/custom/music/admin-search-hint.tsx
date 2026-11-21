@@ -33,6 +33,7 @@ import Link from 'next/link';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/api-client';
 import { useSession } from '@/lib/auth-client';
+import { isAuthorizedAdmin } from '@/lib/business/admin-account-policy';
 import {
   ADMIN_RIGHTS_PAGE_PATH,
   ADMIN_SEARCH_HINT_PATH,
@@ -170,7 +171,7 @@ export function AdminSearchHint({
 }) {
   const { data } = useSession();
   const user = data?.user;
-  if (user?.role !== 'admin' || user.emailVerified !== true) return null;
+  if (!isAuthorizedAdmin(user)) return null;
   return <AdminSearchHintBox query={query} resultsUpdating={resultsUpdating} />;
 }
 

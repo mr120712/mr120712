@@ -738,7 +738,7 @@ export async function telegramRecipients(deps: SentinelDeps): Promise<string[]> 
   if (fromEnv.length > 0) return [...new Set(fromEnv)].slice(0, 5);
   const admins = await deps.db.user.findMany({
     where: { emailVerified: true, role: { contains: 'admin' } },
-    select: { id: true, role: true, emailVerified: true },
+    select: { id: true, role: true, email: true, emailVerified: true },
     take: 20,
   });
   const ids = admins

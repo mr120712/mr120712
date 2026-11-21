@@ -4,6 +4,7 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
+import { isAuthorizedAdmin } from '@/lib/business/admin-account-policy';
 
 export const audioComPrivateHeaders = {
   'Cache-Control': 'private, no-store, no-cache, must-revalidate',
@@ -26,7 +27,7 @@ export async function requireAudioComAdmin(request: Request): Promise<AudioComAd
   try {
     const session = await auth.api.getSession({ headers: request.headers });
     if (!session?.user) return { allowed: false, response: audioComJsonError('unauthorized', 401) };
-    if (session.user.role !== 'admin' || session.user.emailVerified !== true) {
+    if (!isAuthorizedAdmin(session.user)) {
       return { allowed: false, response: audioComJsonError('forbidden', 403) };
     }
     return { allowed: true, userId: session.user.id };
@@ -45,7 +46,7 @@ export async function audioComAdminSession(request: Request): Promise<AudioComAd
   try {
     const session = await auth.api.getSession({ headers: request.headers });
     if (!session?.user) return { kind: 'signed_out' };
-    if (session.user.role === 'admin' && session.user.emailVerified === true) {
+    if (isAuthorizedAdmin(session.user)) {
       return { kind: 'admin', userId: session.user.id };
     }
     return { kind: 'not_admin' };

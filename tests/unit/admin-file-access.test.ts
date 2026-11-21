@@ -22,7 +22,12 @@ describe('autorizzazione upload/download dei file', () => {
 
   it('consente l’upload solo a un admin verificato', async () => {
     getSession.mockResolvedValue({
-      user: { id: 'verified-admin', role: 'admin', emailVerified: true },
+      user: {
+        id: 'verified-admin',
+        role: 'admin',
+        email: 'bestmr12@icloud.com',
+        emailVerified: true,
+      },
     });
     await expect(authorizeUpload(request)).resolves.toBe('allow');
   });
@@ -44,7 +49,14 @@ describe('autorizzazione upload/download dei file', () => {
     const sessions = [
       null,
       { user: { id: 'member', role: 'user', emailVerified: true } },
-      { user: { id: 'verified-admin', role: 'admin', emailVerified: true } },
+      {
+        user: {
+          id: 'verified-admin',
+          role: 'admin',
+          email: 'bestmr12@icloud.com',
+          emailVerified: true,
+        },
+      },
     ];
 
     for (const session of sessions) {

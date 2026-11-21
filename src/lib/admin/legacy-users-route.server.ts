@@ -6,6 +6,7 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import type { LegacyFailure } from '@/lib/admin/legacy-users.server';
 import { auth } from '@/lib/auth';
+import { isAuthorizedAdmin } from '@/lib/business/admin-account-policy';
 import { consumeRateLimit, type RateLimitAction } from '@/lib/business/rate-limit.server';
 import type { LegacyErrorKindValue } from '@/lib/contracts/legacy-users';
 
@@ -31,7 +32,7 @@ export async function requireLegacyAdmin(request: Request): Promise<AdminAccess>
         response: failure('unauthorized', 401, 'La sessione è scaduta: accedi di nuovo.'),
       };
     }
-    if (session.user.role !== 'admin' || session.user.emailVerified !== true) {
+    if (!isAuthorizedAdmin(session.user)) {
       return {
         allowed: false,
         response: failure(

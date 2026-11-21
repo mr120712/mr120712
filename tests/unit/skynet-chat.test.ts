@@ -515,15 +515,13 @@ describe('chat di Skynet: i comandi del proprietario', () => {
     expect(reserve).toEqual([]);
   });
 
-  it('nel pannello il proprietario è solo l’admin verificato con l’email di POLSIA_OWNER_EMAIL', () => {
-    const owner = { role: 'admin', email: 'Owner@Solco.test', emailVerified: true };
-    expect(isPanelOwner(owner, ' owner@solco.test ')).toBe(true);
-    expect(isPanelOwner(owner, undefined)).toBe(false);
-    expect(isPanelOwner(owner, '')).toBe(false);
-    expect(isPanelOwner({ ...owner, email: 'altro@solco.test' }, 'owner@solco.test')).toBe(false);
-    expect(isPanelOwner({ ...owner, emailVerified: false }, 'owner@solco.test')).toBe(false);
-    expect(isPanelOwner({ ...owner, role: 'user' }, 'owner@solco.test')).toBe(false);
-    expect(isPanelOwner({ role: 'admin', email: null, emailVerified: true }, 'x@y.z')).toBe(false);
+  it('nel pannello il proprietario è solo l’admin designato (bestmr12@icloud.com), verificato', () => {
+    const owner = { role: 'admin', email: 'BestMR12@icloud.com ', emailVerified: true };
+    expect(isPanelOwner(owner)).toBe(true);
+    expect(isPanelOwner({ ...owner, email: 'altro@solco.test' })).toBe(false);
+    expect(isPanelOwner({ ...owner, emailVerified: false })).toBe(false);
+    expect(isPanelOwner({ ...owner, role: 'user' })).toBe(false);
+    expect(isPanelOwner({ role: 'admin', email: null, emailVerified: true })).toBe(false);
   });
 
   it('chiedere come si fa passa dal modello e non cambia nulla', async () => {

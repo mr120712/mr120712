@@ -3,6 +3,7 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
+import { isAuthorizedAdmin } from '@/lib/business/admin-account-policy';
 
 export const iosAdminPrivateHeaders = { 'cache-control': 'private, no-store', vary: 'Cookie' };
 
@@ -20,7 +21,7 @@ export async function requireIosAdmin(request: Request): Promise<IosAdminAccess>
     if (!session?.user) {
       return { allowed: false, response: iosAdminJson({ error: 'unauthorized' }, 401) };
     }
-    if (session.user.role !== 'admin' || session.user.emailVerified !== true) {
+    if (!isAuthorizedAdmin(session.user)) {
       return { allowed: false, response: iosAdminJson({ error: 'forbidden' }, 403) };
     }
     return { allowed: true, userId: session.user.id };
