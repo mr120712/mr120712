@@ -93,7 +93,7 @@ export function backendsFrom(env) {
   }
   if (backends.length === 0) {
     throw new Error(
-      `no usable AI backend (${errors.join('; ') || 'set FREELLMAPI_PRIVATE_URL and/or SOLCO_RESERVE_KEY'})`,
+      `no usable AI backend (${errors.join('; ') || 'set MWAPI_API_KEY / MWAPI_API_KEY_2, FREELLMAPI_PRIVATE_URL or SOLCO_RESERVE_KEY'})`,
     );
   }
   return { backends, warnings: errors };
