@@ -3,6 +3,7 @@
 // Measures the live site, runs 7 specialist agents + 1 lead agent (MWAPI key 1 and key 2 first,
 // then your private FreeLLMAPI, then Solco's reserve) and prints the report; optionally sends it to
 // Telegram. Exit codes: 0 report produced · 1 configuration refused · 2 no AI backend answered.
+import { writeFile } from 'node:fs/promises';
 import process from 'node:process';
 import { backendsFrom, chunks, measure, redact, renderReport, runReview } from './lib.mjs';
 
@@ -61,6 +62,8 @@ async function main() {
   }
   const report = renderReport(measurements, review);
   log(report);
+  // GitHub Actions / other runners: also write the report to a file (REPORT_FILE), already redacted.
+  if (env.REPORT_FILE?.trim()) await writeFile(env.REPORT_FILE.trim(), `${redact(report, secrets)}\n`);
   await sendTelegram(report);
   return 0;
 }

@@ -1,0 +1,69 @@
+# @polsia:user-owned — Solco AI agents: site performance review, run on demand from GitHub Actions.
+# Same worker as the Render cron job (workers/ai-agents/): it measures the live site, runs 7
+# specialist agents + 1 lead agent and writes the report to the run summary and as an artifact.
+# Keys come ONLY from repository secrets (Settings → Secrets and variables → Actions):
+#   MWAPI_API_KEY, MWAPI_API_KEY_2   your MWAPI keys (tried first, key 1 then key 2)
+#   SOLCO_RESERVE_KEY                optional: = FREELLMAPI_API_KEY on Vercel (Solco's reserve, fallback)
+#   MWAPI_MODEL                      optional repository VARIABLE (not secret): a model id, empty = auto
+# GitHub masks secrets in logs and the worker redacts them again. Read-only token, no write access.
+name: 'AI agents: performance review'
+
+on:
+  workflow_dispatch:
+    inputs:
+      pages:
+        description: 'Pages to measure, comma-separated (empty = the default list)'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-agents
+  cancel-in-progress: false
+
+jobs:
+  review:
+    name: 'Measure, 7 agents + lead'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: workers/ai-agents
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Worker tests
+        run: node --test workers/ai-agents/agents.test.mjs
+
+      - name: Run the agents
+        env:
+          MWAPI_API_KEY: ${{ secrets.MWAPI_API_KEY }}
+          MWAPI_API_KEY_2: ${{ secrets.MWAPI_API_KEY_2 }}
+          SOLCO_RESERVE_KEY: ${{ secrets.SOLCO_RESERVE_KEY }}
+          MWAPI_MODEL: ${{ vars.MWAPI_MODEL }}
+          REVIEW_PAGES: ${{ inputs.pages }}
+          REPORT_FILE: ${{ runner.temp }}/report.txt
+        run: node workers/ai-agents/agents.mjs
+
+      - name: Report in the run summary
+        if: always()
+        run: |
+          if [ -s "$RUNNER_TEMP/report.txt" ]; then
+            { echo '```'; cat "$RUNNER_TEMP/report.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'No report: see the "Run the agents" step log.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ai-agents-report
+          path: ${{ runner.temp }}/report.txt
+          if-no-files-found: ignore
+          retention-days: 14
