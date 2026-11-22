@@ -42,7 +42,7 @@ from typing import Any
 
 import aiohttp
 from telethon import TelegramClient, functions
-from telethon.errors import FloodWaitError, RPCError
+from telethon.errors import FloodWaitError, RPCError, UnauthorizedError
 from telethon.sessions import StringSession
 
 log = logging.getLogger("tg-guard")
@@ -341,6 +341,36 @@ async def _sleep_or_stop(stop: asyncio.Event, seconds: float) -> None:
         await asyncio.wait_for(stop.wait(), timeout=seconds)
 
 
+SESSION_REVOKED_EXIT = 3
+
+
+async def _session_still_valid(client: TelegramClient) -> bool:
+    """Dopo un errore di rete: riconnette e verifica che la sessione sia ancora autorizzata.
+    False solo se Telegram risponde che NON lo è (sessione revocata); un errore di rete resta «valida»."""
+    try:
+        if not client.is_connected():
+            await client.connect()
+        return bool(await client.is_user_authorized())
+    except Exception:  # noqa: BLE001 — rete ancora giù: riprova al giro dopo
+        return True
+
+
+async def _session_revoked(alerts: "Alerts", reason: str) -> None:
+    log.error(
+        "Sessione revocata (%s): il guard NON sta più monitorando. Rigenera TG_SESSION_STRING con "
+        "bootstrap_session.py e NON terminare quella sessione da Telegram. Esco.",
+        reason,
+    )
+    # Il canale Telegram è morto con la sessione: resta il webhook (TG_ALERT_WEBHOOK), se c'è.
+    with suppress(Exception):
+        await alerts.send(
+            event="session_revoked",
+            severity="critical",
+            text="Telegram Guard: sessione revocata, monitoraggio fermo. Rigenera TG_SESSION_STRING.",
+        )
+    raise SystemExit(SESSION_REVOKED_EXIT)
+
+
 async def monitor(client: TelegramClient, cfg: Config, alerts: Alerts, stop: asyncio.Event) -> None:
     me = await client.get_me()
     log.info("Monitoraggio account id=%s (@%s), ogni %ss.", me.id, me.username, cfg.interval)
@@ -366,12 +396,18 @@ async def monitor(client: TelegramClient, cfg: Config, alerts: Alerts, stop: asy
             log.warning("FloodWait dall'API: attendo %ss.", exc.seconds)
             await _sleep_or_stop(stop, exc.seconds + 1)
             continue
+        except UnauthorizedError as exc:  # AuthKeyUnregistered, SessionRevoked, ...: non è transitorio
+            await _session_revoked(alerts, type(exc).__name__)
         except RPCError as exc:
             await alerts.send(
                 event="api_error", severity="warning", text=f"Errore API Telegram: {type(exc).__name__}"
             )
         except Exception as exc:  # noqa: BLE001 — il monitoraggio non deve morire per un errore transitorio
             log.error("Errore nel ciclo: %s", type(exc).__name__)
+            # Telethon, a sessione revocata, logga solo un INFO e si disconnette: qui arriva come
+            # ConnectionError. Se Telegram conferma che non siamo più autorizzati, si esce.
+            if not await _session_still_valid(client):
+                await _session_revoked(alerts, "non più autorizzata")
             backoff = min(backoff * 2, 900)
         await _sleep_or_stop(stop, backoff)
 
