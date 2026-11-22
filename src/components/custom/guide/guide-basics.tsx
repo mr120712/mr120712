@@ -263,10 +263,6 @@ export function GuidePlayer() {
           subito.
         </li>
         <li>
-          <Ui>Ascolta altrove</Ui>: apre lo stesso brano su altri servizi, come Spotify o YouTube
-          Music. Lì vale il tuo account di quel servizio.
-        </li>
-        <li>
           <Ui>Condividi</Ui>: manda il brano a un amico, per esempio su WhatsApp.
         </li>
       </Points>

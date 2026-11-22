@@ -152,7 +152,6 @@ import {
 import { BackgroundListenButton } from './background-listen-button';
 import { BackgroundSwitchNotice, useReturnNotice } from './background-switch-notice';
 import noticeStyles from './background-switch-notice.module.css';
-import { ListenElsewhereMenu } from './listen-elsewhere-menu';
 import {
   isLocalTrack,
   LOCAL_MISSING_MESSAGE,
@@ -4497,14 +4496,6 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                       url={quizTarget.url}
                       imageUrl={quizTarget.imageUrl}
                       ariaLabel={`Sfida un amico: chi interpreta ${quizTarget.title}?`}
-                      contentClassName={FULL_PLAYER_MENU}
-                    />
-                  ) : null}
-                  {songSearch ? (
-                    <ListenElsewhereMenu
-                      title={songSearch.title}
-                      artist={songSearch.artist}
-                      youtubeVideoId={songSearchVideoId}
                       contentClassName={FULL_PLAYER_MENU}
                     />
                   ) : null}
