@@ -67,6 +67,9 @@ log = logging.getLogger("ytdlp-worker")
 # Chiave/segreto condiviso: WORKER_API_KEY (preferito) oppure YTDLP_SERVICE_KEY come alias — così lo
 # STESSO nome usato su Vercel (YTDLP_SERVICE_KEY) vale anche qui, evitando errori di naming fra i due lati.
 API_KEY = (os.environ.get("WORKER_API_KEY") or os.environ.get("YTDLP_SERVICE_KEY") or "").strip()
+# Seconda chiave valida (rotazione senza downtime): WORKER_API_KEY_2 (alias YTDLP_SERVICE_KEY2). Vale solo
+# per l'Authorization: i link /file restano firmati con la chiave principale (li firma e verifica il worker).
+API_KEY_2 = (os.environ.get("WORKER_API_KEY_2") or os.environ.get("YTDLP_SERVICE_KEY2") or "").strip()
 # Fail-closed: senza chiave il worker rifiuta tutto, a meno di questo opt-in esplicito (solo dev locale).
 ALLOW_OPEN = os.environ.get("WORKER_ALLOW_OPEN", "").strip().lower() in {"1", "true", "yes", "on"}
 MODE = os.environ.get("WORKER_MODE", "extract").strip().lower()
@@ -918,8 +921,10 @@ def _check_auth(authorization: str | None) -> None:
         if ALLOW_OPEN:
             return
         raise HTTPException(status_code=503, detail="worker not configured: set WORKER_API_KEY")
-    expected = f"Bearer {API_KEY}"
-    if not authorization or not hmac.compare_digest(authorization, expected):
+    given = authorization or ""
+    # Confronto a tempo costante con ENTRAMBE le chiavi (niente scorciatoie che rivelino quale).
+    ok = [hmac.compare_digest(given, f"Bearer {key}") for key in (API_KEY, API_KEY_2) if key]
+    if not given or not any(ok):
         raise HTTPException(status_code=401, detail="unauthorized")
 
 

@@ -328,3 +328,10 @@ Errori: 400 messaggi non validi · 413 troppo lunghi · 502 `upstream_http_<code
 504 `upstream_unreachable`. `temperature` (0–2), `top_p`, `max_tokens` (≤ 8192) sono limitati.
 `GET /health` → `"chat": true` quando l'URL è impostato (mai URL né token).
 Test: `python -m unittest -v test_chat` (in un processo separato da `test_antibot`).
+
+## Rotazione della chiave (`WORKER_API_KEY_2`)
+
+Il worker accetta **due** chiavi Bearer: `WORKER_API_KEY` e `WORKER_API_KEY_2` (alias `YTDLP_SERVICE_KEY2`).
+Solco usa `YTDLP_SERVICE_KEY2` se è impostata, altrimenti `YTDLP_SERVICE_KEY`. Per cambiare chiave senza
+downtime: imposta la nuova come `WORKER_API_KEY_2` sul worker → `YTDLP_SERVICE_KEY2` su Vercel → (più tardi)
+spostala in `WORKER_API_KEY`/`YTDLP_SERVICE_KEY` e svuota le `_2`. I link `/file` sono firmati con la principale.

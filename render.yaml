@@ -25,6 +25,8 @@ services:
         value: serve
       - key: WORKER_API_KEY
         sync: false                      # secret — set it in the dashboard (= YTDLP_SERVICE_KEY on Vercel)
+      - key: WORKER_API_KEY_2            # optional 2nd valid key, for rotation (= YTDLP_SERVICE_KEY2 on Vercel)
+        sync: false
       # POST /chat → your self-hosted DeepSeek server (OpenAI-compatible, e.g. vLLM). Same Bearer
       # WORKER_API_KEY auth as /download, so the model is never public. Leave the URL unset to keep
       # /chat off (503). GET /health → "chat": true once it is configured.
