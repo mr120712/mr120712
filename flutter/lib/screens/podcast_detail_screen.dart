@@ -8,6 +8,7 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/mini_player.dart';
 import 'player_screen.dart';
+import '../widgets/cover_cache.dart';
 
 /// Dettaglio di un podcast: intestazione + episodi, con riproduzione.
 class PodcastDetailScreen extends ConsumerWidget {
@@ -51,9 +52,9 @@ class PodcastDetailScreen extends ConsumerWidget {
         data: (detail) {
           final podcast = detail.podcast ?? fallback;
           final episodes = detail.episodes;
-          return ListView(
-            padding: const EdgeInsets.only(bottom: 24),
-            children: [
+          // Builder: le righe degli episodi (anche centinaia) si creano solo quando entrano nello
+          // schermo. Le prime due voci sono l'intestazione e il pulsante (o l'avviso «nessun episodio»).
+          final head = <Widget>[
               _Header(podcast: podcast, episodeCount: episodes.length),
               if (episodes.isNotEmpty)
                 Padding(
@@ -72,9 +73,14 @@ class PodcastDetailScreen extends ConsumerWidget {
                         style: TextStyle(color: Colors.white60)),
                   ),
                 ),
-              ...episodes.asMap().entries.map((entry) {
-                final i = entry.key;
-                final e = entry.value;
+          ];
+          return ListView.builder(
+            padding: const EdgeInsets.only(bottom: 24),
+            itemCount: head.length + episodes.length,
+            itemBuilder: (context, index) {
+                if (index < head.length) return head[index];
+                final i = index - head.length;
+                final e = episodes[i];
                 return ListTile(
                   leading: const Icon(Icons.play_circle_outline, color: Colors.white70),
                   title: Text(e.title, maxLines: 2, overflow: TextOverflow.ellipsis),
@@ -106,8 +112,7 @@ class PodcastDetailScreen extends ConsumerWidget {
                       : null,
                   onTap: () => _play(context, ref, detail, i),
                 );
-              }),
-            ],
+            },
           );
         },
       ),
@@ -144,7 +149,7 @@ class _Header extends StatelessWidget {
               width: 88,
               height: 88,
               child: podcast?.artworkUrl != null
-                  ? CachedNetworkImage(imageUrl: podcast!.artworkUrl!, fit: BoxFit.cover)
+                  ? CachedNetworkImage(imageUrl: podcast!.artworkUrl!, memCacheWidth: coverCachePx(context, 88), fit: BoxFit.cover)
                   : const ColoredBox(
                       color: kSolcoNavyCard,
                       child: Icon(Icons.podcasts, color: kSolcoLime, size: 36)),

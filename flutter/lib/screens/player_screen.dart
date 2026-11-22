@@ -13,6 +13,7 @@ import '../player/player_controller.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/lyrics_sheet.dart';
+import '../widgets/cover_cache.dart';
 
 /// Lettore a schermo intero (Now Playing): copertina grande, barra di avanzamento,
 /// precedente/play/successivo, shuffle e ripetizione, coda e attribuzione.
@@ -59,6 +60,7 @@ class PlayerScreen extends ConsumerWidget {
                       child: track.artworkUrl != null
                           ? CachedNetworkImage(
                               imageUrl: track.artworkUrl!,
+                              memCacheWidth: coverCachePx(context, MediaQuery.sizeOf(context).width - 48),
                               fit: BoxFit.cover,
                               placeholder: (_, __) => const ColoredBox(color: kSolcoNavyCard),
                               errorWidget: (_, __, ___) => const _BigArtFallback(),
@@ -359,8 +361,8 @@ class _DownloadAction extends ConsumerWidget {
         !item.isOffline && (item.playbackMode == 'audius' || item.playbackMode == 'podcast');
     if (!downloadable) return const SizedBox.shrink();
 
-    final downloads = ref.watch(downloadsProvider).valueOrNull ?? const <DownloadedTrack>[];
-    final already = downloads.any((d) => d.qualifiedId == item.qualifiedId);
+    final already =
+        ref.watch(downloadedIdsProvider.select((ids) => ids.contains(item.qualifiedId)));
     if (already) {
       return const Padding(
         padding: EdgeInsets.only(right: 12),
@@ -467,6 +469,8 @@ class _BlurredBackdrop extends StatelessWidget {
             imageFilter: ImageFilter.blur(sigmaX: 45, sigmaY: 45),
             child: CachedNetworkImage(
               imageUrl: url,
+              // Sfocata a raggio 45: 160 px fisici bastano, la piena risoluzione sarebbe RAM sprecata.
+              memCacheWidth: 160,
               fit: BoxFit.cover,
               placeholder: (_, __) => const ColoredBox(color: kSolcoNavy),
               errorWidget: (_, __, ___) => const ColoredBox(color: kSolcoNavy),

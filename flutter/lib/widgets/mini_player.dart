@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../screens/player_screen.dart';
 import '../state/app_state.dart';
 import '../theme.dart';
+import 'cover_cache.dart';
 
 /// Barra del lettore sopra la navigazione: brano in corso, play/pausa, avanti.
 class MiniPlayer extends ConsumerWidget {
@@ -45,7 +46,7 @@ class MiniPlayer extends ConsumerWidget {
                               height: 44,
                               child: track.artworkUrl != null
                                   ? CachedNetworkImage(
-                                      imageUrl: track.artworkUrl!, fit: BoxFit.cover)
+                                      imageUrl: track.artworkUrl!, memCacheWidth: coverCachePx(context, 44), fit: BoxFit.cover)
                                   : const ColoredBox(color: kSolcoNavy),
                             ),
                           ),

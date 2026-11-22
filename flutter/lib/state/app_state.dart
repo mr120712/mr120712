@@ -174,6 +174,13 @@ final downloadsProvider = FutureProvider<List<DownloadedTrack>>((ref) async {
   return store.list();
 });
 
+/// Gli id dei brani scaricati, come insieme: «è scaricato?» costa O(1) invece di scorrere la lista.
+/// Con `.select((ids) => ids.contains(id))` ogni pulsante si ricostruisce solo se cambia il SUO stato.
+final downloadedIdsProvider = Provider<Set<String>>((ref) {
+  final downloads = ref.watch(downloadsProvider).valueOrNull ?? const <DownloadedTrack>[];
+  return {for (final d in downloads) d.qualifiedId};
+});
+
 /// Stato dell'abbonamento Premium (acquisto in-app). Si ricarica dopo una verifica riuscita.
 final proStatusProvider = FutureProvider<ProStatus>((ref) async {
   final api = await ref.watch(apiProvider.future);

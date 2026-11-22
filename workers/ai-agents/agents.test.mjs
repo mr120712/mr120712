@@ -456,3 +456,22 @@ test('429 from a reseller: honour Retry-After, back off within a budget, then th
   );
   assert.equal(capped.reduce((a, b) => a + b, 0), 10_000);
 });
+
+test('android-app: 6 specialists cover every Dart file of the Flutter app exactly once', async () => {
+  const { readdir } = await import('node:fs/promises');
+  const { collectFlutter, FLUTTER_SPECIALISTS } = await import('./flutter-review.mjs');
+  assert.equal(FLUTTER_SPECIALISTS.length, 6);
+  const root = new URL('../../', import.meta.url);
+  const dart = (await readdir(new URL('flutter/lib/', root), { recursive: true }))
+    .filter((f) => f.endsWith('.dart'))
+    .map((f) => `flutter/lib/${f}`)
+    .sort();
+  const assigned = FLUTTER_SPECIALISTS.flatMap((a) => a.files).filter((f) => f.endsWith('.dart'));
+  assert.equal(new Set(assigned).size, assigned.length, 'a file is read by two specialists');
+  assert.deepEqual([...assigned].sort(), dart);
+  const m = await collectFlutter({ root });
+  assert.deepEqual(m.missing, []);
+  const facts = FLUTTER_SPECIALISTS[1].facts(m);
+  assert.match(facts, /===== flutter\/lib\/api\/solco_api\.dart =====/);
+  assert.doesNotMatch(facts, /player_controller/);
+});

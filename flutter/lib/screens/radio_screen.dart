@@ -7,6 +7,7 @@ import '../state/app_state.dart';
 import '../theme.dart';
 import '../widgets/mini_player.dart';
 import 'player_screen.dart';
+import '../widgets/cover_cache.dart';
 
 /// Scoperta radio: cerca o sfoglia le stazioni più votate, e riproduci in diretta.
 class RadioScreen extends ConsumerStatefulWidget {
@@ -116,7 +117,7 @@ class _StationArt extends StatelessWidget {
         height: 48,
         child: url != null
             ? CachedNetworkImage(
-                imageUrl: url!,
+                imageUrl: url!, memCacheWidth: coverCachePx(context, 48),
                 fit: BoxFit.cover,
                 placeholder: (_, __) => const ColoredBox(color: kSolcoNavyCard),
                 errorWidget: (_, __, ___) => _fallback(),

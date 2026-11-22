@@ -121,10 +121,16 @@ class HomeScreen extends ConsumerWidget {
                 );
               }
               final track = tracks[i - 1];
-              return TrackTile(
-                track: track,
-                playing: player?.current?.qualifiedId == track.qualifiedId,
-                onTap: () => player?.playQueue(tracks, i - 1),
+              // `playerProvider` non notifica i cambi di brano (è un Provider semplice): ogni riga
+              // ascolta il player, così l'evidenziazione «in riproduzione» segue il brano corrente.
+              // Si ricostruiscono solo le righe visibili, e solo ai cambi di stato (non di posizione).
+              return ListenableBuilder(
+                listenable: player ?? Listenable.merge(const []),
+                builder: (context, _) => TrackTile(
+                  track: track,
+                  playing: player?.current?.qualifiedId == track.qualifiedId,
+                  onTap: () => player?.playQueue(tracks, i - 1),
+                ),
               );
             },
           );

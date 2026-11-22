@@ -63,10 +63,14 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               }
               return ListView.builder(
                 itemCount: tracks.length,
-                itemBuilder: (context, i) => TrackTile(
-                  track: tracks[i],
-                  playing: player?.current?.qualifiedId == tracks[i].qualifiedId,
-                  onTap: () => player?.playQueue(tracks, i),
+                // Ogni riga ascolta il player: l'evidenziazione segue il brano corrente.
+                itemBuilder: (context, i) => ListenableBuilder(
+                  listenable: player ?? Listenable.merge(const []),
+                  builder: (context, _) => TrackTile(
+                    track: tracks[i],
+                    playing: player?.current?.qualifiedId == tracks[i].qualifiedId,
+                    onTap: () => player?.playQueue(tracks, i),
+                  ),
                 ),
               );
             },
