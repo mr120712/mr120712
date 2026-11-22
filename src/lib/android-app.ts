@@ -22,8 +22,8 @@ export const ANDROID_LEGACY_PACKAGE = 'app.solcomusic.solco';
 export const ANDROID_APP_HOST = 'www.solcomusic.online';
 
 /** Versione e codice dell'APK (Flutter) in public/solco.apk. */
-export const ANDROID_APP_VERSION = '0.7.3';
-export const ANDROID_APP_VERSION_CODE = 12;
+export const ANDROID_APP_VERSION = '0.7.5';
+export const ANDROID_APP_VERSION_CODE = 14;
 
 /** Requisito minimo (minSdk 24). */
 export const ANDROID_APP_MIN_VERSION = 'Android 7.0 o successivo';
