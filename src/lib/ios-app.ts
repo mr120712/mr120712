@@ -11,10 +11,10 @@ import { ANDROID_APP_HOST, ANDROID_APP_PACKAGE } from '@/lib/android-app';
 export const IOS_APP_BUNDLE_ID = ANDROID_APP_PACKAGE;
 /**
  * Versione dell'IPA distribuito (CFBundleShortVersionString) in public/solco.ipa. Segue l'IPA, non
- * l'APK: dal 22 novembre 2026 l'APK è 0.7.5 mentre l'IPA pubblicato è ancora 0.7.3; si aggiorna
- * quando si pubblica un nuovo IPA (workflow «Flutter (iOS)»). Il test ios-public-ipa lo confronta.
+ * l'APK: si aggiorna quando si pubblica un nuovo IPA (workflow «Flutter (iOS)», modalità
+ * ipa-unsigned). Il test ios-public-ipa la confronta con l'Info.plist dell'IPA.
  */
-export const IOS_APP_VERSION = '0.7.3';
+export const IOS_APP_VERSION = '0.7.5';
 export const IOS_APP_TITLE = 'Solco';
 export const IOS_APP_HOST = ANDROID_APP_HOST;
 
