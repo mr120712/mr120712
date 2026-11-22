@@ -186,9 +186,10 @@ describe('askDeepseek con DEEPSEEK_BACKEND=solco (default)', () => {
   it('senza provider configurati → not_configured; errore upstream → model_error', async () => {
     expect(await askDeepseek(ask, {}, vi.fn())).toEqual({ status: 'not_configured' });
     const failing = vi.fn().mockResolvedValue(json(500, { error: 'x' }));
-    expect(await askDeepseek(ask, solcoEnv, failing)).toEqual({
+    expect(await askDeepseek(ask, solcoEnv, failing)).toMatchObject({
       status: 'failed',
       error: 'model_error',
+      detail: 'MWAPI 500: x',
     });
   });
 });
@@ -239,9 +240,10 @@ describe('rifiuti del provider resi leggibili', () => {
     const fetchImpl = vi
       .fn()
       .mockResolvedValue(json(402, { error: { message: 'Insufficient credits' } }));
-    expect(await askDeepseek(ask, env, fetchImpl)).toEqual({
+    expect(await askDeepseek(ask, env, fetchImpl)).toMatchObject({
       status: 'failed',
       error: 'provider_credit',
+      detail: 'OpenRouter 402: Insufficient credits',
     });
     expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(
       'https://openrouter.ai/api/v1/chat/completions',
@@ -281,5 +283,40 @@ describe('solcoModel (DEEPSEEK_SOLCO_MODEL ripulito)', () => {
     expect(JSON.parse(fetchImpl.mock.calls[0]?.[1].body).model).toBe(
       'deepseek/deepseek-v4.1-flash',
     );
+  });
+});
+
+describe("il motivo esatto del provider arriva all'admin", () => {
+  const orEnv = {
+    OPENROUTER_API_KEY: 'or',
+    DEEPSEEK_SOLCO_PROVIDERS: 'openrouter',
+    DEEPSEEK_SOLCO_MODEL: 'deepseek/deepseek-v4.1-flash',
+  };
+
+  it('OpenRouter 404 «data policy» → model_not_found con il testo di OpenRouter', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      json(404, {
+        error: {
+          message:
+            'No endpoints found matching your data policy (Free model publication). Configure: https://openrouter.ai/settings/privacy',
+          code: 404,
+        },
+      }),
+    );
+    const out = await askDeepseek(ask, orEnv, fetchImpl);
+    expect(out).toMatchObject({ status: 'failed', error: 'model_not_found' });
+    expect(out.status === 'failed' && out.detail).toContain(
+      'OpenRouter 404: No endpoints found matching your data policy',
+    );
+  });
+
+  it('il bot mostra il dettaglio, con HTML escapato', async () => {
+    const { deepseekTelegramMessages } = await import('@/lib/business/deepseek-telegram');
+    const [text] = deepseekTelegramMessages({
+      status: 'failed',
+      error: 'model_not_found',
+      detail: 'OpenRouter 404: No endpoints <found>',
+    });
+    expect(text).toContain('<code>OpenRouter 404: No endpoints &lt;found&gt;</code>');
   });
 });

@@ -73,7 +73,10 @@ export function splitForTelegram(text: string, size: number = CHUNK): string[] {
 export function deepseekTelegramMessages(outcome: DeepseekOutcome): string[] {
   if (outcome.status !== 'ok') {
     const key = outcome.status === 'not_configured' ? 'not_configured' : outcome.error;
-    return [`❌ DeepSeek: ${escapeHtml(FAILURES[key])}.`];
+    const detail = outcome.status === 'failed' && outcome.detail ? outcome.detail : '';
+    return [
+      `❌ DeepSeek: ${escapeHtml(FAILURES[key])}.${detail ? `\n<code>${escapeHtml(detail)}</code>` : ''}`,
+    ];
   }
   // Si spezza PRIMA di fare l'escape, così un'entità HTML non resta tagliata a metà.
   return splitForTelegram(outcome.reply).map(escapeHtml);

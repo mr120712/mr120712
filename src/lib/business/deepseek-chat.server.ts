@@ -26,7 +26,7 @@ const WorkerChatSchema = z.object({
 export type DeepseekOutcome =
   | { status: 'ok'; reply: string; model: string }
   | { status: 'not_configured' }
-  | { status: 'failed'; error: DeepseekFailure };
+  | { status: 'failed'; error: DeepseekFailure; detail?: string };
 
 export type DeepseekFailure =
   | 'worker_unauthorized'
@@ -116,6 +116,8 @@ async function askViaSolco(
       AI_RESERVE_PROVIDERS: clean(env.DEEPSEEK_SOLCO_PROVIDERS) ?? DEEPSEEK_SOLCO_DEFAULT_PROVIDERS,
       AI_RESERVE_CHAIN_BUDGET_MS: String(deepseekSolcoBudgets(timeoutMs).chainMs),
       AI_RESERVE_ATTEMPT_TIMEOUT_MS: String(deepseekSolcoBudgets(timeoutMs).attemptMs),
+      // Il motivo esatto del rifiuto (es. «OpenRouter 404: No endpoints found…») torna all'admin.
+      AI_RESERVE_ERROR_DETAIL: '1',
     },
     fetchImpl,
   );
@@ -124,7 +126,11 @@ async function askViaSolco(
     if (res.status === 503) return { status: 'not_configured' };
     if (res.status === 504) return { status: 'failed', error: 'timeout' };
     if (res.status === 429) return { status: 'failed', error: 'busy' };
-    return { status: 'failed', error: reserveFailure(body) };
+    const detail =
+      body && typeof body === 'object' && 'detail' in body && typeof body.detail === 'string'
+        ? body.detail
+        : undefined;
+    return { status: 'failed', error: reserveFailure(body), ...(detail ? { detail } : {}) };
   }
   const parsed = ReserveReplySchema.safeParse(body);
   const reply = parsed.success ? (parsed.data.choices[0]?.message.content ?? '') : '';
