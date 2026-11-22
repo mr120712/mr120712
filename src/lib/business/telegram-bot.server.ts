@@ -671,7 +671,7 @@ const SKYNET_COMMAND = {
 /** Comando owner-only: /deepseek, chat con DeepSeek sul server dell'owner. Stesso scope per-chat. */
 const DEEPSEEK_COMMAND = {
   command: 'deepseek',
-  description: '🐋 Chatta con DeepSeek (server privato)',
+  description: '🐋 Chatta con DeepSeek',
 } as const;
 
 /** Comandi mostrati agli owner (le chat in SKYNET_TELEGRAM_CHAT_IDS): i pubblici + /video, /skynet, /deepseek. */

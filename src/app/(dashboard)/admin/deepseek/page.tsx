@@ -6,7 +6,7 @@ import { AdminDeepseekChat } from '@/components/custom/admin/admin-deepseek-chat
 
 export const metadata: Metadata = {
   title: 'DeepSeek',
-  description: 'Chat privata con il server DeepSeek dell’amministratore.',
+  description: 'Chat privata con DeepSeek per gli amministratori.',
   robots: { index: false, follow: false },
 };
 
@@ -17,7 +17,7 @@ export default function AdminDeepseekPage() {
         <p className="text-sm font-medium text-muted-foreground">Strumenti amministrativi</p>
         <h1 className="text-3xl font-semibold tracking-normal text-foreground">DeepSeek</h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-          Chat con DeepSeek-V4.1-Flash-1017-obliterated sul tuo server. Visibile solo agli admin
+          Chat con DeepSeek-V4.1-Flash (via Hugging Face Inference). Visibile solo agli admin
           verificati: la richiesta passa dal worker yt-dlp, che inoltra al server con la sua chiave.
         </p>
       </header>

@@ -90,7 +90,7 @@ export function AdminDeepseekChat() {
         </span>
         <div className="min-w-0">
           <h2 className="font-semibold">DeepSeek V4.1 Flash</h2>
-          <p className="truncate text-xs text-muted-foreground">Server privato · via worker</p>
+          <p className="truncate text-xs text-muted-foreground">Hugging Face Inference · via worker</p>
         </div>
         <span className="ml-auto hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
           <ShieldCheck aria-hidden="true" className="size-4 text-primary" />
