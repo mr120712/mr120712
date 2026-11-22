@@ -90,6 +90,8 @@ const SECRET_VALUES = Object.values(SECRETS);
 
 const ENV = {
   ...SECRETS,
+  UAM_MODE: 'first-visit',
+  UAM_SECRET: 'fake-uam-secret-0123456789abcdef-32chars',
   BETTER_AUTH_URL: 'https://solcomusic.vercel.app',
   NEXT_PUBLIC_APP_URL: 'https://solcomusic.vercel.app',
   EMAIL_FROM: 'Solco <noreply@solco.test>',
@@ -1079,6 +1081,7 @@ describe('secrets never reach a detail', () => {
     expect(results.filter((result) => result.status === 'ok').map((result) => result.id)).toEqual([
       'auth_config',
       'email',
+      'uam', // legge solo l'ambiente (UAM configurato), non dipende dagli upstream
     ]);
     expectNoSecrets(results.map((result) => result.detail));
   });
@@ -1088,5 +1091,38 @@ describe('secrets never reach a detail', () => {
     expect(detail).toBe('chiave [nascosto] e [nascosto]');
     expect(safeDetail('x'.repeat(500), ENV)).toHaveLength(300);
     expect(safeDetail('  ', ENV)).toBe('Nessun dettaglio');
+  });
+});
+
+describe('uam (cancello anti-bot)', () => {
+  const run = (env: Record<string, string | undefined>) =>
+    runCheck('uam', makeDeps({ env: { ...ENV, ...env } }));
+
+  it('ok quando il cancello è attivo con un segreto valido', async () => {
+    const r = await run({});
+    expect(r.status).toBe('ok');
+    expect(r.detail).toMatch(/modalità first-visit/);
+  });
+
+  it('FAIL (avvisa) quando UAM_MODE è attivo ma il segreto è troppo corto: rete di sicurezza della rotazione', async () => {
+    const r = await run({ UAM_SECRET: 'troppo-corto' });
+    expect(r.status).toBe('fail');
+    expect(r.detail).toMatch(/UAM_SECRET/);
+    expect(r.detail).toMatch(/fail-open|SPENTO|passare i bot/);
+  });
+
+  it('FAIL quando UAM_MODE è attivo ma il segreto manca', async () => {
+    expect((await run({ UAM_SECRET: undefined })).status).toBe('fail');
+  });
+
+  it('solo avviso (non guasto) quando UAM_MODE non è impostato', async () => {
+    expect((await run({ UAM_MODE: undefined })).status).toBe('warn');
+  });
+
+  it('non rivela mai il segreto nel dettaglio', async () => {
+    const r = await run({ UAM_SECRET: 'troppo-corto' });
+    expect(r.detail).not.toContain('troppo-corto');
+    const ok = await run({});
+    expect(ok.detail).not.toContain('fake-uam-secret-0123456789abcdef-32chars');
   });
 });

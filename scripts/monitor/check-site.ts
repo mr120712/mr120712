@@ -254,6 +254,7 @@ export const INTERNAL_CHECKS: Record<string, { label: string; critical: boolean 
   solco_ai: { label: 'Solco AI (trascrizione testi)', critical: false },
   stripe: { label: 'Pagamenti Stripe', critical: false },
   telegram_bot: { label: 'Bot Telegram', critical: false },
+  uam: { label: 'Cancello anti-bot (UAM)', critical: false },
   cron_cleanup: { label: 'Pulizia giornaliera', critical: false },
 };
 
