@@ -226,6 +226,11 @@ export const ACTION_RATE_LIMITS = {
     { requests: 20, windowMs: 60_000 },
     { requests: 100, windowMs: 3_600_000 },
   ],
+  // Chat DeepSeek dell'admin: ogni richiesta occupa il server GPU dell'owner (via worker yt-dlp).
+  'admin.deepseek': [
+    { requests: 10, windowMs: 60_000 },
+    { requests: 200, windowMs: 86_400_000 },
+  ],
   // La chat di Skynet (pannello admin e /skynet su Telegram, solo proprietario): ogni domanda
   // legge il database, Vercel e chiama un modello AI. Poche al minuto bastano a una persona.
   'skynet.chat': [
@@ -641,6 +646,7 @@ const actionLabels: Record<RateLimitAction, string> = {
   'solco.support': 'le richieste al supporto',
   'solco.support.global': 'le richieste al supporto di oggi',
   'admin.assistant': 'le richieste all’assistente amministrativo',
+  'admin.deepseek': 'le richieste a DeepSeek',
   'skynet.chat': 'le domande a Skynet',
   'product.check.start': 'i controlli prodotto',
   'product.check.link': 'le letture dei link',
