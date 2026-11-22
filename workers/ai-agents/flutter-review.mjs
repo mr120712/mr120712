@@ -55,6 +55,7 @@ export const FLUTTER_SPECIALISTS = [
       'flutter/lib/screens/library_screen.dart',
       'flutter/lib/widgets/featured_sections.dart',
       'flutter/lib/widgets/track_tile.dart',
+      'flutter/lib/widgets/cover_cache.dart',
       'flutter/lib/screens/favorites_screen.dart',
       'flutter/lib/screens/playlist_screen.dart',
       'flutter/lib/screens/search_screen.dart',

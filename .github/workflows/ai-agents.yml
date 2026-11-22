@@ -16,10 +16,22 @@ on:
       target:
         description: 'site (7 agents on the live site), ytdlp-worker (4 agents on its code + /health), android-app (6 agents on the Flutter app code), tiktok-ad (6 agents write a TikTok ad storyboard) models (list and test each key’s models) or measure (site timings only, no AI)'
         type: choice
-        options: [site, ytdlp-worker, android-app, tiktok-ad, models, measure]
+        options: [site, ytdlp-worker, android-app, tiktok-ad, security-fix, models, measure]
         default: site
       pages:
         description: 'Pages to measure, comma-separated (empty = the default list)'
+        type: string
+        default: ''
+      file:
+        description: 'security-fix: the repository file the finding points to (e.g. flutter/ios-signing/resign-ipa.sh)'
+        type: string
+        default: ''
+      finding:
+        description: 'security-fix: the finding text (title, details, suggested fix)'
+        type: string
+        default: ''
+      model:
+        description: 'Optional MagnetAPI model id for this run (e.g. gpt-6.2-sol); empty = repository variable / best listed'
         type: string
         default: ''
 
@@ -44,6 +56,7 @@ jobs:
             workers/ai-agents
             workers/ytdlp-worker
             src/lib
+            flutter/ios-signing
             flutter/lib
             flutter/android-config
 
@@ -57,13 +70,16 @@ jobs:
       - name: Run the agents
         env:
           MAGNETAPI_API_KEY: ${{ secrets.MAGNETAPI_API_KEY }}
-          MAGNETAPI_MODEL: ${{ vars.MAGNETAPI_MODEL }}
+          MAGNETAPI_MODEL: ${{ inputs.model || vars.MAGNETAPI_MODEL }}
           MWAPI_API_KEY: ${{ secrets.MWAPI_API_KEY }}
           MWAPI_API_KEY_2: ${{ secrets.MWAPI_API_KEY_2 }}
           SOLCO_RESERVE_KEY: ${{ secrets.SOLCO_RESERVE_KEY }}
           MWAPI_MODEL: ${{ vars.MWAPI_MODEL || 'claude-sonnet-5' }}
           REVIEW_PAGES: ${{ inputs.pages }}
           REVIEW_TARGET: ${{ inputs.target || 'site' }}
+          # Passed through env (never interpolated into the script): the text cannot inject shell.
+          FIX_FILE: ${{ inputs.file }}
+          FIX_FINDING: ${{ inputs.finding }}
           REPORT_FILE: ${{ runner.temp }}/report.txt
           STORYBOARD_FILE: ${{ runner.temp }}/storyboard.json
         run: node workers/ai-agents/agents.mjs
