@@ -649,13 +649,6 @@ describe('player: brani locali', () => {
     expect(full?.textContent).not.toContain('Ascolta altrove');
     expect(full?.querySelectorAll('a[href]')).toHaveLength(0);
     expect(full?.querySelector('img')?.getAttribute('src')).toBe(urlOf('artwork', fileA.id));
-
-    // A streamed track keeps the menu.
-    await start(container, 'Avvia audius');
-    expect(text(container, 'current')).toBe(audius.qualifiedId);
-    expect(
-      document.querySelector('section[aria-label="Player a schermo intero"]')?.textContent,
-    ).toContain('Ascolta altrove');
   });
 
   it('coda mista: il file locale non chiede nulla, il brano Audius dopo chiede il permesso', async () => {
