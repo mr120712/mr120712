@@ -386,8 +386,9 @@ export type SendMessageOptions = {
   effectId?: string;
 };
 
-/** Effetti animati di Telegram (message_effect_id), solo chat private. 🎉 = festa. */
+/** Effetti animati di Telegram (message_effect_id), solo chat private: 🎉 festa, 👍 fatto. */
 export const TELEGRAM_EFFECT_PARTY = '5046509860389126442';
+export const TELEGRAM_EFFECT_THUMBS_UP = '5107584321108051014';
 
 /**
  * Una chiamata alla Bot API: il JSON di risposta, o null se la rete o il token mancano. Non lancia mai

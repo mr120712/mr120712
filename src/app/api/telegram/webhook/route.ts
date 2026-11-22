@@ -29,6 +29,7 @@ import {
   sendTelegramMessage,
   sendTelegramVideo,
   TELEGRAM_EFFECT_PARTY,
+  TELEGRAM_EFFECT_THUMBS_UP,
   TELEGRAM_MENU_CALLBACKS,
 } from '@/lib/business/telegram-bot.server';
 import { consumeTelegramLinkChallenge } from '@/lib/business/telegram-link';
@@ -37,6 +38,7 @@ import {
   doneFrame,
   finishProgress,
   withDownloadProgress,
+  withSkynetScan,
 } from '@/lib/business/telegram-progress.server';
 import { SKYNET_CHAT_MAX_QUESTION, SKYNET_CHAT_SUGGESTIONS } from '@/lib/contracts/skynet-chat';
 import { prisma } from '@/lib/db';
@@ -394,21 +396,27 @@ async function handleUpdate(
       await sendTelegramMessage(chatId, 'Troppe domande di fila: riprovi tra poco.');
       return;
     }
-    // Un comando si esegue subito; una domanda richiede qualche secondo di ricerca.
-    if (!parseOwnerCommand(question)) {
-      await sendTelegramMessage(chatId, '🛰️ Cerco in tutte le fonti…');
-    }
-    try {
-      const answer = await askSkynet({
+    const ask = () =>
+      askSkynet({
         messages: [{ role: 'user', content: question }],
         source: 'telegram',
         // Già controllato sopra con checkTelegramOwner: qui scrive solo il proprietario.
         owner: true,
       });
-      await sendTelegramMessage(chatId, telegramChatText(answer), {
-        parseMode: 'HTML',
-        disableWebPagePreview: true,
-      });
+    const format = { parseMode: 'HTML', disableWebPagePreview: true } as const;
+    try {
+      // Un comando (es. pausa dell'autodifesa) si esegue subito: risposta con l'effetto 👍. Una domanda
+      // richiede qualche secondo: scansione radar animata, poi lo stesso messaggio diventa la risposta.
+      if (parseOwnerCommand(question)) {
+        const answer = await ask();
+        await sendTelegramMessage(chatId, telegramChatText(answer), {
+          ...format,
+          effectId: TELEGRAM_EFFECT_THUMBS_UP,
+        });
+      } else {
+        const { value: answer, messageId } = await withSkynetScan(chatId, ask);
+        await finishProgress(chatId, messageId, telegramChatText(answer), format);
+      }
     } catch {
       await sendTelegramMessage(
         chatId,

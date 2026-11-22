@@ -1,7 +1,9 @@
-// @polsia:user-owned — l'effetto di download del bot Telegram: mentre il worker prepara il video, un
-// solo messaggio si aggiorna con una barra animata e le fasi («Cerco», «Mi collego», «Scarico»,
-// «Preparo»), e l'intestazione della chat mostra «sta inviando un video…». A fine lavoro lo stesso
-// messaggio diventa ✅ (o ❌) e il video arriva con l'effetto 🎉 di Telegram.
+// @polsia:user-owned — gli effetti «dal vivo» del bot Telegram: mentre un lavoro lungo gira, un solo
+// messaggio si aggiorna da sé e l'intestazione della chat mostra l'azione in corso.
+//  - /video: barra animata e fasi («Cerco», «Mi collego», «Scarico», «Preparo»), «sta inviando un
+//    video…»; a fine lavoro lo stesso messaggio diventa ✅ (o ❌) e il video arriva con l'effetto 🎉.
+//  - /skynet: scansione radar con le fasi di Skynet, «sta scrivendo…»; poi il messaggio diventa la
+//    risposta.
 // Il worker non manda l'avanzamento reale: la barra segue il TEMPO (cresce veloce all'inizio e rallenta,
 // senza mai toccare il 100% finché il file non è pronto), quindi non promette nulla di falso.
 // Ogni chiamata a Telegram è «best effort»: se una fallisce, il download continua e i messaggi finali
@@ -55,6 +57,34 @@ export function doneFrame(elapsedMs: number): string {
   return `✅ Pronto in ${Math.max(1, Math.round(elapsedMs / 1000))} s\n${progressBar(100)} 100%`;
 }
 
+// --- Skynet: scansione radar (nessuna percentuale: non si sa quanto durerà la ricerca) ---
+
+const SKYNET_STAGES: ReadonlyArray<{ untilMs: number; label: string }> = [
+  { untilMs: 2500, label: '🛰️ Mi collego alle sentinelle' },
+  { untilMs: 6000, label: '📡 Leggo monitoraggio, log e sicurezza' },
+  { untilMs: 12_000, label: '🧠 Incrocio le fonti' },
+  { untilMs: Number.POSITIVE_INFINITY, label: '✍️ Scrivo la risposta' },
+];
+const RADAR = ['◜', '◝', '◞', '◟'];
+const SCAN_CELLS = 8;
+
+/** Un punto luminoso che va avanti e indietro sulla linea (▱▱▰▱▱…), come un radar che spazza. */
+export function scanLine(tick: number): string {
+  const span = SCAN_CELLS - 1;
+  const step = ((tick % (2 * span)) + 2 * span) % (2 * span);
+  const at = step <= span ? step : 2 * span - step;
+  return Array.from({ length: SCAN_CELLS }, (_, i) => (i === at ? '▰' : '▱')).join('');
+}
+
+/** Un fotogramma della scansione di Skynet dopo `elapsedMs` (HTML). */
+export function skynetFrame(elapsedMs: number, tick: number): string {
+  const stage =
+    SKYNET_STAGES.find((s) => elapsedMs < s.untilMs) ?? SKYNET_STAGES[SKYNET_STAGES.length - 1];
+  const radar = RADAR[((tick % RADAR.length) + RADAR.length) % RADAR.length];
+  const seconds = Math.floor(Math.max(0, elapsedMs) / 1000);
+  return `<b>🛰️ Skynet</b> ${radar} scansione in corso\n${stage?.label ?? ''}…\n<code>${scanLine(tick)}</code> ${seconds} s`;
+}
+
 /** Ogni chiamata a Telegram qui è facoltativa: un errore (anche di import, nei test) non blocca. */
 async function attempt<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
   try {
@@ -66,23 +96,43 @@ async function attempt<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 
 export type ProgressRun<T> = { value: T; messageId: number | null; elapsedMs: number };
 
+type LiveStatus = {
+  /** Il testo del fotogramma dopo `elapsedMs`, al giro `tick`. */
+  frame: (elapsedMs: number, tick: number) => string;
+  /** Il messaggio di attesa se Telegram non dà il message_id (niente animazione). */
+  waitingText: string;
+  /** L'azione mostrata nell'intestazione della chat. */
+  action: 'typing' | 'upload_video';
+  parseMode?: 'HTML';
+  intervalMs?: number;
+  now?: () => number;
+};
+
 /**
- * Esegue `task` mostrando l'animazione di download nella chat. Restituisce il risultato di `task`, il
- * message_id del messaggio di avanzamento (null se Telegram non l'ha dato) e il tempo impiegato.
- * Se `task` lancia, l'animazione si ferma e l'errore risale.
+ * Esegue `task` mostrando un messaggio che si anima da sé. Restituisce il risultato di `task`, il
+ * message_id del messaggio animato (null se Telegram non l'ha dato) e il tempo impiegato. Se `task`
+ * lancia, l'animazione si ferma e l'errore risale.
  */
-export async function withDownloadProgress<T>(
+export async function withLiveStatus<T>(
   chatId: string,
   task: () => Promise<T>,
-  { intervalMs = PROGRESS_INTERVAL_MS, now = () => Date.now() } = {},
+  {
+    frame,
+    waitingText,
+    action,
+    parseMode,
+    intervalMs = PROGRESS_INTERVAL_MS,
+    now = () => Date.now(),
+  }: LiveStatus,
 ): Promise<ProgressRun<T>> {
   const started = now();
-  const messageId = await attempt(() => sendTelegramMessageId(chatId, progressFrame(0, 0)), null);
+  const format = parseMode ? { parseMode } : {};
+  const messageId = await attempt(() => sendTelegramMessageId(chatId, frame(0, 0), format), null);
   if (messageId === null) {
     // Senza message_id niente animazione: almeno un messaggio di attesa.
-    await attempt(() => sendTelegramMessage(chatId, '⏳ Cerco e preparo il video…'), false);
+    await attempt(() => sendTelegramMessage(chatId, waitingText), false);
   }
-  void attempt(() => sendTelegramChatAction(chatId, 'upload_video'), undefined);
+  void attempt(() => sendTelegramChatAction(chatId, action), undefined);
 
   let tick = 0;
   let pending: Promise<unknown> = Promise.resolve();
@@ -94,13 +144,11 @@ export async function withDownloadProgress<T>(
     const elapsed = now() - started;
     const jobs: Promise<unknown>[] = [];
     if (messageId !== null) {
-      jobs.push(
-        attempt(() => editTelegramMessage(chatId, messageId, progressFrame(elapsed, tick)), false),
-      );
+      const text = frame(elapsed, tick);
+      jobs.push(attempt(() => editTelegramMessage(chatId, messageId, text, format), false));
     }
-    // L'azione «sta inviando un video…» dura ~5 s: rinnovata ogni due giri (≈ 4 s).
-    if (tick % 2 === 0)
-      jobs.push(attempt(() => sendTelegramChatAction(chatId, 'upload_video'), undefined));
+    // L'azione nell'intestazione dura ~5 s: rinnovata ogni due giri (≈ 4 s).
+    if (tick % 2 === 0) jobs.push(attempt(() => sendTelegramChatAction(chatId, action), undefined));
     pending = Promise.all(jobs).finally(() => {
       busy = false;
     });
@@ -113,6 +161,35 @@ export async function withDownloadProgress<T>(
     clearInterval(timer);
     await pending; // niente modifica «vecchia» che arrivi dopo il messaggio finale
   }
+}
+
+/** /video: barra di download, «sta inviando un video…». */
+export function withDownloadProgress<T>(
+  chatId: string,
+  task: () => Promise<T>,
+  options: Pick<LiveStatus, 'intervalMs' | 'now'> = {},
+): Promise<ProgressRun<T>> {
+  return withLiveStatus(chatId, task, {
+    frame: progressFrame,
+    waitingText: '⏳ Cerco e preparo il video…',
+    action: 'upload_video',
+    ...options,
+  });
+}
+
+/** /skynet: scansione radar, «sta scrivendo…». */
+export function withSkynetScan<T>(
+  chatId: string,
+  task: () => Promise<T>,
+  options: Pick<LiveStatus, 'intervalMs' | 'now'> = {},
+): Promise<ProgressRun<T>> {
+  return withLiveStatus(chatId, task, {
+    frame: skynetFrame,
+    waitingText: '🛰️ Cerco in tutte le fonti…',
+    action: 'typing',
+    parseMode: 'HTML',
+    ...options,
+  });
 }
 
 /**

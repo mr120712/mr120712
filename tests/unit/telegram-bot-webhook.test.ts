@@ -48,6 +48,8 @@ vi.mock('@/lib/business/telegram-bot.server', () => ({
   searchKeyboard: () => ({ kind: 'search' }),
   menuKeyboard: () => ({ kind: 'menu' }),
   answerTelegramCallback: mocks.answerCallback,
+  TELEGRAM_EFFECT_PARTY: 'effect-party',
+  TELEGRAM_EFFECT_THUMBS_UP: 'effect-thumbs-up',
   TELEGRAM_MENU_CALLBACKS: {
     'menu:cerca': '/cerca',
     'menu:scarica': '/scarica',
@@ -594,6 +596,8 @@ describe('POST /api/telegram/webhook — /skynet, la chat della sentinella', () 
     expect(texts()).toEqual([
       '<b>🛰️ Skynet</b>\nFatto: autodifesa in pausa.\n\n<i>Comando eseguito senza AI</i>',
     ]);
+    // Il comando eseguito arriva con l'effetto 👍.
+    expect(mocks.send.mock.calls[0]?.[2]).toMatchObject({ effectId: 'effect-thumbs-up' });
   });
 
   it('domanda troppo lunga: tagliata prima di arrivare al motore', async () => {

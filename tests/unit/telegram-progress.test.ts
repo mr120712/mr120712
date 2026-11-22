@@ -25,7 +25,10 @@ import {
   progressBar,
   progressFrame,
   progressPercent,
+  scanLine,
+  skynetFrame,
   withDownloadProgress,
+  withSkynetScan,
 } from '@/lib/business/telegram-progress.server';
 
 beforeEach(() => {
@@ -72,7 +75,7 @@ describe('withDownloadProgress', () => {
     });
     const run = withDownloadProgress('7', () => task, { intervalMs: 2000, now: () => clock });
     await vi.advanceTimersByTimeAsync(0);
-    expect(tg.sendId).toHaveBeenCalledWith('7', expect.stringContaining('🔎 Cerco il video'));
+    expect(tg.sendId).toHaveBeenCalledWith('7', expect.stringContaining('🔎 Cerco il video'), {});
     expect(tg.action).toHaveBeenCalledWith('7', 'upload_video');
 
     for (let i = 0; i < 4; i += 1) {
@@ -116,6 +119,38 @@ describe('withDownloadProgress', () => {
     await expect(failing).rejects.toThrow('worker giù');
     await vi.advanceTimersByTimeAsync(10_000);
     expect(tg.edit).not.toHaveBeenCalled();
+  });
+});
+
+describe('withSkynetScan', () => {
+  it('scansione radar in HTML, «sta scrivendo…», e il radar che spazza', async () => {
+    vi.useFakeTimers();
+    let clock = 0;
+    let finish: (v: string) => void = () => {};
+    const task = new Promise<string>((resolve) => {
+      finish = resolve;
+    });
+    const run = withSkynetScan('7', () => task, { intervalMs: 2000, now: () => clock });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(tg.sendId).toHaveBeenCalledWith('7', expect.stringContaining('<b>🛰️ Skynet</b>'), {
+      parseMode: 'HTML',
+    });
+    expect(tg.action).toHaveBeenCalledWith('7', 'typing');
+    clock += 4000;
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(String(tg.edit.mock.calls.at(-1)?.[2])).toContain('📡 Leggo monitoraggio');
+    expect(tg.edit.mock.calls.at(-1)?.[3]).toEqual({ parseMode: 'HTML' });
+    finish('risposta');
+    await expect(run).resolves.toMatchObject({ value: 'risposta', messageId: 42 });
+  });
+
+  it('fotogrammi: fasi e linea di scansione che va e torna', () => {
+    expect(skynetFrame(1000, 0)).toContain('🛰️ Mi collego alle sentinelle');
+    expect(skynetFrame(20_000, 0)).toContain('✍️ Scrivo la risposta');
+    expect(scanLine(0)).toBe('▰▱▱▱▱▱▱▱');
+    expect(scanLine(7)).toBe('▱▱▱▱▱▱▱▰');
+    expect(scanLine(8)).toBe('▱▱▱▱▱▱▰▱');
+    expect(scanLine(14)).toBe('▰▱▱▱▱▱▱▱');
   });
 });
 
