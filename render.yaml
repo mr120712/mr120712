@@ -25,6 +25,15 @@ services:
         value: serve
       - key: WORKER_API_KEY
         sync: false                      # secret — set it in the dashboard (= YTDLP_SERVICE_KEY on Vercel)
+      # POST /chat → your self-hosted DeepSeek server (OpenAI-compatible, e.g. vLLM). Same Bearer
+      # WORKER_API_KEY auth as /download, so the model is never public. Leave the URL unset to keep
+      # /chat off (503). GET /health → "chat": true once it is configured.
+      - key: DEEPSEEK_ENDPOINT_URL         # e.g. https://gpu.example.com/v1
+        sync: false
+      - key: DEEPSEEK_ENDPOINT_TOKEN       # the server's API key, if it needs one
+        sync: false
+      - key: DEEPSEEK_MODEL_ID             # model name the server registered
+        value: OBLITERATUS/DeepSeek-V4.1-Flash-1017-obliterated
       # Optional, only if YouTube blocks the datacenter IP ("Sign in to confirm you're not a bot").
       # The worker detects it and GET /antibot tells you if it passes; these are the fixes when it
       # doesn't (see workers/ytdlp-worker/README.md), from the least to the most demanding.
