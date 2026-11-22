@@ -42,7 +42,11 @@ function errorMessage(error: unknown): string {
   const cause = error instanceof Error ? error.cause : undefined;
   const code =
     cause && typeof cause === 'object' && 'error' in cause ? String(cause.error) : undefined;
-  if (code && errorMessages[code]) return errorMessages[code];
+  const detail =
+    cause && typeof cause === 'object' && 'detail' in cause && typeof cause.detail === 'string'
+      ? ` (${cause.detail})`
+      : '';
+  if (code && errorMessages[code]) return `${errorMessages[code]}${detail}`;
   return 'Richiesta non riuscita. Riprova.';
 }
 

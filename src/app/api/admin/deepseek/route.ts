@@ -61,7 +61,12 @@ export async function POST(request: Request) {
 
   const outcome = await askDeepseek(parsed.data);
   if (outcome.status === 'not_configured') return failure('worker_not_configured', 503);
-  if (outcome.status === 'failed') return failure(outcome.error, failureStatus[outcome.error]);
+  if (outcome.status === 'failed') {
+    return NextResponse.json(
+      { error: outcome.error, ...(outcome.detail ? { detail: outcome.detail } : {}) },
+      { status: failureStatus[outcome.error], headers: privateHeaders },
+    );
+  }
   return NextResponse.json(
     DeepseekChatResponseSchema.parse({ reply: outcome.reply, model: outcome.model }),
     { headers: privateHeaders },

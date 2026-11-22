@@ -478,6 +478,9 @@ export async function forwardChat(
 
   let sawHttpError = false;
   let lastStatus = 0;
+  let lastDetail: string | null = null;
+  // Opt-in (solo chi lo chiede, es. la chat DeepSeek): conserva il messaggio d'errore del provider.
+  const wantDetail = clean(env.AI_RESERVE_ERROR_DETAIL) === '1';
   let outOfTime = false;
   let sawTimeout = false;
   chain: for (const provider of providers) {
@@ -513,7 +516,15 @@ export async function forwardChat(
       if (upstream.ok) return passthrough(text ?? '');
       sawHttpError = true;
       lastStatus = upstream.status;
-      await upstream.body?.cancel().catch(() => undefined);
+      if (wantDetail) {
+        lastDetail = providerErrorDetail(
+          provider.label,
+          upstream.status,
+          await upstream.text().catch(() => ''),
+        );
+      } else {
+        await upstream.body?.cancel().catch(() => undefined);
+      }
       if (looksLikeModelError(upstream.status)) continue; // modello ritirato → prova lo scorta
       break; // 401/403/429/5xx → provider successivo
     }
@@ -523,10 +534,41 @@ export async function forwardChat(
   }
   return jsonResponse(
     sawHttpError
-      ? { error: 'upstream_error', status: lastStatus }
+      ? {
+          error: 'upstream_error',
+          status: lastStatus,
+          ...(wantDetail && lastDetail ? { detail: lastDetail } : {}),
+        }
       : { error: 'upstream_unreachable' },
     502,
   );
+}
+
+/**
+ * Il messaggio d'errore di un provider, leggibile e sicuro da mostrare all'admin: una riga, al più
+ * 200 caratteri, con ogni cosa che somigli a una chiave mascherata. Formati OpenAI/OpenRouter
+ * ({error:{message}} o {error:"…"}) o testo semplice.
+ */
+export function providerErrorDetail(label: string, status: number, raw: string): string {
+  let message = raw;
+  try {
+    const parsed = JSON.parse(raw) as { error?: unknown; message?: unknown };
+    const err = parsed?.error;
+    message =
+      (err && typeof err === 'object' && 'message' in err ? String(err.message) : null) ??
+      (typeof err === 'string' ? err : null) ??
+      (typeof parsed?.message === 'string' ? parsed.message : null) ??
+      raw;
+  } catch {
+    // testo semplice
+  }
+  const safe = message
+    .replace(/\b(?:sk|pk|rk)-[A-Za-z0-9_-]{8,}/g, '[chiave]')
+    .replace(/\b[A-Za-z0-9_-]{32,}\b/g, '[…]')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200);
+  return `${label} ${status}${safe ? `: ${safe}` : ''}`;
 }
 
 /**
