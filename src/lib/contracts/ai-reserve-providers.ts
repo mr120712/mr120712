@@ -38,6 +38,11 @@ export const ReserveProvidersOverviewSchema = z.object({
   total: z.number().int().nonnegative(),
   /** AI agents scoperti in totale su tutti i provider (somma dei discoveredCount). */
   discoveredTotal: z.number().int().nonnegative(),
+  /**
+   * Provider usati SOLO dagli agenti di revisione (GitHub Actions), fuori dalla riserva: i messaggi
+   * degli utenti non arrivano mai a questi. Oggi: MagnetAPI. Non entrano nei conteggi qui sopra.
+   */
+  agents: z.array(ReserveProviderViewSchema),
   checkedAt: z.string(),
 });
 export type ReserveProvidersOverview = z.infer<typeof ReserveProvidersOverviewSchema>;

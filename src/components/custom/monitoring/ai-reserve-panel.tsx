@@ -31,14 +31,16 @@ function StatusIcon({ status }: { status: ReserveProviderView['status'] }) {
   return <Circle aria-hidden="true" className={styles.icon} />;
 }
 
-function detailText(provider: ReserveProviderView): string {
+function detailText(provider: ReserveProviderView, agentsOnly: boolean): string {
   if (provider.status === 'live') {
     return `Risponde${provider.httpStatus ? ` (HTTP ${provider.httpStatus})` : ''}`;
   }
   if (provider.status === 'failing') {
-    return provider.httpStatus
-      ? `Chiave presente, ma l'upstream ha risposto HTTP ${provider.httpStatus}: controlla la chiave o i limiti del free tier`
-      : "Chiave presente, ma l'upstream non risponde in questo momento";
+    if (!provider.httpStatus)
+      return "Chiave presente, ma l'upstream non risponde in questo momento";
+    return agentsOnly
+      ? `Chiave presente, ma ha risposto HTTP ${provider.httpStatus}: chiave scaduta, revocata o credito finito`
+      : `Chiave presente, ma l'upstream ha risposto HTTP ${provider.httpStatus}: controlla la chiave o i limiti del free tier`;
   }
   return 'Nessuna chiave nell’ambiente';
 }
@@ -93,45 +95,7 @@ function ReserveBody({ data }: { data: ReserveProvidersOverview }) {
 
       <ul className={styles.list}>
         {data.providers.map((provider) => (
-          <li key={provider.id} className={styles.row} data-status={provider.status}>
-            <StatusIcon status={provider.status} />
-            <div className={styles.rowMain}>
-              <p className={styles.rowHead}>
-                <span className={styles.name}>{provider.label}</span>
-                <span className={styles.badge} data-status={provider.status}>
-                  {STATUS_LABEL[provider.status]}
-                </span>
-              </p>
-              <p className={styles.muted}>{detailText(provider)}</p>
-              {provider.models.length > 0 ? (
-                <p className={styles.models}>{provider.models.join(' · ')}</p>
-              ) : null}
-              {provider.discoveredCount > 0 ? (
-                <p className={styles.discovered}>
-                  <span className={styles.discoveredLabel}>
-                    {provider.discoveredCount} agent rilevati
-                  </span>
-                  {provider.discoveredModels.length > 0 ? (
-                    <span className={styles.discoveredList}>
-                      {' · '}
-                      {provider.discoveredModels.join(' · ')}
-                      {provider.discoveredCount > provider.discoveredModels.length
-                        ? ` … +${provider.discoveredCount - provider.discoveredModels.length}`
-                        : ''}
-                    </span>
-                  ) : null}
-                </p>
-              ) : null}
-              {provider.status === 'not_configured' ? (
-                <p className={styles.hint}>
-                  Imposta <code>{provider.keyVar}</code> su Vercel ·{' '}
-                  <a href={provider.signupUrl} target="_blank" rel="noopener noreferrer">
-                    ottieni una chiave gratuita →
-                  </a>
-                </p>
-              ) : null}
-            </div>
-          </li>
+          <ProviderRow key={provider.id} provider={provider} />
         ))}
       </ul>
 
@@ -139,6 +103,84 @@ function ReserveBody({ data }: { data: ReserveProvidersOverview }) {
         Dopo aver aggiunto una chiave su Vercel, serve un nuovo deploy perché il router la veda.
         L’ordine del failover si regola con <code>AI_RESERVE_PROVIDERS</code>.
       </p>
+
+      {data.agents.length > 0 ? (
+        <section className={styles.body} aria-labelledby="ai-agents-providers">
+          <h3 id="ai-agents-providers" className={styles.name}>
+            Agenti AI · solo GitHub Actions
+          </h3>
+          <p className={styles.muted}>
+            Usati solo dagli agenti di revisione (workflow «AI agents»), mai dalla chat del sito: i
+            messaggi degli utenti non arrivano a questi servizi. La riga mostra la catena di modelli
+            che gli agenti provano in ordine, tra quelli che la chiave sblocca.
+          </p>
+          <ul className={styles.list}>
+            {data.agents.map((provider) => (
+              <ProviderRow key={provider.id} provider={provider} agentsOnly />
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </div>
+  );
+}
+
+/** Una riga provider. `agentsOnly`: provider dei soli agenti (MagnetAPI), testi e aiuto diversi. */
+function ProviderRow({
+  provider,
+  agentsOnly = false,
+}: {
+  provider: ReserveProviderView;
+  agentsOnly?: boolean;
+}) {
+  return (
+    <li className={styles.row} data-status={provider.status}>
+      <StatusIcon status={provider.status} />
+      <div className={styles.rowMain}>
+        <p className={styles.rowHead}>
+          <span className={styles.name}>{provider.label}</span>
+          <span className={styles.badge} data-status={provider.status}>
+            {STATUS_LABEL[provider.status]}
+          </span>
+        </p>
+        <p className={styles.muted}>{detailText(provider, agentsOnly)}</p>
+        {provider.models.length > 0 ? (
+          <p className={styles.models}>{provider.models.join(' · ')}</p>
+        ) : null}
+        {provider.discoveredCount > 0 ? (
+          <p className={styles.discovered}>
+            <span className={styles.discoveredLabel}>
+              {provider.discoveredCount} agent rilevati
+            </span>
+            {provider.discoveredModels.length > 0 ? (
+              <span className={styles.discoveredList}>
+                {' · '}
+                {provider.discoveredModels.join(' · ')}
+                {provider.discoveredCount > provider.discoveredModels.length
+                  ? ` … +${provider.discoveredCount - provider.discoveredModels.length}`
+                  : ''}
+              </span>
+            ) : null}
+          </p>
+        ) : null}
+        {provider.status === 'not_configured' && agentsOnly ? (
+          <p className={styles.hint}>
+            Imposta <code>{provider.keyVar}</code> su Vercel (per questo pannello) e nei Secrets di
+            GitHub (per gli agenti) ·{' '}
+            <a href={provider.signupUrl} target="_blank" rel="noopener noreferrer">
+              sito del servizio →
+            </a>
+          </p>
+        ) : null}
+        {provider.status === 'not_configured' && !agentsOnly ? (
+          <p className={styles.hint}>
+            Imposta <code>{provider.keyVar}</code> su Vercel ·{' '}
+            <a href={provider.signupUrl} target="_blank" rel="noopener noreferrer">
+              ottieni una chiave gratuita →
+            </a>
+          </p>
+        ) : null}
+      </div>
+    </li>
   );
 }

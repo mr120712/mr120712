@@ -48,7 +48,7 @@ plistlib.dump({
     'Name': 'Solco Selftest Profile',
     'UUID': str(uuid.uuid4()).upper(),
     'TeamIdentifier': [team],
-    'ExpirationDate': datetime.datetime.utcnow() + datetime.timedelta(days=2),
+    'ExpirationDate': datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None) + datetime.timedelta(days=2),
     'DeveloperCertificates': [der],
     'ProvisionedDevices': ['00008110-000000000000001E'],
     'Entitlements': {
