@@ -18,7 +18,8 @@ export const DEEPSEEK_USAGE =
   'Uso: <b>/deepseek messaggio</b> (o <b>/ds</b>)\nEs. <i>/ds spiegami il routing MoE</i>\n\nOgni messaggio è a sé: nessuna memoria della conversazione.';
 
 const FAILURES: Record<DeepseekFailure | 'not_configured', string> = {
-  not_configured: 'manca il worker: imposta YTDLP_SERVICE_URL e YTDLP_SERVICE_KEY su Vercel',
+  not_configured:
+    'nessun backend IA configurato (chiavi della Riserva AI su Vercel, o DEEPSEEK_BACKEND=worker)',
   worker_unauthorized: 'il worker rifiuta la chiave (WORKER_API_KEY su Render ≠ YTDLP_SERVICE_KEY)',
   chat_not_configured: 'sul worker manca DEEPSEEK_ENDPOINT_URL',
   busy: 'il worker è occupato, riprova fra qualche secondo',
