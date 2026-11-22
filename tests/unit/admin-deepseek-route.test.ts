@@ -95,7 +95,7 @@ describe('askDeepseek', () => {
     const fetchImpl = vi.fn().mockResolvedValue(json(200, { reply: 'ok', model: 'm' }));
     const out = await askDeepseek({ ...ask, system: 'S', temperature: 0.2 }, env, fetchImpl);
     expect(out).toEqual({ status: 'ok', reply: 'ok', model: 'm' });
-    const [url, init] = fetchImpl.mock.calls[0];
+    const [url, init] = fetchImpl.mock.calls[0] ?? [];
     expect(url).toBe('https://worker.example.com/chat');
     expect(init.headers.authorization).toBe('Bearer k3y');
     const sent = JSON.parse(init.body);
