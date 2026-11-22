@@ -1,0 +1,9 @@
+Solco is lighter and smoother.
+
+What's new:
+• Covers load at the right size: less memory, smoother scrolling
+• Faster Library and podcast episodes, even with many tracks
+• The playing track now stays highlighted in Home and Search
+• YouTube search: the clear button appears as you type
+
+Thanks for listening with Solco 🎵

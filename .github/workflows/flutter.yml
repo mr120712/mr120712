@@ -150,7 +150,7 @@ jobs:
         run: |
           AAB=$(ls build/app/outputs/bundle/release/*.aab | head -1)
           echo "AAB: $AAB ($(du -h "$AAB" | cut -f1))"
-          echo "== versione dell'app (da pubspec: versionName+versionCode, atteso 0.7.4+13) =="
+          echo "== versione dell'app (da pubspec: versionName+versionCode, atteso 0.7.5+14) =="
           grep -nE "^version:" pubspec.yaml || true
           echo "== impronta del certificato di firma (atteso 02:28:46:FD:...:F2:52) =="
           keytool -printcert -jarfile "$AAB" | grep -iE "SHA256:" || echo "(nessuna firma: build di debug)"
@@ -189,7 +189,7 @@ jobs:
         run: |
           APK=$(ls build/app/outputs/flutter-apk/app-release.apk | head -1)
           echo "APK: $APK ($(du -h "$APK" | cut -f1))"
-          echo "== versione dell'app (da pubspec: versionName+versionCode, atteso 0.7.4+13) =="
+          echo "== versione dell'app (da pubspec: versionName+versionCode, atteso 0.7.5+14) =="
           grep -nE "^version:" pubspec.yaml || true
           echo "== impronta del certificato di firma (atteso 02:28:46:FD:...:F2:52) =="
           keytool -printcert -jarfile "$APK" | grep -iE "SHA256:" || echo "(nessuna firma: build di debug)"
