@@ -475,3 +475,26 @@ test('android-app: 6 specialists cover every Dart file of the Flutter app exactl
   assert.match(facts, /===== flutter\/lib\/api\/solco_api\.dart =====/);
   assert.doesNotMatch(facts, /player_controller/);
 });
+
+test('login-wall: 5 specialists, real files read, and a meaningful gate map', async () => {
+  const { collectLoginWall, gateMap, LOGIN_WALL_SPECIALISTS } = await import('./login-wall-review.mjs');
+  assert.equal(LOGIN_WALL_SPECIALISTS.length, 5);
+  const root = new URL('../../', import.meta.url);
+  const m = await collectLoginWall({ root });
+  assert.deepEqual(m.missing, []); // every referenced file exists
+  assert.ok(m.routeCount > 100, `expected many routes, got ${m.routeCount}`);
+  // Each specialist produces non-trivial material from its own files.
+  for (const agent of LOGIN_WALL_SPECIALISTS) assert.ok(agent.facts(m).length > 500, agent.id);
+  assert.match(LOGIN_WALL_SPECIALISTS[1].facts(m), /Mappa delle guardie/);
+
+  // gateMap: a mutating route with no same-origin and no auth gets both flags; a gated GET gets none.
+  const map = gateMap([
+    { path: 'src/app/api/open/route.ts', source: 'export async function POST() {}' },
+    { path: 'src/app/api/safe/route.ts', source: 'requireAuth; export async function GET() {}' },
+    { path: 'src/app/api/admin/x/route.ts', source: 'requireAccountAdmin; sameOrigin; export async function DELETE() {}' },
+  ]);
+  assert.match(map.find((l) => l.startsWith('/api/open')), /⚠senza-sessione ⚠senza-same-origin/);
+  assert.doesNotMatch(map.find((l) => l.startsWith('/api/safe')), /⚠/);
+  assert.match(map.find((l) => l.startsWith('/api/admin/x')), /guardie: admin, same-origin/);
+  assert.doesNotMatch(map.find((l) => l.startsWith('/api/admin/x')), /⚠/);
+});
