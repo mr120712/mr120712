@@ -72,6 +72,13 @@ export function deepseekSolcoBudgets(timeoutMs: number): { chainMs: number; atte
   return { chainMs, attemptMs };
 }
 
+/**
+ * Endpoint OpenRouter di questa chat: l'endpoint UE (solo provider ospitati nell'Unione Europea) se
+ * DEEPSEEK_OPENROUTER_BASE_URL non dice altro. Riguarda SOLO questa chat: il resto della Riserva usa
+ * OPENROUTER_BASE_URL (o l'endpoint globale). Nell'UE c'è un solo DeepSeek: deepseek/deepseek-v4-flash-0731.
+ */
+export const DEEPSEEK_OPENROUTER_DEFAULT_BASE_URL = 'https://eu.openrouter.ai/api/v1';
+
 /** Provider della Riserva usati da questa chat, se DEEPSEEK_SOLCO_PROVIDERS non dice altro. */
 export const DEEPSEEK_SOLCO_DEFAULT_PROVIDERS = 'mwapi,mwapi-2';
 
@@ -114,6 +121,8 @@ async function askViaSolco(
     {
       ...env,
       AI_RESERVE_PROVIDERS: clean(env.DEEPSEEK_SOLCO_PROVIDERS) ?? DEEPSEEK_SOLCO_DEFAULT_PROVIDERS,
+      OPENROUTER_BASE_URL:
+        clean(env.DEEPSEEK_OPENROUTER_BASE_URL) ?? DEEPSEEK_OPENROUTER_DEFAULT_BASE_URL,
       AI_RESERVE_CHAIN_BUDGET_MS: String(deepseekSolcoBudgets(timeoutMs).chainMs),
       AI_RESERVE_ATTEMPT_TIMEOUT_MS: String(deepseekSolcoBudgets(timeoutMs).attemptMs),
       // Il motivo esatto del rifiuto (es. «OpenRouter 404: No endpoints found…») torna all'admin.
