@@ -14,7 +14,7 @@ vi.mock('@/lib/same-origin', () => ({ sameOrigin: mocks.sameOrigin }));
 vi.mock('@/lib/business/rate-limit.server', () => ({ enforceRateLimit: mocks.enforceRateLimit }));
 
 import { POST } from '@/app/api/admin/deepseek/route';
-import { askDeepseek } from '@/lib/business/deepseek-chat.server';
+import { askDeepseek, deepseekSolcoBudgets } from '@/lib/business/deepseek-chat.server';
 
 const admin = { id: 'admin-1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true };
 const env = {
@@ -185,5 +185,29 @@ describe('askDeepseek con DEEPSEEK_BACKEND=solco (default)', () => {
       status: 'failed',
       error: 'model_error',
     });
+  });
+});
+
+describe('deepseekSolcoBudgets', () => {
+  it('lascia a un solo tentativo quasi tutto il budget (MWAPI è lento)', () => {
+    expect(deepseekSolcoBudgets(50_000)).toEqual({ chainMs: 50_000, attemptMs: 45_000 });
+    expect(deepseekSolcoBudgets(110_000)).toEqual({ chainMs: 100_000, attemptMs: 95_000 });
+  });
+
+  it('ogni tentativo verso MWAPI ha ~45 s nel bot, non i 20 s di default della Riserva', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    try {
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValue(
+          json(200, { model: 'claude-sonnet-5', choices: [{ message: { content: 'ok' } }] }),
+        );
+      await askDeepseek(ask, { MWAPI_API_KEY: 'k' }, fetchImpl, 50_000);
+      const caps = timeout.mock.calls.map(([ms]) => ms);
+      expect(Math.max(...caps)).toBeGreaterThanOrEqual(40_000);
+      expect(caps.every((ms) => ms <= 50_000)).toBe(true);
+    } finally {
+      timeout.mockRestore();
+    }
   });
 });

@@ -53,7 +53,19 @@ async function workerFailure(res: Response): Promise<DeepseekFailure> {
 }
 
 /** Il budget della Riserva AI (catena di provider) deve restare sotto il maxDuration della route. */
-export const DEEPSEEK_SOLCO_BUDGET_MS = 50_000;
+export const DEEPSEEK_SOLCO_BUDGET_MS = 100_000;
+
+/**
+ * Tempi della Riserva per questa chat. Il default della Riserva (20 s per tentativo) è troppo poco per
+ * MWAPI/Claude con risposte lunghe: ogni tentativo veniva troncato e la chat dava sempre «timeout».
+ * Qui un tentativo può usare quasi tutto il budget (5 s di margine); un rifiuto rapido (401/429) passa
+ * comunque subito alla seconda chiave.
+ */
+export function deepseekSolcoBudgets(timeoutMs: number): { chainMs: number; attemptMs: number } {
+  const chainMs = Math.max(10_000, Math.min(timeoutMs, DEEPSEEK_SOLCO_BUDGET_MS));
+  const attemptMs = Math.max(8_000, chainMs - 5_000);
+  return { chainMs, attemptMs };
+}
 
 /** Provider della Riserva usati da questa chat, se DEEPSEEK_SOLCO_PROVIDERS non dice altro. */
 export const DEEPSEEK_SOLCO_DEFAULT_PROVIDERS = 'mwapi,mwapi-2';
@@ -97,7 +109,8 @@ async function askViaSolco(
     {
       ...env,
       AI_RESERVE_PROVIDERS: clean(env.DEEPSEEK_SOLCO_PROVIDERS) ?? DEEPSEEK_SOLCO_DEFAULT_PROVIDERS,
-      AI_RESERVE_CHAIN_BUDGET_MS: String(Math.min(timeoutMs, DEEPSEEK_SOLCO_BUDGET_MS)),
+      AI_RESERVE_CHAIN_BUDGET_MS: String(deepseekSolcoBudgets(timeoutMs).chainMs),
+      AI_RESERVE_ATTEMPT_TIMEOUT_MS: String(deepseekSolcoBudgets(timeoutMs).attemptMs),
     },
     fetchImpl,
   );
