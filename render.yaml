@@ -89,6 +89,50 @@ services:
       - key: TELEGRAM_CHAT_ID            # optional: your chat id (the one in SKYNET_TELEGRAM_CHAT_IDS)
         sync: false
 
+  # ── Telegram Guard (defensive session monitor, code in tools/telegram-guard/) ────────────────────
+  # A Render BACKGROUND WORKER: runs 24/7, NO public port, only outbound (Telegram MTProto). It watches
+  # your account's login sessions and alerts you in Telegram Saved Messages (TG_ALERT_CHAT=me), with an
+  # optional auto-revoke of unconfirmed logins.
+  # WHY "worker" and not "web": it has no HTTP server, and a FREE web service SPINS DOWN when idle —
+  # fatal for a 24/7 monitor with no inbound traffic. Workers are NOT on Render's free plan: "starter"
+  # is always-on, billed monthly. (This is also why a Vercel "telegram-guard" project always fails:
+  # there is no web app to host — delete that stray project; the guard belongs here, or on Fly.)
+  # One-time (owner): generate the session STRING on YOUR computer with
+  # tools/telegram-guard/bootstrap_session.py, then set TG_SESSION_STRING in the dashboard (it is a
+  # secret — the account's auth key). Do NOT run Fly AND Render at the same time (double alerts): after
+  # Render is healthy, stop the Fly app (fly apps destroy solco-telegram-guard).
+  - type: worker
+    name: solco-telegram-guard
+    runtime: docker
+    repo: https://github.com/mr120712/mr120712
+    rootDir: tools/telegram-guard          # build the guard's Dockerfile, not the repo root
+    region: ohio
+    plan: starter                          # always-on; no free tier (a free web service would sleep)
+    autoDeployTrigger: commit
+    envVars:
+      - key: TG_API_ID                     # from https://my.telegram.org (secret)
+        sync: false
+      - key: TG_API_HASH                   # from https://my.telegram.org (secret)
+        sync: false
+      - key: TG_SESSION_STRING             # from bootstrap_session.py (StringSession — the auth key, secret)
+        sync: false
+      - key: TG_ALERT_CHAT                 # "me" = your Saved Messages; or @channel / numeric id
+        value: me
+      - key: TG_NONINTERACTIVE             # headless: skip the menu, start monitoring at once
+        value: "1"
+      - key: TG_CHECK_INTERVAL             # seconds between checks (min 15)
+        value: "60"
+      - key: TG_STATE_PATH                 # baseline on the persistent disk, survives restarts
+        value: /data/guard_state.json
+      - key: TG_HEARTBEAT_PATH             # timestamp each cycle (for a watchdog)
+        value: /data/heartbeat
+      # Optional extras (see tools/telegram-guard/README.md): TG_AUTO_REVOKE_UNCONFIRMED=1,
+      # TG_REDACT_IPS=1, TG_ALERT_DEDUPE_SECONDS, TG_ALERT_WEBHOOK (+ TG_ALERT_WEBHOOK_TOKEN).
+    disk:
+      name: tg-guard-data                  # keeps the baseline/heartbeat across restarts (no re-baseline)
+      mountPath: /data
+      sizeGB: 1
+
   # ── Your FreeLLMAPI, PRIVATE (uses your license key) ─────────────────────────────────────────────
   # Uncomment after filling in the image and the license variable name from FreeLLMAPI's install
   # guide (not guessed here). A private service ("pserv") has NO public URL: only your other Render
