@@ -75,9 +75,9 @@ APP=$(find "$WORK/ipa/Payload" -maxdepth 1 -name '*.app' -type d | head -1)
 [ -n "$APP" ] || { echo "ERRORE: nell'IPA manca Payload/*.app." >&2; exit 1; }
 
 # 4) Controlli e diritti (entitlements) dal profilo, in Python (plistlib): scadenza, certificato,
-#    identificativo dell'app. Scrive entitlements.plist e le variabili per la shell.
+#    identificativo dell'app. Scrive entitlements.plist e i valori per la shell (come dati).
 python3 - "$WORK/profile.plist" "$APP/Info.plist" "$WORK/identities.txt" "$WORK" <<'PY'
-import datetime, fnmatch, hashlib, plistlib, sys
+import datetime, fnmatch, hashlib, plistlib, re, sys
 profile_path, info_path, ids_path, work = sys.argv[1:5]
 with open(profile_path, 'rb') as f:
     p = plistlib.load(f)
@@ -109,13 +109,20 @@ if not match:
     fail("il certificato del .p12 non è tra quelli del profilo: usa il .p12 e il .mobileprovision "
          "dello STESSO ordine/account (con un servizio di firma: gli stessi file scaricati insieme).")
 
+# L'identificativo arriva dall'IPA (e quello esplicito dal profilo): solo i caratteri che Apple ammette
+# (lettere, cifre, trattino, punto). Così nessun valore può diventare codice per la shell più avanti.
 bundle = info.get('CFBundleIdentifier', '')
+if not isinstance(bundle, str) or not re.fullmatch(r'[A-Za-z0-9.-]+', bundle):
+    fail(f"identificativo del bundle non valido ({bundle!r}): sono ammessi solo lettere, cifre, trattini e punti.")
+
 pattern = app_id[len(team) + 1:]
 if '*' in pattern:
     if not fnmatch.fnmatchcase(bundle, pattern):
         fail(f"il profilo copre solo «{pattern}», non il bundle «{bundle}».")
     new_bundle = bundle
 else:
+    if not re.fullmatch(r'[A-Za-z0-9.-]+', pattern):
+        fail(f"identificativo del profilo non valido ({pattern!r}).")
     new_bundle = pattern  # profilo esplicito: il bundle diventa quello del profilo
 
 # Diritti minimi e coerenti con il profilo: Solco non usa push, iCloud né altre capability.
@@ -135,8 +142,9 @@ if p.get('ProvisionsAllDevices'):
 else:
     kind = 'sviluppo' if out['get-task-allow'] else 'Ad Hoc'
     devices = str(len(p.get('ProvisionedDevices', [])))
-with open(f'{work}/vars.sh', 'w') as f:
-    f.write(f"IDENTITY={match[0]}\nNEW_BUNDLE={new_bundle}\nOLD_BUNDLE={bundle}\n")
+# Dati, non codice: tre campi separati da tabulazione, letti con `read` (mai con `source`).
+with open(f'{work}/vars.data', 'w') as f:
+    f.write(f"{match[0]}\t{new_bundle}\t{bundle}\n")
 print(f"Profilo:   {name}")
 print(f"Team:      {team}")
 print(f"Tipo:      {kind} · dispositivi: {devices}")
@@ -144,8 +152,7 @@ if isinstance(expires, datetime.datetime):
     print(f"Scade:     {expires:%Y-%m-%d}")
 print(f"Bundle:    {new_bundle}" + ("" if new_bundle == bundle else f" (era {bundle})"))
 PY
-# shellcheck disable=SC1091
-. "$WORK/vars.sh"
+IFS=$'\t' read -r IDENTITY NEW_BUNDLE OLD_BUNDLE < "$WORK/vars.data"
 
 if [ "$NEW_BUNDLE" != "$OLD_BUNDLE" ]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $NEW_BUNDLE" "$APP/Info.plist"

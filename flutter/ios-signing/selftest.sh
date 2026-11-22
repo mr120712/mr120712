@@ -102,4 +102,24 @@ if "$HERE/resign-ipa.sh" "$T/unsigned.ipa" "$T/other.p12" "$T/profile.mobileprov
 fi
 grep -q 'non è tra quelli del profilo' "$T/bad.err" || { cat "$T/bad.err" >&2; echo 'FALLITO: messaggio inatteso' >&2; exit 1; }
 echo 'OK: rifiutato con il messaggio giusto'
+echo '== 3) IPA con un bundle id che contiene un comando shell: deve fallire senza eseguirlo =='
+# Regressione: prima i valori finivano in un file eseguito con `source`, quindi questo comando partiva.
+MARK="$T/pwned"
+EVIL="$T/evil/Payload/Runner.app"
+mkdir -p "$(dirname "$EVIL")" && cp -R "$APP" "$EVIL"
+python3 - "$EVIL/Info.plist" "$MARK" <<'PY'
+import plistlib, sys
+path, mark = sys.argv[1:3]
+info = plistlib.load(open(path, 'rb'))
+info['CFBundleIdentifier'] = f'online.solcomusic.solco$(touch {mark})'
+plistlib.dump(info, open(path, 'wb'))
+PY
+(cd "$T/evil" && zip -qry "$T/evil.ipa" Payload)
+if "$HERE/resign-ipa.sh" "$T/evil.ipa" "$T/good.p12" "$T/profile.mobileprovision" "$T/out/evil-signed.ipa" 2> "$T/evil.err"; then
+  echo 'FALLITO: ha firmato un IPA con un bundle id non valido' >&2
+  exit 1
+fi
+[ ! -e "$MARK" ] || { echo 'FALLITO: il comando nascosto nel bundle id è stato eseguito' >&2; exit 1; }
+grep -q 'identificativo del bundle non valido' "$T/evil.err" || { cat "$T/evil.err" >&2; echo 'FALLITO: messaggio inatteso' >&2; exit 1; }
+echo 'OK: rifiutato, nessun comando eseguito'
 echo 'Selftest della firma personalizzata: superato.'
