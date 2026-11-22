@@ -143,6 +143,36 @@ interface ProviderDef {
   signupUrl: string;
   models: (env: Env) => string[];
   extraHeaders?: Record<string, string>;
+  /** Variabile che può sostituire baseUrl (validata da baseUrlFrom: stesso dominio del provider). */
+  baseUrlVar?: string;
+  /** Dominio ammesso per l'override: la chiave del provider viene mandata solo lì (anti-SSRF). */
+  baseUrlDomain?: string;
+}
+
+/**
+ * Il baseUrl di un provider, con l'override opzionale da env (es. OPENROUTER_BASE_URL =
+ * https://eu.openrouter.ai/api/v1). L'override è accettato solo se HTTPS e sul dominio del provider o
+ * un suo sottodominio: la chiave API viaggia verso quell'indirizzo, quindi mai verso un host qualsiasi.
+ * Valore assente o non valido → il baseUrl di registro.
+ */
+export function baseUrlFrom(
+  def: Pick<ProviderDef, 'baseUrl' | 'baseUrlVar' | 'baseUrlDomain'>,
+  env: Env,
+): string {
+  const raw = def.baseUrlVar ? clean(env[def.baseUrlVar]) : undefined;
+  if (!raw || !def.baseUrlDomain) return def.baseUrl;
+  try {
+    const url = new URL(raw);
+    const host = url.hostname.toLowerCase();
+    const domain = def.baseUrlDomain.toLowerCase();
+    const sameDomain = host === domain || host.endsWith(`.${domain}`);
+    if (url.protocol !== 'https:' || !sameDomain || url.username || url.password || url.port) {
+      return def.baseUrl;
+    }
+    return `${url.origin}${url.pathname}`.replace(/\/+$/, '');
+  } catch {
+    return def.baseUrl;
+  }
 }
 
 /** MWAPI (entrambe le chiavi servono modelli Claude): Sonnet 5, poi Haiku 4.5 come scorta. */
@@ -200,6 +230,9 @@ const PROVIDER_DEFS: ProviderDef[] = [
     id: 'openrouter',
     label: 'OpenRouter',
     baseUrl: 'https://openrouter.ai/api/v1',
+    // OPENROUTER_BASE_URL=https://eu.openrouter.ai/api/v1 → solo provider ospitati nell'UE.
+    baseUrlVar: 'OPENROUTER_BASE_URL',
+    baseUrlDomain: 'openrouter.ai',
     keyVar: 'OPENROUTER_API_KEY',
     signupUrl: 'https://openrouter.ai/keys',
     // Default: NVIDIA Nemotron 3 Ultra (gratis su OpenRouter, 550B MoE, contesto 1M). Attenzione:
@@ -275,7 +308,7 @@ export function activeProviders(env: Env = process.env): ReserveProvider[] {
     providers.push({
       id: def.id,
       label: def.label,
-      baseUrl: def.baseUrl,
+      baseUrl: baseUrlFrom(def, env),
       apiKey,
       models: dedupe(def.models(env)),
       ...(def.extraHeaders ? { extraHeaders: def.extraHeaders } : {}),
@@ -381,7 +414,7 @@ export function reserveKnownProviders(env: Env = process.env): ReserveKnownProvi
   return PROVIDER_DEFS.map((def) => ({
     id: def.id,
     label: def.label,
-    baseUrl: def.baseUrl,
+    baseUrl: baseUrlFrom(def, env),
     keyVar: def.keyVar,
     signupUrl: def.signupUrl,
     models: dedupe(def.models(env)),

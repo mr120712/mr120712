@@ -246,7 +246,7 @@ describe('rifiuti del provider resi leggibili', () => {
       detail: 'OpenRouter 402: Insufficient credits',
     });
     expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(
-      'https://openrouter.ai/api/v1/chat/completions',
+      'https://eu.openrouter.ai/api/v1/chat/completions',
     );
   });
 });
@@ -318,5 +318,50 @@ describe("il motivo esatto del provider arriva all'admin", () => {
       detail: 'OpenRouter 404: No endpoints <found>',
     });
     expect(text).toContain('<code>OpenRouter 404: No endpoints &lt;found&gt;</code>');
+  });
+});
+
+describe('OpenRouter UE per la chat DeepSeek', () => {
+  const orEnv = { OPENROUTER_API_KEY: 'or', DEEPSEEK_SOLCO_PROVIDERS: 'openrouter' };
+  const okReply = () =>
+    json(200, {
+      model: 'deepseek/deepseek-v4-flash-0731',
+      choices: [{ message: { content: 'ok' } }],
+    });
+
+  it("di default chiama l'endpoint UE", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(okReply());
+    await askDeepseek(
+      ask,
+      { ...orEnv, DEEPSEEK_SOLCO_MODEL: 'deepseek/deepseek-v4-flash-0731' },
+      fetchImpl,
+    );
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(
+      'https://eu.openrouter.ai/api/v1/chat/completions',
+    );
+  });
+
+  it('DEEPSEEK_OPENROUTER_BASE_URL riporta la chat sull’endpoint globale', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(okReply());
+    await askDeepseek(
+      ask,
+      { ...orEnv, DEEPSEEK_OPENROUTER_BASE_URL: 'https://openrouter.ai/api/v1' },
+      fetchImpl,
+    );
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(
+      'https://openrouter.ai/api/v1/chat/completions',
+    );
+  });
+
+  it('un URL non OpenRouter viene ignorato: la chiave non lascia mai openrouter.ai', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(okReply());
+    await askDeepseek(
+      ask,
+      { ...orEnv, DEEPSEEK_OPENROUTER_BASE_URL: 'https://evil.example/v1' },
+      fetchImpl,
+    );
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(
+      'https://openrouter.ai/api/v1/chat/completions',
+    );
   });
 });
