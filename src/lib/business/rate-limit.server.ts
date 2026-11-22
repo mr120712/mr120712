@@ -226,7 +226,7 @@ export const ACTION_RATE_LIMITS = {
     { requests: 20, windowMs: 60_000 },
     { requests: 100, windowMs: 3_600_000 },
   ],
-  // Chat DeepSeek dell'admin: ogni richiesta occupa il server GPU dell'owner (via worker yt-dlp).
+  // Chat «DeepSeek» dell'admin e /deepseek del bot: ogni richiesta consuma quota dei provider IA.
   'admin.deepseek': [
     { requests: 10, windowMs: 60_000 },
     { requests: 200, windowMs: 86_400_000 },

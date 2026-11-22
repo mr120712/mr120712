@@ -17,7 +17,11 @@ import { POST } from '@/app/api/admin/deepseek/route';
 import { askDeepseek } from '@/lib/business/deepseek-chat.server';
 
 const admin = { id: 'admin-1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true };
-const env = { YTDLP_SERVICE_URL: 'https://worker.example.com/', YTDLP_SERVICE_KEY: 'k3y' };
+const env = {
+  DEEPSEEK_BACKEND: 'worker',
+  YTDLP_SERVICE_URL: 'https://worker.example.com/',
+  YTDLP_SERVICE_KEY: 'k3y',
+};
 
 function request(body: unknown) {
   return new Request('https://solco.test/api/admin/deepseek', {
@@ -69,6 +73,7 @@ describe('POST /api/admin/deepseek', () => {
   });
 
   it('senza URL/chiave del worker risponde 503 worker_not_configured', async () => {
+    vi.stubEnv('DEEPSEEK_BACKEND', 'worker');
     vi.stubEnv('YTDLP_SERVICE_URL', '');
     const res = await POST(request(ask));
     expect(res.status).toBe(503);
@@ -76,6 +81,7 @@ describe('POST /api/admin/deepseek', () => {
   });
 
   it('inoltra al worker e restituisce la risposta con header privati', async () => {
+    vi.stubEnv('DEEPSEEK_BACKEND', 'worker');
     vi.stubEnv('YTDLP_SERVICE_URL', env.YTDLP_SERVICE_URL);
     vi.stubEnv('YTDLP_SERVICE_KEY', env.YTDLP_SERVICE_KEY);
     const fetchSpy = vi
@@ -132,5 +138,38 @@ describe('askDeepseek', () => {
     expect(
       await askDeepseek(ask, env, vi.fn().mockResolvedValue(json(200, { reply: ' ' }))),
     ).toEqual({ status: 'failed', error: 'bad_response' });
+  });
+});
+
+describe('askDeepseek con DEEPSEEK_BACKEND=solco (default)', () => {
+  const solcoEnv = { GROQ_API_KEY: 'g-key' };
+  const completion = (content: string) =>
+    json(200, { model: 'llama-3.3-70b-versatile', choices: [{ message: { content } }] });
+
+  it('è il default e passa dalla Riserva AI in-process (nessun worker)', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(completion('ciao!'));
+    const out = await askDeepseek({ ...ask, system: 'S' }, solcoEnv, fetchImpl);
+    expect(out).toEqual({ status: 'ok', reply: 'ciao!', model: 'llama-3.3-70b-versatile' });
+    const [url, init] = fetchImpl.mock.calls[0] ?? [];
+    expect(String(url)).toContain('groq.com');
+    expect(String(url)).not.toContain('worker');
+    const sent = JSON.parse(init.body);
+    expect(sent.messages[0]).toEqual({ role: 'system', content: 'S' });
+  });
+
+  it('DEEPSEEK_SOLCO_MODEL fissa il modello', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(completion('ok'));
+    await askDeepseek(ask, { ...solcoEnv, DEEPSEEK_SOLCO_MODEL: 'deepseek-r1' }, fetchImpl);
+    const [, init] = fetchImpl.mock.calls[0] ?? [];
+    expect(JSON.parse(init.body).model).toBe('deepseek-r1');
+  });
+
+  it('senza provider configurati → not_configured; errore upstream → model_error', async () => {
+    expect(await askDeepseek(ask, {}, vi.fn())).toEqual({ status: 'not_configured' });
+    const failing = vi.fn().mockResolvedValue(json(500, { error: 'x' }));
+    expect(await askDeepseek(ask, solcoEnv, failing)).toEqual({
+      status: 'failed',
+      error: 'model_error',
+    });
   });
 });

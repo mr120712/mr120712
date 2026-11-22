@@ -16,7 +16,8 @@ interface DisplayMessage extends DeepseekChatMessage {
 }
 
 const errorMessages: Record<string, string> = {
-  worker_not_configured: 'YTDLP_SERVICE_URL o YTDLP_SERVICE_KEY non sono impostate su Vercel.',
+  worker_not_configured:
+    'Nessun backend IA: imposta almeno una chiave della Riserva (es. GROQ_API_KEY) su Vercel, oppure DEEPSEEK_BACKEND=worker con YTDLP_SERVICE_URL/KEY.',
   worker_unauthorized:
     'Il worker rifiuta la chiave: imposta WORKER_API_KEY su Render uguale a YTDLP_SERVICE_KEY.',
   chat_not_configured: 'Sul worker manca DEEPSEEK_ENDPOINT_URL (Render → Environment).',
@@ -90,7 +91,7 @@ export function AdminDeepseekChat() {
         </span>
         <div className="min-w-0">
           <h2 className="font-semibold">DeepSeek V4.1 Flash</h2>
-          <p className="truncate text-xs text-muted-foreground">Hugging Face Inference · via worker</p>
+          <p className="truncate text-xs text-muted-foreground">Riserva AI di Solco</p>
         </div>
         <span className="ml-auto hidden items-center gap-1.5 text-xs text-muted-foreground sm:flex">
           <ShieldCheck aria-hidden="true" className="size-4 text-primary" />
