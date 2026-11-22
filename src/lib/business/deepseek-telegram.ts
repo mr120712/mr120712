@@ -30,6 +30,12 @@ const FAILURES: Record<DeepseekFailure | 'not_configured', string> = {
   timeout: 'il modello non ha risposto in tempo: riprova, o chiedi una risposta più breve',
   model_error: 'il server DeepSeek ha restituito un errore',
   bad_response: 'risposta non valida dal server DeepSeek',
+  provider_auth: 'il provider rifiuta la chiave (es. OPENROUTER_API_KEY su Vercel non valida)',
+  provider_credit:
+    'credito esaurito sul provider (es. ricarica OpenRouter, o usa un modello :free)',
+  model_not_found:
+    'modello non disponibile su quel provider: controlla DEEPSEEK_SOLCO_MODEL e DEEPSEEK_SOLCO_PROVIDERS',
+  provider_rate_limited: 'il provider ha raggiunto il limite di richieste: riprova fra poco',
 };
 
 const DOTS = ['', '.', '..', '...'];

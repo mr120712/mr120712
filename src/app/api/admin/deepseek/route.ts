@@ -26,6 +26,10 @@ const failureStatus: Record<DeepseekFailure, number> = {
   timeout: 504,
   model_error: 502,
   bad_response: 502,
+  provider_auth: 502,
+  provider_credit: 502,
+  model_not_found: 502,
+  provider_rate_limited: 503,
 };
 
 function failure(error: string, status: number) {

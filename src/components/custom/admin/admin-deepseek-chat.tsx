@@ -26,6 +26,12 @@ const errorMessages: Record<string, string> = {
   timeout: 'Il modello non ha risposto in tempo. Riprova, o chiedi una risposta più breve.',
   model_error: 'Il server DeepSeek ha restituito un errore.',
   bad_response: 'Risposta non valida dal server DeepSeek.',
+  provider_auth: 'Il provider rifiuta la chiave (es. OPENROUTER_API_KEY su Vercel non valida).',
+  provider_credit:
+    'Credito esaurito sul provider: ricarica (es. OpenRouter) o usa un modello :free.',
+  model_not_found:
+    'Modello non disponibile su quel provider: controlla DEEPSEEK_SOLCO_MODEL e DEEPSEEK_SOLCO_PROVIDERS.',
+  provider_rate_limited: 'Il provider ha raggiunto il limite di richieste. Riprova fra poco.',
   rate_limited: 'Hai inviato molte richieste di recente. Attendi un momento.',
   unauthorized: 'Sessione scaduta: accedi di nuovo.',
   forbidden: 'Solo gli amministratori verificati possono usare questa chat.',
