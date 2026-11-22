@@ -387,7 +387,7 @@ async function handleUpdate(
     return;
   }
 
-  // /deepseek <messaggio> (alias /ds) → DeepSeek-V4.1-Flash-1017-obliterated sul server dell'owner,
+  // /deepseek <messaggio> (alias /ds) → DeepSeek-V4.1-Flash (DEEPSEEK_MODEL_ID sul worker),
   // via POST /chat del worker yt-dlp (stessa chiave di /video). Stesso gate di /skynet: solo chat
   // privata dell'owner, altrimenti SILENZIO totale. Ogni messaggio sta da solo: nessuna memoria.
   const deepseek = DEEPSEEK_COMMAND.exec(text);

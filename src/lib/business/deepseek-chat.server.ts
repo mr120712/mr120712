@@ -1,4 +1,4 @@
-// @polsia:user-owned — chiama POST /chat del worker yt-dlp (che inoltra al server DeepSeek dell'owner).
+// @polsia:user-owned — chiama POST /chat del worker yt-dlp (che inoltra all'endpoint DEEPSEEK_ENDPOINT_URL).
 // Riusa YTDLP_SERVICE_URL (HTTPS pubblico, anti-SSRF) e YTDLP_SERVICE_KEY (Bearer, mai loggata).
 import 'server-only';
 import { z } from 'zod';
