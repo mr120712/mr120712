@@ -62,10 +62,18 @@ const FILES = {
  *  distingue da una protetta da un helper con un altro nome. */
 const GUARDS = [
   [/require\w*Admin|isAuthorizedAdmin|adminGate|currentAdmin/, 'admin'],
-  [/requireAuth|getSession|requireSolcoPro|verifyCheckoutSession|ensure\w*Session/, 'sessione'],
+  [
+    /requireAuth|getSession|requireSolcoPro|verifyCheckoutSession|ensure\w*Session|\bsignedIn\b/,
+    'sessione',
+  ],
+  // Autorizzatori con un nome proprio: decidono CHI può chiamare (sessione, scope, o rifiuto totale).
+  [/authorize[A-Z]\w*|\bauthorizeAiChat\b/, 'autorizza'],
   [/CRON_SECRET|requireCron|checkCron/, 'cron'],
   [/checkTelegramOwner|webhookSecret|telegram.{0,20}secret/i, 'bot/webhook-token'],
-  [/verify\w*Notification|verify\w*Webhook|constructEvent|verifySignature|svix|webhooks\.construct|appStoreServerApi|jws|x-goog/i, 'firma-webhook'],
+  [
+    /verify\w*Notification|verify\w*Webhook|constructEvent|verifySignature|svix|webhooks\.construct|appStoreServerApi|jws|x-goog|RtdnSecret|NotificationSecret|secretMatches|appleNotification/i,
+    'firma-webhook',
+  ],
   [/aiGate|reserveKey|FREELLMAPI_API_KEY/, 'chiave-riserva'],
   [/sameOrigin/, 'same-origin'],
 ];
@@ -93,14 +101,25 @@ export function gateMap(routes) {
         .replace(/^src\/app/, '')
         .replace(/\/route\.ts$/, '')
         .replace(/\/\([^)]+\)/g, '');
-      const methods = [...source.matchAll(/export async function (GET|POST|PUT|PATCH|DELETE|HEAD)/g)].map(
-        (m) => m[1],
-      );
+      const methods = [
+        ...source.matchAll(/export async function (GET|POST|PUT|PATCH|DELETE|HEAD)/g),
+      ].map((m) => m[1]);
       const found = new Set();
       for (const [re, label] of GUARDS) if (re.test(source)) found.add(label);
       const mutating = methods.some((m) => m !== 'GET' && m !== 'HEAD');
-      const unguarded = !['sessione', 'admin', 'cron', 'bot/webhook-token', 'firma-webhook', 'chiave-riserva'].some((g) => found.has(g));
-      const noCsrf = mutating && !found.has('same-origin');
+      const unguarded = ![
+        'sessione',
+        'admin',
+        'autorizza',
+        'cron',
+        'bot/webhook-token',
+        'firma-webhook',
+        'chiave-riserva',
+      ].some((g) => found.has(g));
+      // same-origin non si applica ai webhook e ai cron: sono chiamate server-to-server (nessun browser).
+      const serverToServer =
+        found.has('firma-webhook') || found.has('cron') || found.has('bot/webhook-token');
+      const noCsrf = mutating && !found.has('same-origin') && !serverToServer;
       const flags = `${unguarded ? ' ⚠senza-sessione' : ''}${noCsrf ? ' ⚠senza-same-origin' : ''}`;
       return `${url || '/'} [${methods.join(',') || '—'}] guardie: ${[...found].join(', ') || 'nessuna'}${flags}`;
     })
@@ -112,7 +131,9 @@ export async function collectLoginWall({ root } = {}) {
   const read = (path) => readFile(new URL(path, root), 'utf8').catch(() => null);
   const paths = [...new Set(Object.values(FILES).flat())];
   const contents = await Promise.all(paths.map(read));
-  const files = Object.fromEntries(paths.map((p, i) => [p, contents[i]]).filter(([, t]) => t !== null));
+  const files = Object.fromEntries(
+    paths.map((p, i) => [p, contents[i]]).filter(([, t]) => t !== null),
+  );
 
   const apiDir = new URL('src/app/api', root);
   const routePaths = await routeFiles(apiDir.pathname);
