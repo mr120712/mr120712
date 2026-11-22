@@ -1,5 +1,5 @@
 // @polsia:user-owned — chat DeepSeek per l'amministratore: SOLO admin verificati, stessa origine,
-// limite 'admin.deepseek'. Il modello gira sul server dell'owner; qui si passa dal worker yt-dlp.
+// limite 'admin.deepseek'. Backend scelto da DEEPSEEK_BACKEND (vedi deepseek-chat.server.ts).
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';

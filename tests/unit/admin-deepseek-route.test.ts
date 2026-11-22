@@ -142,19 +142,33 @@ describe('askDeepseek', () => {
 });
 
 describe('askDeepseek con DEEPSEEK_BACKEND=solco (default)', () => {
-  const solcoEnv = { GROQ_API_KEY: 'g-key' };
+  const solcoEnv = { MWAPI_API_KEY: 'mw-key', GROQ_API_KEY: 'g-key' };
   const completion = (content: string) =>
-    json(200, { model: 'llama-3.3-70b-versatile', choices: [{ message: { content } }] });
+    json(200, { model: 'claude-sonnet-5', choices: [{ message: { content } }] });
 
   it('è il default e passa dalla Riserva AI in-process (nessun worker)', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(completion('ciao!'));
     const out = await askDeepseek({ ...ask, system: 'S' }, solcoEnv, fetchImpl);
-    expect(out).toEqual({ status: 'ok', reply: 'ciao!', model: 'llama-3.3-70b-versatile' });
+    expect(out).toEqual({ status: 'ok', reply: 'ciao!', model: 'claude-sonnet-5' });
     const [url, init] = fetchImpl.mock.calls[0] ?? [];
-    expect(String(url)).toContain('groq.com');
+    // Default MWAPI anche se c'è una chiave Groq: la chat usa solo mwapi,mwapi-2.
+    expect(String(url)).toBe('https://api.mwapi.dev/v1/chat/completions');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(String(url)).not.toContain('worker');
     const sent = JSON.parse(init.body);
     expect(sent.messages[0]).toEqual({ role: 'system', content: 'S' });
+  });
+
+  it('DEEPSEEK_SOLCO_PROVIDERS sceglie altri provider', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(completion('ok'));
+    await askDeepseek(ask, { ...solcoEnv, DEEPSEEK_SOLCO_PROVIDERS: 'groq' }, fetchImpl);
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toContain('groq.com');
+  });
+
+  it('senza chiavi MWAPI → not_configured, anche con altre chiavi della Riserva', async () => {
+    expect(await askDeepseek(ask, { GROQ_API_KEY: 'g' }, vi.fn())).toEqual({
+      status: 'not_configured',
+    });
   });
 
   it('DEEPSEEK_SOLCO_MODEL fissa il modello', async () => {

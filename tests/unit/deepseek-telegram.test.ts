@@ -32,7 +32,7 @@ describe('/deepseek nel bot Telegram', () => {
       '&lt;b&gt;a &amp; b&lt;/b&gt;',
     ]);
     const [notConfigured] = deepseekTelegramMessages({ status: 'not_configured' });
-    expect(notConfigured).toContain('Riserva AI');
+    expect(notConfigured).toContain('MWAPI_API_KEY');
     const [chat] = deepseekTelegramMessages({ status: 'failed', error: 'chat_not_configured' });
     expect(chat).toContain('DEEPSEEK_ENDPOINT_URL');
   });
