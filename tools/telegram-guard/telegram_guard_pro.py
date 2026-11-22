@@ -440,7 +440,19 @@ async def main() -> None:
     # Sessione: da STRINGA (secret, per deploy headless) se c'è, altrimenti dal file locale.
     session = StringSession(cfg.session_string) if cfg.session_string else cfg.session_name
     client = TelegramClient(session, cfg.api_id, cfg.api_hash)
-    await client.start()
+    headless = _truthy(os.environ.get("TG_NONINTERACTIVE"))
+    if headless:
+        # Headless (Render/Fly): mai chiedere telefono/codice su stdin — fallirebbe con EOFError.
+        await client.connect()
+        if not await client.is_user_authorized():
+            logging.error(
+                "Sessione mancante o non valida: imposta il secret TG_SESSION_STRING "
+                "(generalo sul TUO computer con bootstrap_session.py). Esco."
+            )
+            await client.disconnect()
+            sys.exit(2)
+    else:
+        await client.start()
     if not cfg.session_string:
         _secure(Path(f"{cfg.session_name}.session"))  # il file di sessione contiene la auth key
 
