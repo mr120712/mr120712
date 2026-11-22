@@ -180,8 +180,11 @@ describe('chat di Skynet, nel pannello', () => {
       'Solo fatti: nessuna AI raggiungibile in questo momento · Fonti lette: diario · Non lette: firewall di Vercel, deploy',
     );
     expect(metaText({ engine: 'reserve', sources: [], missing: [] })).toBe(
-      'Risposta della riserva AI (Claude non era raggiungibile)',
+      'Risposta della riserva AI (GPT-6 e Claude non erano raggiungibili)',
     );
+    expect(
+      metaText({ engine: 'gpt6', model: 'gpt-6.2-sol', sources: ['diario'], missing: [] }),
+    ).toBe('Risposta di GPT-6 (gpt-6.2-sol) · Fonti lette: diario');
   });
 });
 

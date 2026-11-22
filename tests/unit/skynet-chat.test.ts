@@ -404,6 +404,9 @@ function chatDeps(overrides: Partial<ChatDeps> = {}) {
       reserve.push({ history, prompt });
       return 'Risposta della riserva.';
     },
+    // GPT-6 spento di default: i test che seguono parlano di Claude e della riserva.
+    askGpt6: async () => null,
+    askGpt6Rules: async () => null,
     switchAutodefense: async (command, source) => {
       switches.push({ command, source });
       return { pausedUntil: command.kind === 'pause' ? utc(20, 15, 30).toISOString() : null };
@@ -1268,5 +1271,123 @@ describe('chat di Skynet: risponde sempre', () => {
       expect(lite.length).toBeLessThan(full.length);
       expect(JSON.parse(lite).firewall.verifiche).toMatchObject({ totale: 2, esempi: [] });
     });
+  });
+});
+
+describe('GPT-6, primo motore della chat', () => {
+  it('risponde gpt-6.2-sol per primo: Claude e la riserva non vengono interpellati', async () => {
+    const asked: string[] = [];
+    const { deps, claude, reserve } = chatDeps({
+      askGpt6: async (model, _history, prompt) => {
+        asked.push(model);
+        expect(prompt).toContain('<dati>');
+        return 'Risposta di GPT-6.';
+      },
+    });
+    const answer = await ask('Cosa è successo oggi?', deps);
+    expect(answer).toMatchObject({
+      reply: 'Risposta di GPT-6.',
+      engine: 'gpt6',
+      model: 'gpt-6.2-sol',
+    });
+    expect(asked).toEqual(['gpt-6.2-sol']);
+    expect(claude).toHaveLength(0);
+    expect(reserve).toHaveLength(0);
+  });
+
+  it('se gpt-6.2 non risponde, tocca a gpt-6.1; se nessuno dei due, a Claude', async () => {
+    const asked: string[] = [];
+    const second = chatDeps({
+      askGpt6: async (model) => {
+        asked.push(model);
+        return model === 'gpt-6.1-sol' ? 'Risposta di riserva GPT-6.' : null;
+      },
+    });
+    await expect(ask('Chi sta attaccando?', second.deps)).resolves.toMatchObject({
+      engine: 'gpt6',
+      model: 'gpt-6.1-sol',
+    });
+    expect(asked).toEqual(['gpt-6.2-sol', 'gpt-6.1-sol']);
+
+    const none = chatDeps({ askGpt6: async () => null });
+    const answer = await ask('Chi sta attaccando?', none.deps);
+    expect(answer.engine).toBe('claude');
+    expect(answer.model).toBeUndefined();
+  });
+
+  it('un GPT-6 che lancia non ferma la chat', async () => {
+    const { deps } = chatDeps({
+      askGpt6: async () => {
+        throw new Error('rete giù');
+      },
+    });
+    await expect(ask('Tutto bene?', deps)).resolves.toMatchObject({ engine: 'claude' });
+  });
+});
+
+describe('«genera regole scanner»', () => {
+  const RULES = JSON.stringify({
+    regole: [
+      { nome: 'File nascosti', regex: '^/(?:api/)?\\.(?:env|git|svn|aws)', perche: 'segreti' },
+      { nome: 'PHP', regex: '\\.php', perche: 'Solco non usa PHP' },
+      { nome: 'Troppo ampia', regex: '^/\\.', perche: 'tutti i file nascosti' },
+    ],
+  });
+
+  it('solo il proprietario: per gli altri nessuna AI e nessuna fonte', async () => {
+    const rulesAsked: string[] = [];
+    const { deps } = chatDeps({
+      askGpt6Rules: async (model) => {
+        rulesAsked.push(model);
+        return RULES;
+      },
+    });
+    const answer = await askSkynet(
+      {
+        messages: [{ role: 'user', content: 'genera regole scanner' }],
+        source: 'pannello',
+        owner: false,
+      },
+      deps,
+    );
+    expect(answer.engine).toBe('command');
+    expect(answer.reply).toContain('Solo il proprietario');
+    expect(rulesAsked).toEqual([]);
+  });
+
+  it('GPT-6 scrive, il codice verifica: valide proposte, la troppo ampia scartata', async () => {
+    let prompt = '';
+    const { deps, claude } = chatDeps({
+      askGpt6Rules: async (_model, text) => {
+        prompt = text;
+        return `Ecco le regole: ${RULES}`;
+      },
+    });
+    const answer = await ask('genera regole scanner', deps);
+    expect(answer).toMatchObject({ engine: 'gpt6', model: 'gpt-6.2-sol' });
+    expect(answer.reply).toContain('2 superano i controlli');
+    expect(answer.reply).toContain('Troppo ampia: colpirebbe una pagina di Solco (/.well-known');
+    expect(answer.reply).toContain('Matches regex');
+    expect(answer.sources).toEqual(['blocchi delle ultime 24 ore']);
+    expect(prompt).toContain('<percorsi_solco>');
+    expect(prompt).toContain('/.well-known/assetlinks.json');
+    expect(claude).toHaveLength(0);
+  });
+
+  it('risposta non JSON da gpt-6.2 → prova gpt-6.1; nessuno → lo dice, senza regole', async () => {
+    const asked: string[] = [];
+    const { deps } = chatDeps({
+      askGpt6Rules: async (model) => {
+        asked.push(model);
+        return model === 'gpt-6.1-sol' ? RULES : 'non so';
+      },
+    });
+    await expect(ask('genera gli scanner', deps)).resolves.toMatchObject({ model: 'gpt-6.1-sol' });
+    expect(asked).toEqual(['gpt-6.2-sol', 'gpt-6.1-sol']);
+
+    const none = chatDeps({ askGpt6Rules: async () => null });
+    const answer = await ask('genera regole scanner', none.deps);
+    expect(answer.engine).toBe('facts');
+    expect(answer.reply).toContain('GPT-6 non è raggiungibile');
   });
 });
