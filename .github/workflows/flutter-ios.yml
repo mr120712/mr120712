@@ -13,6 +13,11 @@
 #                 IOS_SIGNING_CERT_P12_BASE64, IOS_SIGNING_CERT_PASSWORD, IOS_PROVISIONING_PROFILE_BASE64.
 #                 Script: flutter/ios-signing/resign-ipa.sh. Guida: flutter/docs/ios-custom-certificate.md.
 #   (check esegue anche il selftest della firma personalizzata, con un certificato usa-e-getta.)
+#   testflight    compila, firma con la firma automatica di Xcode (chiave API di App Store Connect: crea
+#                 da sola certificato di distribuzione e profilo) e CARICA la build su App Store Connect
+#                 → TestFlight. Stessi 4 segreti di ipa-signed (APP_STORE_CONNECT_PRIVATE_KEY: il .p8 in
+#                 base64 oppure il testo del .p8). Il numero di build è <versionCode del pubspec>.<run>,
+#                 così ogni caricamento è unico. Guida: flutter/docs/testflight.md.
 # Il repository è pubblico: i minuti macOS sono gratuiti. Nessun avvio automatico.
 name: Flutter (iOS)
 
@@ -20,7 +25,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'check; ipa-unsigned (AltStore); ipa-signed (chiave API App Store Connect); ipa-manual (.p12 + profilo, ricompila); ipa-custom (rifirma con il tuo .p12 + .mobileprovision, es. KravaSign)'
+        description: 'check; ipa-unsigned (AltStore); ipa-signed (chiave API App Store Connect); ipa-manual (.p12 + profilo, ricompila); ipa-custom (rifirma con il tuo .p12 + .mobileprovision, es. KravaSign); testflight (carica su TestFlight)'
         type: choice
         required: true
         default: ipa-unsigned
@@ -30,6 +35,7 @@ on:
           - ipa-signed
           - ipa-manual
           - ipa-custom
+          - testflight
 
 permissions:
   contents: read
@@ -234,12 +240,84 @@ jobs:
             "$RUNNER_TEMP/custom.p12" "$RUNNER_TEMP/custom.mobileprovision" build/ios/ipa/Solco-custom.ipa
           rm -f "$RUNNER_TEMP/custom.p12" "$RUNNER_TEMP/custom.mobileprovision"
 
+      - name: Carica su TestFlight (firma automatica con la chiave API di App Store Connect)
+        if: inputs.mode == 'testflight'
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          for v in APPLE_TEAM_ID ASC_KEY_ID ASC_ISSUER_ID ASC_PRIVATE_KEY; do
+            if [ -z "${!v}" ]; then
+              echo "ERRORE: manca un segreto di App Store Connect ($v). Guida: flutter/docs/testflight.md" >&2
+              exit 1
+            fi
+          done
+          # Solo valori dal formato atteso: finiscono in argomenti di xcodebuild e in un plist.
+          [[ "$APPLE_TEAM_ID" =~ ^[A-Z0-9]{10}$ ]] || { echo "ERRORE: APPLE_TEAM_ID deve essere di 10 caratteri (A-Z, 0-9)." >&2; exit 1; }
+          [[ "$ASC_KEY_ID" =~ ^[A-Z0-9]{8,12}$ ]] || { echo "ERRORE: APP_STORE_CONNECT_KEY_ID non valido." >&2; exit 1; }
+          [[ "$ASC_ISSUER_ID" =~ ^[0-9a-fA-F-]{36}$ ]] || { echo "ERRORE: APP_STORE_CONNECT_ISSUER_ID non valido (è un UUID)." >&2; exit 1; }
+          KEY_FILE="$RUNNER_TEMP/AuthKey_${ASC_KEY_ID}.p8"
+          # La chiave .p8: accetta il testo (-----BEGIN PRIVATE KEY-----) oppure il file in base64.
+          if printf '%s' "$ASC_PRIVATE_KEY" | grep -q 'BEGIN PRIVATE KEY'; then
+            printf '%s\n' "$ASC_PRIVATE_KEY" > "$KEY_FILE"
+          else
+            printf '%s' "$ASC_PRIVATE_KEY" | tr -d ' \n\r' | base64 --decode > "$KEY_FILE"
+          fi
+          grep -q 'BEGIN PRIVATE KEY' "$KEY_FILE" || { echo "ERRORE: APP_STORE_CONNECT_PRIVATE_KEY non è una chiave .p8 valida." >&2; exit 1; }
+          chmod 600 "$KEY_FILE"
+          AUTH=(-allowProvisioningUpdates -authenticationKeyPath "$KEY_FILE"
+                -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
+
+          # Numero di build unico per ogni caricamento: <versionCode del pubspec>.<numero dell'esecuzione>.
+          VERSION_NAME=$(sed -n 's/^version: *\([0-9.]*\)+\([0-9]*\).*/\1/p' pubspec.yaml)
+          VERSION_CODE=$(sed -n 's/^version: *\([0-9.]*\)+\([0-9]*\).*/\2/p' pubspec.yaml)
+          BUILD_NUMBER="${VERSION_CODE}.${RUN_NUMBER}"
+          echo "Versione ${VERSION_NAME} (build ${BUILD_NUMBER}) → TestFlight"
+
+          # Solo HTTPS standard: esente dalla dichiarazione sulla crittografia (niente domanda a ogni build).
+          PLIST=ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c "Delete :ITSAppUsesNonExemptEncryption" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST"
+
+          # Pod e artefatti Flutter senza firma, poi archivio FIRMATO (firma automatica, team dai Secrets).
+          flutter build ios --release --no-codesign --build-name="$VERSION_NAME" --build-number="$BUILD_NUMBER"
+          xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Runner.xcarchive" \
+            CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            "${AUTH[@]}" archive | tail -n 40
+
+          # Esporta per App Store Connect e CARICA (destination = upload): finisce in TestFlight.
+          printf '%s\n' \
+            '<?xml version="1.0" encoding="UTF-8"?>' \
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+            '<plist version="1.0"><dict>' \
+            '<key>method</key><string>app-store-connect</string>' \
+            "<key>teamID</key><string>${APPLE_TEAM_ID}</string>" \
+            '<key>signingStyle</key><string>automatic</string>' \
+            '<key>destination</key><string>upload</string>' \
+            '<key>uploadSymbols</key><true/>' \
+            '<key>manageAppVersionAndBuildNumber</key><false/>' \
+            '</dict></plist>' > "$RUNNER_TEMP/ExportOptions-testflight.plist"
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Runner.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions-testflight.plist" \
+            -exportPath "$RUNNER_TEMP/testflight-export" "${AUTH[@]}"
+          rm -f "$KEY_FILE"
+          {
+            echo "### Caricato su App Store Connect"
+            echo "Solco ${VERSION_NAME} (build ${BUILD_NUMBER}). Apple la elabora in 5–30 minuti, poi compare in"
+            echo "App Store Connect → Solco → TestFlight. I tester interni la ricevono senza revisione."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Pulizia del portachiavi di firma
         if: always() && inputs.mode == 'ipa-manual'
         run: security delete-keychain "$RUNNER_TEMP/solco-sign.keychain-db" 2>/dev/null || true
 
       - name: Pubblica l'IPA (e i log) come artefatto
-        if: always() && inputs.mode != 'check'
+        if: always() && inputs.mode != 'check' && inputs.mode != 'testflight'
         uses: actions/upload-artifact@v4
         with:
           name: solco-flutter-ios-${{ inputs.mode }}

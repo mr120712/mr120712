@@ -379,7 +379,69 @@ export type SendMessageOptions = {
   replyMarkup?: unknown;
   /** Nasconde l'anteprima del link (utile quando il messaggio contiene un URL). */
   disableWebPagePreview?: boolean;
+  /**
+   * Effetto animato di Telegram sul messaggio (message_effect_id, es. TELEGRAM_EFFECT_PARTY). Vale solo
+   * nelle chat PRIVATE: se Telegram lo rifiuta, il messaggio parte di nuovo senza effetto.
+   */
+  effectId?: string;
 };
+
+/** Effetti animati di Telegram (message_effect_id), solo chat private: 🎉 festa, 👍 fatto. */
+export const TELEGRAM_EFFECT_PARTY = '5046509860389126442';
+export const TELEGRAM_EFFECT_THUMBS_UP = '5107584321108051014';
+
+/**
+ * Una chiamata alla Bot API: il JSON di risposta, o null se la rete o il token mancano. Non lancia mai
+ * e non scrive mai il token da nessuna parte (sta solo nell'URL della richiesta).
+ */
+async function telegramCall(
+  method: string,
+  body: Record<string, unknown>,
+  timeoutMs = 8000,
+): Promise<{ ok?: boolean; result?: unknown; description?: string } | null> {
+  const token = env.TELEGRAM_BOT_TOKEN;
+  if (!token) return null;
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    return ((await res.json().catch(() => null)) as { ok?: boolean } | null) ?? { ok: res.ok };
+  } catch {
+    return null;
+  }
+}
+
+function messageBody(chatId: string, text: string, options: SendMessageOptions) {
+  return {
+    chat_id: chatId,
+    text,
+    disable_web_page_preview: options.disableWebPagePreview ?? false,
+    ...(options.parseMode ? { parse_mode: options.parseMode } : {}),
+    ...(options.replyMarkup ? { reply_markup: options.replyMarkup } : {}),
+  };
+}
+
+/**
+ * Invia un messaggio e restituisce il suo message_id (per modificarlo dopo, es. una barra di
+ * avanzamento), oppure null. Con `effectId` rifiutato riprova senza effetto. Non lancia mai.
+ */
+export async function sendTelegramMessageId(
+  chatId: string,
+  text: string,
+  options: SendMessageOptions = {},
+): Promise<number | null> {
+  const body = messageBody(chatId, text, options);
+  let data = await telegramCall(
+    'sendMessage',
+    options.effectId ? { ...body, message_effect_id: options.effectId } : body,
+  );
+  if (!data?.ok && options.effectId) data = await telegramCall('sendMessage', body);
+  const id = (data?.result as { message_id?: unknown } | undefined)?.message_id;
+  return data?.ok && typeof id === 'number' ? id : null;
+}
 
 /** Invia un messaggio a una chat, con formattazione e tastiera opzionali. Non lancia mai. */
 export async function sendTelegramMessage(
@@ -387,29 +449,37 @@ export async function sendTelegramMessage(
   text: string,
   options: SendMessageOptions = {},
 ): Promise<boolean> {
-  const token = env.TELEGRAM_BOT_TOKEN;
-  if (!token) return false;
-  const signal =
-    typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
-      ? AbortSignal.timeout(8000)
-      : undefined;
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        disable_web_page_preview: options.disableWebPagePreview ?? false,
-        ...(options.parseMode ? { parse_mode: options.parseMode } : {}),
-        ...(options.replyMarkup ? { reply_markup: options.replyMarkup } : {}),
-      }),
-      signal,
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
+  if (!env.TELEGRAM_BOT_TOKEN) return false;
+  if (options.effectId) return (await sendTelegramMessageId(chatId, text, options)) !== null;
+  return Boolean((await telegramCall('sendMessage', messageBody(chatId, text, options)))?.ok);
+}
+
+/**
+ * Modifica il testo di un messaggio già inviato dal bot. «Message is not modified» (stesso testo)
+ * conta come riuscito. Non lancia mai.
+ */
+export async function editTelegramMessage(
+  chatId: string,
+  messageId: number,
+  text: string,
+  options: Pick<SendMessageOptions, 'parseMode' | 'disableWebPagePreview'> = {},
+): Promise<boolean> {
+  const data = await telegramCall('editMessageText', {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+    disable_web_page_preview: options.disableWebPagePreview ?? true,
+    ...(options.parseMode ? { parse_mode: options.parseMode } : {}),
+  });
+  return Boolean(data?.ok) || /not modified/i.test(data?.description ?? '');
+}
+
+/** «Sta inviando un video…» nell'intestazione della chat (dura ~5 s, va ripetuto). Non lancia mai. */
+export async function sendTelegramChatAction(
+  chatId: string,
+  action: 'typing' | 'upload_video' | 'upload_document',
+): Promise<void> {
+  await telegramCall('sendChatAction', { chat_id: chatId, action }, 4000);
 }
 
 /**
@@ -457,31 +527,23 @@ export async function sendTelegramAudio(
 export async function sendTelegramVideo(
   chatId: string,
   videoUrl: string,
-  options: { caption?: string } = {},
+  options: { caption?: string; effectId?: string } = {},
 ): Promise<boolean> {
-  const token = env.TELEGRAM_BOT_TOKEN;
-  if (!token) return false;
-  const signal =
-    typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
-      ? AbortSignal.timeout(45000)
-      : undefined;
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: chatId,
-        video: videoUrl,
-        supports_streaming: true,
-        ...(options.caption ? { caption: options.caption, parse_mode: 'HTML' } : {}),
-      }),
-      signal,
-    });
-    const data = (await res.json().catch(() => null)) as { ok?: boolean } | null;
-    return Boolean(data?.ok);
-  } catch {
-    return false;
+  const body = {
+    chat_id: chatId,
+    video: videoUrl,
+    supports_streaming: true,
+    ...(options.caption ? { caption: options.caption, parse_mode: 'HTML' } : {}),
+  };
+  const withEffect = options.effectId ? { ...body, message_effect_id: options.effectId } : body;
+  const data = await telegramCall('sendVideo', withEffect, 45_000);
+  if (data?.ok) return true;
+  // Effetto rifiutato (es. chat non privata): riprova senza, ma solo se Telegram ha risposto con un
+  // errore sull'effetto, per non scaricare due volte un video che non passa per altri motivi.
+  if (options.effectId && /effect/i.test(data?.description ?? '')) {
+    return Boolean((await telegramCall('sendVideo', body, 45_000))?.ok);
   }
+  return false;
 }
 
 /** Escapa il testo per parse_mode HTML (solo & < >, come da documentazione Telegram). */
