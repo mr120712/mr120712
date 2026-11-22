@@ -5,6 +5,7 @@
 //   /start | /codice | /invito → se già collegato, rimanda il codice; altrimenti spiega come collegare
 //   /help → cosa fa il bot
 //   /skynet <domanda> → la chat di Skynet (sicurezza del sito): solo il proprietario, solo in privato
+//   /deepseek | /ds <messaggio> → DeepSeek sul server dell'owner (via worker yt-dlp): owner, in privato
 import 'server-only';
 import { timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
@@ -13,6 +14,15 @@ import {
   requestBotVideo,
   videoCommandRegex,
 } from '@/lib/business/bot-video.server';
+import { askDeepseek } from '@/lib/business/deepseek-chat.server';
+import {
+  DEEPSEEK_COMMAND,
+  DEEPSEEK_TELEGRAM_MAX_INPUT,
+  DEEPSEEK_TELEGRAM_TIMEOUT_MS,
+  DEEPSEEK_USAGE,
+  deepseekFrame,
+  deepseekTelegramMessages,
+} from '@/lib/business/deepseek-telegram';
 import { enforceRateLimit } from '@/lib/business/rate-limit.server';
 import { readJsonLimited } from '@/lib/business/request-body.server';
 import { ensureReferralCode } from '@/lib/business/rewards.server';
@@ -38,6 +48,7 @@ import {
   doneFrame,
   finishProgress,
   withDownloadProgress,
+  withLiveStatus,
   withSkynetScan,
 } from '@/lib/business/telegram-progress.server';
 import { SKYNET_CHAT_MAX_QUESTION, SKYNET_CHAT_SUGGESTIONS } from '@/lib/contracts/skynet-chat';
@@ -373,6 +384,46 @@ async function handleUpdate(
         { parseMode: 'HTML', disableWebPagePreview: false, effectId: TELEGRAM_EFFECT_PARTY },
       );
     }
+    return;
+  }
+
+  // /deepseek <messaggio> (alias /ds) → DeepSeek-V4.1-Flash-1017-obliterated sul server dell'owner,
+  // via POST /chat del worker yt-dlp (stessa chiave di /video). Stesso gate di /skynet: solo chat
+  // privata dell'owner, altrimenti SILENZIO totale. Ogni messaggio sta da solo: nessuna memoria.
+  const deepseek = DEEPSEEK_COMMAND.exec(text);
+  if (deepseek) {
+    if (chatType !== 'private') return;
+    if (!(await checkTelegramOwner(chatId, username)).owner) return;
+    const message = (deepseek[1] ?? '').trim().slice(0, DEEPSEEK_TELEGRAM_MAX_INPUT);
+    if (!message) {
+      await sendTelegramMessage(chatId, DEEPSEEK_USAGE, { parseMode: 'HTML' });
+      return;
+    }
+    const limited = await enforceRateLimit('admin.deepseek', `tg:${chatId}`);
+    if (limited) {
+      await sendTelegramMessage(chatId, 'Troppi messaggi a DeepSeek di fila: riprova tra poco.');
+      return;
+    }
+    const { value: outcome, messageId } = await withLiveStatus(
+      chatId,
+      () =>
+        askDeepseek(
+          { messages: [{ role: 'user', content: message }] },
+          undefined, // process.env
+          undefined, // fetch
+          DEEPSEEK_TELEGRAM_TIMEOUT_MS,
+        ),
+      {
+        frame: deepseekFrame,
+        waitingText: '🐋 DeepSeek sta pensando…',
+        action: 'typing',
+        parseMode: 'HTML',
+      },
+    );
+    const [first, ...rest] = deepseekTelegramMessages(outcome);
+    const format = { parseMode: 'HTML', disableWebPagePreview: true } as const;
+    await finishProgress(chatId, messageId, first ?? '…', format);
+    for (const part of rest) await sendTelegramMessage(chatId, part, format);
     return;
   }
 
