@@ -4,8 +4,12 @@
 //   2. altrimenti Skynet TROVA TUTTO: legge insieme stato e segnali, diario (con la ricerca guidata
 //      dalla domanda), firewall di Vercel, blocchi delle ultime 24 ore, controlli interni, deploy,
 //      iscritti e visite — ogni fonte col suo tempo massimo, e chi non risponde viene dichiarato;
-//   3. risponde Claude sul fascicolo completo; se non è raggiungibile, la riserva AI gratuita su
-//      un fascicolo ridotto (solo conteggi e stati); se nemmeno quella, i fatti con parole fisse.
+//   3. risponde GPT-6 (gpt-6.2-sol, poi gpt-6.1-sol, via MagnetAPI) sul fascicolo completo ma
+//      ANONIMIZZATO (IP mascherati, email abbreviate: gpt6.server); poi Claude sul fascicolo completo;
+//      poi la riserva AI gratuita su un fascicolo ridotto (solo conteggi e stati); se nessuno
+//      risponde, i fatti con parole fisse. Tutti i motori stanno in un unico budget di tempo;
+//   4. «genera regole scanner» (solo il proprietario): GPT-6 scrive regole anti-scanner, il codice le
+//      verifica (scanner-rules.ts) e le propone. Skynet non le applica.
 // Sola lettura: da qui non parte nessuna modifica, a parte la pausa dell'autodifesa chiesta dal
 // proprietario. Niente segreti né indirizzi IP interi nel fascicolo e nella risposta (chat.ts); le
 // domande non finiscono nei log.
@@ -29,6 +33,7 @@ import { listHeartbeats, recentRuns } from '@/lib/monitoring/monitor.server';
 import type { OwnerSource } from './autodefense';
 import {
   CHAT_SYSTEM,
+  CHAT_SYSTEM_GPT6,
   type ChatEngine,
   type ChatTurn,
   chatHistory,
@@ -57,6 +62,20 @@ import {
   visitorsBrief,
 } from './chat';
 import {
+  gpt6Chat,
+  redactForThirdParty,
+  SKYNET_GPT6_MODELS,
+  type SkynetGpt6Model,
+} from './gpt6.server';
+import {
+  checkRule,
+  isScannerRulesCommand,
+  parseProposedRules,
+  SCANNER_RULES_SYSTEM,
+  scannerRulesPrompt,
+  scannerRulesReply,
+} from './scanner-rules';
+import {
   readVercelForChat,
   SKYNET_AI_MODEL,
   skynetOverview,
@@ -69,6 +88,19 @@ const SOURCE_TIMEOUT_MS = 6_000;
 const VERCEL_TIMEOUT_MS = 10_000;
 const CLAUDE_TIMEOUT_MS = 26_000;
 const RESERVE_TIMEOUT_MS = 12_000;
+/** Tempo massimo di ciascun GPT-6: il più potente ha più tempo, il secondo è la riserva rapida. */
+const GPT6_TIMEOUT_MS: Record<SkynetGpt6Model, number> = {
+  'gpt-6.2-sol': 20_000,
+  'gpt-6.1-sol': 12_000,
+};
+/**
+ * Budget di tempo per TUTTI i motori insieme, dopo la ricerca nelle fonti: le route (pannello e bot
+ * Telegram) hanno 60 s in tutto. Un motore parte solo se restano almeno AI_MIN_MS.
+ */
+const AI_BUDGET_MS = 40_000;
+const AI_MIN_MS = 4_000;
+/** Le regole anti-scanner sono un JSON più lungo: più spazio e un po' più di tempo. */
+const SCANNER_RULES_TIMEOUT_MS = 30_000;
 /** Giri dei controlli interni letti per la chat (circa due giorni). */
 const CHECK_RUNS = 48;
 
@@ -87,6 +119,19 @@ export type ChatDeps = {
   /** Il modello: la conversazione fin qui e l'ultimo messaggio (fascicolo + domanda). */
   askClaude: (history: ChatTurn[], prompt: string) => Promise<string | null>;
   askReserve: (history: ChatTurn[], prompt: string) => Promise<string | null>;
+  /** GPT-6 via MagnetAPI: i testi vengono anonimizzati dentro (gpt6.server). */
+  askGpt6: (
+    model: SkynetGpt6Model,
+    history: ChatTurn[],
+    prompt: string,
+    timeoutMs: number,
+  ) => Promise<string | null>;
+  /** GPT-6 per le regole anti-scanner (system e prompt di scanner-rules.ts). */
+  askGpt6Rules: (
+    model: SkynetGpt6Model,
+    prompt: string,
+    timeoutMs: number,
+  ) => Promise<string | null>;
   switchAutodefense: (
     command: OwnerCommand,
     source: OwnerSource,
@@ -97,6 +142,8 @@ export type ChatAnswer = {
   reply: string;
   /** Chi ha scritto la risposta: Claude, la riserva AI, il codice (fatti) o un comando eseguito. */
   engine: ChatEngine;
+  /** Il modello preciso, quando lo si sa (es. «gpt-6.2-sol»). */
+  model?: string;
   /** Le fonti lette per rispondere, e quelle che non hanno risposto. */
   sources: string[];
   missing: string[];
@@ -290,6 +337,41 @@ export async function askReserveChat(history: ChatTurn[], prompt: string): Promi
   }
 }
 
+/** GPT-6 risponde sul fascicolo (già anonimizzato da gpt6Chat), con il system prompt da analista. */
+export function askGpt6Chat(
+  model: SkynetGpt6Model,
+  history: ChatTurn[],
+  prompt: string,
+  timeoutMs: number,
+): Promise<string | null> {
+  return gpt6Chat({
+    model,
+    system: CHAT_SYSTEM_GPT6,
+    messages: [...history, { role: 'user', content: prompt }],
+    maxTokens: 1500,
+    temperature: 0.2,
+    timeoutMs,
+    secrets: secretValues(process.env),
+  });
+}
+
+/** GPT-6 scrive le regole anti-scanner (risposta JSON, verificata poi da scanner-rules.ts). */
+export function askGpt6RulesChat(
+  model: SkynetGpt6Model,
+  prompt: string,
+  timeoutMs: number,
+): Promise<string | null> {
+  return gpt6Chat({
+    model,
+    system: SCANNER_RULES_SYSTEM,
+    messages: [{ role: 'user', content: prompt }],
+    maxTokens: 2500,
+    temperature: 0.1,
+    timeoutMs,
+    secrets: secretValues(process.env),
+  });
+}
+
 export function defaultChatDeps(): ChatDeps {
   return {
     db: prisma,
@@ -303,6 +385,8 @@ export function defaultChatDeps(): ChatDeps {
     visitors: (now) => getVisitorStats(now),
     askClaude: askClaudeChat,
     askReserve: askReserveChat,
+    askGpt6: askGpt6Chat,
+    askGpt6Rules: askGpt6RulesChat,
     switchAutodefense: (command, origin) => switchAutodefense(command, origin),
   };
 }
@@ -312,6 +396,13 @@ export function defaultChatDeps(): ChatDeps {
 /** Un comando dell'autodifesa scritto da chi non è il proprietario: non si esegue nulla. */
 export const OWNER_ONLY_COMMAND =
   'Solo il proprietario può mettere in pausa o riprendere l’autodifesa. Non è stato cambiato nulla.';
+
+/** Il comando delle regole anti-scanner scritto da chi non è il proprietario. */
+export const OWNER_ONLY_SCANNER_RULES =
+  'Solo il proprietario può chiedere a Skynet nuove regole anti-scanner. Non è stato cambiato nulla.';
+
+export const SCANNER_RULES_UNAVAILABLE =
+  'GPT-6 non è raggiungibile in questo momento (chiave MagnetAPI assente, rifiutata o servizio lento): nessuna regola anti-scanner generata. Riprovi fra poco.';
 
 const EMPTY_QUESTION =
   'Mi scriva una domanda: per esempio «Cosa è successo oggi?» o «Chi sta attaccando il sito?».';
@@ -346,24 +437,86 @@ export async function askSkynet(
     };
   }
 
+  if (isScannerRulesCommand(question)) {
+    if (input.owner !== true) {
+      return { reply: OWNER_ONLY_SCANNER_RULES, engine: 'command', sources: [], missing: [] };
+    }
+    return scannerRules(deps, secrets);
+  }
+
   const dossier = await gatherDossier(question, deps);
   const { sources, missing } = dossierSources(dossier);
   const history = chatHistory(input.messages, secrets);
-  const answer = (reply: string, engine: ChatEngine): ChatAnswer => ({
+  const answer = (reply: string, engine: ChatEngine, model?: string): ChatAnswer => ({
     reply: cleanReply(reply, secrets),
     engine,
+    ...(model ? { model } : {}),
     sources,
     missing,
   });
 
-  const claude = await deps
-    .askClaude(history, chatPrompt(renderDossier(dossier, 'full', secrets), question))
-    .catch(() => null);
+  // Un solo budget di tempo per tutti i motori: ognuno ha il suo massimo, mai oltre ciò che resta.
+  const deadline = Date.now() + AI_BUDGET_MS;
+  const within = async (ms: number, work: (timeoutMs: number) => Promise<string | null>) => {
+    const left = deadline - Date.now();
+    if (left < AI_MIN_MS) return null;
+    const timeoutMs = Math.min(ms, left);
+    return withDeadline(work(timeoutMs), timeoutMs).catch(() => null);
+  };
+
+  // GPT-6 sul fascicolo completo: lo anonimizza gpt6Chat (IP mascherati, email abbreviate).
+  const fullPrompt = chatPrompt(renderDossier(dossier, 'full', secrets), question);
+  for (const model of SKYNET_GPT6_MODELS) {
+    const reply = await within(GPT6_TIMEOUT_MS[model], (ms) =>
+      deps.askGpt6(model, history, fullPrompt, ms),
+    );
+    if (reply?.trim()) return answer(reply, 'gpt6', model);
+  }
+  const claude = await within(CLAUDE_TIMEOUT_MS, () => deps.askClaude(history, fullPrompt));
   if (claude?.trim()) return answer(claude, 'claude');
   // Alla riserva gratuita va il fascicolo ridotto: conteggi e stati, niente reti, percorsi o commit.
-  const reserve = await deps
-    .askReserve(history, chatPrompt(renderDossier(dossier, 'lite', secrets), question))
-    .catch(() => null);
+  const reserve = await within(RESERVE_TIMEOUT_MS, () =>
+    deps.askReserve(history, chatPrompt(renderDossier(dossier, 'lite', secrets), question)),
+  );
   if (reserve?.trim()) return answer(reserve, 'reserve');
   return answer(factsAnswer(dossier), 'facts');
+}
+
+/**
+ * «genera regole scanner»: GPT-6 scrive le regole guardando i blocchi delle ultime 24 ore
+ * (anonimizzati); il codice le verifica una per una (scanner-rules.ts) e la risposta propone solo
+ * quelle valide. Nessuna modifica al firewall.
+ */
+async function scannerRules(deps: ChatDeps, secrets: readonly string[]): Promise<ChatAnswer> {
+  const vercel = await source(() => deps.vercel(), VERCEL_TIMEOUT_MS);
+  const blocks = vercel?.blocks ?? null;
+  const brief = blocks
+    ? redactForThirdParty(
+        JSON.stringify({ blocchi24ore: blocks, firewall: vercel?.firewall ?? null }),
+        secrets,
+      )
+    : null;
+  const sources = blocks ? ['blocchi delle ultime 24 ore'] : [];
+  const missing = blocks ? [] : ['blocchi delle ultime 24 ore'];
+  const prompt = scannerRulesPrompt(brief);
+  const deadline = Date.now() + AI_BUDGET_MS;
+  for (const model of SKYNET_GPT6_MODELS) {
+    const left = deadline - Date.now();
+    if (left < AI_MIN_MS) break;
+    const timeoutMs = Math.min(SCANNER_RULES_TIMEOUT_MS, left);
+    const text = await withDeadline(deps.askGpt6Rules(model, prompt, timeoutMs), timeoutMs).catch(
+      () => null,
+    );
+    const proposed = text ? parseProposedRules(text) : [];
+    if (proposed.length === 0) continue; // risposta vuota o non JSON: prova il secondo GPT-6
+    const checked = proposed.map(checkRule);
+    return {
+      reply: cleanReply(scannerRulesReply(checked, model), secrets),
+      engine: 'gpt6',
+      model,
+      sources,
+      missing,
+    };
+  }
+  return { reply: SCANNER_RULES_UNAVAILABLE, engine: 'facts', sources, missing };
 }

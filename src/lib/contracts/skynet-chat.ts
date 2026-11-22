@@ -8,8 +8,11 @@ export const SKYNET_CHAT_MAX_TURNS = 12;
 /** Lunghezza massima di un turno della conversazione, e della domanda (l'ultimo). */
 export const SKYNET_CHAT_MAX_MESSAGE = 4_000;
 export const SKYNET_CHAT_MAX_QUESTION = 1_000;
-/** Chi ha scritto la risposta: Claude, la riserva AI, il codice (solo fatti) o un comando eseguito. */
-export const SKYNET_CHAT_ENGINES = ['claude', 'reserve', 'facts', 'command'] as const;
+/**
+ * Chi ha scritto la risposta: GPT-6 (MagnetAPI, il primo motore), Claude, la riserva AI, il codice
+ * (solo fatti) o un comando eseguito.
+ */
+export const SKYNET_CHAT_ENGINES = ['gpt6', 'claude', 'reserve', 'facts', 'command'] as const;
 
 export const SkynetChatMessageSchema = z.object({
   role: z.enum(['user', 'assistant']),
@@ -32,6 +35,8 @@ export const SkynetChatRequestSchema = z
 export const SkynetChatResponseSchema = z.object({
   reply: z.string().min(1),
   engine: z.enum(SKYNET_CHAT_ENGINES),
+  /** Il modello preciso quando lo si sa (es. «gpt-6.2-sol»). */
+  model: z.string().max(60).optional(),
   /** Le fonti che Skynet ha letto per rispondere, e quelle che non hanno risposto. */
   sources: z.array(z.string()),
   missing: z.array(z.string()),

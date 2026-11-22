@@ -25,12 +25,13 @@ type Message = {
   role: 'user' | 'assistant';
   content: string;
   /** Solo sulle risposte: chi ha scritto e con quali fonti. */
-  meta?: Pick<SkynetChatResponse, 'engine' | 'sources' | 'missing'>;
+  meta?: Pick<SkynetChatResponse, 'engine' | 'model' | 'sources' | 'missing'>;
 };
 
 const ENGINE_LABELS: Record<SkynetChatResponse['engine'], string> = {
+  gpt6: 'Risposta di GPT-6',
   claude: 'Risposta di Claude',
-  reserve: 'Risposta della riserva AI (Claude non era raggiungibile)',
+  reserve: 'Risposta della riserva AI (GPT-6 e Claude non erano raggiungibili)',
   facts: 'Solo fatti: nessuna AI raggiungibile in questo momento',
   command: 'Comando eseguito da Skynet, senza AI',
 };
@@ -54,7 +55,9 @@ export function chatErrorMessage(error: unknown): string {
 
 /** La riga sotto una risposta: chi l'ha scritta e che cosa è stato letto. */
 export function metaText(meta: NonNullable<Message['meta']>): string {
-  const parts = [ENGINE_LABELS[meta.engine]];
+  const parts = [
+    meta.model ? `${ENGINE_LABELS[meta.engine]} (${meta.model})` : ENGINE_LABELS[meta.engine],
+  ];
   if (meta.sources.length > 0) parts.push(`Fonti lette: ${meta.sources.join(', ')}`);
   if (meta.missing.length > 0) parts.push(`Non lette: ${meta.missing.join(', ')}`);
   return parts.join(' · ');
@@ -99,7 +102,12 @@ export function SkynetChat({ onCommand }: { onCommand?: () => void }) {
           id: crypto.randomUUID(),
           role: 'assistant',
           content: answer.reply,
-          meta: { engine: answer.engine, sources: answer.sources, missing: answer.missing },
+          meta: {
+            engine: answer.engine,
+            model: answer.model,
+            sources: answer.sources,
+            missing: answer.missing,
+          },
         },
       ]);
       // Un comando ha cambiato lo stato dell'autodifesa: il pannello lo rilegge subito.
