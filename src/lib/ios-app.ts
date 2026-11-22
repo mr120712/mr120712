@@ -5,12 +5,16 @@
 // L'IPA deve essere firmato con un certificato dell'Apple Developer Program del proprietario e con un
 // profilo Ad Hoc (dispositivi registrati) o Enterprise: un IPA senza firma o firmato per l'App Store
 // non si installa in questo modo.
-import { ANDROID_APP_HOST, ANDROID_APP_PACKAGE, ANDROID_APP_VERSION } from '@/lib/android-app';
+import { ANDROID_APP_HOST, ANDROID_APP_PACKAGE } from '@/lib/android-app';
 
 /** Identificativo del bundle: lo stesso del pacchetto Android. */
 export const IOS_APP_BUNDLE_ID = ANDROID_APP_PACKAGE;
-/** Versione attesa dell'IPA distribuito (CFBundleShortVersionString), uguale all'APK. */
-export const IOS_APP_VERSION = ANDROID_APP_VERSION;
+/**
+ * Versione dell'IPA distribuito (CFBundleShortVersionString) in public/solco.ipa. Segue l'IPA, non
+ * l'APK: dal 22 novembre 2026 l'APK è 0.7.5 mentre l'IPA pubblicato è ancora 0.7.3; si aggiorna
+ * quando si pubblica un nuovo IPA (workflow «Flutter (iOS)»). Il test ios-public-ipa lo confronta.
+ */
+export const IOS_APP_VERSION = '0.7.3';
 export const IOS_APP_TITLE = 'Solco';
 export const IOS_APP_HOST = ANDROID_APP_HOST;
 
