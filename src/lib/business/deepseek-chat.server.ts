@@ -35,7 +35,12 @@ export type DeepseekFailure =
   | 'model_unreachable'
   | 'model_error'
   | 'timeout'
-  | 'bad_response';
+  | 'bad_response'
+  // Rifiuti del provider (Riserva AI), dal codice HTTP che il provider ha restituito:
+  | 'provider_auth' // 401/403: chiave rifiutata
+  | 'provider_credit' // 402: credito esaurito / account senza pagamento
+  | 'model_not_found' // 400/404: ID modello errato o non servito da quel provider
+  | 'provider_rate_limited'; // 429
 
 async function workerFailure(res: Response): Promise<DeepseekFailure> {
   if (res.status === 401) return 'worker_unauthorized';
@@ -119,12 +124,25 @@ async function askViaSolco(
     if (res.status === 503) return { status: 'not_configured' };
     if (res.status === 504) return { status: 'failed', error: 'timeout' };
     if (res.status === 429) return { status: 'failed', error: 'busy' };
-    return { status: 'failed', error: 'model_error' };
+    return { status: 'failed', error: reserveFailure(body) };
   }
   const parsed = ReserveReplySchema.safeParse(body);
   const reply = parsed.success ? (parsed.data.choices[0]?.message.content ?? '') : '';
   if (!reply.trim()) return { status: 'failed', error: 'bad_response' };
   return { status: 'ok', reply, model: parsed.success ? (parsed.data.model ?? 'solco') : 'solco' };
+}
+
+/** La Riserva risponde {error:"upstream_error", status:<codice del provider>}: lo si rende leggibile. */
+export function reserveFailure(body: unknown): DeepseekFailure {
+  const status =
+    body && typeof body === 'object' && 'status' in body
+      ? Number((body as { status: unknown }).status)
+      : 0;
+  if (status === 401 || status === 403) return 'provider_auth';
+  if (status === 402) return 'provider_credit';
+  if (status === 400 || status === 404) return 'model_not_found';
+  if (status === 429) return 'provider_rate_limited';
+  return 'model_error';
 }
 
 export async function askDeepseek(

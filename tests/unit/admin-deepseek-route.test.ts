@@ -14,7 +14,11 @@ vi.mock('@/lib/same-origin', () => ({ sameOrigin: mocks.sameOrigin }));
 vi.mock('@/lib/business/rate-limit.server', () => ({ enforceRateLimit: mocks.enforceRateLimit }));
 
 import { POST } from '@/app/api/admin/deepseek/route';
-import { askDeepseek, deepseekSolcoBudgets } from '@/lib/business/deepseek-chat.server';
+import {
+  askDeepseek,
+  deepseekSolcoBudgets,
+  reserveFailure,
+} from '@/lib/business/deepseek-chat.server';
 
 const admin = { id: 'admin-1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true };
 const env = {
@@ -209,5 +213,37 @@ describe('deepseekSolcoBudgets', () => {
     } finally {
       timeout.mockRestore();
     }
+  });
+});
+
+describe('rifiuti del provider resi leggibili', () => {
+  it.each([
+    [401, 'provider_auth'],
+    [403, 'provider_auth'],
+    [402, 'provider_credit'],
+    [404, 'model_not_found'],
+    [400, 'model_not_found'],
+    [429, 'provider_rate_limited'],
+    [500, 'model_error'],
+  ])('upstream %i → %s', (status, error) => {
+    expect(reserveFailure({ error: 'upstream_error', status })).toBe(error);
+  });
+
+  it('OpenRouter senza credito (402) arriva fino al bot come provider_credit', async () => {
+    const env = {
+      OPENROUTER_API_KEY: 'or',
+      DEEPSEEK_SOLCO_PROVIDERS: 'openrouter',
+      DEEPSEEK_SOLCO_MODEL: 'deepseek/deepseek-v4.1-flash',
+    };
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(json(402, { error: { message: 'Insufficient credits' } }));
+    expect(await askDeepseek(ask, env, fetchImpl)).toEqual({
+      status: 'failed',
+      error: 'provider_credit',
+    });
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(
+      'https://openrouter.ai/api/v1/chat/completions',
+    );
   });
 });
