@@ -28,10 +28,16 @@ import {
   sendTelegramAudio,
   sendTelegramMessage,
   sendTelegramVideo,
+  TELEGRAM_EFFECT_PARTY,
   TELEGRAM_MENU_CALLBACKS,
 } from '@/lib/business/telegram-bot.server';
 import { consumeTelegramLinkChallenge } from '@/lib/business/telegram-link';
 import { checkTelegramOwner } from '@/lib/business/telegram-owner.server';
+import {
+  doneFrame,
+  finishProgress,
+  withDownloadProgress,
+} from '@/lib/business/telegram-progress.server';
 import { SKYNET_CHAT_MAX_QUESTION, SKYNET_CHAT_SUGGESTIONS } from '@/lib/contracts/skynet-chat';
 import { prisma } from '@/lib/db';
 import { env } from '@/lib/env';
@@ -316,24 +322,31 @@ async function handleUpdate(
       await sendTelegramMessage(chatId, 'Troppi download di fila: riprova tra poco.');
       return;
     }
-    await sendTelegramMessage(chatId, '⏳ Cerco e preparo il video… (sperimentale)');
-    const outcome = await requestBotVideo(input);
+    // Effetto di download: un messaggio con barra animata e fasi mentre il worker lavora, poi ✅/❌.
+    const {
+      value: outcome,
+      messageId: progressId,
+      elapsedMs,
+    } = await withDownloadProgress(chatId, () => requestBotVideo(input));
     if (outcome.status === 'not_configured') {
-      await sendTelegramMessage(
+      await finishProgress(
         chatId,
+        progressId,
         'Funzione sperimentale non configurata: manca il worker yt-dlp (imposta <code>YTDLP_SERVICE_URL</code>).',
         { parseMode: 'HTML' },
       );
       return;
     }
     if (outcome.status === 'failed') {
-      await sendTelegramMessage(
+      await finishProgress(
         chatId,
-        `Non sono riuscito a prendere il video: ${escapeTelegramHtml(outcome.detail)}.`,
+        progressId,
+        `❌ Non sono riuscito a prendere il video: ${escapeTelegramHtml(outcome.detail)}.`,
         { parseMode: 'HTML' },
       );
       return;
     }
+    await finishProgress(chatId, progressId, doneFrame(elapsedMs));
     const { title, mediaUrl, ext, filesize } = outcome.result;
     // Con il worker in modalità "serve" il file è ospitato dal worker e ha una dimensione nota: se è un
     // video piccolo (≤ ~20MB, il limite di Telegram per l'invio da URL) prova a mandarlo DENTRO la chat;
@@ -348,13 +361,14 @@ async function handleUpdate(
     const sent = smallVideo
       ? await sendTelegramVideo(chatId, mediaUrl, {
           caption: `🎬 <b>${escapeTelegramHtml(title)}</b>\n<i>Sperimentale</i>`,
+          effectId: TELEGRAM_EFFECT_PARTY, // 🎉 all'arrivo del video (chat privata)
         })
       : false;
     if (!sent) {
       await sendTelegramMessage(
         chatId,
         `🎬 <b>${escapeTelegramHtml(title)}</b>\n${escapeTelegramHtml(mediaUrl)}\n\n<i>Sperimentale · link diretto al media.</i>`,
-        { parseMode: 'HTML', disableWebPagePreview: false },
+        { parseMode: 'HTML', disableWebPagePreview: false, effectId: TELEGRAM_EFFECT_PARTY },
       );
     }
     return;
