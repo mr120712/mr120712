@@ -53,6 +53,8 @@ const YOUTUBE_VIDEOS_URL = 'https://www.googleapis.com/youtube/v3/videos';
 const ANTHROPIC_MODELS_URL = 'https://api.anthropic.com/v1/models?limit=1';
 const STRIPE_BALANCE_URL = 'https://api.stripe.com/v1/balance';
 
+import { readUamConfig } from '@/lib/security/uam';
+
 type Env = Record<string, string | undefined>;
 type Fetcher = typeof fetch;
 type CatalogOutcome = { outcome: string };
@@ -719,6 +721,27 @@ const checkCronCleanup: Check = async (deps) => {
   return ok(`Ultima esecuzione: ${when}`);
 };
 
+/**
+ * Il cancello anti-bot (UAM). Rosso (avvisa) quando UAM_MODE è attivo ma il segreto è assente o
+ * debole (< 32 caratteri): il cancello si disattiva da solo e i bot passano. È la rete di sicurezza
+ * contro una rotazione sbagliata di UAM_SECRET. UAM_MODE non impostato = avviso, non guasto.
+ */
+const checkUam: Check = async (deps) => {
+  const config = readUamConfig(deps.env);
+  if (config.enabled) {
+    return ok(`Cancello anti-bot attivo (modalità ${config.mode})`);
+  }
+  if (config.reason === 'weak_secret') {
+    return fail(
+      'UAM_MODE è attivo ma UAM_SECRET manca o è sotto 32 caratteri: il cancello è SPENTO e lascia ' +
+        'passare i bot (fail-open). Reimposta UAM_SECRET (almeno 32 caratteri) su Vercel e ridistribuisci.',
+    );
+  }
+  return warn(
+    'Cancello anti-bot non attivo (UAM_MODE non impostato): nessuna verifica proof-of-work',
+  );
+};
+
 export const MONITOR_CHECK_FUNCTIONS: Record<MonitorCheckId, Check> = {
   database: checkDatabase,
   signup_write: checkSignupWrite,
@@ -736,6 +759,7 @@ export const MONITOR_CHECK_FUNCTIONS: Record<MonitorCheckId, Check> = {
   solco_ai: checkSolcoAi,
   stripe: checkStripe,
   telegram_bot: checkTelegramBot,
+  uam: checkUam,
   cron_cleanup: checkCronCleanup,
 };
 

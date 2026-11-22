@@ -95,6 +95,11 @@ export const MONITOR_CHECKS: Record<MonitorCheckId, MonitorCheckInfo> = {
     critical: false,
     help: 'Telegram consegna i messaggi al bot (getWebhookInfo): webhook registrato sull’indirizzo di Solco, nessun errore di consegna recente, coda di messaggi in attesa breve. Il cron giornaliero ri-registra il webhook da solo; non configurato = avviso, non guasto.',
   },
+  uam: {
+    label: 'Cancello anti-bot (UAM)',
+    critical: false,
+    help: 'Il cancello proof-of-work davanti al sito. Se UAM_MODE è attivo ma UAM_SECRET manca o è sotto 32 caratteri (per esempio dopo una rotazione sbagliata), il cancello si SPEGNE da solo e lascia passare i bot (fail-open): questo controllo diventa rosso e avvisa. UAM_MODE non impostato = avviso, non guasto.',
+  },
   cron_cleanup: {
     label: 'Pulizia giornaliera',
     critical: false,

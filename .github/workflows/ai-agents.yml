@@ -14,9 +14,9 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: 'site (7 agents on the live site), ytdlp-worker (4 agents on its code + /health), android-app (6 agents on the Flutter app code), tiktok-ad (6 agents write a TikTok ad storyboard) models (list and test each key’s models) or measure (site timings only, no AI)'
+        description: 'site (7 agents on the live site), ytdlp-worker (4 agents on its code + /health), android-app (6 agents on the Flutter app code), login-wall (5 agents on the login wall security), tiktok-ad (6 agents write a TikTok ad storyboard) models (list and test each key’s models) or measure (site timings only, no AI)'
         type: choice
-        options: [site, ytdlp-worker, android-app, tiktok-ad, security-fix, models, measure]
+        options: [site, ytdlp-worker, android-app, login-wall, tiktok-ad, security-fix, models, measure]
         default: site
       pages:
         description: 'Pages to measure, comma-separated (empty = the default list)'
@@ -59,6 +59,8 @@ jobs:
             flutter/ios-signing
             flutter/lib
             flutter/android-config
+            src/app
+            src/components
 
       - uses: actions/setup-node@v4
         with:

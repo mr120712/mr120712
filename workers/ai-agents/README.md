@@ -70,6 +70,8 @@ pages measured that way. If it hits `/api/ai-reserve/v1/*`, add a manual Vercel 
 
 ## List the models a key unlocks
 
+Run the workflow with target **`login-wall`** for 5 agents on the login wall’s security (anti-bypass): the client gate, the API session guards (with a generated gate map of every route), the public endpoints, the anti-bot UAM gate, and the proxy/SEO edge (`login-wall-review.mjs`).
+
 Run the workflow with target **`android-app`** for 6 agents (startup, network/JSON, player, lists, offline/media, WebView/billing) + 1 lead on the Flutter app's code (`flutter-review.mjs`).
 
 Run the workflow with target **`models`**: it only lists the model ids each configured key returns

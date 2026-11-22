@@ -20,6 +20,7 @@ export const MONITOR_CHECK_IDS = [
   'solco_ai',
   'stripe',
   'telegram_bot',
+  'uam',
   'cron_cleanup',
 ] as const;
 
