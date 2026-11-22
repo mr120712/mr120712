@@ -3,7 +3,7 @@
 // Measures the live site, runs 7 specialist agents + 1 lead agent (MWAPI key 1 and key 2 first,
 // then your private FreeLLMAPI, then Solco's reserve) and prints the report; optionally sends it to
 // Telegram. Exit codes: 0 report produced · 1 configuration refused · 2 no AI backend answered.
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import process from 'node:process';
 import {
   backendsFrom,
@@ -96,6 +96,54 @@ async function main() {
   }
   log(`backend: ${backends.map((b) => `${b.name} (${b.model})`).join(' → ')}`);
 
+  // «security-fix»: one agent receives a security finding (FIX_FINDING) and ONE repository file
+  // (FIX_FILE) and answers with the corrected file. Nothing is applied: a person reviews the answer.
+  if (env.REVIEW_TARGET?.trim() === 'security-fix') {
+    const path = env.FIX_FILE?.trim() ?? '';
+    const finding = env.FIX_FINDING?.trim() ?? '';
+    if (!/^[A-Za-z0-9._/-]+$/.test(path) || path.startsWith('/') || path.split('/').includes('..')) {
+      log('config: FIX_FILE deve essere un percorso relativo del repository');
+      return 1;
+    }
+    if (!finding) {
+      log('config: FIX_FINDING è vuoto');
+      return 1;
+    }
+    let source;
+    try {
+      source = await readFile(new URL(`../../${path}`, import.meta.url), 'utf8');
+    } catch {
+      log(`config: file non trovato: ${path}`);
+      return 1;
+    }
+    const system =
+      'You are a senior application-security engineer. You receive one security finding and the full ' +
+      'source of the file it points to. Fix the vulnerability with the smallest correct change, keep ' +
+      'behaviour, comments and language (Italian comments stay Italian) otherwise unchanged, and do not ' +
+      'introduce new dependencies. Answer with: (1) one short paragraph explaining the fix; (2) the COMPLETE ' +
+      'corrected file in a single fenced code block. Never invent APIs; if something cannot be fixed ' +
+      'safely in this file, say so instead.';
+    const started = Date.now();
+    let answer;
+    try {
+      answer = await chat(
+        [
+          { role: 'system', content: system },
+          { role: 'user', content: `Finding:\n${finding}\n\nFile: ${path}\n\n${source}` },
+        ],
+        backends,
+        { maxTokens: 9000, timeoutMs: 240_000 },
+      );
+    } catch (error) {
+      log(`agente: ${error.message}`);
+      return 2;
+    }
+    const report = `Correzione di sicurezza — ${path} [${answer.backend} · ${answer.model}] in ${Math.round((Date.now() - started) / 1000)} s\n\n${answer.text}`;
+    log(report);
+    if (env.REPORT_FILE?.trim()) await writeFile(env.REPORT_FILE.trim(), `${redact(report, secrets)}\n`);
+    return 0;
+  }
+
   // REVIEW_TARGET: «site» (default, 7 agents on the live site) or «ytdlp-worker» (4 agents on the
   // worker's code and live /health).
   const target = env.REVIEW_TARGET?.trim() || 'site';
@@ -126,7 +174,7 @@ async function main() {
     options = common;
     title = 'Solco — revisione prestazioni';
   } else {
-    log(`config: REVIEW_TARGET sconosciuto (${target}): usa site, ytdlp-worker, android-app, tiktok-ad, models o measure`);
+    log(`config: REVIEW_TARGET sconosciuto (${target}): usa site, ytdlp-worker, android-app, tiktok-ad, security-fix, models o measure`);
     return 1;
   }
 

@@ -8,6 +8,7 @@ import {
   discoverProviderModels,
   reserveKnownProviders,
 } from '@/lib/business/ai-reserve-connector.server';
+import { magnetapiAgentsView } from '@/lib/business/magnetapi-status.server';
 import type {
   ReserveProviderStatusName,
   ReserveProvidersOverview,
@@ -26,7 +27,11 @@ export async function reserveProvidersOverview(
   // Cerca automatica: interroga /models dei soli provider ATTIVI e scopre i modelli serviti ADESSO
   // (oltre allo stato). Se fallisce del tutto, trattiamo i configurati come "da verificare" (failing)
   // senza rompere il pannello e senza modelli scoperti.
-  const discoveries = await discoverProviderModels(env).catch(() => []);
+  // In parallelo: la cerca della riserva e la sonda di MagnetAPI (solo agenti, fuori dalla riserva).
+  const [discoveries, magnetapi] = await Promise.all([
+    discoverProviderModels(env).catch(() => []),
+    magnetapiAgentsView(env).catch(() => null),
+  ]);
   const byId = new Map(discoveries.map((discovery) => [discovery.id, discovery]));
 
   const providers: ReserveProviderView[] = known.map((provider) => {
@@ -57,6 +62,7 @@ export async function reserveProvidersOverview(
     configuredCount: providers.filter((provider) => provider.configured).length,
     total: providers.length,
     discoveredTotal: providers.reduce((sum, provider) => sum + provider.discoveredCount, 0),
+    agents: magnetapi ? [magnetapi] : [],
     checkedAt: now.toISOString(),
   };
 }

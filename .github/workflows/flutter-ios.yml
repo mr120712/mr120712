@@ -8,6 +8,11 @@
 #                 con AltStore/SideStore, che lo firma sul dispositivo con l'ID Apple dell'utente.
 #   ipa-signed    firma ed esporta con la chiave API di App Store Connect (segreti Apple richiesti:
 #                 APPLE_TEAM_ID, APP_STORE_CONNECT_KEY_ID, _ISSUER_ID, _PRIVATE_KEY). Senza segreti fallisce.
+#   ipa-custom    CERTIFICATO PERSONALIZZATO: compila l'IPA senza firma e lo rifirma con il TUO .p12 + il
+#                 .mobileprovision (account Apple o servizio di firma come KravaSign), dai Secrets
+#                 IOS_SIGNING_CERT_P12_BASE64, IOS_SIGNING_CERT_PASSWORD, IOS_PROVISIONING_PROFILE_BASE64.
+#                 Script: flutter/ios-signing/resign-ipa.sh. Guida: flutter/docs/ios-custom-certificate.md.
+#   (check esegue anche il selftest della firma personalizzata, con un certificato usa-e-getta.)
 # Il repository è pubblico: i minuti macOS sono gratuiti. Nessun avvio automatico.
 name: Flutter (iOS)
 
@@ -15,7 +20,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'check; ipa-unsigned (AltStore); ipa-signed (chiave API App Store Connect); ipa-manual (.p12 + profilo dai Secrets)'
+        description: 'check; ipa-unsigned (AltStore); ipa-signed (chiave API App Store Connect); ipa-manual (.p12 + profilo, ricompila); ipa-custom (rifirma con il tuo .p12 + .mobileprovision, es. KravaSign)'
         type: choice
         required: true
         default: ipa-unsigned
@@ -24,6 +29,7 @@ on:
           - ipa-unsigned
           - ipa-signed
           - ipa-manual
+          - ipa-custom
 
 permissions:
   contents: read
@@ -95,8 +101,12 @@ jobs:
         if: inputs.mode == 'check'
         run: flutter build ios --simulator --debug
 
+      - name: Selftest della firma personalizzata (certificato e profilo usa-e-getta)
+        if: inputs.mode == 'check'
+        run: ios-signing/selftest.sh
+
       - name: Compila l'IPA senza firma
-        if: inputs.mode == 'ipa-unsigned'
+        if: inputs.mode == 'ipa-unsigned' || inputs.mode == 'ipa-custom'
         run: |
           flutter build ios --release --no-codesign
           cd build/ios/iphoneos
@@ -202,6 +212,27 @@ jobs:
             -exportPath build/ios/ipa
           echo "== IPA firmato (manuale, Ad Hoc) =="
           ls -la build/ios/ipa/*.ipa
+
+      - name: Firma con il certificato personalizzato (.p12 + .mobileprovision dai Secrets)
+        if: inputs.mode == 'ipa-custom'
+        env:
+          IOS_SIGNING_CERT_P12_BASE64: ${{ secrets.IOS_SIGNING_CERT_P12_BASE64 }}
+          IOS_SIGNING_CERT_PASSWORD: ${{ secrets.IOS_SIGNING_CERT_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          for v in IOS_SIGNING_CERT_P12_BASE64 IOS_PROVISIONING_PROFILE_BASE64; do
+            if [ -z "${!v}" ]; then
+              echo "ERRORE: manca il segreto $v (repo → Settings → Secrets → Actions). Guida: flutter/docs/ios-custom-certificate.md" >&2
+              exit 1
+            fi
+          done
+          # Decodificati in file temporanei (mai stampati); il runner viene distrutto a fine job.
+          printf '%s' "$IOS_SIGNING_CERT_P12_BASE64" | tr -d ' \n\r' | base64 --decode > "$RUNNER_TEMP/custom.p12"
+          printf '%s' "$IOS_PROVISIONING_PROFILE_BASE64" | tr -d ' \n\r' | base64 --decode > "$RUNNER_TEMP/custom.mobileprovision"
+          ios-signing/resign-ipa.sh build/ios/iphoneos/Solco-unsigned.ipa \
+            "$RUNNER_TEMP/custom.p12" "$RUNNER_TEMP/custom.mobileprovision" build/ios/ipa/Solco-custom.ipa
+          rm -f "$RUNNER_TEMP/custom.p12" "$RUNNER_TEMP/custom.mobileprovision"
 
       - name: Pulizia del portachiavi di firma
         if: always() && inputs.mode == 'ipa-manual'
