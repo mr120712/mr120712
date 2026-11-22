@@ -72,9 +72,12 @@ export function ytdlpServiceUrl(env: Env = process.env): string | null {
   return raw.replace(/\/+$/, '');
 }
 
-/** Chiave opzionale del worker (Bearer). Mai loggata. */
+/**
+ * Chiave del worker (Bearer). Mai loggata. YTDLP_SERVICE_KEY2, se c'è, ha la precedenza: è la chiave di
+ * rotazione (sul worker = WORKER_API_KEY_2), così si cambia chiave senza downtime.
+ */
 export function ytdlpServiceKey(env: Env = process.env): string | undefined {
-  return clean(env.YTDLP_SERVICE_KEY);
+  return clean(env.YTDLP_SERVICE_KEY2) ?? clean(env.YTDLP_SERVICE_KEY);
 }
 
 /** True se la chat è fra quelle dell'owner (SKYNET_TELEGRAM_CHAT_IDS, vedi ownerTelegramChatIds). */

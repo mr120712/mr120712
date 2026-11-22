@@ -72,6 +72,22 @@ class ChatTest(unittest.TestCase):
         self.assertEqual(self.client.post("/chat", json=self.body, headers=bad).status_code, 401)
         self.assertEqual(_Upstream.seen, [])
 
+    def test_second_key_rotation(self):
+        old = worker.API_KEY_2
+        try:
+            worker.API_KEY_2 = ""
+            k2 = {"authorization": "Bearer key-two"}
+            self.assertEqual(self.client.post("/chat", json=self.body, headers=k2).status_code, 401)
+            worker.API_KEY_2 = "key-two"
+            self.assertEqual(self.client.post("/chat", json=self.body, headers=k2).status_code, 200)
+            self.assertEqual(self.client.post("/chat", json=self.body, headers=AUTH).status_code, 200)
+            self.assertEqual(
+                self.client.post("/chat", json=self.body, headers={"authorization": "Bearer nope"}).status_code,
+                401,
+            )
+        finally:
+            worker.API_KEY_2 = old
+
     def test_proxies_and_clamps(self):
         r = self.client.post("/chat", json=self.body, headers=AUTH)
         self.assertEqual(r.status_code, 200, r.text)
