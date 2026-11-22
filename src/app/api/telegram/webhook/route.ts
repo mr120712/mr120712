@@ -18,6 +18,7 @@ import { askDeepseek } from '@/lib/business/deepseek-chat.server';
 import {
   DEEPSEEK_COMMAND,
   DEEPSEEK_TELEGRAM_MAX_INPUT,
+  DEEPSEEK_TELEGRAM_MAX_TOKENS,
   DEEPSEEK_TELEGRAM_TIMEOUT_MS,
   DEEPSEEK_USAGE,
   deepseekFrame,
@@ -408,7 +409,10 @@ async function handleUpdate(
       chatId,
       () =>
         askDeepseek(
-          { messages: [{ role: 'user', content: message }] },
+          {
+            messages: [{ role: 'user', content: message }],
+            maxTokens: DEEPSEEK_TELEGRAM_MAX_TOKENS,
+          },
           undefined, // process.env
           undefined, // fetch
           DEEPSEEK_TELEGRAM_TIMEOUT_MS,

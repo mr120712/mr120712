@@ -11,6 +11,9 @@ export const DEEPSEEK_TELEGRAM_MAX_INPUT = 8000;
 /** Il webhook ha maxDuration 60 s: si lascia margine per inviare la risposta. */
 export const DEEPSEEK_TELEGRAM_TIMEOUT_MS = 50_000;
 
+/** Risposte più corte nel bot: finiscono prima del limite di 60 s (e Telegram le spezza comunque). */
+export const DEEPSEEK_TELEGRAM_MAX_TOKENS = 1024;
+
 /** sendMessage accetta al più 4096 caratteri: si spezza sotto, con margine per l'HTML. */
 const CHUNK = 3800;
 
@@ -24,7 +27,7 @@ const FAILURES: Record<DeepseekFailure | 'not_configured', string> = {
   chat_not_configured: 'sul worker manca DEEPSEEK_ENDPOINT_URL',
   busy: 'il worker è occupato, riprova fra qualche secondo',
   model_unreachable: 'il server DeepSeek non risponde',
-  timeout: 'nessuna risposta in tempo (forse il worker si stava svegliando): riprova',
+  timeout: 'il modello non ha risposto in tempo: riprova, o chiedi una risposta più breve',
   model_error: 'il server DeepSeek ha restituito un errore',
   bad_response: 'risposta non valida dal server DeepSeek',
 };

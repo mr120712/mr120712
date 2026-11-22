@@ -23,7 +23,7 @@ const errorMessages: Record<string, string> = {
   chat_not_configured: 'Sul worker manca DEEPSEEK_ENDPOINT_URL (Render → Environment).',
   busy: 'Il worker ha già troppe richieste in corso. Riprova fra qualche secondo.',
   model_unreachable: 'Il server DeepSeek non risponde. Controlla che sia acceso e raggiungibile.',
-  timeout: 'Nessuna risposta in tempo (il worker potrebbe essersi appena svegliato). Riprova.',
+  timeout: 'Il modello non ha risposto in tempo. Riprova, o chiedi una risposta più breve.',
   model_error: 'Il server DeepSeek ha restituito un errore.',
   bad_response: 'Risposta non valida dal server DeepSeek.',
   rate_limited: 'Hai inviato molte richieste di recente. Attendi un momento.',
