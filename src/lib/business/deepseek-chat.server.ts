@@ -106,7 +106,7 @@ async function askViaSolco(
 ): Promise<DeepseekOutcome> {
   const res = await forwardChat(
     {
-      model: clean(env.DEEPSEEK_SOLCO_MODEL) ?? 'auto',
+      model: solcoModel(env),
       messages: outgoingMessages(request),
       temperature: request.temperature ?? 0.6,
       max_tokens: request.maxTokens ?? 2048,
@@ -130,6 +130,20 @@ async function askViaSolco(
   const reply = parsed.success ? (parsed.data.choices[0]?.message.content ?? '') : '';
   if (!reply.trim()) return { status: 'failed', error: 'bad_response' };
   return { status: 'ok', reply, model: parsed.success ? (parsed.data.model ?? 'solco') : 'solco' };
+}
+
+/**
+ * DEEPSEEK_SOLCO_MODEL ripulito: accetta anche il link della pagina del modello (es.
+ * https://openrouter.ai/deepseek/deepseek-v4.1-flash) o un ID fra virgolette, e lo riduce all'ID
+ * nudo che il provider si aspetta. Vuoto → "auto" (i modelli di default del provider).
+ */
+export function solcoModel(env: Env = process.env): string {
+  let value = clean(env.DEEPSEEK_SOLCO_MODEL);
+  if (!value) return 'auto';
+  value = value.replace(/^["'`]+|["'`]+$/g, '').trim();
+  const url = /^https?:\/\/(?:www\.)?openrouter\.ai\/(?:models\/)?([^?#]+)/i.exec(value);
+  if (url?.[1]) value = url[1];
+  return value.replace(/\/+$/, '') || 'auto';
 }
 
 /** La Riserva risponde {error:"upstream_error", status:<codice del provider>}: lo si rende leggibile. */

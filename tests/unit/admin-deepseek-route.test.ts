@@ -18,6 +18,7 @@ import {
   askDeepseek,
   deepseekSolcoBudgets,
   reserveFailure,
+  solcoModel,
 } from '@/lib/business/deepseek-chat.server';
 
 const admin = { id: 'admin-1', role: 'admin', email: 'bestmr12@icloud.com', emailVerified: true };
@@ -244,6 +245,41 @@ describe('rifiuti del provider resi leggibili', () => {
     });
     expect(String(fetchImpl.mock.calls[0]?.[0])).toBe(
       'https://openrouter.ai/api/v1/chat/completions',
+    );
+  });
+});
+
+describe('solcoModel (DEEPSEEK_SOLCO_MODEL ripulito)', () => {
+  it.each([
+    ['deepseek/deepseek-v4.1-flash', 'deepseek/deepseek-v4.1-flash'],
+    ['https://openrouter.ai/deepseek/deepseek-v4.1-flash', 'deepseek/deepseek-v4.1-flash'],
+    ['https://openrouter.ai/models/deepseek/deepseek-v4.1-flash/', 'deepseek/deepseek-v4.1-flash'],
+    ['https://openrouter.ai/deepseek/deepseek-v4.1-flash?tab=api', 'deepseek/deepseek-v4.1-flash'],
+    ['"deepseek/deepseek-v4.1-flash"', 'deepseek/deepseek-v4.1-flash'],
+    ['  claude-haiku-4-5-20251001  ', 'claude-haiku-4-5-20251001'],
+    ['', 'auto'],
+  ])('%j → %s', (raw, expected) => {
+    expect(solcoModel({ DEEPSEEK_SOLCO_MODEL: raw })).toBe(expected);
+  });
+
+  it('il link incollato arriva a OpenRouter come ID nudo', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      json(200, {
+        model: 'deepseek/deepseek-v4.1-flash',
+        choices: [{ message: { content: 'ok' } }],
+      }),
+    );
+    await askDeepseek(
+      ask,
+      {
+        OPENROUTER_API_KEY: 'or',
+        DEEPSEEK_SOLCO_PROVIDERS: 'openrouter',
+        DEEPSEEK_SOLCO_MODEL: 'https://openrouter.ai/deepseek/deepseek-v4.1-flash',
+      },
+      fetchImpl,
+    );
+    expect(JSON.parse(fetchImpl.mock.calls[0]?.[1].body).model).toBe(
+      'deepseek/deepseek-v4.1-flash',
     );
   });
 });
