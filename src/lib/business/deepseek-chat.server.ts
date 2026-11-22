@@ -1,7 +1,9 @@
 // @polsia:user-owned — backend della chat «DeepSeek» (admin /admin/deepseek e /deepseek del bot).
 // DEEPSEEK_BACKEND sceglie dove va la richiesta:
-//   • "solco" (default): la Riserva AI di Solco, IN-PROCESS su Vercel (forwardChat: Groq, Cerebras,
-//     Gemini, Mistral, OpenRouter, MWAPI con failover). Modello: DEEPSEEK_SOLCO_MODEL, default "auto".
+//   • "solco" (default): la Riserva AI di Solco, IN-PROCESS su Vercel (forwardChat), ristretta ai
+//     provider DEEPSEEK_SOLCO_PROVIDERS (CSV di id; default "mwapi,mwapi-2" = le due chiavi MWAPI, con
+//     failover fra loro). Solo per questa chat: il resto della Riserva non cambia. Modello:
+//     DEEPSEEK_SOLCO_MODEL, default "auto" (= MWAPI_MODEL, poi MWAPI_FALLBACK_MODEL).
 //   • "worker": POST /chat del worker yt-dlp (che inoltra a DEEPSEEK_ENDPOINT_URL), con
 //     YTDLP_SERVICE_URL (HTTPS pubblico, anti-SSRF) e YTDLP_SERVICE_KEY(2) (Bearer, mai loggata).
 import 'server-only';
@@ -53,6 +55,9 @@ async function workerFailure(res: Response): Promise<DeepseekFailure> {
 /** Il budget della Riserva AI (catena di provider) deve restare sotto il maxDuration della route. */
 export const DEEPSEEK_SOLCO_BUDGET_MS = 50_000;
 
+/** Provider della Riserva usati da questa chat, se DEEPSEEK_SOLCO_PROVIDERS non dice altro. */
+export const DEEPSEEK_SOLCO_DEFAULT_PROVIDERS = 'mwapi,mwapi-2';
+
 function clean(value: string | undefined): string | undefined {
   return value?.trim() ? value.trim() : undefined;
 }
@@ -89,7 +94,11 @@ async function askViaSolco(
       temperature: request.temperature ?? 0.6,
       max_tokens: request.maxTokens ?? 2048,
     },
-    { ...env, AI_RESERVE_CHAIN_BUDGET_MS: String(Math.min(timeoutMs, DEEPSEEK_SOLCO_BUDGET_MS)) },
+    {
+      ...env,
+      AI_RESERVE_PROVIDERS: clean(env.DEEPSEEK_SOLCO_PROVIDERS) ?? DEEPSEEK_SOLCO_DEFAULT_PROVIDERS,
+      AI_RESERVE_CHAIN_BUDGET_MS: String(Math.min(timeoutMs, DEEPSEEK_SOLCO_BUDGET_MS)),
+    },
     fetchImpl,
   );
   const body = (await res.json().catch(() => null)) as unknown;

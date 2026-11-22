@@ -17,8 +17,8 @@ export default function AdminDeepseekPage() {
         <p className="text-sm font-medium text-muted-foreground">Strumenti amministrativi</p>
         <h1 className="text-3xl font-semibold tracking-normal text-foreground">DeepSeek</h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-          Chat con l’IA della Riserva Solco (in-process su Vercel). Visibile solo agli admin
-          verificati: la richiesta passa dal worker yt-dlp, che inoltra al server con la sua chiave.
+          Chat con MWAPI tramite la Riserva AI di Solco (in-process su Vercel, chiavi già
+          configurate). Visibile solo agli admin verificati.
         </p>
       </header>
 
@@ -32,7 +32,8 @@ export default function AdminDeepseekPage() {
               Configurazione
             </h2>
             <p className="text-sm leading-6 text-muted-foreground">
-              Default: la Riserva AI di Solco (le chiavi dei provider già su Vercel, con failover).
+              Default: MWAPI (<code>MWAPI_API_KEY</code>, poi <code>MWAPI_API_KEY_2</code>) su
+              Vercel. <code>DEEPSEEK_SOLCO_PROVIDERS</code> cambia i provider,{' '}
               <code>DEEPSEEK_SOLCO_MODEL</code> fissa un modello;{' '}
               <code>DEEPSEEK_BACKEND=worker</code> usa invece il worker yt-dlp e{' '}
               <code>DEEPSEEK_ENDPOINT_URL</code>.

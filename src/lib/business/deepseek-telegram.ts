@@ -19,7 +19,7 @@ export const DEEPSEEK_USAGE =
 
 const FAILURES: Record<DeepseekFailure | 'not_configured', string> = {
   not_configured:
-    'nessun backend IA configurato (chiavi della Riserva AI su Vercel, o DEEPSEEK_BACKEND=worker)',
+    'nessun backend IA configurato (imposta MWAPI_API_KEY su Vercel, o DEEPSEEK_SOLCO_PROVIDERS)',
   worker_unauthorized: 'il worker rifiuta la chiave (WORKER_API_KEY su Render ≠ YTDLP_SERVICE_KEY)',
   chat_not_configured: 'sul worker manca DEEPSEEK_ENDPOINT_URL',
   busy: 'il worker è occupato, riprova fra qualche secondo',
