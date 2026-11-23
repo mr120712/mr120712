@@ -24,6 +24,9 @@ model SkynetState {
   /// Autodifesa (AutodefenseState, src/lib/skynet/autodefense.ts): cosa Skynet ha visto acceso,
   /// ripristini, tentativi e fermi. La scrive solo la sentinella.
   defense            Json?
+  /// Indirizzi dell'owner da non mandare mai alla verifica: { "<ip>": "<scadenza ISO>" }. Li scrive
+  /// /api/admin/skynet/trust-me quando un amministratore verificato apre /admin (7 giorni ciascuno).
+  trustedIps         Json?
   /// Autodifesa in pausa fino a qui, per scelta del proprietario. La scrive solo la chat di Skynet.
   defensePausedUntil DateTime?
   /// Ultimo «riprendi autodifesa» del proprietario: i fermi di prima non valgono più.
