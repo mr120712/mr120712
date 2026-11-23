@@ -27,13 +27,15 @@ or any other model. Static Spaces run no code on Hugging Face: the page talks to
 
 ## Ready-made backend: Solco (MWAPI)
 
-Without a GPU server of your own, use Solco's endpoint (MWAPI, the same models as `/ds`):
+Without a GPU server of your own, use Solco's endpoint. With `HF_INFERENCE_TOKEN` on Vercel it serves
+`OBLITERATUS/Qwen3.8-27B-OBLITERATED` (Featherless via Hugging Face, billed to Solcomusic); otherwise
+MWAPI, the same models as `/ds`:
 
 | Field | Value |
 |---|---|
 | URL base | `https://solcomusic.online/api/space-chat/v1` |
 | Chiave API | the value of `SPACE_CHAT_API_KEY` on Vercel |
-| Modello | `solco-mwapi` |
+| Modello | `OBLITERATUS/Qwen3.8-27B-OBLITERATED` (with `HF_INFERENCE_TOKEN` on Vercel) or `solco-mwapi` |
 
 Only this Space's address may call it (CORS), and the key is required.
 

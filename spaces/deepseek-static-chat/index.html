@@ -98,13 +98,17 @@
   function config() {
     const c = load();
     return {
-      baseUrl: (c.baseUrl || '').replace(/\/+$/, ''),
+      baseUrl: normalizeBase(c.baseUrl),
       apiKey: c.apiKey || '',
       model: c.model || 'OBLITERATUS/DeepSeek-V4.1-Flash-1017-obliterated',
       system: c.system ?? 'You are a helpful assistant.',
       temperature: Number(c.temperature ?? 0.6),
       maxTokens: Number(c.maxTokens ?? 2048),
     };
+  }
+  // Accetta anche l'URL completo di un endpoint: …/v1/models o …/v1/chat/completions → …/v1.
+  function normalizeBase(url) {
+    return (url || '').trim().replace(/\/+$/, '').replace(/\/(models|chat\/completions)$/i, '');
   }
   function validUrl(url) {
     try { const u = new URL(url); return u.protocol === 'https:' || u.hostname === 'localhost' || u.hostname === '127.0.0.1'; } catch { return false; }
@@ -227,6 +231,8 @@
     }
     const cfg = {};
     for (const f of fields) cfg[f] = $(f).value.trim();
+    cfg.baseUrl = normalizeBase(cfg.baseUrl);
+    $('baseUrl').value = cfg.baseUrl;
     save(cfg);
     refreshStatus();
   });
@@ -237,7 +243,8 @@
     $('testResult').textContent = 'Dati del server cancellati da questo browser.';
   });
   $('test').addEventListener('click', async () => {
-    const base = $('baseUrl').value.trim().replace(/\/+$/, '');
+    const base = normalizeBase($('baseUrl').value);
+    $('baseUrl').value = base;
     if (!validUrl(base)) { $('testResult').textContent = 'Serve un URL https:// (o localhost).'; return; }
     $('testResult').textContent = 'Provo…';
     const c = { baseUrl: base, apiKey: $('apiKey').value.trim() };

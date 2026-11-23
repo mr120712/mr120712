@@ -1,6 +1,7 @@
 // @polsia:user-owned — POST /api/space-chat/v1/chat/completions: chat OpenAI-compatibile per lo
 // Space statico privato (vedi space-chat.server.ts). Bearer SPACE_CHAT_API_KEY, CORS solo per lo
-// Space, limite 'space.chat'. Il modello è la catena di /ds (MWAPI). Nessun sameOrigin: chiamata
+// Space, limite 'space.chat'. Modello: OBLITERATUS su Hugging Face (HF_INFERENCE_TOKEN), altrimenti
+// la catena di /ds (MWAPI). Nessun sameOrigin: chiamata
 // cross-origin dal browser, autenticata dalla chiave (nessun cookie).
 import 'server-only';
 import { NextResponse } from 'next/server';
@@ -8,7 +9,13 @@ import { z } from 'zod';
 import { askDeepseek } from '@/lib/business/deepseek-chat.server';
 import { enforceRateLimit } from '@/lib/business/rate-limit.server';
 import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
-import { authorizeSpaceChat, spaceChatCors, sseReply } from '@/lib/business/space-chat.server';
+import {
+  askHuggingFace,
+  authorizeSpaceChat,
+  huggingFaceConfig,
+  spaceChatCors,
+  sseReply,
+} from '@/lib/business/space-chat.server';
 import { DeepseekChatRequestSchema } from '@/lib/contracts/deepseek-chat';
 
 export const runtime = 'nodejs';
@@ -80,11 +87,23 @@ export async function POST(request: Request) {
   if (!request_.success)
     return fail('invalid_request', 400, 'ultimo messaggio non dell’utente o troppo lungo');
 
-  const outcome = await askDeepseek(request_.data);
-  if (outcome.status === 'not_configured')
-    return fail('not_configured', 503, 'MWAPI_API_KEY mancante');
-  if (outcome.status === 'failed') {
-    return fail(outcome.error, FAILURE_STATUS[outcome.error] ?? 502, outcome.detail);
+  // Con HF_INFERENCE_TOKEN: il modello OBLITERATUS su Hugging Face (nessun ripiego silenzioso su
+  // Claude: un errore si vede come tale). Senza: la catena MWAPI di /ds.
+  const hf = huggingFaceConfig();
+  let outcome: { reply: string; model: string };
+  if (hf) {
+    const answer = await askHuggingFace(request_.data, hf);
+    if (answer.status === 'failed') return fail(answer.error, answer.httpStatus, answer.detail);
+    outcome = answer;
+  } else {
+    const answer = await askDeepseek(request_.data);
+    if (answer.status === 'not_configured') {
+      return fail('not_configured', 503, 'MWAPI_API_KEY mancante');
+    }
+    if (answer.status === 'failed') {
+      return fail(answer.error, FAILURE_STATUS[answer.error] ?? 502, answer.detail);
+    }
+    outcome = answer;
   }
 
   if (body.data.stream) {

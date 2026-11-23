@@ -110,4 +110,47 @@ describe('/api/space-chat', () => {
       'https://a.example',
     ]);
   });
+
+  describe('OBLITERATUS via Hugging Face', () => {
+    const HF = `hf_${'x'.repeat(30)}`;
+
+    it('con HF_INFERENCE_TOKEN chiama il router con modello e fatturazione Solcomusic', async () => {
+      vi.stubEnv('HF_INFERENCE_TOKEN', HF);
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(Response.json({ choices: [{ message: { content: 'Ciao dal 27B' } }] }));
+      const res = await POST(post(chat));
+      expect(await res.text()).toContain('Ciao dal 27B');
+      expect(mocks.ask).not.toHaveBeenCalled();
+      const [url, init] = fetchSpy.mock.calls[0] ?? [];
+      expect(String(url)).toBe('https://router.huggingface.co/v1/chat/completions');
+      const headers = new Headers(init?.headers);
+      expect(headers.get('authorization')).toBe(`Bearer ${HF}`);
+      expect(headers.get('x-hf-bill-to')).toBe('Solcomusic');
+      const body = JSON.parse(String(init?.body));
+      expect(body.model).toBe('OBLITERATUS/Qwen3.8-27B-OBLITERATED:featherless-ai');
+      expect(body.messages[0]).toEqual({ role: 'system', content: 'Be brief.' });
+      const models = GET(
+        new Request('https://solco.test/api/space-chat/v1/models', {
+          headers: { origin: SPACE, authorization: `Bearer ${KEY}` },
+        }),
+      );
+      expect((await models.json()).data[0].id).toBe('OBLITERATUS/Qwen3.8-27B-OBLITERATED');
+      fetchSpy.mockRestore();
+    });
+
+    it('un errore di Hugging Face si vede (senza token nel testo), niente ripiego su Claude', async () => {
+      vi.stubEnv('HF_INFERENCE_TOKEN', HF);
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(Response.json({ error: `Payment required for ${HF}` }, { status: 402 }));
+      const res = await POST(post({ ...chat, stream: false }));
+      expect(res.status).toBe(502);
+      const body = await res.json();
+      expect(body.error.type).toBe('provider_credit');
+      expect(body.error.message).not.toContain(HF);
+      expect(mocks.ask).not.toHaveBeenCalled();
+      fetchSpy.mockRestore();
+    });
+  });
 });
