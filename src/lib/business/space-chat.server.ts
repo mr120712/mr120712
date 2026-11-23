@@ -1,11 +1,15 @@
 // @polsia:user-owned — endpoint chat per lo Space statico privato su Hugging Face
 // (Solcomusic/deepseek-static-chat). La pagina gira nel browser e chiama Solco direttamente:
-//  • autenticazione: Bearer SPACE_CHAT_API_KEY (chiave dedicata, revocabile da sola);
+//  • autenticazione: cancello (vedi sotto) — chiave SPACE_CHAT_API_KEY scambiata per un pass di
+//    sessione firmato, legato all'origine; la chiave lunga non resta nel browser;
 //  • CORS: solo le origini in SPACE_CHAT_ORIGINS (CSV), default l'origine dello Space;
 //  • modello: la stessa catena di /ds e /admin/deepseek (askDeepseek → MWAPI chiave 1, poi 2).
-// Nessun cookie, nessuna sessione: la chiave È l'autorizzazione.
+// Nessun cookie: il pass (o la chiave) nell'header Authorization è l'autorizzazione.
 import 'server-only';
+import { createHmac, randomBytes } from 'node:crypto';
+import { isIP } from 'node:net';
 import { bearerMatches } from '@/lib/business/ai-reserve-connector.server';
+import { enforceRateLimit } from '@/lib/business/rate-limit.server';
 
 type Env = Record<string, string | undefined>;
 
@@ -35,16 +39,123 @@ export function spaceChatCors(request: Request, env: Env = process.env): Record<
   };
 }
 
-export type SpaceChatAuth = { ok: true } | { ok: false; status: 401 | 503; error: string };
+// ------------------------------------------------------------------ cancello (gate)
+//
+// La chiave lunga (SPACE_CHAT_API_KEY) non resta nel browser: la pagina la scambia una volta su
+// POST /gate con un pass di sessione firmato (HMAC-SHA256), valido SPACE_CHAT_SESSION_TTL_MS e
+// legato all'origine dello Space. Il pass funziona solo con quell'Origin; ruotare la chiave revoca
+// tutti i pass. Una richiesta con un Origin non ammesso è rifiutata (403) anche con la chiave
+// giusta; senza Origin (curl, strumenti del proprietario) vale solo la chiave lunga.
 
-export function authorizeSpaceChat(request: Request, env: Env = process.env): SpaceChatAuth {
+export const SPACE_CHAT_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
+const SESSION_PREFIX = 'ssg1';
+
+export type SpaceChatAuth =
+  | { ok: true; via: 'key' | 'session'; origin: string | null }
+  | { ok: false; status: 401 | 403 | 503; error: string };
+
+function secretOf(env: Env): string | null {
   const secret = env.SPACE_CHAT_API_KEY?.trim();
-  if (!secret || secret.length < 24) return { ok: false, status: 503, error: 'not_configured' };
+  return secret && secret.length >= 24 ? secret : null;
+}
+
+function presentedToken(request: Request): string | null {
   const token = /^Bearer\s+(.+)$/i.exec((request.headers.get('authorization') ?? '').trim())?.[1];
-  if (!token || !bearerMatches(token.trim(), secret)) {
-    return { ok: false, status: 401, error: 'unauthorized' };
+  return token?.trim() || null;
+}
+
+/** Chiave di firma derivata: la chiave lunga non firma mai direttamente. */
+function signingKey(secret: string): Buffer {
+  return createHmac('sha256', secret).update('space-chat-gate:v1').digest();
+}
+
+function sign(secret: string, payload: string): string {
+  return createHmac('sha256', signingKey(secret)).update(payload).digest('base64url');
+}
+
+export function issueSpaceChatSession(
+  origin: string,
+  env: Env = process.env,
+  now = Date.now(),
+): { token: string; expiresAt: number } | null {
+  const secret = secretOf(env);
+  if (!secret || !spaceChatOrigins(env).includes(origin)) return null;
+  const expiresAt = now + SPACE_CHAT_SESSION_TTL_MS;
+  const nonce = randomBytes(12).toString('base64url');
+  const payload = `${SESSION_PREFIX}.${expiresAt}.${nonce}`;
+  return { token: `${payload}.${sign(secret, `${payload}|${origin}`)}`, expiresAt };
+}
+
+export function verifySpaceChatSession(
+  token: string,
+  origin: string,
+  secret: string,
+  now = Date.now(),
+): boolean {
+  const parts = token.split('.');
+  if (parts.length !== 4 || parts[0] !== SESSION_PREFIX) return false;
+  const [, exp, nonce, sig] = parts as [string, string, string, string];
+  if (!/^\d{13}$/.test(exp) || !/^[\w-]{16}$/.test(nonce) || !/^[\w-]{43}$/.test(sig)) return false;
+  const expiresAt = Number(exp);
+  if (expiresAt <= now || expiresAt > now + SPACE_CHAT_SESSION_TTL_MS) return false;
+  return bearerMatches(sig, sign(secret, `${SESSION_PREFIX}.${exp}.${nonce}|${origin}`));
+}
+
+/**
+ * Il cancello di ogni endpoint dello Space. `allowSession: false` (solo /gate) pretende la chiave
+ * lunga e un Origin ammesso.
+ */
+export function authorizeSpaceChat(
+  request: Request,
+  env: Env = process.env,
+  { allowSession = true, requireOrigin = false, now = Date.now() } = {},
+): SpaceChatAuth {
+  const secret = secretOf(env);
+  if (!secret) return { ok: false, status: 503, error: 'not_configured' };
+  const origin = request.headers.get('origin');
+  if (origin !== null && !spaceChatOrigins(env).includes(origin)) {
+    return { ok: false, status: 403, error: 'origin_not_allowed' };
   }
-  return { ok: true };
+  if (requireOrigin && origin === null) return { ok: false, status: 403, error: 'origin_required' };
+  const token = presentedToken(request);
+  if (!token) return { ok: false, status: 401, error: 'unauthorized' };
+  if (bearerMatches(token, secret)) return { ok: true, via: 'key', origin };
+  if (allowSession && origin !== null && verifySpaceChatSession(token, origin, secret, now)) {
+    return { ok: true, via: 'session', origin };
+  }
+  return {
+    ok: false,
+    status: 401,
+    error: token.startsWith(`${SESSION_PREFIX}.`) ? 'session_expired' : 'unauthorized',
+  };
+}
+
+/** Identità per i limiti: l'IP scritto da Vercel (x-real-ip), mai un header del client. */
+export function spaceChatClientId(request: Request): string {
+  const ip = request.headers.get('x-real-ip')?.trim();
+  return ip && isIP(ip) ? `ip:${ip.toLowerCase()}` : 'ip:unknown';
+}
+
+/**
+ * Risposta a un accesso negato. Chiavi o pass sbagliati contano per IP ('space.auth-fail'):
+ * oltre la soglia si riceve 429 invece di 401, così indovinare la chiave non è praticabile.
+ */
+export async function rejectSpaceChat(
+  request: Request,
+  auth: Extract<SpaceChatAuth, { ok: false }>,
+  headers: Record<string, string>,
+): Promise<Response> {
+  if (auth.status !== 503) {
+    const limited = await enforceRateLimit('space.auth-fail', spaceChatClientId(request));
+    if (limited) {
+      for (const [name, value] of Object.entries(headers)) limited.headers.set(name, value);
+      return limited;
+    }
+  }
+  return Response.json(
+    { error: { message: auth.error, type: auth.error } },
+    { status: auth.status, headers },
+  );
 }
 
 /** Risposta in formato SSE di OpenAI (un solo pezzo): la pagina dello Space legge lo stream. */

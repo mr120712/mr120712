@@ -238,6 +238,16 @@ export const ACTION_RATE_LIMITS = {
     { requests: 10, windowMs: 60_000 },
     { requests: 300, windowMs: 86_400_000 },
   ],
+  // Cancello dello Space: scambio chiave → pass di sessione (per IP). Pochi bastano a una persona.
+  'space.gate': [
+    { requests: 5, windowMs: 60_000 },
+    { requests: 30, windowMs: 86_400_000 },
+  ],
+  // Chiavi o pass sbagliati sugli endpoint dello Space (per IP): oltre la soglia, 429.
+  'space.auth-fail': [
+    { requests: 10, windowMs: 600_000 },
+    { requests: 30, windowMs: 86_400_000 },
+  ],
   'admin.instagram-finder': [
     { requests: 4, windowMs: 60_000 },
     { requests: 60, windowMs: 86_400_000 },
@@ -660,6 +670,8 @@ const actionLabels: Record<RateLimitAction, string> = {
   'admin.deepseek': 'le richieste a DeepSeek',
   'admin.instagram-finder': 'le ricerche di creator Instagram',
   'space.chat': 'i messaggi alla chat dello Space',
+  'space.gate': 'gli accessi alla chat dello Space',
+  'space.auth-fail': 'i tentativi con una chiave sbagliata',
   'skynet.chat': 'le domande a Skynet',
   'product.check.start': 'i controlli prodotto',
   'product.check.link': 'le letture dei link',

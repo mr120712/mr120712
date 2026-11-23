@@ -59,9 +59,9 @@
 <dialog id="settings" aria-labelledby="settingsTitle">
   <form method="dialog" id="settingsForm">
     <h2 id="settingsTitle" style="margin:0 0 6px;font-size:17px">Server</h2>
-    <p class="note">Salvati solo in questo browser (localStorage), mai nei file dello Space. Il server deve usare HTTPS e permettere CORS da questa pagina.</p>
+    <p class="note">URL e preferenze restano in questo browser. La chiave non viene salvata: Solco la scambia con un pass di sessione (8 ore, solo questa scheda e solo questa pagina). Il server deve usare HTTPS e permettere CORS da questa pagina.</p>
     <label>URL base<input id="baseUrl" type="url" placeholder="https://my-gpu-box.example.com/v1" required></label>
-    <label>Chiave API (se serve)<input id="apiKey" type="password" autocomplete="off" placeholder="sk-…"></label>
+    <label>Chiave API (per sbloccare)<input id="apiKey" type="password" autocomplete="off" placeholder="lasciala vuota se la sessione è già aperta"></label>
     <label>Modello<input id="model" placeholder="OBLITERATUS/DeepSeek-V4.1-Flash-1017-obliterated"></label>
     <label>Prompt di sistema<textarea id="system" rows="2" maxlength="4000">You are a helpful assistant.</textarea></label>
     <label>Temperatura <input id="temperature" type="number" min="0" max="2" step="0.1" value="0.6"></label>
@@ -80,9 +80,11 @@
 <script>
 (() => {
   const KEY = 'deepseek-static-chat:v1';
+  const SESSION = 'deepseek-static-chat:session';
   const DEFAULTS = (typeof window.CHAT_DEFAULTS === 'object' && window.CHAT_DEFAULTS) || {};
   const $ = (id) => document.getElementById(id);
-  const fields = ['baseUrl', 'apiKey', 'model', 'system', 'temperature', 'maxTokens'];
+  // La chiave non è fra i campi salvati: va solo al cancello (/gate) e poi si dimentica.
+  const fields = ['baseUrl', 'model', 'system', 'temperature', 'maxTokens'];
   let history = [];
   let controller = null;
 
@@ -90,7 +92,41 @@
   function load() {
     let saved = {};
     try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch {}
-    return { ...DEFAULTS, ...saved };
+    // Versioni precedenti salvavano la chiave qui: la togliamo. config.js non può fornirla.
+    if (saved && 'apiKey' in saved) { delete saved.apiKey; save(saved); }
+    const { apiKey: _ignored, ...defaults } = DEFAULTS;
+    return { ...defaults, ...saved };
+  }
+  // Pass di sessione (o, per server senza cancello, la chiave) solo in sessionStorage di questa scheda.
+  function session(base) {
+    let s = null;
+    try { s = JSON.parse(sessionStorage.getItem(SESSION) || 'null'); } catch {}
+    if (!s || s.base !== base) return null;
+    if (s.token && !(s.exp > Date.now() + 30000)) { dropSession(); return null; }
+    return s;
+  }
+  function dropSession() { try { sessionStorage.removeItem(SESSION); } catch {} }
+  async function unlock(base, key) {
+    const res = await fetch(`${base}/gate`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${key}` },
+      referrerPolicy: 'no-referrer',
+      signal: AbortSignal.timeout(15000),
+    });
+    let s;
+    if (res.ok) {
+      const body = await res.json().catch(() => null);
+      if (typeof body?.token !== 'string' || !Number.isFinite(body?.expires_at)) throw new Error('Risposta del cancello non valida.');
+      s = { base, token: body.token, exp: body.expires_at };
+    } else if (res.status === 404 || res.status === 405) {
+      s = { base, key }; // server OpenAI qualsiasi, senza cancello: chiave solo in questa scheda
+    } else if (res.status === 429) {
+      throw new Error('Troppi tentativi: riprova più tardi.');
+    } else {
+      throw new Error(res.status === 401 ? 'Chiave sbagliata.' : `Il cancello risponde ${res.status}.`);
+    }
+    try { sessionStorage.setItem(SESSION, JSON.stringify(s)); } catch {}
+    return s;
   }
   function save(cfg) {
     try { localStorage.setItem(KEY, JSON.stringify(cfg)); } catch {}
@@ -99,7 +135,6 @@
     const c = load();
     return {
       baseUrl: normalizeBase(c.baseUrl),
-      apiKey: c.apiKey || '',
       model: c.model || 'OBLITERATUS/DeepSeek-V4.1-Flash-1017-obliterated',
       system: c.system ?? 'You are a helpful assistant.',
       temperature: Number(c.temperature ?? 0.6),
@@ -115,7 +150,10 @@
   }
   function refreshStatus() {
     const c = config();
-    $('status').textContent = c.baseUrl ? `${new URL(c.baseUrl).host} · ${c.model}` : 'Server non configurato';
+    if (!c.baseUrl) { $('status').textContent = 'Server non configurato'; return; }
+    const s = session(c.baseUrl);
+    const lock = s?.token ? `🔓 fino alle ${new Date(s.exp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : s ? '🔓' : '🔒 bloccato';
+    $('status').textContent = `${new URL(c.baseUrl).host} · ${c.model} · ${lock}`;
   }
   function bubble(role, text) {
     $('empty')?.remove();
@@ -128,7 +166,9 @@
   }
   function headers(c) {
     const h = { 'content-type': 'application/json' };
-    if (c.apiKey) h.authorization = `Bearer ${c.apiKey}`;
+    const s = session(c.baseUrl);
+    const credential = s?.token || s?.key;
+    if (credential) h.authorization = `Bearer ${credential}`;
     return h;
   }
   function explain(err, c) {
@@ -162,6 +202,10 @@
           messages: [...(c.system.trim() ? [{ role: 'system', content: c.system.trim() }] : []), ...history],
         }),
       });
+      if (res.status === 401) {
+        dropSession(); refreshStatus();
+        throw new Error('Sessione scaduta o chiave non valida: apri ⚙️ Server e reinserisci la chiave.');
+      }
       if (!res.ok) {
         const body = await res.text().catch(() => '');
         throw new Error(`Errore del server ${res.status}: ${body.slice(0, 300)}`);
@@ -223,9 +267,9 @@
     $('testResult').textContent = '';
     $('settings').showModal();
   });
-  $('settingsForm').addEventListener('submit', (event) => {
-    if (!validUrl($('baseUrl').value.trim())) {
-      event.preventDefault();
+  $('settingsForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!validUrl(normalizeBase($('baseUrl').value))) {
       $('testResult').textContent = 'Serve un URL https:// (o localhost).';
       return;
     }
@@ -234,10 +278,19 @@
     cfg.baseUrl = normalizeBase(cfg.baseUrl);
     $('baseUrl').value = cfg.baseUrl;
     save(cfg);
+    const key = $('apiKey').value.trim();
+    $('apiKey').value = '';
+    if (key) {
+      $('testResult').textContent = 'Sblocco…';
+      try { await unlock(cfg.baseUrl, key); }
+      catch (err) { $('testResult').textContent = explain(err, cfg); refreshStatus(); return; }
+    }
     refreshStatus();
+    $('settings').close();
   });
   $('forget').addEventListener('click', () => {
     try { localStorage.removeItem(KEY); } catch {}
+    dropSession();
     for (const f of ['baseUrl', 'apiKey', 'model']) $(f).value = '';
     refreshStatus();
     $('testResult').textContent = 'Dati del server cancellati da questo browser.';
@@ -247,12 +300,15 @@
     $('baseUrl').value = base;
     if (!validUrl(base)) { $('testResult').textContent = 'Serve un URL https:// (o localhost).'; return; }
     $('testResult').textContent = 'Provo…';
-    const c = { baseUrl: base, apiKey: $('apiKey').value.trim() };
+    const c = { baseUrl: base };
     try {
+      const key = $('apiKey').value.trim();
+      if (key) { $('apiKey').value = ''; await unlock(base, key); refreshStatus(); }
       const res = await fetch(`${base}/models`, { headers: headers(c), referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(15000) });
       const body = await res.json().catch(() => null);
       const ids = Array.isArray(body?.data) ? body.data.map((m) => m.id).slice(0, 5) : [];
-      $('testResult').textContent = res.ok ? `OK · modelli: ${ids.join(', ') || '—'}` : `Il server risponde ${res.status}.`;
+      if (res.status === 401) { dropSession(); refreshStatus(); }
+      $('testResult').textContent = res.ok ? `OK · modelli: ${ids.join(', ') || '—'}` : res.status === 401 ? 'Bloccato: inserisci la chiave e premi Prova.' : `Il server risponde ${res.status}.`;
       if (res.ok && ids[0] && !$('model').value.trim()) $('model').value = ids[0];
     } catch (err) {
       $('testResult').textContent = explain(err, c);

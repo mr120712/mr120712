@@ -8,8 +8,14 @@ vi.mock('@/lib/business/deepseek-chat.server', () => ({ askDeepseek: mocks.ask }
 vi.mock('@/lib/business/rate-limit.server', () => ({ enforceRateLimit: mocks.enforceRateLimit }));
 
 import { OPTIONS, POST } from '@/app/api/space-chat/v1/chat/completions/route';
+import { POST as GATE } from '@/app/api/space-chat/v1/gate/route';
 import { GET } from '@/app/api/space-chat/v1/models/route';
-import { spaceChatOrigins } from '@/lib/business/space-chat.server';
+import {
+  issueSpaceChatSession,
+  SPACE_CHAT_SESSION_TTL_MS,
+  spaceChatOrigins,
+  verifySpaceChatSession,
+} from '@/lib/business/space-chat.server';
 
 const KEY = 'k'.repeat(40);
 const SPACE = 'https://solcomusic-deepseek-static-chat.static.hf.space';
@@ -95,7 +101,7 @@ describe('/api/space-chat', () => {
   });
 
   it('models: chiave e CORS', async () => {
-    const res = GET(
+    const res = await GET(
       new Request('https://solco.test/api/space-chat/v1/models', {
         headers: { origin: SPACE, authorization: `Bearer ${KEY}` },
       }),
@@ -130,7 +136,7 @@ describe('/api/space-chat', () => {
       const body = JSON.parse(String(init?.body));
       expect(body.model).toBe('OBLITERATUS/Qwen3.8-27B-OBLITERATED:featherless-ai');
       expect(body.messages[0]).toEqual({ role: 'system', content: 'Be brief.' });
-      const models = GET(
+      const models = await GET(
         new Request('https://solco.test/api/space-chat/v1/models', {
           headers: { origin: SPACE, authorization: `Bearer ${KEY}` },
         }),
@@ -151,6 +157,86 @@ describe('/api/space-chat', () => {
       expect(body.error.message).not.toContain(HF);
       expect(mocks.ask).not.toHaveBeenCalled();
       fetchSpy.mockRestore();
+    });
+  });
+
+  describe('cancello (gate)', () => {
+    function gate(headers: Record<string, string>) {
+      return GATE(
+        new Request('https://solco.test/api/space-chat/v1/gate', { method: 'POST', headers }),
+      );
+    }
+
+    it('scambia la chiave con un pass che funziona solo dallo Space', async () => {
+      const res = await gate({
+        origin: SPACE,
+        authorization: `Bearer ${KEY}`,
+        'x-real-ip': '1.2.3.4',
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers.get('access-control-allow-origin')).toBe(SPACE);
+      const { token, expires_at } = await res.json();
+      expect(token).toMatch(/^ssg1\./);
+      expect(token).not.toContain(KEY);
+      expect(expires_at).toBeGreaterThan(Date.now());
+      expect(mocks.enforceRateLimit).toHaveBeenCalledWith('space.gate', 'ip:1.2.3.4');
+
+      expect((await POST(post(chat, { key: token }))).status).toBe(200);
+      // Lo stesso pass senza Origin (curl) o da un'altra origine ammessa non vale.
+      const noOrigin = new Request('https://solco.test/api/space-chat/v1/models', {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect((await GET(noOrigin)).status).toBe(401);
+      vi.stubEnv('SPACE_CHAT_ORIGINS', `${SPACE},https://other.example`);
+      expect((await POST(post(chat, { key: token, origin: 'https://other.example' }))).status).toBe(
+        401,
+      );
+    });
+
+    it('il pass non apre il cancello e scade; ruotare la chiave lo revoca', () => {
+      const now = 1_800_000_000_000;
+      const env = { SPACE_CHAT_API_KEY: KEY };
+      const session = issueSpaceChatSession(SPACE, env, now);
+      expect(session).not.toBeNull();
+      const token = session?.token ?? '';
+      expect(verifySpaceChatSession(token, SPACE, KEY, now + 1000)).toBe(true);
+      expect(verifySpaceChatSession(token, SPACE, KEY, now + SPACE_CHAT_SESSION_TTL_MS)).toBe(
+        false,
+      );
+      expect(verifySpaceChatSession(token, SPACE, 'z'.repeat(40), now + 1000)).toBe(false);
+      expect(verifySpaceChatSession(`${token.slice(0, -2)}AA`, SPACE, KEY, now + 1000)).toBe(false);
+      expect(issueSpaceChatSession('https://evil.example', env, now)).toBeNull();
+    });
+
+    it('il cancello vuole la chiave lunga e un Origin ammesso', async () => {
+      const session = issueSpaceChatSession(SPACE);
+      expect(
+        (await gate({ origin: SPACE, authorization: `Bearer ${session?.token}` })).status,
+      ).toBe(401);
+      expect((await gate({ authorization: `Bearer ${KEY}` })).status).toBe(403);
+      expect(
+        (await gate({ origin: 'https://evil.example', authorization: `Bearer ${KEY}` })).status,
+      ).toBe(403);
+    });
+
+    it('origine estranea: 403 anche con la chiave giusta', async () => {
+      const res = await POST(post(chat, { origin: 'https://evil.example' }));
+      expect(res.status).toBe(403);
+      expect(res.headers.get('access-control-allow-origin')).toBeNull();
+      expect(mocks.ask).not.toHaveBeenCalled();
+    });
+
+    it('chiavi sbagliate contano per IP e oltre la soglia ricevono 429', async () => {
+      const bad = () =>
+        new Request('https://solco.test/api/space-chat/v1/models', {
+          headers: { origin: SPACE, authorization: 'Bearer wrong', 'x-real-ip': '5.6.7.8' },
+        });
+      expect((await GET(bad())).status).toBe(401);
+      expect(mocks.enforceRateLimit).toHaveBeenCalledWith('space.auth-fail', 'ip:5.6.7.8');
+      mocks.enforceRateLimit.mockResolvedValueOnce(new Response(null, { status: 429 }));
+      const limited = await GET(bad());
+      expect(limited.status).toBe(429);
+      expect(limited.headers.get('access-control-allow-origin')).toBe(SPACE);
     });
   });
 });
