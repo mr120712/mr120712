@@ -34,7 +34,6 @@ import { sendTelegramMessage } from '@/lib/business/telegram-bot.server';
 import type { MonitorRun } from '@/lib/contracts/monitoring';
 import { prisma } from '@/lib/db';
 import { latestRun, recordHeartbeat, STALE_AFTER_MS } from '@/lib/monitoring/monitor.server';
-import { ensureSpaceChatBypass } from '@/lib/skynet/space-chat-bypass.server';
 import {
   type AutodefenseState,
   type AutodefenseSummary,
@@ -83,6 +82,7 @@ import {
   skynetNote,
   skynetRuleInfo,
   startLevel,
+  trustedNets,
 } from './hunter';
 import {
   adaptedThresholds,
@@ -528,7 +528,13 @@ export async function huntOffenders(
   if (!access || ipRules === null) return null;
   const blocks = await readFirewallBlocks(deps, access, now);
   if (blocks === null) return null;
-  const plan = planHunt(blocks, ipRules, now, advancedOffenses);
+  const plan = planHunt(
+    blocks,
+    ipRules,
+    now,
+    advancedOffenses,
+    trustedNets(deps.env.SKYNET_TRUSTED_IPS),
+  );
   const escalated: Escalation[] = [];
   let failed = 0;
   for (const step of plan.escalate) {
@@ -1096,20 +1102,6 @@ export async function runSentinel(options: Partial<SentinelDeps> = {}): Promise<
     const hunt = await huntOffenders(deps, ipRules, now, adapted.advancedOffenses).catch(
       () => null,
     );
-    // Tiene aperto /api/space-chat/ allo Space su Hugging Face (vedi space-chat-bypass.server.ts).
-    const bypassAccess = vercelAccess(deps.env);
-    if (bypassAccess) {
-      const bypass = await ensureSpaceChatBypass(bypassAccess, deps.fetch).catch(() => ({
-        outcome: 'failed' as const,
-        detail: 'exception',
-      }));
-      if (bypass.outcome !== 'present') {
-        // biome-ignore lint/suspicious/noConsole: una riga nei log di Vercel, solo se c'è da guardare.
-        console.info(
-          `[skynet] bypass /api/space-chat: ${bypass.outcome}${bypass.detail ? ` (${bypass.detail})` : ''}`,
-        );
-      }
-    }
     let learnedNext: LearnedDefense | null = learnedPrev;
     if (hunt) {
       signals.vercel.hunted = hunt.active;

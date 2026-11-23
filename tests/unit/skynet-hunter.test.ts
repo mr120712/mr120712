@@ -28,6 +28,7 @@ import {
   parseSkynetNote,
   planHunt,
   skynetNote,
+  trustedNets,
 } from '@/lib/skynet/hunter';
 
 const NOW = new Date('2026-11-17T22:00:00.000Z');
@@ -482,5 +483,41 @@ describe('testi', () => {
       '- 203.0.x.x: sonde da scanner ×1, tentativi di accesso a raffica ×1 → sospetto aggiramento, verifica diretta per 7 giorni',
     );
     expect(text).toContain('un tentativo di aggiramento');
+  });
+});
+
+describe('indirizzi fidati (SKYNET_TRUSTED_IPS)', () => {
+  const trusted = trustedNets(' 101.56.194.93 , 2001:db8::/48, non-un-ip ');
+
+  it('legge IP e reti CIDR, ignora il resto', () => {
+    expect(trusted).toHaveLength(2);
+    expect(trustedNets(undefined)).toEqual([]);
+  });
+
+  it('toglie subito la verifica Skynet su un IP fidato, anche se ha attaccato di nuovo', () => {
+    const mine = skynetRule('ip_mine', '101.56.194.93', HOUR, 2);
+    const other = skynetRule('ip_other', '203.0.113.9', HOUR);
+    const manual = rule('ip_manual', '101.56.194.93', 'messa a mano', 'deny');
+    const plan = planHunt(
+      [block('101.56.194.93'), block('101.56.194.93'), block('101.56.194.93')],
+      [mine, other, manual],
+      NOW,
+      ADVANCED_OFFENSES,
+      trusted,
+    );
+    expect(plan.release.map((r) => r.id)).toEqual(['ip_mine']);
+    expect(plan.escalate).toEqual([]);
+    expect(plan.challenge).toEqual([]);
+  });
+
+  it('non manda alla verifica un IP fidato (anche dentro una rete fidata), gli altri sì', () => {
+    const plan = planHunt(
+      [block('2001:db8:0:1::5'), block('203.0.113.50')],
+      [],
+      NOW,
+      ADVANCED_OFFENSES,
+      trusted,
+    );
+    expect(plan.challenge.map((o) => o.ip)).toEqual(['203.0.113.50']);
   });
 });
