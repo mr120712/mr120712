@@ -10,6 +10,13 @@
 import 'server-only';
 import { timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
+import { artexStatus } from '@/lib/business/artex-client.server';
+import {
+  ARTEX_COMMAND,
+  ARTEX_USAGE,
+  artexTelegramMessages,
+  parseArtexCommand,
+} from '@/lib/business/artex-telegram';
 import {
   botVideoExperimentalEnabled,
   requestBotVideo,
@@ -543,6 +550,32 @@ async function handleUpdate(
         'Skynet non è riuscito a rispondere. Non è stato cambiato nulla: riprovi fra poco.',
       );
     }
+    return;
+  }
+
+  // /artex status → lo stato dell'agente ARTEX sul VPS dell'owner (ops/artex/).
+  // Stesso gate di /skynet e /ig: solo chat privata dell'owner, altrimenti silenzio totale.
+  // Nessuna chat con ARTEX da qui ancora: solo un riassunto (task, findings, token) via
+  // JWT autenticato su https://<ip>.sslip.io. ARTEX gira sul tuo VPS, non su Solco.
+  const artex = ARTEX_COMMAND.exec(text);
+  if (artex) {
+    if (chatType !== 'private') return;
+    if (!(await checkTelegramOwner(chatId, username)).owner) return;
+    const command = parseArtexCommand(artex[1] ?? '');
+    if (command.kind !== 'status') {
+      await sendTelegramMessage(chatId, ARTEX_USAGE, { parseMode: 'HTML' });
+      return;
+    }
+    const limited = await enforceRateLimit('admin.artex', `tg:${chatId}`);
+    if (limited) {
+      await sendTelegramMessage(chatId, 'Troppe richieste ad ARTEX di fila: riprova tra poco.');
+      return;
+    }
+    const outcome = await artexStatus();
+    const [first, ...rest] = artexTelegramMessages(outcome);
+    const format = { parseMode: 'HTML', disableWebPagePreview: true } as const;
+    await sendTelegramMessage(chatId, first ?? '…', format);
+    for (const part of rest) await sendTelegramMessage(chatId, part, format);
     return;
   }
 

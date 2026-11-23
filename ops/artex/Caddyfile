@@ -1,0 +1,42 @@
+# ops/artex/Caddyfile — public TLS + reverse proxy for ARTEX on the Hetzner VPS.
+#
+# What this does:
+#   • Terminates TLS on :443 with a free Let's Encrypt cert for the sslip.io
+#     hostname (5-222-15-32.sslip.io → 5.222.15.32). sslip.io is a public
+#     wildcard-DNS service; it returns the IP that the hostname encodes.
+#   • Reverse-proxies to the ARTEX container on its loopback port.
+#   • Does NOT add its own auth. ARTEX enforces JWT Bearer auth on every
+#     /api/* route; Caddy would only add a second gate whose secret would
+#     have to be shared and rotated anyway. Keep it simple.
+#   • Strips the Server header so scanners can't trivially see Caddy's
+#     version.
+#
+# To change the hostname (e.g. move to a real domain), edit the one site
+# block below and `docker compose restart caddy`.
+
+{
+	# Dial out for Let's Encrypt from the container; no admin API exposed.
+	admin off
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+{$ARTEX_PUBLIC_HOST} {
+	encode gzip
+	header -Server
+
+	# Health probe accessible without auth (ARTEX has /api/health open).
+	# Everything else goes through ARTEX's own auth.
+	reverse_proxy http://artex:8787 {
+		# Short upstream timeouts — ARTEX is on the same docker network.
+		transport http {
+			dial_timeout 5s
+			response_header_timeout 60s
+		}
+		# Pass through the real client IP (ARTEX's rate limiter keys on it).
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+}
