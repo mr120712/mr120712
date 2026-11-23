@@ -14,6 +14,7 @@ import {
   LayoutDashboard,
   Smartphone,
   UserCog,
+  UserSearch,
   Users,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -29,6 +30,7 @@ const navItems = [
   { href: '/admin/utenti-vecchi', label: 'Utenti del vecchio sito', icon: History },
   { href: '/admin/assistente', label: 'Assistente IA', icon: Bot },
   { href: '/admin/deepseek', label: 'DeepSeek', icon: BrainCircuit },
+  { href: '/admin/instagram-finder', label: 'Trova creator Instagram', icon: UserSearch },
   { href: '/admin/music-rights', label: 'Diritti musicali', icon: AudioLines },
   { href: '/admin/diritti-testi', label: 'Diritti e testi', icon: FileCheck2 },
   { href: '/admin/tiktok', label: 'Video TikTok', icon: Clapperboard },

@@ -231,6 +231,12 @@ export const ACTION_RATE_LIMITS = {
     { requests: 10, windowMs: 60_000 },
     { requests: 200, windowMs: 86_400_000 },
   ],
+  // «Trova creator Instagram»: ogni ricerca usa hashtag (max 30 diversi ogni 7 giorni su Meta),
+  // fino a 30 Business Discovery e due chiamate AI.
+  'admin.instagram-finder': [
+    { requests: 4, windowMs: 60_000 },
+    { requests: 60, windowMs: 86_400_000 },
+  ],
   // La chat di Skynet (pannello admin e /skynet su Telegram, solo proprietario): ogni domanda
   // legge il database, Vercel e chiama un modello AI. Poche al minuto bastano a una persona.
   'skynet.chat': [
@@ -647,6 +653,7 @@ const actionLabels: Record<RateLimitAction, string> = {
   'solco.support.global': 'le richieste al supporto di oggi',
   'admin.assistant': 'le richieste all’assistente amministrativo',
   'admin.deepseek': 'le richieste a DeepSeek',
+  'admin.instagram-finder': 'le ricerche di creator Instagram',
   'skynet.chat': 'le domande a Skynet',
   'product.check.start': 'i controlli prodotto',
   'product.check.link': 'le letture dei link',
