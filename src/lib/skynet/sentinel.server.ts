@@ -1099,12 +1099,15 @@ export async function runSentinel(options: Partial<SentinelDeps> = {}): Promise<
     // Tiene aperto /api/space-chat/ allo Space su Hugging Face (vedi space-chat-bypass.server.ts).
     const bypassAccess = vercelAccess(deps.env);
     if (bypassAccess) {
-      const bypass = await ensureSpaceChatBypass(bypassAccess, deps.fetch).catch(
-        () => 'failed' as const,
-      );
-      if (bypass === 'created' || bypass === 'conflict' || bypass === 'failed') {
+      const bypass = await ensureSpaceChatBypass(bypassAccess, deps.fetch).catch(() => ({
+        outcome: 'failed' as const,
+        detail: 'exception',
+      }));
+      if (bypass.outcome !== 'present') {
         // biome-ignore lint/suspicious/noConsole: una riga nei log di Vercel, solo se c'è da guardare.
-        console.info(`[skynet] bypass /api/space-chat: ${bypass}`);
+        console.info(
+          `[skynet] bypass /api/space-chat: ${bypass.outcome}${bypass.detail ? ` (${bypass.detail})` : ''}`,
+        );
       }
     }
     let learnedNext: LearnedDefense | null = learnedPrev;

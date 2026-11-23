@@ -41,7 +41,7 @@ describe('bypass /api/space-chat', () => {
       .fn()
       .mockResolvedValueOnce(json(200, { rules: [] }))
       .mockResolvedValueOnce(json(200, { ok: true }));
-    expect(await ensureSpaceChatBypass(access, fetchImpl)).toBe('created');
+    expect(await ensureSpaceChatBypass(access, fetchImpl)).toEqual({ outcome: 'created' });
     const [url, init] = fetchImpl.mock.calls[1] ?? [];
     expect(String(url)).toContain(
       '/v1/security/firewall/bypass/rules?projectId=prj_abcdefgh12&teamId=team_abcdefgh12',
@@ -62,7 +62,7 @@ describe('bypass /api/space-chat', () => {
         },
       ]),
     );
-    expect(await ensureSpaceChatBypass(access, ours)).toBe('present');
+    expect(await ensureSpaceChatBypass(access, ours)).toEqual({ outcome: 'present' });
     expect(ours).toHaveBeenCalledTimes(1);
     const other = vi
       .fn()
@@ -71,13 +71,20 @@ describe('bypass /api/space-chat', () => {
           { domain: 'solcomusic.online', conditionGroup: [{ conditions: [{ value: '/x' }] }] },
         ]),
       );
-    expect(await ensureSpaceChatBypass(access, other)).toBe('conflict');
+    expect(await ensureSpaceChatBypass(access, other)).toEqual({ outcome: 'conflict' });
     expect(other).toHaveBeenCalledTimes(1);
-    expect(await ensureSpaceChatBypass(access, vi.fn().mockResolvedValue(json(403, {})))).toBe(
-      'failed',
-    );
-    expect(await ensureSpaceChatBypass(access, vi.fn().mockRejectedValue(new Error('net')))).toBe(
-      'failed',
-    );
+    expect(
+      await ensureSpaceChatBypass(
+        access,
+        vi
+          .fn()
+          .mockResolvedValue(
+            json(403, { error: { code: 'forbidden', message: `no ${'t'.repeat(24)}` } }),
+          ),
+      ),
+    ).toEqual({ outcome: 'failed', detail: 'GET 403 forbidden: no ***' });
+    expect(
+      await ensureSpaceChatBypass(access, vi.fn().mockRejectedValue(new Error('net'))),
+    ).toMatchObject({ outcome: 'failed' });
   });
 });
