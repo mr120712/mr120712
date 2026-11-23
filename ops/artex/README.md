@@ -18,7 +18,9 @@ territory, no matter who hit you first.
 - `scope.json` — the scope seed ARTEX imports on first boot (one asset: your
   staging host). You cannot widen this from the UI without re-importing.
 - `bootstrap.sh` — one script that installs Docker (if missing), writes `.env`
-  from prompts, pulls the ARTEX source at a pinned tag, and starts the stack.
+  from prompts, pulls the ARTEX source at the latest release tag (auto-discovered
+  each run; `ARTEX_REF=main` opts in to post-release fixes, `ARTEX_REF=vX.Y.Z`
+  pins), and starts the stack.
 - `tunnel.md` — how to reach the UI without exposing it to the internet (SSH
   tunnel; never `0.0.0.0`).
 

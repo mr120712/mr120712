@@ -17,7 +17,10 @@
 set -euo pipefail
 
 ARTEX_REPO="https://github.com/BaaRai/ARTEX.git"
-ARTEX_TAG="${ARTEX_TAG:-v0.7.0}"      # pin; bump only after reviewing upstream
+# Which revision to build. By default the script auto-discovers the latest
+# release tag; set ARTEX_REF=main for the bleeding edge, or ARTEX_REF=vX.Y.Z
+# to pin a specific release.
+ARTEX_REF="${ARTEX_REF:-}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 cd "$HERE"
 
@@ -66,12 +69,39 @@ else
 fi
 
 # ---- 3. ARTEX source --------------------------------------------------------
-if [ ! -d artex-src/.git ]; then
-  say "Cloning ARTEX at $ARTEX_TAG…"
-  git clone --depth 1 --branch "$ARTEX_TAG" "$ARTEX_REPO" artex-src
+# Resolve $ARTEX_REF: empty = the latest release tag by semver (vX.Y.Z); 'main'
+# is allowed as an explicit opt-in to post-release fixes; otherwise honour the
+# literal ref the operator passed.
+if [ -z "$ARTEX_REF" ]; then
+  say "Discovering the latest ARTEX release tag…"
+  ARTEX_REF=$(git ls-remote --tags --refs "$ARTEX_REPO" \
+    | awk -F/ '{print $NF}' \
+    | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+    | sort -V | tail -1)
+  [ -n "$ARTEX_REF" ] || die "Could not resolve the latest ARTEX tag. Pass ARTEX_REF=vX.Y.Z or ARTEX_REF=main."
+  say "Using $ARTEX_REF."
 else
-  say "artex-src/ already present; leaving it at its current revision."
-  (cd artex-src && git fetch --tags --depth 1 origin "$ARTEX_TAG" >/dev/null 2>&1 || true)
+  say "Using the ref you asked for: $ARTEX_REF."
+  if [ "$ARTEX_REF" = "main" ]; then
+    warn "ARTEX_REF=main picks up post-release commits without a signed tag. Fine for staging, less so for a long-lived VPS."
+  fi
+fi
+
+if [ ! -d artex-src/.git ]; then
+  say "Cloning ARTEX at $ARTEX_REF…"
+  git clone --depth 1 --branch "$ARTEX_REF" "$ARTEX_REPO" artex-src
+else
+  current=$(git -C artex-src rev-parse --abbrev-ref HEAD 2>/dev/null)
+  if [ "$current" = "HEAD" ]; then
+    current=$(git -C artex-src describe --tags --exact-match 2>/dev/null || echo unknown)
+  fi
+  if [ "$current" != "$ARTEX_REF" ]; then
+    say "artex-src/ is on '$current'; switching to '$ARTEX_REF'."
+    (cd artex-src && git fetch --depth 1 origin "$ARTEX_REF" \
+       && git checkout -q FETCH_HEAD)
+  else
+    say "artex-src/ is already on '$ARTEX_REF'."
+  fi
 fi
 
 # ---- 4. .env ----------------------------------------------------------------
