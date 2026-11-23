@@ -1,6 +1,6 @@
 // @polsia:user-owned — POST /api/space-chat/v1/chat/completions: chat OpenAI-compatibile per lo
-// Space statico privato (vedi space-chat.server.ts). Bearer SPACE_CHAT_API_KEY, CORS solo per lo
-// Space, limite 'space.chat'. Modello: OBLITERATUS su Hugging Face (HF_INFERENCE_TOKEN), altrimenti
+// Space statico privato (vedi space-chat.server.ts). Cancello: pass di sessione (da /gate) o
+// SPACE_CHAT_API_KEY, Origin ammesso, CORS solo per lo Space, limite 'space.chat'. Modello: OBLITERATUS su Hugging Face (HF_INFERENCE_TOKEN), altrimenti
 // la catena di /ds (MWAPI). Nessun sameOrigin: chiamata
 // cross-origin dal browser, autenticata dalla chiave (nessun cookie).
 import 'server-only';
@@ -13,6 +13,7 @@ import {
   askHuggingFace,
   authorizeSpaceChat,
   huggingFaceConfig,
+  rejectSpaceChat,
   spaceChatCors,
   sseReply,
 } from '@/lib/business/space-chat.server';
@@ -53,7 +54,7 @@ export async function POST(request: Request) {
     );
 
   const auth = authorizeSpaceChat(request);
-  if (!auth.ok) return fail(auth.error, auth.status);
+  if (!auth.ok) return rejectSpaceChat(request, auth, cors);
 
   const limited = await enforceRateLimit('space.chat', 'space:owner');
   if (limited) {
