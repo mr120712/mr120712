@@ -20,6 +20,7 @@ import {
   findInstagramCreators,
   heuristicScore,
   normalizeHashtag,
+  suggestInstagramCreatorsWithoutApi,
 } from '@/lib/business/instagram-finder.server';
 import { classifyGraphError, instagramGraphConfig } from '@/lib/business/instagram-graph.server';
 import { InstagramFinderRequestSchema } from '@/lib/contracts/instagram-finder';
@@ -315,6 +316,48 @@ describe('senza la revisione di Meta (Public Content Access)', () => {
   });
 });
 
+describe('senza Instagram collegato (solo AI)', () => {
+  it('suggerimenti non verificati, username validi e unici, ordinati per punteggio, mai Meta', async () => {
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      expect(new URL(String(input)).hostname).not.toBe('graph.facebook.com');
+      const content = JSON.stringify({
+        summary: 'Producer lofi',
+        creators: [
+          { username: '@Lofi.Girl', name: 'Lofi Girl', score: 95, reason: 'Molto noto' },
+          { username: 'lofi.girl', score: 10, reason: 'doppione' },
+          { username: 'non valido!', score: 99, reason: 'x' },
+          { username: 'chillhop', score: 80, reason: 'Etichetta lofi' },
+        ],
+      });
+      return json(200, { model: 'x', choices: [{ message: { content } }] });
+    }) as unknown as typeof fetch;
+    const outcome = await suggestInstagramCreatorsWithoutApi(
+      InstagramFinderRequestSchema.parse({ brief: 'producer lofi', usernames: ['mio.amico'] }),
+      { MWAPI_API_KEY: 'k' },
+      fetchImpl,
+    );
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.result.mode).toBe('ai_only');
+    expect(outcome.result.creators.map((c) => c.username)).toEqual([
+      'lofi.girl',
+      'chillhop',
+      'mio.amico',
+    ]);
+    expect(outcome.result.creators.every((c) => !c.verified && c.followers === 0)).toBe(true);
+    expect(outcome.result.creators[2]?.foundVia).toEqual(['manuale']);
+  });
+
+  it('AI non disponibile: errore', async () => {
+    const outcome = await suggestInstagramCreatorsWithoutApi(
+      InstagramFinderRequestSchema.parse({ brief: 'producer lofi' }),
+      {},
+      vi.fn() as unknown as typeof fetch,
+    );
+    expect(outcome).toMatchObject({ ok: false, error: 'failed' });
+  });
+});
+
 describe('POST /api/admin/instagram-finder', () => {
   it('nega origine estranea, anonimi e non admin prima di Meta', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
@@ -329,12 +372,19 @@ describe('POST /api/admin/instagram-finder', () => {
     fetchSpy.mockRestore();
   });
 
-  it('senza configurazione risponde not_configured', async () => {
+  it('senza Instagram e senza AI: errore chiaro, nessuna chiamata a Meta', async () => {
     vi.stubEnv('INSTAGRAM_ACCESS_TOKEN', '');
+    vi.stubEnv('MWAPI_API_KEY', '');
+    vi.stubEnv('MWAPI_API_KEY_2', '');
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
     const res = await POST(request({ brief: 'lofi' }));
-    expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ error: 'not_configured' });
-    expect(mocks.enforceRateLimit).not.toHaveBeenCalled();
+    expect(res.status).toBe(502);
+    expect(await res.json()).toMatchObject({ error: 'failed' });
+    expect(mocks.enforceRateLimit).toHaveBeenCalledWith('admin.instagram-finder', 'user:admin-1');
+    expect(fetchSpy.mock.calls.some(([url]) => String(url).includes('graph.facebook.com'))).toBe(
+      false,
+    );
+    fetchSpy.mockRestore();
   });
 
   it('richiesta non valida: 400', async () => {

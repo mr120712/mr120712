@@ -25,7 +25,10 @@ import {
   deepseekFrame,
   deepseekTelegramMessages,
 } from '@/lib/business/deepseek-telegram';
-import { findInstagramCreators } from '@/lib/business/instagram-finder.server';
+import {
+  findInstagramCreators,
+  suggestInstagramCreatorsWithoutApi,
+} from '@/lib/business/instagram-finder.server';
 import { instagramGraphConfig } from '@/lib/business/instagram-graph.server';
 import {
   INSTAGRAM_COMMAND,
@@ -459,11 +462,6 @@ async function handleUpdate(
     }
     const config = instagramGraphConfig();
     const format = { parseMode: 'HTML', disableWebPagePreview: true } as const;
-    if (!config) {
-      const [message] = instagramTelegramMessages({ ok: false, error: 'not_configured' });
-      await sendTelegramMessage(chatId, message ?? '❌ Instagram non è collegato.', format);
-      return;
-    }
     const limited = await enforceRateLimit('admin.instagram-finder', `tg:${chatId}`);
     if (limited) {
       await sendTelegramMessage(chatId, 'Troppe ricerche Instagram di fila: riprova tra poco.');
@@ -471,12 +469,20 @@ async function handleUpdate(
     }
     const { value: outcome, messageId } = await withLiveStatus(
       chatId,
-      () =>
-        findInstagramCreators(parsed.data, config, {
+      () => {
+        const env = {
           ...process.env,
           INSTAGRAM_FINDER_BUDGET_MS: String(INSTAGRAM_TELEGRAM_BUDGET_MS),
           INSTAGRAM_FINDER_AI_TIMEOUT_MS: String(INSTAGRAM_TELEGRAM_AI_TIMEOUT_MS),
-        }),
+        };
+        // Senza Instagram collegato: suggerimenti dell'AI non verificati.
+        return config
+          ? findInstagramCreators(parsed.data, config, env)
+          : suggestInstagramCreatorsWithoutApi(parsed.data, {
+              ...env,
+              INSTAGRAM_FINDER_AI_TIMEOUT_MS: '30000',
+            });
+      },
       {
         frame: instagramFrame,
         waitingText: '📸 Cerco creator su Instagram…',

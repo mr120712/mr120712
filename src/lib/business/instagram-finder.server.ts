@@ -411,6 +411,7 @@ export async function findInstagramCreators(
     return [
       {
         username: profile.username,
+        verified: true,
         name: profile.name ?? null,
         biography: profile.biography?.slice(0, 400) ?? null,
         website,
@@ -490,6 +491,7 @@ export async function findInstagramCreators(
   return {
     ok: true,
     result: {
+      mode: 'verified',
       summary: plan.summary,
       hashtags: plan.hashtags,
       creators,
@@ -498,6 +500,95 @@ export async function findInstagramCreators(
       skipped,
       aiRanked,
       warnings,
+    },
+  };
+}
+
+// ---------------------------------------------------------------- senza Instagram collegato
+
+/**
+ * Instagram non collegato (niente token Meta): solo suggerimenti dell'AI, marcati come non
+ * verificati e senza numeri (l'AI non conosce i follower di oggi: inventarli sarebbe peggio).
+ * Solo account pubblici professionali noti; nessuna chiamata a Instagram.
+ */
+export async function suggestInstagramCreatorsWithoutApi(
+  request: InstagramFinderRequest,
+  env: Env = process.env,
+  fetchImpl: FetchLike = fetch,
+): Promise<InstagramFinderOutcome> {
+  const extra = [
+    request.hashtags.length ? `Hashtag: ${request.hashtags.join(', ')}.` : '',
+    request.minFollowers !== undefined ? `Follower minimi: ${request.minFollowers}.` : '',
+    request.maxFollowers !== undefined ? `Follower massimi: ${request.maxFollowers}.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const raw = (await askJson(
+    'Sei un esperto di influencer marketing musicale su Instagram. Proponi fino a 15 account ' +
+      'Instagram PUBBLICI e professionali (creator, artisti, producer, DJ, etichette, media, brand) ' +
+      'adatti alla richiesta. Solo account noti che sei sicuro esistano: mai persone private, mai ' +
+      'username inventati; meglio pochi che sbagliati. Per ognuno: "username" (senza @), "name", ' +
+      '"score" (0–100, quanto è adatto), "reason" (una frase in italiano). Formato: ' +
+      '{"summary":"…","creators":[{"username":"…","name":"…","score":0,"reason":"…"}]}.',
+    `${request.brief}${extra ? `\n${extra}` : ''}`,
+    env,
+    fetchImpl,
+  )) as { summary?: unknown; creators?: unknown } | undefined;
+  if (!raw || !Array.isArray(raw.creators)) {
+    return { ok: false, error: 'failed', detail: 'AI non disponibile per i suggerimenti' };
+  }
+  const seen = new Set<string>();
+  const manual = new Set(request.usernames.map((name) => name.toLowerCase()));
+  const creators: InstagramCreator[] = [];
+  const entries = [
+    ...request.usernames.map((username) => ({ username, reason: 'Indicato da te' })),
+    ...raw.creators,
+  ];
+  for (const entry of entries) {
+    if (!entry || typeof entry !== 'object') continue;
+    const item = entry as Record<string, unknown>;
+    const username =
+      typeof item.username === 'string' ? item.username.trim().replace(/^@/, '').toLowerCase() : '';
+    if (!INSTAGRAM_USERNAME.test(username) || seen.has(username)) continue;
+    seen.add(username);
+    creators.push({
+      username,
+      verified: false,
+      name: typeof item.name === 'string' ? item.name.slice(0, 100) : null,
+      biography: null,
+      website: null,
+      profilePictureUrl: null,
+      followers: 0,
+      mediaCount: 0,
+      avgLikes: 0,
+      avgComments: 0,
+      engagementRate: 0,
+      lastPostAt: null,
+      foundVia: [manual.has(username) ? 'manuale' : 'suggerito AI'],
+      score:
+        typeof item.score === 'number' ? Math.round(Math.max(0, Math.min(100, item.score))) : 0,
+      reason: typeof item.reason === 'string' ? item.reason.trim().slice(0, 300) : '',
+    });
+    if (creators.length >= 20) break;
+  }
+  creators.sort((a, b) => b.score - a.score);
+  return {
+    ok: true,
+    result: {
+      mode: 'ai_only',
+      summary:
+        typeof raw.summary === 'string' && raw.summary.trim()
+          ? raw.summary.trim().slice(0, 300)
+          : `Creator per: ${request.brief.slice(0, 200)}`,
+      hashtags: request.hashtags.map(normalizeHashtag).filter((tag): tag is string => !!tag),
+      creators,
+      posts: [],
+      checked: 0,
+      skipped: 0,
+      aiRanked: true,
+      warnings: [
+        'Instagram non collegato: suggerimenti dell’AI NON verificati (niente follower né engagement). Apri il profilo per controllare; con INSTAGRAM_ACCESS_TOKEN e INSTAGRAM_BUSINESS_ACCOUNT_ID su Vercel arrivano i dati reali.',
+      ],
     },
   };
 }
