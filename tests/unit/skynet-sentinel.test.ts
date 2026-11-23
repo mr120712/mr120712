@@ -173,6 +173,19 @@ function fakeFetch(site: Site, calls: Array<{ url: string; auth: string | null; 
           ips: site.ips,
         });
       }
+      // Il bypass di /api/space-chat/ esiste già (lo crea il primo giro in produzione).
+      if (url.pathname === '/v1/security/firewall/bypass/rules' && init.method !== 'POST') {
+        return Response.json({
+          rules: [
+            {
+              domain: 'solcomusic.online',
+              conditionGroup: [
+                { conditions: [{ type: 'path', op: 'pre', value: '/api/space-chat/' }] },
+              ],
+            },
+          ],
+        });
+      }
       if (url.pathname === '/v1/security/firewall/events') {
         return Response.json({ actions: site.blocks, pagination: { hasMore: false, next: null } });
       }
