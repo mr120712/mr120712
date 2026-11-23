@@ -75,16 +75,22 @@
   </form>
 </dialog>
 
+<!-- Facoltativo: config.js (solo nello Space privato, mai nel repo) imposta window.CHAT_DEFAULTS. -->
+<script src="config.js" onerror="window.CHAT_DEFAULTS = window.CHAT_DEFAULTS || {}"></script>
 <script>
 (() => {
   const KEY = 'deepseek-static-chat:v1';
+  const DEFAULTS = (typeof window.CHAT_DEFAULTS === 'object' && window.CHAT_DEFAULTS) || {};
   const $ = (id) => document.getElementById(id);
   const fields = ['baseUrl', 'apiKey', 'model', 'system', 'temperature', 'maxTokens'];
   let history = [];
   let controller = null;
 
+  // Le impostazioni salvate nel browser vincono; altrimenti i default di config.js.
   function load() {
-    try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { return {}; }
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch {}
+    return { ...DEFAULTS, ...saved };
   }
   function save(cfg) {
     try { localStorage.setItem(KEY, JSON.stringify(cfg)); } catch {}
