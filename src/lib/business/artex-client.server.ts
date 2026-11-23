@@ -190,6 +190,151 @@ export async function artexStatus(
   }
 }
 
+// ------------------------------------------------------------------ chat
+
+// What we accept back from `POST /api/conversations`: just the id, ignore the rest.
+const ConversationCreated = z
+  .object({ id: z.number().int().positive(), agent_key: z.string().optional() })
+  .passthrough();
+
+// One row of the per-conversation activity stream. The agent emits many kinds —
+// `thinking`, `tool_use`, `tool_result`, `text`, `result`. For Telegram we only
+// surface the human-readable ones: `text` (assistant words) and `result` (final
+// answer, when the engine emits one). Everything else is just progress noise.
+const ActivityRow = z
+  .object({
+    seq: z.number().int(),
+    worker: z.string(),
+    kind: z.string(),
+    summary: z.string().optional().default(''),
+    detail: z.string().optional().default(''),
+    is_error: z.boolean().optional(),
+  })
+  .passthrough();
+
+const ActivityPage = z.object({
+  items: z.array(ActivityRow),
+  cursor: z.number().int(),
+  running: z.boolean(),
+});
+
+export type ArtexChatOutcome =
+  | { status: 'ok'; reply: string; conversationId: number }
+  | { status: 'not_configured' }
+  | { status: 'failed'; error: string; detail?: string };
+
+export type AskArtexOptions = {
+  agentKey?: string;
+  /** Hard ceiling on the whole flow (create + send + poll). Must sit under the Telegram route's maxDuration. */
+  timeoutMs?: number;
+  /** Interval between poll calls. Faster = more CPU + chattier logs. */
+  pollIntervalMs?: number;
+};
+
+/**
+ * One-shot chat: creates a fresh conversation, sends the message, polls until the
+ * agent stops (or timeout). Returns the last assistant text seen. No state is kept
+ * between calls — every Telegram /artex ask starts a new ARTEX conversation.
+ */
+export async function askArtex(
+  question: string,
+  env: Env = process.env,
+  fetchImpl: typeof fetch = fetch,
+  options: AskArtexOptions = {},
+): Promise<ArtexChatOutcome> {
+  const config = artexConfig(env);
+  if (!config) return { status: 'not_configured' };
+  const q = question.trim();
+  if (!q) return { status: 'failed', error: 'empty_question' };
+
+  const agentKey = options.agentKey ?? env.ARTEX_CHAT_AGENT_KEY?.trim() ?? 'auto';
+  const timeoutMs = options.timeoutMs ?? 50_000;
+  const pollIntervalMs = options.pollIntervalMs ?? 2_000;
+  const deadline = Date.now() + timeoutMs;
+
+  try {
+    // 1. Create a conversation bound to the chat agent.
+    const conv = await authed(
+      config,
+      '/api/conversations',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ agent_key: agentKey, title: 'Telegram /artex' }),
+      },
+      (body) => ConversationCreated.safeParse(body).data ?? null,
+      fetchImpl,
+      15_000,
+    );
+
+    // 2. Send the question. ARTEX returns immediately; the agent runs async.
+    await authed(
+      config,
+      `/api/conversations/${conv.id}/messages`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message: q }),
+      },
+      () => ({ ok: true }),
+      fetchImpl,
+      15_000,
+    );
+
+    // 3. Poll the activity stream until `running` flips to false or we time out.
+    //    Keep the latest assistant `text`/`result` seen; that's what we return.
+    let cursor = 0;
+    let lastAssistantText = '';
+    let lastKind = '';
+    let running = true;
+    while (Date.now() < deadline && running) {
+      const remaining = Math.max(2_000, deadline - Date.now());
+      const page = await authed(
+        config,
+        `/api/conversations/${conv.id}/messages?since=${cursor}`,
+        { method: 'GET' },
+        (body) => ActivityPage.safeParse(body).data ?? null,
+        fetchImpl,
+        Math.min(10_000, remaining),
+      );
+      cursor = page.cursor;
+      running = page.running;
+      for (const item of page.items) {
+        if (item.worker === 'user') continue;
+        if (item.kind !== 'text' && item.kind !== 'result') continue;
+        const text = (item.detail || item.summary).trim();
+        if (!text) continue;
+        // A later 'result' always wins; otherwise keep the latest 'text'.
+        if (item.kind === 'result' || lastKind !== 'result') {
+          lastAssistantText = text;
+          lastKind = item.kind;
+        }
+      }
+      if (!running) break;
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    }
+
+    if (running) {
+      // Time ran out before ARTEX finished.
+      return {
+        status: 'failed',
+        error: 'still_running',
+        detail: `conversation ${conv.id}`,
+      };
+    }
+    if (!lastAssistantText) {
+      return { status: 'failed', error: 'empty_reply', detail: `conversation ${conv.id}` };
+    }
+    return { status: 'ok', reply: lastAssistantText, conversationId: conv.id };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'unknown';
+    if (message === 'unauthorized' || message.startsWith('login_')) {
+      return { status: 'failed', error: 'unauthorized', detail: message };
+    }
+    return { status: 'failed', error: 'unreachable', detail: message };
+  }
+}
+
 /** Reset the in-memory token (for tests). Production has nothing to do here. */
 export function _resetArtexAuth(): void {
   cachedToken = null;

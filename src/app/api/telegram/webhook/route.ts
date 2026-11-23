@@ -10,10 +10,11 @@
 import 'server-only';
 import { timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
-import { artexStatus } from '@/lib/business/artex-client.server';
+import { artexStatus, askArtex } from '@/lib/business/artex-client.server';
 import {
   ARTEX_COMMAND,
   ARTEX_USAGE,
+  artexChatMessages,
   artexTelegramMessages,
   parseArtexCommand,
 } from '@/lib/business/artex-telegram';
@@ -553,29 +554,47 @@ async function handleUpdate(
     return;
   }
 
-  // /artex status → lo stato dell'agente ARTEX sul VPS dell'owner (ops/artex/).
+  // /artex status | /artex ask <q> → l'agente ARTEX sul VPS dell'owner (ops/artex/).
   // Stesso gate di /skynet e /ig: solo chat privata dell'owner, altrimenti silenzio totale.
-  // Nessuna chat con ARTEX da qui ancora: solo un riassunto (task, findings, token) via
-  // JWT autenticato su https://<ip>.sslip.io. ARTEX gira sul tuo VPS, non su Solco.
+  // Via JWT autenticato su https://artex.solcomusic.online. ARTEX gira sul tuo VPS.
   const artex = ARTEX_COMMAND.exec(text);
   if (artex) {
     if (chatType !== 'private') return;
     if (!(await checkTelegramOwner(chatId, username)).owner) return;
     const command = parseArtexCommand(artex[1] ?? '');
-    if (command.kind !== 'status') {
-      await sendTelegramMessage(chatId, ARTEX_USAGE, { parseMode: 'HTML' });
-      return;
-    }
-    const limited = await enforceRateLimit('admin.artex', `tg:${chatId}`);
-    if (limited) {
-      await sendTelegramMessage(chatId, 'Troppe richieste ad ARTEX di fila: riprova tra poco.');
-      return;
-    }
-    const outcome = await artexStatus();
-    const [first, ...rest] = artexTelegramMessages(outcome);
     const format = { parseMode: 'HTML', disableWebPagePreview: true } as const;
-    await sendTelegramMessage(chatId, first ?? '…', format);
-    for (const part of rest) await sendTelegramMessage(chatId, part, format);
+
+    if (command.kind === 'status') {
+      const limited = await enforceRateLimit('admin.artex', `tg:${chatId}`);
+      if (limited) {
+        await sendTelegramMessage(chatId, 'Troppe richieste ad ARTEX di fila: riprova tra poco.');
+        return;
+      }
+      const outcome = await artexStatus();
+      const [first, ...rest] = artexTelegramMessages(outcome);
+      await sendTelegramMessage(chatId, first ?? '…', format);
+      for (const part of rest) await sendTelegramMessage(chatId, part, format);
+      return;
+    }
+
+    if (command.kind === 'ask') {
+      const limited = await enforceRateLimit('admin.artex', `tg:${chatId}`);
+      if (limited) {
+        await sendTelegramMessage(chatId, 'Troppe richieste ad ARTEX di fila: riprova tra poco.');
+        return;
+      }
+      // Cap at the Telegram route's maxDuration minus a safety margin for the
+      // reply roundtrip. Each /artex ask opens a FRESH conversation on ARTEX:
+      // no memory between calls, so the owner can't accidentally leak past
+      // chat context into a later unrelated question.
+      const outcome = await askArtex(command.question, process.env, fetch, { timeoutMs: 50_000 });
+      const parts = artexChatMessages(outcome);
+      for (const part of parts) await sendTelegramMessage(chatId, part, format);
+      return;
+    }
+
+    // help / unknown → show usage.
+    await sendTelegramMessage(chatId, ARTEX_USAGE, { parseMode: 'HTML' });
     return;
   }
 

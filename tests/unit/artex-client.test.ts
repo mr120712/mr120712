@@ -4,7 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
-import { _resetArtexAuth, artexConfig, artexStatus } from '@/lib/business/artex-client.server';
+import {
+  _resetArtexAuth,
+  artexConfig,
+  artexStatus,
+  askArtex,
+} from '@/lib/business/artex-client.server';
 
 const URL_OK = 'https://5-222-15-32.sslip.io';
 const PASS = 'a-strong-pass-123';
@@ -157,5 +162,174 @@ describe('artexStatus', () => {
     if (outcome.status !== 'ok') throw new Error(`bad: ${JSON.stringify(outcome)}`);
     // Falls back to /api/stats's own findings block.
     expect(outcome.data.findings).toEqual({ total: 2, bySeverity: { high: 2 } });
+  });
+});
+
+describe('askArtex', () => {
+  beforeEach(() => _resetArtexAuth());
+  afterEach(() => vi.restoreAllMocks());
+
+  function script(steps: {
+    convId?: number;
+    pages: Array<{ items?: Array<Record<string, unknown>>; cursor: number; running: boolean }>;
+  }) {
+    const convId = steps.convId ?? 42;
+    let pageIndex = 0;
+    const calls: Array<{ url: string; method?: string }> = [];
+    return {
+      calls,
+      convId,
+      fetchMock: vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        const u = String(url);
+        calls.push({ url: u, method: init?.method });
+        if (u.endsWith('/api/auth/login')) return jsonRes({ token: 't'.repeat(32) });
+        if (u.endsWith('/api/conversations')) return jsonRes({ id: convId, agent_key: 'auto' });
+        if (u.endsWith(`/api/conversations/${convId}/messages`) && init?.method === 'POST') {
+          return jsonRes({ ok: true });
+        }
+        if (u.includes(`/api/conversations/${convId}/messages?since=`)) {
+          const page = steps.pages[pageIndex] ?? steps.pages[steps.pages.length - 1];
+          pageIndex++;
+          return jsonRes({ items: [], cursor: 0, running: false, ...page });
+        }
+        throw new Error(`unexpected ${u}`);
+      }),
+    };
+  }
+
+  it('creates a conversation, posts the message, returns the final assistant text', async () => {
+    const { fetchMock } = script({
+      pages: [
+        {
+          items: [
+            { seq: 1, worker: 'user', kind: 'text', summary: 'the question', detail: '' },
+            { seq: 2, worker: 'auto', kind: 'text', summary: 'partial…', detail: '' },
+          ],
+          cursor: 2,
+          running: true,
+        },
+        {
+          items: [
+            {
+              seq: 3,
+              worker: 'auto',
+              kind: 'result',
+              summary: 'Final answer',
+              detail: 'Final answer with details.',
+            },
+          ],
+          cursor: 3,
+          running: false,
+        },
+      ],
+    });
+    const outcome = await askArtex(
+      'What is open?',
+      { ARTEX_URL: URL_OK, ARTEX_PASSWORD: PASS },
+      fetchMock as unknown as typeof fetch,
+      { pollIntervalMs: 1, timeoutMs: 5_000 },
+    );
+    if (outcome.status !== 'ok') throw new Error(`bad: ${JSON.stringify(outcome)}`);
+    expect(outcome.reply).toBe('Final answer with details.');
+    expect(outcome.conversationId).toBe(42);
+    // It asked for the conversation to be created once, with agent_key.
+    const create = fetchMock.mock.calls.find(([u]) => String(u).endsWith('/api/conversations'));
+    expect(create).toBeDefined();
+    const body = JSON.parse(String(create?.[1]?.body));
+    expect(body.agent_key).toBe('auto');
+  });
+
+  it('prefers a `result` row even after a later plain `text`', async () => {
+    const { fetchMock } = script({
+      pages: [
+        {
+          items: [
+            { seq: 1, worker: 'auto', kind: 'result', summary: 'THE answer', detail: '' },
+            { seq: 2, worker: 'auto', kind: 'text', summary: 'trailing chatter', detail: '' },
+          ],
+          cursor: 2,
+          running: false,
+        },
+      ],
+    });
+    const outcome = await askArtex(
+      'q',
+      { ARTEX_URL: URL_OK, ARTEX_PASSWORD: PASS },
+      fetchMock as unknown as typeof fetch,
+      { pollIntervalMs: 1, timeoutMs: 2_000 },
+    );
+    if (outcome.status !== 'ok') throw new Error(`bad: ${JSON.stringify(outcome)}`);
+    expect(outcome.reply).toBe('THE answer');
+  });
+
+  it('times out as still_running when the agent never finishes', async () => {
+    const { fetchMock } = script({
+      pages: [
+        { items: [], cursor: 0, running: true },
+        { items: [], cursor: 0, running: true },
+        { items: [], cursor: 0, running: true },
+      ],
+    });
+    const outcome = await askArtex(
+      'q',
+      { ARTEX_URL: URL_OK, ARTEX_PASSWORD: PASS },
+      fetchMock as unknown as typeof fetch,
+      { pollIntervalMs: 10, timeoutMs: 100 },
+    );
+    expect(outcome.status).toBe('failed');
+    if (outcome.status === 'failed') expect(outcome.error).toBe('still_running');
+  });
+
+  it('finished conversation with no assistant text surfaces empty_reply', async () => {
+    const { fetchMock } = script({
+      pages: [
+        {
+          items: [{ seq: 1, worker: 'user', kind: 'text', summary: 'q', detail: '' }],
+          cursor: 1,
+          running: false,
+        },
+      ],
+    });
+    const outcome = await askArtex(
+      'q',
+      { ARTEX_URL: URL_OK, ARTEX_PASSWORD: PASS },
+      fetchMock as unknown as typeof fetch,
+      { pollIntervalMs: 1, timeoutMs: 2_000 },
+    );
+    expect(outcome.status).toBe('failed');
+    if (outcome.status === 'failed') expect(outcome.error).toBe('empty_reply');
+  });
+
+  it('empty question never reaches ARTEX', async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new Error('should not reach fetch');
+    });
+    const outcome = await askArtex(
+      '   ',
+      { ARTEX_URL: URL_OK, ARTEX_PASSWORD: PASS },
+      fetchMock as unknown as typeof fetch,
+    );
+    expect(outcome.status).toBe('failed');
+    if (outcome.status === 'failed') expect(outcome.error).toBe('empty_question');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('not_configured when ARTEX_URL / ARTEX_PASSWORD are missing', async () => {
+    const outcome = await askArtex('anything', {});
+    expect(outcome.status).toBe('not_configured');
+  });
+
+  it('network failure surfaces as unreachable', async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new TypeError('ECONNREFUSED');
+    });
+    const outcome = await askArtex(
+      'q',
+      { ARTEX_URL: URL_OK, ARTEX_PASSWORD: PASS },
+      fetchMock as unknown as typeof fetch,
+      { pollIntervalMs: 1, timeoutMs: 1_000 },
+    );
+    expect(outcome.status).toBe('failed');
+    if (outcome.status === 'failed') expect(outcome.error).toBe('unreachable');
   });
 });
