@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>DeepSeek Chat</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --line:#2a2f3a; --text:#e8eaf0; --muted:#9aa3b2; --accent:#6d8cff; --user:#2b3b72; --err:#ff7a7a; }
+  @media (prefers-color-scheme: light) { :root { --bg:#f6f7fb; --panel:#fff; --line:#dde1ea; --text:#141821; --muted:#5d6677; --accent:#3557e6; --user:#dfe6ff; --err:#c22; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  .app { max-width:860px; margin:0 auto; min-height:100dvh; display:grid; grid-template-rows:auto 1fr auto; }
+  header { display:flex; align-items:center; gap:10px; padding:14px 16px; border-bottom:1px solid var(--line); }
+  header h1 { font-size:17px; margin:0; } header .sub { color:var(--muted); font-size:12px; }
+  header .sp { flex:1; }
+  button { font:inherit; color:inherit; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:8px 12px; cursor:pointer; min-height:40px; }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button:disabled { opacity:.5; cursor:default; }
+  button:focus-visible, input:focus-visible, textarea:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  #log { padding:16px; overflow-y:auto; display:flex; flex-direction:column; gap:12px; }
+  .msg { max-width:90%; white-space:pre-wrap; word-wrap:break-word; padding:10px 14px; border-radius:14px; }
+  .msg.user { align-self:flex-end; background:var(--user); border-bottom-right-radius:4px; }
+  .msg.assistant { align-self:flex-start; background:var(--panel); border:1px solid var(--line); border-bottom-left-radius:4px; }
+  .msg.error { align-self:stretch; color:var(--err); border:1px solid var(--err); background:transparent; }
+  .empty { color:var(--muted); border:1px dashed var(--line); border-radius:12px; padding:18px; }
+  form#composer { display:flex; gap:8px; padding:12px 16px 16px; border-top:1px solid var(--line); }
+  textarea, input { font:inherit; color:inherit; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px 12px; width:100%; }
+  textarea { resize:vertical; min-height:48px; max-height:40vh; }
+  dialog { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:14px; width:min(520px,calc(100vw - 32px)); padding:18px; }
+  dialog::backdrop { background:rgb(0 0 0 / .5); }
+  dialog label { display:grid; gap:4px; margin-bottom:12px; font-size:13px; color:var(--muted); }
+  dialog .row { display:flex; gap:8px; justify-content:flex-end; margin-top:6px; }
+  .note { font-size:12px; color:var(--muted); margin:0 0 12px; }
+  @media (prefers-reduced-motion: no-preference) { .typing::after { content:'▍'; animation:blink 1s steps(2) infinite; } @keyframes blink { 50% { opacity:0; } } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <span aria-hidden="true" style="font-size:22px">🐋</span>
+    <div><h1>DeepSeek Chat</h1><div class="sub" id="status">Server non configurato</div></div>
+    <span class="sp"></span>
+    <button type="button" id="reset" aria-label="Nuova conversazione">↺</button>
+    <button type="button" id="openSettings">⚙️ Server</button>
+  </header>
+
+  <main id="log" aria-live="polite">
+    <p class="empty" id="empty">Premi <b>⚙️ Server</b> e inserisci l’indirizzo del tuo server compatibile OpenAI. URL e chiave restano solo in questo browser.</p>
+  </main>
+
+  <form id="composer">
+    <label for="input" style="position:absolute;left:-9999px">Messaggio</label>
+    <textarea id="input" rows="2" maxlength="16000" placeholder="Scrivi un messaggio… (Invio per inviare, Maiusc+Invio a capo)"></textarea>
+    <button class="primary" type="submit" id="send">Invia</button>
+  </form>
+</div>
+
+<dialog id="settings" aria-labelledby="settingsTitle">
+  <form method="dialog" id="settingsForm">
+    <h2 id="settingsTitle" style="margin:0 0 6px;font-size:17px">Server</h2>
+    <p class="note">Salvati solo in questo browser (localStorage), mai nei file dello Space. Il server deve usare HTTPS e permettere CORS da questa pagina.</p>
+    <label>URL base<input id="baseUrl" type="url" placeholder="https://my-gpu-box.example.com/v1" required></label>
+    <label>Chiave API (se serve)<input id="apiKey" type="password" autocomplete="off" placeholder="sk-…"></label>
+    <label>Modello<input id="model" placeholder="OBLITERATUS/DeepSeek-V4.1-Flash-1017-obliterated"></label>
+    <label>Prompt di sistema<textarea id="system" rows="2" maxlength="4000">You are a helpful assistant.</textarea></label>
+    <label>Temperatura <input id="temperature" type="number" min="0" max="2" step="0.1" value="0.6"></label>
+    <label>Token massimi <input id="maxTokens" type="number" min="64" max="32768" step="64" value="2048"></label>
+    <div class="row">
+      <button type="button" id="forget">Dimentica</button>
+      <button type="button" id="test">Prova</button>
+      <button class="primary" value="save">Salva</button>
+    </div>
+    <p class="note" id="testResult" role="status"></p>
+  </form>
+</dialog>
+
+<script>
+(() => {
+  const KEY = 'deepseek-static-chat:v1';
+  const $ = (id) => document.getElementById(id);
+  const fields = ['baseUrl', 'apiKey', 'model', 'system', 'temperature', 'maxTokens'];
+  let history = [];
+  let controller = null;
+
+  function load() {
+    try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { return {}; }
+  }
+  function save(cfg) {
+    try { localStorage.setItem(KEY, JSON.stringify(cfg)); } catch {}
+  }
+  function config() {
+    const c = load();
+    return {
+      baseUrl: (c.baseUrl || '').replace(/\/+$/, ''),
+      apiKey: c.apiKey || '',
+      model: c.model || 'OBLITERATUS/DeepSeek-V4.1-Flash-1017-obliterated',
+      system: c.system ?? 'You are a helpful assistant.',
+      temperature: Number(c.temperature ?? 0.6),
+      maxTokens: Number(c.maxTokens ?? 2048),
+    };
+  }
+  function validUrl(url) {
+    try { const u = new URL(url); return u.protocol === 'https:' || u.hostname === 'localhost' || u.hostname === '127.0.0.1'; } catch { return false; }
+  }
+  function refreshStatus() {
+    const c = config();
+    $('status').textContent = c.baseUrl ? `${new URL(c.baseUrl).host} · ${c.model}` : 'Server non configurato';
+  }
+  function bubble(role, text) {
+    $('empty')?.remove();
+    const el = document.createElement('div');
+    el.className = `msg ${role}`;
+    el.textContent = text;
+    $('log').appendChild(el);
+    $('log').scrollTop = $('log').scrollHeight;
+    return el;
+  }
+  function headers(c) {
+    const h = { 'content-type': 'application/json' };
+    if (c.apiKey) h.authorization = `Bearer ${c.apiKey}`;
+    return h;
+  }
+  function explain(err, c) {
+    if (err?.name === 'AbortError') return 'Interrotto.';
+    if (err instanceof TypeError) return `Il server ${c.baseUrl} non risponde o blocca questa pagina (CORS). Controlla HTTPS e --allowed-origins.`;
+    return err?.message || 'Errore sconosciuto.';
+  }
+
+  async function send(text) {
+    const c = config();
+    if (!c.baseUrl) { $('settings').showModal(); return; }
+    history.push({ role: 'user', content: text });
+    history = history.slice(-40);
+    bubble('user', text);
+    const out = bubble('assistant', '');
+    out.classList.add('typing');
+    $('send').textContent = 'Stop';
+    controller = new AbortController();
+    let reply = '';
+    try {
+      const res = await fetch(`${c.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: headers(c),
+        signal: controller.signal,
+        referrerPolicy: 'no-referrer',
+        body: JSON.stringify({
+          model: c.model,
+          stream: true,
+          temperature: c.temperature,
+          max_tokens: c.maxTokens,
+          messages: [...(c.system.trim() ? [{ role: 'system', content: c.system.trim() }] : []), ...history],
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        throw new Error(`Errore del server ${res.status}: ${body.slice(0, 300)}`);
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          const data = line.trim().replace(/^data:\s*/, '');
+          if (!data || data === '[DONE]' || !line.trim().startsWith('data:')) continue;
+          try {
+            const delta = JSON.parse(data).choices?.[0]?.delta?.content;
+            if (delta) { reply += delta; out.textContent = reply; $('log').scrollTop = $('log').scrollHeight; }
+          } catch {}
+        }
+      }
+      if (!reply) throw new Error('Risposta vuota dal server.');
+      history.push({ role: 'assistant', content: reply });
+    } catch (err) {
+      if (!reply) out.remove();
+      bubble('error', explain(err, c));
+      if (!reply) history.pop();
+      else history.push({ role: 'assistant', content: reply });
+    } finally {
+      out.classList.remove('typing');
+      controller = null;
+      $('send').textContent = 'Invia';
+    }
+  }
+
+  $('composer').addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (controller) { controller.abort(); return; }
+    const text = $('input').value.trim();
+    if (!text) return;
+    $('input').value = '';
+    void send(text);
+  });
+  $('input').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); $('composer').requestSubmit(); }
+  });
+  $('reset').addEventListener('click', () => {
+    if (controller) controller.abort();
+    history = [];
+    $('log').replaceChildren();
+    const p = document.createElement('p');
+    p.className = 'empty'; p.id = 'empty'; p.textContent = 'Nuova conversazione.';
+    $('log').appendChild(p);
+  });
+  $('openSettings').addEventListener('click', () => {
+    const c = load();
+    for (const f of fields) if (c[f] !== undefined) $(f).value = c[f];
+    $('testResult').textContent = '';
+    $('settings').showModal();
+  });
+  $('settingsForm').addEventListener('submit', (event) => {
+    if (!validUrl($('baseUrl').value.trim())) {
+      event.preventDefault();
+      $('testResult').textContent = 'Serve un URL https:// (o localhost).';
+      return;
+    }
+    const cfg = {};
+    for (const f of fields) cfg[f] = $(f).value.trim();
+    save(cfg);
+    refreshStatus();
+  });
+  $('forget').addEventListener('click', () => {
+    try { localStorage.removeItem(KEY); } catch {}
+    for (const f of ['baseUrl', 'apiKey', 'model']) $(f).value = '';
+    refreshStatus();
+    $('testResult').textContent = 'Dati del server cancellati da questo browser.';
+  });
+  $('test').addEventListener('click', async () => {
+    const base = $('baseUrl').value.trim().replace(/\/+$/, '');
+    if (!validUrl(base)) { $('testResult').textContent = 'Serve un URL https:// (o localhost).'; return; }
+    $('testResult').textContent = 'Provo…';
+    const c = { baseUrl: base, apiKey: $('apiKey').value.trim() };
+    try {
+      const res = await fetch(`${base}/models`, { headers: headers(c), referrerPolicy: 'no-referrer', signal: AbortSignal.timeout(15000) });
+      const body = await res.json().catch(() => null);
+      const ids = Array.isArray(body?.data) ? body.data.map((m) => m.id).slice(0, 5) : [];
+      $('testResult').textContent = res.ok ? `OK · modelli: ${ids.join(', ') || '—'}` : `Il server risponde ${res.status}.`;
+      if (res.ok && ids[0] && !$('model').value.trim()) $('model').value = ids[0];
+    } catch (err) {
+      $('testResult').textContent = explain(err, c);
+    }
+  });
+  refreshStatus();
+})();
+</script>
+</body>
+</html>
