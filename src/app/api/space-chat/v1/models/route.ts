@@ -2,7 +2,11 @@
 // Bearer SPACE_CHAT_API_KEY e CORS solo per lo Space (vedi space-chat.server.ts).
 import 'server-only';
 import { NextResponse } from 'next/server';
-import { authorizeSpaceChat, spaceChatCors } from '@/lib/business/space-chat.server';
+import {
+  authorizeSpaceChat,
+  huggingFaceConfig,
+  spaceChatCors,
+} from '@/lib/business/space-chat.server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -17,8 +21,7 @@ export function GET(request: Request) {
   if (!auth.ok) {
     return NextResponse.json({ error: { message: auth.error } }, { status: auth.status, headers });
   }
-  return NextResponse.json(
-    { object: 'list', data: [{ id: 'solco-mwapi', object: 'model' }] },
-    { headers },
-  );
+  const hf = huggingFaceConfig();
+  const id = hf ? (hf.model.split(':')[0] ?? hf.model) : 'solco-mwapi';
+  return NextResponse.json({ object: 'list', data: [{ id, object: 'model' }] }, { headers });
 }
