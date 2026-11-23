@@ -2,6 +2,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   ARTEX_COMMAND,
+  ARTEX_TELEGRAM_CHUNK,
+  artexChatMessages,
   artexTelegramMessages,
   parseArtexCommand,
 } from '@/lib/business/artex-telegram';
@@ -26,6 +28,26 @@ describe('parseArtexCommand', () => {
     expect(parseArtexCommand('HELP')).toEqual({ kind: 'help' });
     expect(parseArtexCommand('?')).toEqual({ kind: 'help' });
     expect(parseArtexCommand('attack prod')).toEqual({ kind: 'unknown', subcommand: 'attack' });
+  });
+
+  it('ask/chat/chiedi forward the rest as a question', () => {
+    expect(parseArtexCommand('ask What is open on the preview?')).toEqual({
+      kind: 'ask',
+      question: 'What is open on the preview?',
+    });
+    expect(parseArtexCommand('CHIEDI  come procede ')).toEqual({
+      kind: 'ask',
+      question: 'come procede',
+    });
+    expect(parseArtexCommand('chat  riassumi i findings')).toEqual({
+      kind: 'ask',
+      question: 'riassumi i findings',
+    });
+  });
+
+  it('ask with no question nudges back to help instead of sending an empty prompt', () => {
+    expect(parseArtexCommand('ask')).toEqual({ kind: 'help' });
+    expect(parseArtexCommand('ask   ')).toEqual({ kind: 'help' });
   });
 });
 
@@ -84,5 +106,54 @@ describe('artexTelegramMessages', () => {
     expect(msg).toContain('Task totali: <b>0</b>');
     expect(msg).toContain('Findings: nessuno ancora');
     expect(msg).not.toContain('Token LLM oggi');
+  });
+});
+
+describe('artexChatMessages', () => {
+  it('short reply fits in one message, HTML-escaped', () => {
+    const parts = artexChatMessages({
+      status: 'ok',
+      reply: 'Hello <there> & welcome',
+      conversationId: 7,
+    });
+    expect(parts).toHaveLength(1);
+    expect(parts[0]).toContain('🛡️ <b>ARTEX</b>');
+    expect(parts[0]).toContain('Hello &lt;there&gt; &amp; welcome');
+  });
+
+  it('long reply splits on blank lines and stays under the Telegram limit', () => {
+    // Build a reply with three paragraphs, each bigger than the chunk threshold.
+    const para = 'x'.repeat(Math.floor(ARTEX_TELEGRAM_CHUNK * 0.6));
+    const reply = [para, para, para].join('\n\n');
+    const parts = artexChatMessages({ status: 'ok', reply, conversationId: 1 });
+    expect(parts.length).toBeGreaterThan(1);
+    for (const part of parts) expect(part.length).toBeLessThanOrEqual(ARTEX_TELEGRAM_CHUNK + 50);
+    // Only the first part carries the header.
+    expect(parts[0]).toContain('🛡️ <b>ARTEX</b>');
+    for (const part of parts.slice(1)) expect(part).not.toContain('🛡️');
+  });
+
+  it('a single paragraph bigger than the chunk cap hard-slices', () => {
+    const blob = 'a'.repeat(ARTEX_TELEGRAM_CHUNK * 2 + 10);
+    const parts = artexChatMessages({ status: 'ok', reply: blob, conversationId: 1 });
+    expect(parts.length).toBeGreaterThanOrEqual(3);
+    for (const part of parts) expect(part.length).toBeLessThanOrEqual(ARTEX_TELEGRAM_CHUNK + 50);
+  });
+
+  it('not_configured, unauthorized, unreachable each have a readable message', () => {
+    expect(artexChatMessages({ status: 'not_configured' })[0]).toContain('ARTEX non è collegato');
+    expect(artexChatMessages({ status: 'failed', error: 'unauthorized' })[0]).toContain(
+      'Password ARTEX',
+    );
+    expect(artexChatMessages({ status: 'failed', error: 'unreachable' })[0]).toContain('Caddy');
+    expect(artexChatMessages({ status: 'failed', error: 'still_running' })[0]).toContain(
+      'sta ancora pensando',
+    );
+    expect(artexChatMessages({ status: 'failed', error: 'empty_reply' })[0]).toContain(
+      'senza una risposta',
+    );
+    expect(artexChatMessages({ status: 'failed', error: 'empty_question' })[0]).toContain(
+      'domanda è vuota',
+    );
   });
 });
