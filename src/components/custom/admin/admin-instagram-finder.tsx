@@ -20,7 +20,7 @@ const errorMessages: Record<string, string> = {
     'Instagram non è collegato: imposta INSTAGRAM_ACCESS_TOKEN e INSTAGRAM_BUSINESS_ACCOUNT_ID su Vercel.',
   auth: 'Meta rifiuta il token: è scaduto o revocato. Generane uno nuovo (token di lunga durata).',
   permission:
-    'Permesso mancante sull’app Meta: servono instagram_basic e la funzione Instagram Public Content Access (per gli hashtag).',
+    'Permesso mancante sull’app Meta per leggere i profili: servono instagram_basic, pages_show_list e pages_read_engagement sul token.',
   rate_limited: 'Limite di richieste di Meta raggiunto. Riprova fra un’ora.',
   hashtag_limit:
     'Limite di Meta: al massimo 30 hashtag diversi ogni 7 giorni. Riusa hashtag già cercati.',

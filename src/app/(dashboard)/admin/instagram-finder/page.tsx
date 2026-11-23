@@ -45,6 +45,12 @@ export default function AdminInstagramFinderPage() {
               <strong>Instagram Public Content Access</strong> (per la ricerca per hashtag). Limite
               di Meta: 30 hashtag diversi ogni 7 giorni.
             </p>
+            <p className="text-sm leading-6 text-muted-foreground">
+              Senza quella revisione funziona lo stesso: i creator li propone l’AI e Business
+              Discovery li verifica (restano solo account reali). Con{' '}
+              <code>INSTAGRAM_HASHTAG_SEARCH=off</code> la ricerca per hashtag non viene nemmeno
+              tentata.
+            </p>
           </section>
         </aside>
       </div>

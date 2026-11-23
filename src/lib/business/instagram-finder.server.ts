@@ -160,6 +160,28 @@ async function makePlan(
   return { plan: { hashtags, keywords, summary }, ai: raw !== undefined };
 }
 
+/** Username di account pubblici (creator, artisti, etichette, brand) proposti dall'AI. */
+async function suggestUsernames(brief: string, env: Env, fetchImpl: FetchLike): Promise<string[]> {
+  const raw = (await askJson(
+    'Proponi fino a 20 username Instagram di account PUBBLICI professionali (creator, artisti, ' +
+      'producer, etichette, media, brand) adatti alla richiesta. Solo account che sei sicuro ' +
+      'esistano e siano pubblici e professionali: mai persone private. Formato: ' +
+      '{"usernames":["…"]}, senza @.',
+    brief,
+    env,
+    fetchImpl,
+  )) as { usernames?: unknown } | undefined;
+  if (!Array.isArray(raw?.usernames)) return [];
+  return [
+    ...new Set(
+      raw.usernames
+        .filter((name): name is string => typeof name === 'string')
+        .map((name) => name.trim().replace(/^@/, '').toLowerCase())
+        .filter((name) => INSTAGRAM_USERNAME.test(name)),
+    ),
+  ].slice(0, 20);
+}
+
 // ---------------------------------------------------------------- 2. post e menzioni
 
 const MENTION = /(?:^|[^\w.@])@([A-Za-z0-9._]{1,30})/g;
@@ -250,7 +272,11 @@ export async function findInstagramCreators(
   const posts: InstagramPost[] = [];
   const mentionCount = new Map<string, { count: number; via: Set<string> }>();
   let fatal: InstagramGraphError | null = null;
-  for (const tag of plan.hashtags) {
+  // INSTAGRAM_HASHTAG_SEARCH=off: niente Hashtag Search (serve la funzione «Instagram Public
+  // Content Access», approvata da Meta). I candidati arrivano allora dall'AI e dagli username
+  // indicati, e Business Discovery (senza quella revisione) li verifica.
+  const hashtagSearchOff = /^(off|0|false|no)$/i.test(env.INSTAGRAM_HASHTAG_SEARCH?.trim() ?? '');
+  for (const tag of hashtagSearchOff ? [] : plan.hashtags) {
     try {
       const id = await hashtagId(config, tag, fetchImpl);
       if (!id) {
@@ -293,10 +319,18 @@ export async function findInstagramCreators(
       if (error.failure === 'rate_limited' || error.failure === 'hashtag_limit') break;
     }
   }
-  if (fatal && request.usernames.length === 0) {
-    return { ok: false, error: fatal.failure, detail: fatal.message };
+  // Token rifiutato: nessun'altra chiamata può riuscire.
+  if (fatal?.failure === 'auth') return { ok: false, error: 'auth', detail: fatal.message };
+  if (fatal) {
+    warnings.push(
+      `Ricerca per hashtag non disponibile (${fatal.message}): uso i creator suggeriti dall'AI, verificati su Instagram.`,
+    );
   }
-  if (fatal) warnings.push(`Hashtag Search non disponibile: ${fatal.message}`);
+  if (hashtagSearchOff) {
+    warnings.push(
+      "Ricerca per hashtag disattivata: creator suggeriti dall'AI, verificati su Instagram.",
+    );
+  }
 
   // 3. Candidati: prima gli username indicati, poi le menzioni più frequenti.
   const via = new Map<string, Set<string>>();
@@ -305,6 +339,14 @@ export async function findInstagramCreators(
   for (const [name, entry] of ranked) {
     if (via.size >= MAX_CANDIDATES) break;
     if (!via.has(name)) via.set(name, entry.via);
+  }
+  // Pochi candidati dagli hashtag (o hashtag non disponibili): l'AI propone account pubblici;
+  // Business Discovery scarta quelli inventati o personali, quindi restano solo profili reali.
+  if (via.size < 10) {
+    for (const name of await suggestUsernames(request.brief, env, fetchImpl)) {
+      if (via.size >= MAX_CANDIDATES) break;
+      if (!via.has(name)) via.set(name, new Set(['suggerito AI']));
+    }
   }
   const candidates = [...via.keys()].slice(0, MAX_CANDIDATES);
 

@@ -267,6 +267,54 @@ describe('findInstagramCreators', () => {
   });
 });
 
+describe('senza la revisione di Meta (Public Content Access)', () => {
+  it('hashtag negati: usa gli username suggeriti dall’AI e tiene solo quelli reali Business/Creator', async () => {
+    const graph = fakeGraph({
+      ig_hashtag_search: json(400, {
+        error: { code: 10, message: 'Application does not have permission for this action' },
+      }),
+    });
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (new URL(String(input)).hostname === 'graph.facebook.com') return graph(input, init);
+      const body = String(init?.body);
+      const content = body.includes('usernames')
+        ? JSON.stringify({ usernames: ['@lofi.anna', 'inventato_123', 'non valido!'] })
+        : body.includes('ranking')
+          ? '{}'
+          : JSON.stringify({ hashtags: ['lofi'], keywords: ['lofi'], summary: 'Lofi' });
+      return json(200, { model: 'x', choices: [{ message: { content } }] });
+    }) as unknown as typeof fetch;
+    const outcome = await findInstagramCreators(
+      InstagramFinderRequestSchema.parse({ brief: 'producer lofi' }),
+      config,
+      { MWAPI_API_KEY: 'k' },
+      fetchImpl,
+      now,
+    );
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.result.creators.map((c) => c.username)).toEqual(['lofi.anna']);
+    expect(outcome.result.creators[0]?.foundVia).toEqual(['suggerito AI']);
+    expect(outcome.result.skipped).toBe(1);
+    expect(outcome.result.warnings.join(' ')).toContain('Ricerca per hashtag non disponibile');
+  });
+
+  it('INSTAGRAM_HASHTAG_SEARCH=off non chiama Hashtag Search', async () => {
+    const fetchImpl = fakeGraph();
+    const outcome = await findInstagramCreators(
+      InstagramFinderRequestSchema.parse({ brief: 'lofi', usernames: ['manual.one'] }),
+      config,
+      { INSTAGRAM_HASHTAG_SEARCH: 'off' },
+      fetchImpl,
+      now,
+    );
+    expect(outcome.ok).toBe(true);
+    const paths = fetchImpl.mock.calls.map(([url]) => new URL(String(url)).pathname);
+    expect(paths.some((path) => path.includes('ig_hashtag_search'))).toBe(false);
+    if (outcome.ok) expect(outcome.result.creators.map((c) => c.username)).toEqual(['manual.one']);
+  });
+});
+
 describe('POST /api/admin/instagram-finder', () => {
   it('nega origine estranea, anonimi e non admin prima di Meta', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
