@@ -233,6 +233,11 @@ export const ACTION_RATE_LIMITS = {
   ],
   // «Trova creator Instagram»: ogni ricerca usa hashtag (max 30 diversi ogni 7 giorni su Meta),
   // fino a 30 Business Discovery e due chiamate AI.
+  // Chat dello Space statico su Hugging Face (chiave unica dell'owner): come la chat DeepSeek.
+  'space.chat': [
+    { requests: 10, windowMs: 60_000 },
+    { requests: 300, windowMs: 86_400_000 },
+  ],
   'admin.instagram-finder': [
     { requests: 4, windowMs: 60_000 },
     { requests: 60, windowMs: 86_400_000 },
@@ -654,6 +659,7 @@ const actionLabels: Record<RateLimitAction, string> = {
   'admin.assistant': 'le richieste all’assistente amministrativo',
   'admin.deepseek': 'le richieste a DeepSeek',
   'admin.instagram-finder': 'le ricerche di creator Instagram',
+  'space.chat': 'i messaggi alla chat dello Space',
   'skynet.chat': 'le domande a Skynet',
   'product.check.start': 'i controlli prodotto',
   'product.check.link': 'le letture dei link',

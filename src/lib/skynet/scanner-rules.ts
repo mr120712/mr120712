@@ -139,6 +139,8 @@ export const SOLCO_PATHS: readonly string[] = [
   '/api/admin/skynet/chat',
   '/api/admin/deepseek',
   '/api/admin/instagram-finder',
+  '/api/space-chat/v1/chat/completions',
+  '/api/space-chat/v1/models',
   '/api/ai-reserve/v1/chat/completions',
   '/api/auth/sign-in/email',
   '/_next/static/chunks/main-app.js',
