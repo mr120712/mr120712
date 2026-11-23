@@ -87,10 +87,10 @@ function downloadCsv(creators: InstagramCreator[]) {
       c.username,
       `https://www.instagram.com/${c.username}/`,
       c.name,
-      c.followers,
-      (c.engagementRate * 100).toFixed(2),
-      c.avgLikes,
-      c.avgComments,
+      c.verified ? c.followers : null,
+      c.verified ? (c.engagementRate * 100).toFixed(2) : null,
+      c.verified ? c.avgLikes : null,
+      c.verified ? c.avgComments : null,
       c.lastPostAt,
       c.score,
       c.reason,
@@ -233,7 +233,10 @@ export function AdminInstagramFinder() {
             <div className="grid gap-1">
               <h2 className="flex items-center gap-2 font-semibold">
                 <Sparkles aria-hidden="true" className="size-4 text-primary" />
-                {result.creators.length} creator trovati
+                {result.creators.length}{' '}
+                {result.mode === 'ai_only'
+                  ? 'creator suggeriti (non verificati)'
+                  : 'creator trovati'}
               </h2>
               <p className="text-sm text-muted-foreground">
                 {result.summary} · hashtag:{' '}
@@ -297,7 +300,12 @@ export function AdminInstagramFinder() {
                     </p>
                   ) : null}
                   <p className="text-sm">{creator.reason}</p>
-                  <p className="text-xs text-muted-foreground">
+                  {creator.verified ? null : (
+                    <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                      Suggerito dall’AI · non verificato: apri il profilo per controllare
+                    </p>
+                  )}
+                  <p className="text-xs text-muted-foreground" hidden={!creator.verified}>
                     {compact.format(creator.followers)} follower ·{' '}
                     {(creator.engagementRate * 100).toFixed(1)}% engagement ·{' '}
                     {compact.format(creator.avgLikes)} like medi · {creator.mediaCount} post

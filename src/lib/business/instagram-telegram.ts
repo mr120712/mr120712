@@ -107,11 +107,14 @@ export function instagramTelegramMessages(
   }
   const { result } = outcome;
   const tags = result.hashtags.map((tag) => `#${tag}`).join(' ') || '—';
-  const head =
-    `<b>📸 ${result.creators.length} creator trovati</b>\n` +
-    `<i>${escapeHtml(result.summary)}</i>\n` +
-    `Hashtag: ${escapeHtml(tags)} · ${result.checked} controllati, ${result.skipped} non Business/Creator` +
-    (result.aiRanked ? ' · ordinati dall’AI' : '');
+  const aiOnly = result.mode === 'ai_only';
+  const head = aiOnly
+    ? `<b>📸 ${result.creators.length} creator suggeriti dall’AI</b> (non verificati)\n` +
+      `<i>${escapeHtml(result.summary)}</i>`
+    : `<b>📸 ${result.creators.length} creator trovati</b>\n` +
+      `<i>${escapeHtml(result.summary)}</i>\n` +
+      `Hashtag: ${escapeHtml(tags)} · ${result.checked} controllati, ${result.skipped} non Business/Creator` +
+      (result.aiRanked ? ' · ordinati dall’AI' : '');
   const warnings = result.warnings.length
     ? `\n\n${result.warnings.map((w) => `⚠️ ${escapeHtml(w)}`).join('\n')}`
     : '';
@@ -123,9 +126,13 @@ export function instagramTelegramMessages(
   const cards = result.creators.slice(0, SHOWN).map((c, index) => {
     const lines = [
       `<b>${index + 1}. <a href="https://www.instagram.com/${c.username}/">@${escapeHtml(c.username)}</a></b> · ${c.score}/100`,
-      `${compact.format(c.followers)} follower · ${(c.engagementRate * 100).toFixed(1)}% engagement · ${compact.format(c.avgLikes)} like medi`,
+      c.verified
+        ? `${compact.format(c.followers)} follower · ${(c.engagementRate * 100).toFixed(1)}% engagement · ${compact.format(c.avgLikes)} like medi`
+        : c.name
+          ? escapeHtml(c.name)
+          : '',
       escapeHtml(c.reason),
-    ];
+    ].filter(Boolean);
     if (c.biography)
       lines.push(`<i>${escapeHtml(c.biography.replace(/\s+/g, ' ').slice(0, 140))}</i>`);
     return lines.join('\n');

@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   answerCallback: vi.fn(async (_id?: string) => undefined),
   askSkynet: vi.fn(),
   findCreators: vi.fn(),
+  suggestCreators: vi.fn(),
   igConfig: vi.fn(),
 }));
 
@@ -62,6 +63,7 @@ vi.mock('@/lib/business/rewards.server', () => ({ ensureReferralCode: mocks.ensu
 vi.mock('@/lib/skynet/chat.server', () => ({ askSkynet: mocks.askSkynet }));
 vi.mock('@/lib/business/instagram-finder.server', () => ({
   findInstagramCreators: mocks.findCreators,
+  suggestInstagramCreatorsWithoutApi: mocks.suggestCreators,
 }));
 vi.mock('@/lib/business/instagram-graph.server', () => ({ instagramGraphConfig: mocks.igConfig }));
 vi.mock('@/lib/business/telegram-link', () => ({ consumeTelegramLinkChallenge: mocks.consume }));
@@ -665,11 +667,13 @@ describe('POST /api/telegram/webhook — /ig, trova creator Instagram', () => {
     mocks.findCreators.mockResolvedValue({
       ok: true,
       result: {
+        mode: 'verified',
         summary: 'Producer lofi',
         hashtags: ['lofibeats'],
         creators: [
           {
             username: 'lofi.anna',
+            verified: true,
             name: 'Anna',
             biography: 'Lofi producer',
             website: null,
@@ -726,13 +730,49 @@ describe('POST /api/telegram/webhook — /ig, trova creator Instagram', () => {
     expect(last).toContain('20K follower');
   });
 
-  it('senza descrizione mostra l’uso; senza token lo dice, senza chiamare Meta', async () => {
+  it('senza descrizione mostra l’uso; senza token usa i suggerimenti dell’AI, senza chiamare Meta', async () => {
     process.env.SKYNET_TELEGRAM_CHAT_IDS = '123';
     await POST(req(msg('/ig')));
     expect(texts()[0]).toContain('Uso: <b>/ig descrizione</b>');
     mocks.igConfig.mockReturnValue(null);
+    mocks.suggestCreators.mockResolvedValue({
+      ok: true,
+      result: {
+        mode: 'ai_only',
+        summary: 'Producer lofi',
+        hashtags: [],
+        creators: [
+          {
+            username: 'lofi.girl',
+            verified: false,
+            name: 'Lofi Girl',
+            biography: null,
+            website: null,
+            profilePictureUrl: null,
+            followers: 0,
+            mediaCount: 0,
+            avgLikes: 0,
+            avgComments: 0,
+            engagementRate: 0,
+            lastPostAt: null,
+            foundVia: ['suggerito AI'],
+            score: 90,
+            reason: 'Il canale lofi più noto',
+          },
+        ],
+        posts: [],
+        checked: 0,
+        skipped: 0,
+        aiRanked: true,
+        warnings: ['Instagram non collegato'],
+      },
+    });
     await POST(req(msg('/ig producer lofi')));
-    expect(texts().at(-1)).toContain('INSTAGRAM_ACCESS_TOKEN');
     expect(mocks.findCreators).not.toHaveBeenCalled();
+    expect(mocks.suggestCreators).toHaveBeenCalledTimes(1);
+    const last = texts().at(-1) ?? '';
+    expect(last).toContain('creator suggeriti dall’AI</b> (non verificati)');
+    expect(last).toContain('@lofi.girl');
+    expect(last).not.toContain('follower ·');
   });
 });

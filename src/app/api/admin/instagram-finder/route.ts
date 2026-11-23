@@ -4,7 +4,10 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { isAuthorizedAdmin } from '@/lib/business/admin-account-policy';
-import { findInstagramCreators } from '@/lib/business/instagram-finder.server';
+import {
+  findInstagramCreators,
+  suggestInstagramCreatorsWithoutApi,
+} from '@/lib/business/instagram-finder.server';
 import { instagramGraphConfig } from '@/lib/business/instagram-graph.server';
 import { enforceRateLimit } from '@/lib/business/rate-limit.server';
 import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
@@ -54,7 +57,6 @@ export async function POST(request: Request) {
   if (!parsed.success) return failure('invalid_request', 400);
 
   const config = instagramGraphConfig();
-  if (!config) return failure('not_configured', 503);
 
   const limited = await enforceRateLimit('admin.instagram-finder', `user:${session.user.id}`);
   if (limited) {
@@ -62,7 +64,10 @@ export async function POST(request: Request) {
     return limited;
   }
 
-  const outcome = await findInstagramCreators(parsed.data, config);
+  // Senza Instagram collegato: suggerimenti dell'AI non verificati (mode "ai_only").
+  const outcome = config
+    ? await findInstagramCreators(parsed.data, config)
+    : await suggestInstagramCreatorsWithoutApi(parsed.data);
   if (!outcome.ok) return failure(outcome.error, failureStatus[outcome.error], outcome.detail);
   return NextResponse.json(InstagramFinderResponseSchema.parse(outcome.result), {
     headers: privateHeaders,

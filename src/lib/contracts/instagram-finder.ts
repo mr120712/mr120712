@@ -33,6 +33,8 @@ export type InstagramFinderInput = z.input<typeof InstagramFinderRequestSchema>;
 
 export const InstagramCreatorSchema = z.object({
   username: z.string(),
+  /** true: dati letti da Meta (Business Discovery). false: solo suggerito dall'AI, numeri a 0. */
+  verified: z.boolean(),
   name: z.string().nullable(),
   biography: z.string().nullable(),
   website: z.string().nullable(),
@@ -62,6 +64,8 @@ export const InstagramPostSchema = z.object({
 export type InstagramPost = z.infer<typeof InstagramPostSchema>;
 
 export const InstagramFinderResponseSchema = z.object({
+  /** "verified": API di Meta; "ai_only": Instagram non collegato, solo suggerimenti dell'AI. */
+  mode: z.enum(['verified', 'ai_only']),
   summary: z.string(),
   hashtags: z.array(z.string()),
   creators: z.array(InstagramCreatorSchema),

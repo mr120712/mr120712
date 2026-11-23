@@ -39,6 +39,7 @@ describe('/ig nel bot', () => {
     const [message] = instagramTelegramMessages({
       ok: true,
       result: {
+        mode: 'verified',
         summary: 'x',
         hashtags: [],
         creators: [],
