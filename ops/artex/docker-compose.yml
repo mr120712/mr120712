@@ -75,5 +75,27 @@ services:
       - ./scope.json:/app/scope.json:ro
     restart: unless-stopped
 
+  caddy:
+    # Public-facing TLS reverse proxy. Fetches a free Let's Encrypt cert for
+    # the sslip.io hostname encoding the VPS IPv4 (5-222-15-32.sslip.io) and
+    # proxies to ARTEX's loopback port. ARTEX's own JWT auth gates every API
+    # call; Caddy adds only TLS and reachability.
+    image: caddy:2-alpine
+    container_name: artex-caddy
+    depends_on:
+      - artex
+    ports:
+      - "0.0.0.0:80:80"
+      - "0.0.0.0:443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+    security_opt:
+      - "no-new-privileges:true"
+
 volumes:
   pgdata:
+  caddy_data:
+  caddy_config:

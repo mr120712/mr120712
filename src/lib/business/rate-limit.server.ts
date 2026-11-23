@@ -252,6 +252,12 @@ export const ACTION_RATE_LIMITS = {
     { requests: 4, windowMs: 60_000 },
     { requests: 60, windowMs: 86_400_000 },
   ],
+  // /artex da Telegram: colpisce il VPS dell'owner e consuma JWT ARTEX. Pochi/min bastano a una
+  // persona e tengono basso il carico sul VPS.
+  'admin.artex': [
+    { requests: 10, windowMs: 60_000 },
+    { requests: 200, windowMs: 86_400_000 },
+  ],
   // La chat di Skynet (pannello admin e /skynet su Telegram, solo proprietario): ogni domanda
   // legge il database, Vercel e chiama un modello AI. Poche al minuto bastano a una persona.
   'skynet.chat': [
@@ -669,6 +675,7 @@ const actionLabels: Record<RateLimitAction, string> = {
   'admin.assistant': 'le richieste all’assistente amministrativo',
   'admin.deepseek': 'le richieste a DeepSeek',
   'admin.instagram-finder': 'le ricerche di creator Instagram',
+  'admin.artex': 'le richieste ad ARTEX',
   'space.chat': 'i messaggi alla chat dello Space',
   'space.gate': 'gli accessi alla chat dello Space',
   'space.auth-fail': 'i tentativi con una chiave sbagliata',

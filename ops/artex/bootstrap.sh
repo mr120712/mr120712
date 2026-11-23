@@ -179,13 +179,24 @@ sed "s|\${ARTEX_TARGET_HOST}|$ARTEX_TARGET_HOST|g" scope.json.template > scope.j
 say "Starting the stack…"
 docker compose up -d --build
 
+PUBLIC_HOST="${ARTEX_PUBLIC_HOST:-5-222-15-32.sslip.io}"
+
 cat <<EOF
 
 [artex] Ready.
-       UI:        http://127.0.0.1:8787  (open an SSH tunnel; see tunnel.md)
-       Target:    $ARTEX_TARGET_HOST
-       Logs:      docker compose logs -f artex
+       UI (private):   http://127.0.0.1:8787  (SSH tunnel; see tunnel.md)
+       API (public):   https://${PUBLIC_HOST}
+                       — ARTEX's own JWT auth is the gate (see docs).
+                       — First visit: hit this URL from a browser to confirm
+                         Caddy obtained the Let's Encrypt cert. Should land on
+                         the ARTEX setup/login page.
+       Target:         $ARTEX_TARGET_HOST
+       Logs:           docker compose logs -f artex
+                       docker compose logs -f caddy      # TLS + proxy
        Setup token (first visit only):
-                  docker compose logs artex | grep "Setup token"
+                       docker compose logs artex | grep "Setup token"
 
+[artex] After setup in the UI (loopback), from Solco you'll need:
+       ARTEX_URL       https://${PUBLIC_HOST}
+       ARTEX_PASSWORD  the admin password you set in the UI
 EOF
