@@ -44,8 +44,12 @@ prompt() {
 if [ ! -f /etc/os-release ] || ! grep -qiE "ubuntu|debian" /etc/os-release; then
   die "This bootstrap targets Ubuntu/Debian. On another OS, install Docker yourself and run 'docker compose up -d --build'."
 fi
-if [ -d /home/user/mr120712/.git ]; then
-  die "Looks like you're on the Solco repo checkout, not the VPS. Run this on the VPS."
+# Sanity: refuse to run inside the Solco repo checkout (the current directory
+# is a git repo whose origin is this project). Catches accidental runs in a
+# Claude/Codex sandbox or from a dev's own laptop clone. On the VPS, the
+# bootstrap lives in ~/artex which is not a git repo, so this is a no-op.
+if [ -d .git ] && git remote get-url origin 2>/dev/null | grep -qE 'mr120712/mr120712(\.git)?$'; then
+  die "Looks like you're inside the Solco repo checkout, not the VPS's ~/artex. Run this on the VPS."
 fi
 
 # ---- 2. Docker --------------------------------------------------------------

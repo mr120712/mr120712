@@ -57,8 +57,9 @@ case "${1:-}" in
 esac
 
 # ---- sanity ----------------------------------------------------------------
-if [ -d /home/user/mr120712/.git ]; then
-  die "Looks like the Solco repo checkout, not the VPS. Run this on 5.222.15.32."
+# Refuse to run inside the Solco repo checkout; a no-op on the VPS's ~/staging-db.
+if [ -d .git ] && git remote get-url origin 2>/dev/null | grep -qE 'mr120712/mr120712(\.git)?$'; then
+  die "Looks like the Solco repo checkout, not the VPS's ~/staging-db. Run this on 5.222.15.32."
 fi
 [ -f /etc/os-release ] && grep -qiE "ubuntu|debian" /etc/os-release \
   || die "This bootstrap targets Ubuntu/Debian. On another OS, install Docker yourself."
