@@ -34,6 +34,7 @@ import { sendTelegramMessage } from '@/lib/business/telegram-bot.server';
 import type { MonitorRun } from '@/lib/contracts/monitoring';
 import { prisma } from '@/lib/db';
 import { latestRun, recordHeartbeat, STALE_AFTER_MS } from '@/lib/monitoring/monitor.server';
+import { ensureSpaceChatBypass } from '@/lib/skynet/space-chat-bypass.server';
 import {
   type AutodefenseState,
   type AutodefenseSummary,
@@ -1095,6 +1096,17 @@ export async function runSentinel(options: Partial<SentinelDeps> = {}): Promise<
     const hunt = await huntOffenders(deps, ipRules, now, adapted.advancedOffenses).catch(
       () => null,
     );
+    // Tiene aperto /api/space-chat/ allo Space su Hugging Face (vedi space-chat-bypass.server.ts).
+    const bypassAccess = vercelAccess(deps.env);
+    if (bypassAccess) {
+      const bypass = await ensureSpaceChatBypass(bypassAccess, deps.fetch).catch(
+        () => 'failed' as const,
+      );
+      if (bypass === 'created' || bypass === 'conflict' || bypass === 'failed') {
+        // biome-ignore lint/suspicious/noConsole: una riga nei log di Vercel, solo se c'è da guardare.
+        console.info(`[skynet] bypass /api/space-chat: ${bypass}`);
+      }
+    }
     let learnedNext: LearnedDefense | null = learnedPrev;
     if (hunt) {
       signals.vercel.hunted = hunt.active;
