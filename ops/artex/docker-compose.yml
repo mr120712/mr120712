@@ -82,6 +82,9 @@ services:
       - ./data:/app/data
       - ./keys:/app/keys
       - ./scope.json:/app/scope.json:ro
+      # config.json carries the DB section; bootstrap.sh writes it from .env.
+      # Read-only inside the container so ARTEX can't rewrite it.
+      - ./config.json:/app/config.json:ro
     restart: unless-stopped
 
   caddy:
