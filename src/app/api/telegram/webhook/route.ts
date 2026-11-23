@@ -6,6 +6,7 @@
 //   /help → cosa fa il bot
 //   /skynet <domanda> → la chat di Skynet (sicurezza del sito): solo il proprietario, solo in privato
 //   /deepseek | /ds <messaggio> → DeepSeek sul server dell'owner (via worker yt-dlp): owner, in privato
+//   /ig | /instagram <descrizione> → trova creator Instagram (API ufficiale di Meta): owner, in privato
 import 'server-only';
 import { timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
@@ -24,6 +25,17 @@ import {
   deepseekFrame,
   deepseekTelegramMessages,
 } from '@/lib/business/deepseek-telegram';
+import { findInstagramCreators } from '@/lib/business/instagram-finder.server';
+import { instagramGraphConfig } from '@/lib/business/instagram-graph.server';
+import {
+  INSTAGRAM_COMMAND,
+  INSTAGRAM_TELEGRAM_AI_TIMEOUT_MS,
+  INSTAGRAM_TELEGRAM_BUDGET_MS,
+  INSTAGRAM_USAGE,
+  instagramFrame,
+  instagramTelegramMessages,
+  parseInstagramCommand,
+} from '@/lib/business/instagram-telegram';
 import { enforceRateLimit } from '@/lib/business/rate-limit.server';
 import { readJsonLimited } from '@/lib/business/request-body.server';
 import { ensureReferralCode } from '@/lib/business/rewards.server';
@@ -52,6 +64,7 @@ import {
   withLiveStatus,
   withSkynetScan,
 } from '@/lib/business/telegram-progress.server';
+import { InstagramFinderRequestSchema } from '@/lib/contracts/instagram-finder';
 import { SKYNET_CHAT_MAX_QUESTION, SKYNET_CHAT_SUGGESTIONS } from '@/lib/contracts/skynet-chat';
 import { prisma } from '@/lib/db';
 import { env } from '@/lib/env';
@@ -426,6 +439,52 @@ async function handleUpdate(
     );
     const [first, ...rest] = deepseekTelegramMessages(outcome);
     const format = { parseMode: 'HTML', disableWebPagePreview: true } as const;
+    await finishProgress(chatId, messageId, first ?? '…', format);
+    for (const part of rest) await sendTelegramMessage(chatId, part, format);
+    return;
+  }
+
+  // /ig <descrizione> (alias /instagram) → «Trova creator Instagram», come /admin/instagram-finder:
+  // stesso gate di /deepseek (solo chat privata dell'owner, altrimenti silenzio), stesso limite.
+  const instagram = INSTAGRAM_COMMAND.exec(text);
+  if (instagram) {
+    if (chatType !== 'private') return;
+    if (!(await checkTelegramOwner(chatId, username)).owner) return;
+    const parsed = InstagramFinderRequestSchema.safeParse(
+      parseInstagramCommand((instagram[1] ?? '').trim()),
+    );
+    if (!instagram[1]?.trim() || !parsed.success) {
+      await sendTelegramMessage(chatId, INSTAGRAM_USAGE, { parseMode: 'HTML' });
+      return;
+    }
+    const config = instagramGraphConfig();
+    const format = { parseMode: 'HTML', disableWebPagePreview: true } as const;
+    if (!config) {
+      const [message] = instagramTelegramMessages({ ok: false, error: 'not_configured' });
+      await sendTelegramMessage(chatId, message ?? '❌ Instagram non è collegato.', format);
+      return;
+    }
+    const limited = await enforceRateLimit('admin.instagram-finder', `tg:${chatId}`);
+    if (limited) {
+      await sendTelegramMessage(chatId, 'Troppe ricerche Instagram di fila: riprova tra poco.');
+      return;
+    }
+    const { value: outcome, messageId } = await withLiveStatus(
+      chatId,
+      () =>
+        findInstagramCreators(parsed.data, config, {
+          ...process.env,
+          INSTAGRAM_FINDER_BUDGET_MS: String(INSTAGRAM_TELEGRAM_BUDGET_MS),
+          INSTAGRAM_FINDER_AI_TIMEOUT_MS: String(INSTAGRAM_TELEGRAM_AI_TIMEOUT_MS),
+        }),
+      {
+        frame: instagramFrame,
+        waitingText: '📸 Cerco creator su Instagram…',
+        action: 'typing',
+        parseMode: 'HTML',
+      },
+    );
+    const [first, ...rest] = instagramTelegramMessages(outcome);
     await finishProgress(chatId, messageId, first ?? '…', format);
     for (const part of rest) await sendTelegramMessage(chatId, part, format);
     return;

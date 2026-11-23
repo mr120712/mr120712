@@ -31,6 +31,13 @@ export const MAX_HASHTAGS = 5;
 export const MAX_CANDIDATES = 30;
 const DISCOVERY_CONCURRENCY = 5;
 const AI_TIMEOUT_MS = 25_000;
+/** Tempo totale della ricerca (la route ha maxDuration 90; il bot Telegram ne passa uno più corto). */
+const DEFAULT_BUDGET_MS = 80_000;
+
+function envMs(value: string | undefined, fallback: number, min: number, max: number) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.min(max, Math.max(min, parsed)) : fallback;
+}
 
 // ---------------------------------------------------------------- AI (Riserva AI, JSON)
 
@@ -56,6 +63,7 @@ async function askJson(
   env: Env,
   fetchImpl: FetchLike,
 ): Promise<unknown> {
+  const aiTimeout = envMs(env.INSTAGRAM_FINDER_AI_TIMEOUT_MS, AI_TIMEOUT_MS, 8_000, 40_000);
   const providers =
     env.INSTAGRAM_FINDER_PROVIDERS?.trim() ||
     env.DEEPSEEK_SOLCO_PROVIDERS?.trim() ||
@@ -74,8 +82,8 @@ async function askJson(
       {
         ...env,
         AI_RESERVE_PROVIDERS: providers,
-        AI_RESERVE_CHAIN_BUDGET_MS: String(AI_TIMEOUT_MS),
-        AI_RESERVE_ATTEMPT_TIMEOUT_MS: String(AI_TIMEOUT_MS - 3_000),
+        AI_RESERVE_CHAIN_BUDGET_MS: String(aiTimeout),
+        AI_RESERVE_ATTEMPT_TIMEOUT_MS: String(aiTimeout - 3_000),
       },
       fetchImpl,
     );
@@ -264,6 +272,10 @@ export async function findInstagramCreators(
   now: Date = new Date(),
 ): Promise<InstagramFinderOutcome> {
   const warnings: string[] = [];
+  // Ogni fase parte solo se resta tempo: meglio un risultato parziale che una risposta persa.
+  const startedAt = Date.now();
+  const budget = envMs(env.INSTAGRAM_FINDER_BUDGET_MS, DEFAULT_BUDGET_MS, 20_000, 85_000);
+  const timeLeft = (share: number) => Date.now() - startedAt < budget * share;
   const { plan, ai: aiPlanned } = await makePlan(request, env, fetchImpl);
   if (!aiPlanned)
     warnings.push('AI non disponibile: hashtag ricavati dalle parole della richiesta.');
@@ -277,6 +289,10 @@ export async function findInstagramCreators(
   // indicati, e Business Discovery (senza quella revisione) li verifica.
   const hashtagSearchOff = /^(off|0|false|no)$/i.test(env.INSTAGRAM_HASHTAG_SEARCH?.trim() ?? '');
   for (const tag of hashtagSearchOff ? [] : plan.hashtags) {
+    if (!timeLeft(0.45)) {
+      warnings.push(`Tempo esaurito: hashtag non cercati da #${tag} in poi.`);
+      break;
+    }
     try {
       const id = await hashtagId(config, tag, fetchImpl);
       if (!id) {
@@ -342,7 +358,7 @@ export async function findInstagramCreators(
   }
   // Pochi candidati dagli hashtag (o hashtag non disponibili): l'AI propone account pubblici;
   // Business Discovery scarta quelli inventati o personali, quindi restano solo profili reali.
-  if (via.size < 10) {
+  if (via.size < 10 && timeLeft(0.6)) {
     for (const name of await suggestUsernames(request.brief, env, fetchImpl)) {
       if (via.size >= MAX_CANDIDATES) break;
       if (!via.has(name)) via.set(name, new Set(['suggerito AI']));
@@ -351,8 +367,13 @@ export async function findInstagramCreators(
   const candidates = [...via.keys()].slice(0, MAX_CANDIDATES);
 
   let discoveryError: InstagramGraphError | null = null;
+  let outOfTime = false;
   const profiles = await mapLimited(candidates, DISCOVERY_CONCURRENCY, async (name) => {
     if (discoveryError) return null;
+    if (!timeLeft(0.85)) {
+      outOfTime = true;
+      return null;
+    }
     try {
       return await businessDiscovery(config, name, fetchImpl);
     } catch (error) {
@@ -375,6 +396,7 @@ export async function findInstagramCreators(
     warnings.push(`Business Discovery interrotta: ${message}`);
   }
 
+  if (outOfTime) warnings.push('Tempo esaurito: alcuni profili non sono stati controllati.');
   const keywordCount = plan.keywords.length;
   let creators: InstagramCreator[] = profiles.flatMap((profile, index) => {
     if (!profile) return [];
@@ -409,7 +431,9 @@ export async function findInstagramCreators(
 
   // 4. Riordino dell'AI (con motivo); se non risponde resta il punteggio calcolato.
   let aiRanked = false;
-  if (creators.length > 0) {
+  if (creators.length > 0 && !timeLeft(0.75)) {
+    warnings.push("Tempo esaurito: ordine calcolato senza il riordino dell'AI.");
+  } else if (creators.length > 0) {
     const compact = creators.map((creator) => ({
       username: creator.username,
       bio: creator.biography?.slice(0, 200) ?? '',
