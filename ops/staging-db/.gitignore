@@ -1,0 +1,4 @@
+# Nothing persistent belongs in git — all state lives on the VPS.
+.env
+tls/
+pgdata/
