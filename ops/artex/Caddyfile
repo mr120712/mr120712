@@ -22,7 +22,7 @@
 	}
 }
 
-5-222-15-32.sslip.io {
+{$ARTEX_PUBLIC_HOST} {
 	encode gzip
 	header -Server
 

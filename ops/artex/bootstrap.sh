@@ -179,7 +179,7 @@ sed "s|\${ARTEX_TARGET_HOST}|$ARTEX_TARGET_HOST|g" scope.json.template > scope.j
 say "Starting the stack…"
 docker compose up -d --build
 
-PUBLIC_HOST="${ARTEX_PUBLIC_HOST:-5-222-15-32.sslip.io}"
+PUBLIC_HOST="${ARTEX_PUBLIC_HOST:-artex.solcomusic.online}"
 
 cat <<EOF
 

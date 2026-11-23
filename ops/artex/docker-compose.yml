@@ -77,13 +77,15 @@ services:
 
   caddy:
     # Public-facing TLS reverse proxy. Fetches a free Let's Encrypt cert for
-    # the sslip.io hostname encoding the VPS IPv4 (5-222-15-32.sslip.io) and
+    # the ARTEX_PUBLIC_HOST (A record on Vercel DNS → this VPS) and reverse
     # proxies to ARTEX's loopback port. ARTEX's own JWT auth gates every API
     # call; Caddy adds only TLS and reachability.
     image: caddy:2-alpine
     container_name: artex-caddy
     depends_on:
       - artex
+    environment:
+      ARTEX_PUBLIC_HOST: ${ARTEX_PUBLIC_HOST:?set ARTEX_PUBLIC_HOST in .env}
     ports:
       - "0.0.0.0:80:80"
       - "0.0.0.0:443:443"
