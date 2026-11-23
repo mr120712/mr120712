@@ -1,0 +1,40 @@
+{
+  "_comment": "Scope seed — the single staging host ARTEX is allowed to touch. bootstrap.sh substitutes ${ARTEX_TARGET_HOST}; do not hand-edit scope.json directly. The ARTEX UI will let you add assets; don't. If the preview URL changes, re-run `bootstrap.sh --rescope`.",
+  "project_name": "Solco staging preview (authorized self-test)",
+  "owner": "mr120712",
+  "authorization_note": "Owner-authorized security self-test. Scope is the single staging preview host below. No production hosts, no third-party hosts.",
+  "assets": [
+    {
+      "kind": "host",
+      "value": "${ARTEX_TARGET_HOST}",
+      "note": "The one and only staging preview of Solco. Any asset outside this value must be rejected."
+    }
+  ],
+  "deny": [
+    {
+      "kind": "host_pattern",
+      "value": "solcomusic.online",
+      "note": "Production — never."
+    },
+    {
+      "kind": "host_pattern",
+      "value": "www.solcomusic.online",
+      "note": "Production — never."
+    },
+    {
+      "kind": "host_pattern",
+      "value": "*.hf.space",
+      "note": "Hugging Face Spaces aren't ours."
+    },
+    {
+      "kind": "host_pattern",
+      "value": "*.vercel.app",
+      "note": "All other Vercel previews belong to other projects / other people."
+    }
+  ],
+  "rules_of_engagement": [
+    "Read-only by default. Any tool that writes to the target (POST/PUT/PATCH/DELETE) requires approval.",
+    "No credential bruteforcing. No DoS. No exploit of third-party services the target calls.",
+    "If a finding touches another host (CDN, auth provider, analytics), stop and report — don't test it."
+  ]
+}

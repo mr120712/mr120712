@@ -1,0 +1,7 @@
+# Nothing here belongs in git except the templates and the script.
+.env
+scope.json
+artex-src/
+data/
+keys/
+pgdata/
