@@ -675,11 +675,17 @@ const DEEPSEEK_COMMAND = {
 } as const;
 
 /** Comandi mostrati agli owner (le chat in SKYNET_TELEGRAM_CHAT_IDS): i pubblici + /video, /skynet, /deepseek. */
+const INSTAGRAM_COMMAND = {
+  command: 'ig',
+  description: '📸 Trova creator Instagram',
+} as const;
+
 export const TELEGRAM_OWNER_COMMANDS = [
   ...TELEGRAM_BOT_COMMANDS,
   VIDEO_COMMAND,
   SKYNET_COMMAND,
   DEEPSEEK_COMMAND,
+  INSTAGRAM_COMMAND,
 ] as const;
 
 /**

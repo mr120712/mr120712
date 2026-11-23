@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/api-client', () => ({ apiFetch: vi.fn(async () => ({})) }));
 vi.mock('next/navigation', () => ({ usePathname: () => '/login' }));
-vi.mock('@/components/custom/music/youtube-queue-player', () => ({
+vi.mock('@/lib/music/youtube-iframe-api', () => ({
   loadYouTubeIframeApi: () => new Promise(() => undefined),
 }));
 
