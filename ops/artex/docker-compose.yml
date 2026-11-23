@@ -39,10 +39,19 @@ services:
       postgres:
         condition: service_healthy
     environment:
+      # ARTEX v0.7.0 reads only ARTEX_PG_DSN from env (component ARTEX_PG_HOST/
+      # USER/PASSWORD/DBNAME vars landed on main, post-release). Build the DSN
+      # inline from the Postgres credentials. The password must be URL-safe
+      # (no / ? % @ : # or space); bootstrap.sh generates a random URL-safe
+      # password by default, so this is fine. If a human-typed password trips
+      # it, either regenerate with bootstrap.sh --reset-pass or URL-encode here.
+      ARTEX_PG_DSN: postgres://${POSTGRES_USER:-artex}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-artex}?sslmode=disable
+      # Component vars are still passed for forward compatibility with ARTEX
+      # releases that read them. On v0.7.0 they're a no-op.
       ARTEX_PG_HOST: postgres
       ARTEX_PG_PORT: "5432"
       ARTEX_PG_USER: ${POSTGRES_USER:-artex}
-      ARTEX_PG_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      ARTEX_PG_PASSWORD: ${POSTGRES_PASSWORD}
       ARTEX_PG_DBNAME: ${POSTGRES_DB:-artex}
       ARTEX_PG_SSLMODE: disable
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}

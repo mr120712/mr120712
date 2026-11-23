@@ -127,8 +127,15 @@ if [ "$RESCOPE_ONLY" = 0 ]; then
     solcomusic.online|www.solcomusic.online) die "That's production. Pick a staging preview host." ;;
   esac
 
-  NEW_PG=$(prompt "Postgres password" "${POSTGRES_PASSWORD:-change-me-please}")
-  [ "$NEW_PG" != "change-me-please" ] || warn "You kept the default Postgres password. Change it before any multi-user exposure."
+  # ARTEX's internal Postgres: never exposed on the host, never seen by a human.
+  # Auto-generate a URL-safe password so the compose file's inline
+  # ARTEX_PG_DSN never hits a / ? % @ : # or space.
+  if [ -z "${POSTGRES_PASSWORD:-}" ] || [ "${POSTGRES_PASSWORD}" = "change-me-please" ]; then
+    NEW_PG="$(openssl rand -base64 48 | tr -d '/+=' | head -c 40)"
+    say "Generated a random Postgres password (internal to the ARTEX stack; never leaves the VPS)."
+  else
+    NEW_PG="$POSTGRES_PASSWORD"
+  fi
 
   NEW_LLM_PROVIDER=$(prompt "LLM provider (anthropic/openai)" "${ARTEX_LLM_PROVIDER:-anthropic}")
   case "$NEW_LLM_PROVIDER" in
