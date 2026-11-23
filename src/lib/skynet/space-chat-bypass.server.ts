@@ -20,6 +20,22 @@ const TIMEOUT_MS = 8_000;
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 export type BypassAccess = { token: string; projectId: string; teamId: string | null };
 export type BypassOutcome = 'present' | 'created' | 'conflict' | 'failed';
+export type BypassResult = { outcome: BypassOutcome; detail?: string };
+
+/** «GET 403 forbidden: …» in una riga corta, senza nulla che somigli al token. */
+async function failure(step: string, response: Response, token: string): Promise<BypassResult> {
+  const text = await response.text().catch(() => '');
+  let reason = text;
+  try {
+    const body = JSON.parse(text) as { error?: { code?: unknown; message?: unknown } };
+    if (body.error)
+      reason = `${String(body.error.code ?? '')}: ${String(body.error.message ?? '')}`;
+  } catch {
+    // non JSON: il testo così com'è
+  }
+  const clean = reason.split(token).join('***').replace(/\s+/g, ' ').slice(0, 200);
+  return { outcome: 'failed', detail: `${step} ${response.status} ${clean}`.trim() };
+}
 
 function query(access: BypassAccess, domain?: string) {
   const params = new URLSearchParams({ projectId: access.projectId });
@@ -55,7 +71,7 @@ export async function ensureSpaceChatBypass(
   access: BypassAccess,
   fetchImpl: FetchLike = (input, init) => fetch(input, init),
   domain: string = SPACE_CHAT_BYPASS_DOMAIN,
-): Promise<BypassOutcome> {
+): Promise<BypassResult> {
   const headers = {
     Authorization: `Bearer ${access.token}`,
     Accept: 'application/json',
@@ -68,11 +84,10 @@ export async function ensureSpaceChatBypass(
     );
     if (current.ok) {
       const state = bypassState(await current.json().catch(() => null), domain);
-      if (state === 'ours') return 'present';
-      if (state === 'other') return 'conflict';
+      if (state === 'ours') return { outcome: 'present' };
+      if (state === 'other') return { outcome: 'conflict' };
     } else if (current.status !== 404) {
-      await current.body?.cancel().catch(() => {});
-      return 'failed';
+      return failure('GET', current, access.token);
     } else {
       await current.body?.cancel().catch(() => {});
     }
@@ -92,9 +107,10 @@ export async function ensureSpaceChatBypass(
         }),
       },
     );
+    if (!created.ok) return failure('POST', created, access.token);
     await created.body?.cancel().catch(() => {});
-    return created.ok ? 'created' : 'failed';
-  } catch {
-    return 'failed';
+    return { outcome: 'created' };
+  } catch (error) {
+    return { outcome: 'failed', detail: error instanceof Error ? error.name : 'network' };
   }
 }
