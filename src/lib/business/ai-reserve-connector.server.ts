@@ -17,10 +17,18 @@ import { timingSafeEqual } from 'node:crypto';
 
 /** Base URL OpenAI-compatibile di Groq (stesso host già usato da solco_ai per Whisper). */
 export const GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
-/** Modello di default di Groq quando il chiamante chiede "auto" o non specifica nulla. */
-export const DEFAULT_RESERVE_MODEL = 'llama-3.3-70b-versatile';
-/** Modello di ripiego di Groq se il primario è stato ritirato (HTTP 400/404 lato upstream). */
-export const FALLBACK_RESERVE_MODEL = 'llama-3.1-8b-instant';
+/**
+ * Modello di default di Groq quando il chiamante chiede "auto" o non specifica nulla.
+ * Nov 2026: Groq ha ritirato la famiglia Llama 3.x; l'allegato di default ora è gpt-oss-120b,
+ * un modello OpenAI open-weight a 131k di contesto su LPU. Sovrascrivibile via
+ * GROQ_CHAT_MODEL / AI_RESERVE_MODEL quando la disponibilità cambia.
+ */
+export const DEFAULT_RESERVE_MODEL = 'openai/gpt-oss-120b';
+/**
+ * Modello di ripiego di Groq se il primario sparisce (HTTP 400/404 lato upstream). gpt-oss-20b è
+ * la versione 20B della stessa famiglia: più veloce/più economica, utile quando il 120b è saturo.
+ */
+export const FALLBACK_RESERVE_MODEL = 'openai/gpt-oss-20b';
 /**
  * Budget dell'INTERA catena di failover di una chat (tutti i provider e modelli insieme): sotto il
  * limite della route che chiama (maxDuration = 60), così Vercel non taglia la richiesta a metà.
