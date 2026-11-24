@@ -221,7 +221,7 @@ const ActivityPage = z.object({
 export type ArtexChatOutcome =
   | { status: 'ok'; reply: string; conversationId: number }
   | { status: 'not_configured' }
-  | { status: 'failed'; error: string; detail?: string };
+  | { status: 'failed'; error: string; detail?: string; conversationId?: number };
 
 export type AskArtexOptions = {
   agentKey?: string;
@@ -229,6 +229,18 @@ export type AskArtexOptions = {
   timeoutMs?: number;
   /** Interval between poll calls. Faster = more CPU + chattier logs. */
   pollIntervalMs?: number;
+  /**
+   * Continue an existing ARTEX conversation instead of opening a fresh one. When passed, askArtex
+   * skips `POST /api/conversations` and sends the message straight to that conversation id.
+   */
+  conversationId?: number;
+  /**
+   * Called on each poll tick with the latest assistant text seen so far AND whether ARTEX is still
+   * running. Lets the caller stream the reply to the user as it's written (e.g. by editing a
+   * Telegram message). Errors thrown here are swallowed — a broken progress sink never breaks the
+   * chat itself. The final value is still delivered via the function's return.
+   */
+  onProgress?: (partial: string, running: boolean) => void | Promise<void>;
 };
 
 /**
@@ -251,21 +263,26 @@ export async function askArtex(
   const timeoutMs = options.timeoutMs ?? 50_000;
   const pollIntervalMs = options.pollIntervalMs ?? 2_000;
   const deadline = Date.now() + timeoutMs;
+  const onProgress = options.onProgress;
 
   try {
-    // 1. Create a conversation bound to the chat agent.
-    const conv = await authed(
-      config,
-      '/api/conversations',
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ agent_key: agentKey, title: 'Telegram /artex' }),
-      },
-      (body) => ConversationCreated.safeParse(body).data ?? null,
-      fetchImpl,
-      15_000,
-    );
+    // 1. Create a conversation bound to the chat agent — unless the caller wants to continue an
+    //    existing one. Reusing a conversation lets the agent see earlier turns in the same thread
+    //    (Telegram reply-to), so follow-up questions have context.
+    const conv = options.conversationId
+      ? { id: options.conversationId }
+      : await authed(
+          config,
+          '/api/conversations',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ agent_key: agentKey, title: 'Telegram /artex' }),
+          },
+          (body) => ConversationCreated.safeParse(body).data ?? null,
+          fetchImpl,
+          15_000,
+        );
 
     // 2. Send the question. ARTEX returns immediately; the agent runs async.
     await authed(
@@ -299,6 +316,7 @@ export async function askArtex(
       );
       cursor = page.cursor;
       running = page.running;
+      let changed = false;
       for (const item of page.items) {
         if (item.worker === 'user') continue;
         if (item.kind !== 'text' && item.kind !== 'result') continue;
@@ -306,8 +324,18 @@ export async function askArtex(
         if (!text) continue;
         // A later 'result' always wins; otherwise keep the latest 'text'.
         if (item.kind === 'result' || lastKind !== 'result') {
+          if (text !== lastAssistantText) changed = true;
           lastAssistantText = text;
           lastKind = item.kind;
+        }
+      }
+      // Stream: fire the sink when there's new text to show (or when the run ended, so the caller
+      // can swap a 'thinking…' placeholder for the final answer). Errors are swallowed.
+      if (onProgress && (changed || !running) && lastAssistantText) {
+        try {
+          await onProgress(lastAssistantText, running);
+        } catch {
+          /* progress sink is best-effort */
         }
       }
       if (!running) break;
@@ -320,10 +348,16 @@ export async function askArtex(
         status: 'failed',
         error: 'still_running',
         detail: `conversation ${conv.id}`,
+        conversationId: conv.id,
       };
     }
     if (!lastAssistantText) {
-      return { status: 'failed', error: 'empty_reply', detail: `conversation ${conv.id}` };
+      return {
+        status: 'failed',
+        error: 'empty_reply',
+        detail: `conversation ${conv.id}`,
+        conversationId: conv.id,
+      };
     }
     return { status: 'ok', reply: lastAssistantText, conversationId: conv.id };
   } catch (err) {
@@ -331,6 +365,49 @@ export async function askArtex(
     if (message === 'unauthorized' || message.startsWith('login_')) {
       return { status: 'failed', error: 'unauthorized', detail: message };
     }
+    return { status: 'failed', error: 'unreachable', detail: message };
+  }
+}
+
+// ---------------------------------------------------------------- task control
+
+const TaskControlResponse = z.object({}).passthrough();
+
+export type ArtexTaskControlOutcome =
+  | { status: 'ok' }
+  | { status: 'not_configured' }
+  | { status: 'failed'; error: string; detail?: string };
+
+/** Pauses an ARTEX task via `POST /api/tasks/{id}/control` with `{action:"pause"}`. */
+export async function artexPauseTask(
+  taskId: string | number,
+  env: Env = process.env,
+  fetchImpl: typeof fetch = fetch,
+): Promise<ArtexTaskControlOutcome> {
+  const config = artexConfig(env);
+  if (!config) return { status: 'not_configured' };
+  const id = String(taskId).trim();
+  if (!/^\d+$/.test(id)) return { status: 'failed', error: 'bad_id' };
+  try {
+    await authed(
+      config,
+      `/api/tasks/${id}/control`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'pause' }),
+      },
+      (body) => TaskControlResponse.safeParse(body).data ?? null,
+      fetchImpl,
+      15_000,
+    );
+    return { status: 'ok' };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'unknown';
+    if (message === 'unauthorized' || message.startsWith('login_')) {
+      return { status: 'failed', error: 'unauthorized', detail: message };
+    }
+    if (message === 'http_404') return { status: 'failed', error: 'not_found', detail: id };
     return { status: 'failed', error: 'unreachable', detail: message };
   }
 }

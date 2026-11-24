@@ -332,4 +332,182 @@ describe('askArtex', () => {
     expect(outcome.status).toBe('failed');
     if (outcome.status === 'failed') expect(outcome.error).toBe('unreachable');
   });
+
+  it('conversationId option skips POST /api/conversations and reuses the id', async () => {
+    const { fetchMock } = script({
+      convId: 77,
+      pages: [
+        {
+          items: [{ seq: 1, worker: 'auto', kind: 'result', summary: 'answer', detail: '' }],
+          cursor: 1,
+          running: false,
+        },
+      ],
+    });
+    const outcome = await askArtex(
+      'follow-up',
+      { ARTEX_URL: URL_OK, ARTEX_PASSWORD: PASS },
+      fetchMock as unknown as typeof fetch,
+      { pollIntervalMs: 1, timeoutMs: 5_000, conversationId: 77 },
+    );
+    if (outcome.status !== 'ok') throw new Error(`bad: ${JSON.stringify(outcome)}`);
+    expect(outcome.conversationId).toBe(77);
+    // Crucially: no POST to /api/conversations.
+    const create = fetchMock.mock.calls.find(
+      ([u, init]) =>
+        String(u).endsWith('/api/conversations') &&
+        (init as RequestInit | undefined)?.method === 'POST',
+    );
+    expect(create).toBeUndefined();
+  });
+
+  it('onProgress is called with the latest assistant text as polling advances', async () => {
+    const { fetchMock } = script({
+      pages: [
+        {
+          items: [{ seq: 1, worker: 'auto', kind: 'text', summary: 'partial 1', detail: '' }],
+          cursor: 1,
+          running: true,
+        },
+        {
+          items: [{ seq: 2, worker: 'auto', kind: 'text', summary: 'partial 2', detail: '' }],
+          cursor: 2,
+          running: true,
+        },
+        {
+          items: [{ seq: 3, worker: 'auto', kind: 'result', summary: 'final', detail: '' }],
+          cursor: 3,
+          running: false,
+        },
+      ],
+    });
+    const calls: Array<{ text: string; running: boolean }> = [];
+    const outcome = await askArtex(
+      'q',
+      { ARTEX_URL: URL_OK, ARTEX_PASSWORD: PASS },
+      fetchMock as unknown as typeof fetch,
+      {
+        pollIntervalMs: 1,
+        timeoutMs: 5_000,
+        onProgress: (text, running) => {
+          calls.push({ text, running });
+        },
+      },
+    );
+    if (outcome.status !== 'ok') throw new Error(`bad: ${JSON.stringify(outcome)}`);
+    expect(calls.length).toBeGreaterThanOrEqual(2);
+    expect(calls[calls.length - 1]).toEqual({ text: 'final', running: false });
+    expect(calls.some((c) => c.text === 'partial 1')).toBe(true);
+  });
+
+  it('onProgress errors do not break the chat', async () => {
+    const { fetchMock } = script({
+      pages: [
+        {
+          items: [{ seq: 1, worker: 'auto', kind: 'result', summary: 'pong', detail: '' }],
+          cursor: 1,
+          running: false,
+        },
+      ],
+    });
+    const outcome = await askArtex(
+      'q',
+      { ARTEX_URL: URL_OK, ARTEX_PASSWORD: PASS },
+      fetchMock as unknown as typeof fetch,
+      {
+        pollIntervalMs: 1,
+        timeoutMs: 5_000,
+        onProgress: () => {
+          throw new Error('boom');
+        },
+      },
+    );
+    if (outcome.status !== 'ok') throw new Error(`bad: ${JSON.stringify(outcome)}`);
+    expect(outcome.reply).toBe('pong');
+  });
+
+  it('still_running and empty_reply carry the conversationId so Telegram can thread', async () => {
+    // still_running: never reaches running=false (we use a very small timeoutMs so the loop exits first)
+    const stillFetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/api/auth/login')) return jsonRes({ token: 't'.repeat(32) });
+      if (u.endsWith('/api/conversations')) return jsonRes({ id: 500, agent_key: 'auto' });
+      if (u.endsWith('/api/conversations/500/messages') && init?.method === 'POST') {
+        return jsonRes({ ok: true });
+      }
+      if (u.includes('/api/conversations/500/messages?since='))
+        return jsonRes({ items: [], cursor: 0, running: true });
+      throw new Error(`unexpected ${u}`);
+    });
+    const stillOutcome = await askArtex(
+      'q',
+      { ARTEX_URL: URL_OK, ARTEX_PASSWORD: PASS },
+      stillFetch as unknown as typeof fetch,
+      { pollIntervalMs: 1, timeoutMs: 50 },
+    );
+    expect(stillOutcome.status).toBe('failed');
+    if (stillOutcome.status === 'failed') {
+      expect(stillOutcome.error).toBe('still_running');
+      expect(stillOutcome.conversationId).toBe(500);
+    }
+  });
+});
+
+describe('artexPauseTask', () => {
+  beforeEach(() => _resetArtexAuth());
+  afterEach(() => vi.restoreAllMocks());
+
+  it('POSTs {action:"pause"} to /api/tasks/{id}/control and returns ok', async () => {
+    const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/api/auth/login')) return jsonRes({ token: 't'.repeat(32) });
+      if (u.endsWith('/api/tasks/7/control')) {
+        expect(init?.method).toBe('POST');
+        expect(JSON.parse(String(init?.body))).toEqual({ action: 'pause' });
+        return jsonRes({ ok: true });
+      }
+      throw new Error(`unexpected ${u}`);
+    });
+    const { artexPauseTask } = await import('@/lib/business/artex-client.server');
+    const out = await artexPauseTask(
+      7,
+      { ARTEX_URL: URL_OK, ARTEX_PASSWORD: PASS },
+      fetchMock as unknown as typeof fetch,
+    );
+    expect(out).toEqual({ status: 'ok' });
+  });
+
+  it('bad id (not digits) is rejected without calling the server', async () => {
+    const fetchMock = vi.fn(async () => jsonRes({}));
+    const { artexPauseTask } = await import('@/lib/business/artex-client.server');
+    const out = await artexPauseTask(
+      'abc',
+      { ARTEX_URL: URL_OK, ARTEX_PASSWORD: PASS },
+      fetchMock as unknown as typeof fetch,
+    );
+    expect(out).toEqual({ status: 'failed', error: 'bad_id' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('http_404 maps to not_found', async () => {
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      const u = String(url);
+      if (u.endsWith('/api/auth/login')) return jsonRes({ token: 't'.repeat(32) });
+      return new Response('nope', { status: 404 });
+    });
+    const { artexPauseTask } = await import('@/lib/business/artex-client.server');
+    const out = await artexPauseTask(
+      99,
+      { ARTEX_URL: URL_OK, ARTEX_PASSWORD: PASS },
+      fetchMock as unknown as typeof fetch,
+    );
+    expect(out.status).toBe('failed');
+    if (out.status === 'failed') expect(out.error).toBe('not_found');
+  });
+
+  it('not configured returns a clean sentinel', async () => {
+    const { artexPauseTask } = await import('@/lib/business/artex-client.server');
+    const out = await artexPauseTask(1, {}, vi.fn() as unknown as typeof fetch);
+    expect(out).toEqual({ status: 'not_configured' });
+  });
 });

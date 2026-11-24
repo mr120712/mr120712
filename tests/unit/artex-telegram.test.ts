@@ -4,7 +4,10 @@ import {
   ARTEX_COMMAND,
   ARTEX_TELEGRAM_CHUNK,
   artexChatMessages,
+  artexChatStreamingFrame,
+  artexStopMessages,
   artexTelegramMessages,
+  extractArtexConversationId,
   parseArtexCommand,
 } from '@/lib/business/artex-telegram';
 
@@ -48,6 +51,63 @@ describe('parseArtexCommand', () => {
   it('ask with no question nudges back to help instead of sending an empty prompt', () => {
     expect(parseArtexCommand('ask')).toEqual({ kind: 'help' });
     expect(parseArtexCommand('ask   ')).toEqual({ kind: 'help' });
+  });
+
+  it('stop/ferma/pausa require a numeric id', () => {
+    expect(parseArtexCommand('stop 42')).toEqual({ kind: 'stop', taskId: '42' });
+    expect(parseArtexCommand('FERMA 7 rest ignored')).toEqual({ kind: 'stop', taskId: '7' });
+    expect(parseArtexCommand('pausa 1')).toEqual({ kind: 'stop', taskId: '1' });
+    expect(parseArtexCommand('stop')).toEqual({ kind: 'help' });
+    expect(parseArtexCommand('stop abc')).toEqual({ kind: 'help' });
+  });
+});
+
+describe('extractArtexConversationId', () => {
+  it('parses the conversation footer we embed in ARTEX replies', () => {
+    expect(extractArtexConversationId('🛡️ ARTEX\npong\n\n· conversazione #42 ·')).toBe(42);
+    expect(extractArtexConversationId('something conversazione #7 trailing')).toBe(7);
+    expect(extractArtexConversationId('conv. #3')).toBe(3);
+  });
+
+  it('returns null for unrelated or empty text', () => {
+    expect(extractArtexConversationId(null)).toBeNull();
+    expect(extractArtexConversationId('')).toBeNull();
+    expect(extractArtexConversationId('ciao')).toBeNull();
+    expect(extractArtexConversationId('conversazione senza numero')).toBeNull();
+  });
+});
+
+describe('artexStopMessages', () => {
+  it('ok reports the paused task id', () => {
+    const [msg] = artexStopMessages({ status: 'ok' }, 7);
+    expect(msg).toContain('#7');
+    expect(msg).toContain('pausa');
+  });
+
+  it('not_found is explicit', () => {
+    const [msg] = artexStopMessages({ status: 'failed', error: 'not_found' }, '99');
+    expect(msg).toContain('99');
+    expect(msg).toContain('Nessun task');
+  });
+
+  it('bad_id tells the user to use a number', () => {
+    const [msg] = artexStopMessages({ status: 'failed', error: 'bad_id' }, 'abc');
+    expect(msg).toContain('numero');
+  });
+});
+
+describe('artexChatStreamingFrame', () => {
+  it('wraps a partial answer with the thinking footer and escapes html', () => {
+    const frame = artexChatStreamingFrame('hello <there>');
+    expect(frame).toContain('🛡️ <b>ARTEX</b>');
+    expect(frame).toContain('hello &lt;there&gt;');
+    expect(frame).toContain('in corso');
+  });
+
+  it('keeps the frame under the Telegram chunk even on a long partial', () => {
+    const blob = 'x'.repeat(ARTEX_TELEGRAM_CHUNK * 2);
+    const frame = artexChatStreamingFrame(blob);
+    expect(frame.length).toBeLessThanOrEqual(ARTEX_TELEGRAM_CHUNK + 100);
   });
 });
 
@@ -155,5 +215,32 @@ describe('artexChatMessages', () => {
     expect(artexChatMessages({ status: 'failed', error: 'empty_question' })[0]).toContain(
       'domanda è vuota',
     );
+  });
+
+  it('ok ends with the conversation footer on the LAST chunk only', () => {
+    const [onePart] = artexChatMessages({ status: 'ok', reply: 'short', conversationId: 42 });
+    expect(onePart).toContain('conversazione #42');
+
+    // Multi-chunk: footer must land on the last chunk, header on the first.
+    const long = ['a'.repeat(3500), 'b'.repeat(3500)].join('\n\n');
+    const parts = artexChatMessages({ status: 'ok', reply: long, conversationId: 99 });
+    expect(parts.length).toBeGreaterThan(1);
+    expect(parts[0]).toContain('🛡️ <b>ARTEX</b>');
+    expect(parts[0]).not.toContain('conversazione #99');
+    expect(parts[parts.length - 1]).toContain('conversazione #99');
+  });
+
+  it('failed with a conversationId still carries the footer so retries thread', () => {
+    const [msg] = artexChatMessages({
+      status: 'failed',
+      error: 'still_running',
+      conversationId: 5,
+    });
+    expect(msg).toContain('conversazione #5');
+  });
+
+  it('round-trips: footer embedded on reply → parsed back out by extractArtexConversationId', () => {
+    const [sent] = artexChatMessages({ status: 'ok', reply: 'pong', conversationId: 123 });
+    expect(extractArtexConversationId(sent ?? null)).toBe(123);
   });
 });

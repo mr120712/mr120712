@@ -6,16 +6,29 @@
 // Server-safe: this module is used by the webhook handler (server-only) but
 // contains no top-level server imports (easier to test).
 
-import type { ArtexChatOutcome, ArtexOutcome, ArtexStatus } from './artex-client.server';
+import type {
+  ArtexChatOutcome,
+  ArtexOutcome,
+  ArtexStatus,
+  ArtexTaskControlOutcome,
+} from './artex-client.server';
 
 export const ARTEX_COMMAND = /^\/artex(?:@\w+)?(?:\s+([\s\S]+))?$/i;
 
 /** Max chars in a single Telegram text message (Telegram's own limit is 4096). */
 export const ARTEX_TELEGRAM_CHUNK = 3900;
 
+/**
+ * Footer tag appended to every /artex ask reply. Lets the user continue the same ARTEX
+ * conversation by using Telegram's reply-to on that message: the webhook parses this out of the
+ * reply-to text and passes it back to askArtex. Never visible as a link, just data.
+ */
+export const ARTEX_CONV_TAG = /(?:conversazione|conv\.?)\s*#(\d+)/i;
+
 export type ArtexInput =
   | { kind: 'status' }
   | { kind: 'ask'; question: string }
+  | { kind: 'stop'; taskId: string }
   | { kind: 'help' }
   | { kind: 'unknown'; subcommand: string };
 
@@ -35,16 +48,36 @@ export function parseArtexCommand(raw: string): ArtexInput {
   if (subcommand === 'ask' || subcommand === 'chiedi' || subcommand === 'chat') {
     return rest ? { kind: 'ask', question: rest } : { kind: 'help' };
   }
+  // `stop <id>` / `ferma <id>` / `pausa <id>` — pause a running task. Only digit ids pass.
+  if (subcommand === 'stop' || subcommand === 'ferma' || subcommand === 'pausa') {
+    const taskId = rest.match(/^\d+/)?.[0];
+    return taskId ? { kind: 'stop', taskId } : { kind: 'help' };
+  }
   return { kind: 'unknown', subcommand };
+}
+
+/**
+ * Pull the ARTEX conversation id out of the text of a Telegram message we replied to earlier (our
+ * own /artex ask footer, "conversazione #N"). Returns null when the text isn't one of ours.
+ */
+export function extractArtexConversationId(text: string | null | undefined): number | null {
+  if (!text) return null;
+  const match = ARTEX_CONV_TAG.exec(text);
+  if (!match) return null;
+  const n = Number.parseInt(match[1] ?? '', 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 export const ARTEX_USAGE =
   '🛡️ <b>ARTEX</b>\n' +
   'Comandi:\n' +
-  '• <code>/artex status</code> — attività e findings del tuo agente ARTEX\n' +
-  "• <code>/artex ask &lt;domanda&gt;</code> — chatta con l'agente (una domanda, una risposta)\n" +
+  '• <code>/artex status</code> — attività e findings\n' +
+  "• <code>/artex ask &lt;domanda&gt;</code> — chatta con l'agente. " +
+  'Rispondi (Telegram reply) a una risposta di ARTEX per continuare la stessa conversazione.\n' +
+  '• <code>/artex stop &lt;id&gt;</code> — metti in pausa un task in esecuzione\n' +
   '\n' +
-  "Ogni <code>/artex ask</code> apre una conversazione nuova in ARTEX: non c'è memoria fra due domande.";
+  'Lo <code>scan</code> di nuovi target non è esposto dal bot per sicurezza — crea i task ' +
+  'dalla UI ARTEX dove puoi validare lo scope.';
 
 export function artexTelegramMessages(outcome: ArtexOutcome): string[] {
   if (outcome.status === 'not_configured') {
@@ -122,16 +155,59 @@ export function artexChatMessages(outcome: ArtexChatOutcome): string[] {
               : outcome.error === 'empty_question'
                 ? 'La domanda è vuota: scrivi <code>/artex ask &lt;domanda&gt;</code>.'
                 : 'Errore sconosciuto.';
-    return [`🛡️ ARTEX: ${why}`];
+    const tag = outcome.conversationId ? convTag(outcome.conversationId) : '';
+    return [`🛡️ ARTEX: ${why}${tag}`];
   }
-  return chunkArtexChat(outcome.reply);
+  return chunkArtexChat(outcome.reply, outcome.conversationId);
 }
 
-function chunkArtexChat(reply: string): string[] {
+/** Pretty-prints the outcome of /artex stop &lt;id&gt;. */
+export function artexStopMessages(
+  outcome: ArtexTaskControlOutcome,
+  taskId: string | number,
+): string[] {
+  if (outcome.status === 'not_configured') {
+    return [
+      '🛡️ ARTEX non è collegato: imposta <code>ARTEX_URL</code> e <code>ARTEX_PASSWORD</code> su Vercel.',
+    ];
+  }
+  if (outcome.status === 'ok') {
+    return [`🛡️ ARTEX: task <b>#${escapeHtml(String(taskId))}</b> messo in pausa.`];
+  }
+  const why =
+    outcome.error === 'not_found'
+      ? `Nessun task con id <b>${escapeHtml(String(taskId))}</b>.`
+      : outcome.error === 'bad_id'
+        ? "L'id del task deve essere un numero."
+        : outcome.error === 'unauthorized'
+          ? 'Password ARTEX sbagliata o server non raggiungibile.'
+          : outcome.error === 'unreachable'
+            ? 'Non riesco a raggiungere ARTEX.'
+            : 'Errore sconosciuto.';
+  return [`🛡️ ARTEX: ${why}`];
+}
+
+/** Footer visibile in italico con l'id conversazione, parseabile via ARTEX_CONV_TAG. */
+function convTag(conversationId: number): string {
+  return `\n\n<i>· conversazione #${conversationId} · rispondi per continuare</i>`;
+}
+
+/** Composes just the header+body used for streaming updates (no conv footer). */
+export function artexChatStreamingFrame(partial: string): string {
+  const header = '🛡️ <b>ARTEX</b>\n';
+  const trimmed =
+    partial.length > ARTEX_TELEGRAM_CHUNK ? partial.slice(-ARTEX_TELEGRAM_CHUNK) : partial;
+  return `${header}${escapeHtml(trimmed)}\n<i>…in corso ✍️</i>`;
+}
+
+function chunkArtexChat(reply: string, conversationId?: number): string[] {
   const escaped = escapeHtml(reply);
   const header = '🛡️ <b>ARTEX</b>\n';
+  const footer = conversationId ? convTag(conversationId) : '';
   // One short answer fits in one message.
-  if (header.length + escaped.length <= ARTEX_TELEGRAM_CHUNK) return [header + escaped];
+  if (header.length + escaped.length + footer.length <= ARTEX_TELEGRAM_CHUNK) {
+    return [header + escaped + footer];
+  }
   // Split on blank-line paragraphs where possible, falling back to hard cuts.
   const parts: string[] = [];
   let buf = '';
@@ -156,5 +232,10 @@ function chunkArtexChat(reply: string): string[] {
     }
   }
   flush();
-  return parts.map((part, index) => (index === 0 ? header + part : part));
+  return parts.map((part, index) => {
+    const prefix = index === 0 ? header : '';
+    // Footer only on the last part so the conversation tag is near the final text.
+    const suffix = index === parts.length - 1 ? footer : '';
+    return prefix + part + suffix;
+  });
 }

@@ -10,12 +10,15 @@
 import 'server-only';
 import { timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
-import { artexStatus, askArtex } from '@/lib/business/artex-client.server';
+import { artexPauseTask, artexStatus, askArtex } from '@/lib/business/artex-client.server';
 import {
   ARTEX_COMMAND,
   ARTEX_USAGE,
   artexChatMessages,
+  artexChatStreamingFrame,
+  artexStopMessages,
   artexTelegramMessages,
+  extractArtexConversationId,
   parseArtexCommand,
 } from '@/lib/business/artex-telegram';
 import {
@@ -52,6 +55,7 @@ import { readJsonLimited } from '@/lib/business/request-body.server';
 import { ensureReferralCode } from '@/lib/business/rewards.server';
 import {
   answerTelegramCallback,
+  editTelegramMessage,
   escapeTelegramHtml,
   inviteKeyboard,
   inviteLinkForCode,
@@ -60,7 +64,9 @@ import {
   miniAppKeyboard,
   searchKeyboard,
   sendTelegramAudio,
+  sendTelegramChatAction,
   sendTelegramMessage,
+  sendTelegramMessageId,
   sendTelegramVideo,
   TELEGRAM_EFFECT_PARTY,
   TELEGRAM_EFFECT_THUMBS_UP,
@@ -149,6 +155,7 @@ async function handleUpdate(
   text: string,
   username: string | null,
   chatType: string | null,
+  replyToText: string | null = null,
 ): Promise<void> {
   // /start <token> → collega l'account al deep-link.
   const start = /^\/start(?:@\w+)?\s+(\S+)/.exec(text);
@@ -583,13 +590,63 @@ async function handleUpdate(
         await sendTelegramMessage(chatId, 'Troppe richieste ad ARTEX di fila: riprova tra poco.');
         return;
       }
-      // Cap at the Telegram route's maxDuration minus a safety margin for the
-      // reply roundtrip. Each /artex ask opens a FRESH conversation on ARTEX:
-      // no memory between calls, so the owner can't accidentally leak past
-      // chat context into a later unrelated question.
-      const outcome = await askArtex(command.question, process.env, fetch, { timeoutMs: 50_000 });
+      // Continue the same ARTEX conversation when the user is replying (Telegram reply-to) to a
+      // previous ARTEX answer — the id is in the footer we embedded there. Otherwise open fresh.
+      const conversationId = extractArtexConversationId(replyToText) ?? undefined;
+
+      // Placeholder message we'll edit as the stream arrives. If sending/getting its id fails,
+      // we fall back to the old "one final message" flow.
+      await sendTelegramChatAction(chatId, 'typing').catch(() => undefined);
+      const progressId = await sendTelegramMessageId(
+        chatId,
+        '🛡️ <b>ARTEX</b>\n<i>…sta ragionando</i>',
+        { parseMode: 'HTML' },
+      ).catch(() => null);
+
+      // Rate-limit editMessageText to ~1/sec per chat (Telegram's documented ceiling).
+      let lastEditMs = 0;
+      const outcome = await askArtex(command.question, process.env, fetch, {
+        timeoutMs: 50_000,
+        conversationId,
+        onProgress: async (partial, running) => {
+          if (progressId === null) return;
+          const now = Date.now();
+          // Always render on final (running=false) so the user sees the last chunk.
+          if (running && now - lastEditMs < 1_100) return;
+          lastEditMs = now;
+          await editTelegramMessage(chatId, progressId, artexChatStreamingFrame(partial), {
+            parseMode: 'HTML',
+          }).catch(() => undefined);
+          if (running) {
+            await sendTelegramChatAction(chatId, 'typing').catch(() => undefined);
+          }
+        },
+      });
+
       const parts = artexChatMessages(outcome);
-      for (const part of parts) await sendTelegramMessage(chatId, part, format);
+      const [first, ...rest] = parts;
+      if (progressId !== null && first) {
+        const edited = await editTelegramMessage(chatId, progressId, first, format).catch(
+          () => false,
+        );
+        if (!edited) await sendTelegramMessage(chatId, first, format);
+      } else if (first) {
+        await sendTelegramMessage(chatId, first, format);
+      }
+      for (const part of rest) await sendTelegramMessage(chatId, part, format);
+      return;
+    }
+
+    if (command.kind === 'stop') {
+      const limited = await enforceRateLimit('admin.artex', `tg:${chatId}`);
+      if (limited) {
+        await sendTelegramMessage(chatId, 'Troppe richieste ad ARTEX di fila: riprova tra poco.');
+        return;
+      }
+      const outcome = await artexPauseTask(command.taskId);
+      for (const part of artexStopMessages(outcome, command.taskId)) {
+        await sendTelegramMessage(chatId, part, format);
+      }
       return;
     }
 
@@ -643,6 +700,7 @@ export async function POST(request: Request) {
       text?: unknown;
       chat?: { id?: unknown; type?: unknown };
       from?: { username?: unknown };
+      reply_to_message?: { text?: unknown };
     };
     callback_query?: {
       id?: unknown;
@@ -689,12 +747,16 @@ export async function POST(request: Request) {
   const text = typeof message?.text === 'string' ? message.text.trim() : '';
   const username = typeof message?.from?.username === 'string' ? message.from.username : null;
   const chatType = typeof message?.chat?.type === 'string' ? message.chat.type : null;
+  // The text of a message the user quoted with Telegram's reply-to, if any. Used by /artex ask
+  // to continue the same ARTEX conversation when the user is replying to an earlier bot answer.
+  const replyToText =
+    typeof message?.reply_to_message?.text === 'string' ? message.reply_to_message.text : null;
 
   try {
     // Anti-spam per chat: oltre la soglia si scarta in silenzio (200, nessun retry di Telegram,
     // niente scritture DB né invii). Fail-open su errore del limiter.
     const limited = await enforceRateLimit('telegram.webhook', `tg:${chatId}`);
-    if (!limited) await handleUpdate(chatId, text, username, chatType);
+    if (!limited) await handleUpdate(chatId, text, username, chatType, replyToText);
   } catch {
     // Mai propagare verso Telegram.
   }
