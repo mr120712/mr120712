@@ -37,10 +37,14 @@ const message = z
 const bodySchema = z
   .object({
     model: z.string().max(200).optional(),
-    messages: z.array(message).min(1).max(100),
+    // Lunghe conversation di agent (system + molti turni + tool_result) superano i 100 messaggi:
+    // 500 copre chat di molti turni senza invitare a leak di memoria.
+    messages: z.array(message).min(1).max(500),
     temperature: z.number().min(0).max(2).optional(),
     top_p: z.number().min(0).max(1).optional(),
-    max_tokens: z.number().int().positive().max(32_000).optional(),
+    // 200k perché i reasoning model (gpt-oss-120b, o-series) spendono token interni oltre il
+    // visibile; il budget di output passato dall'agent può superare i 32k.
+    max_tokens: z.number().int().positive().max(200_000).optional(),
     response_format: z.object({ type: z.string().optional() }).passthrough().optional(),
     tools: z.array(z.object({}).passthrough()).max(128).optional(),
     tool_choice: z.union([z.string(), z.object({}).passthrough()]).optional(),
@@ -62,6 +66,20 @@ export async function POST(request: Request) {
   const json = await request.json().catch(() => null);
   const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
+    // Loghiamo il dettaglio del fail — solo path + codice + messaggio, NIENTE contenuto — così
+    // dai Vercel runtime logs si vede subito quale campo fa saltare un agent (noi ne consumiamo
+    // vari con payload shape leggermente diverse). Non va nel body della risposta per non far
+    // leak di struttura ai caller.
+    console.error(
+      '[ai-reserve] invalid_request:',
+      JSON.stringify(
+        parsed.error.issues.slice(0, 10).map((issue) => ({
+          path: issue.path.join('.'),
+          code: issue.code,
+          message: issue.message,
+        })),
+      ),
+    );
     return NextResponse.json({ error: 'invalid_request' }, { status: 400 });
   }
 
