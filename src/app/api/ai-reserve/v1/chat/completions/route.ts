@@ -14,23 +14,41 @@ export const dynamic = 'force-dynamic';
 // Una chat di ripiego può aspettare l'upstream: resta sotto il tetto della route.
 export const maxDuration = 60;
 
-const bodySchema = z.object({
-  model: z.string().max(200).optional(),
-  messages: z
-    .array(
-      z.object({
-        role: z.enum(['system', 'user', 'assistant']),
-        content: z.string(),
-      }),
-    )
-    .min(1)
-    .max(100),
-  temperature: z.number().min(0).max(2).optional(),
-  max_tokens: z.number().int().positive().max(32_000).optional(),
-  response_format: z.object({ type: z.string().optional() }).optional(),
-  // Accettato ma ignorato: la riserva è sempre non-streaming.
-  stream: z.boolean().optional(),
-});
+// Il content di un messaggio può essere una stringa semplice, un array di parti
+// (OpenAI vision / tool_use / tool_result), o null (tipico di un assistant message
+// che è SOLO una tool call). Le parti passano con passthrough: se un upstream non
+// capisce un tipo di parte, risponde con un errore e la catena prova il successivo.
+const contentValue = z.union([z.string(), z.array(z.object({}).passthrough()).max(64), z.null()]);
+
+// Gli agent usano tool calls: role `tool` per i risultati di uno strumento,
+// `tool_calls` sui messaggi dell'assistant, `tool_call_id`/`name` sui tool. Il resto
+// dei campi passa com'è, così corpi OpenAI validi che questo validatore non conosce
+// (es. `audio`, `refusal`) continuano a funzionare quando l'upstream li accetta.
+const message = z
+  .object({
+    role: z.enum(['system', 'user', 'assistant', 'tool']),
+    content: contentValue.optional(),
+    name: z.string().optional(),
+    tool_call_id: z.string().optional(),
+    tool_calls: z.array(z.object({}).passthrough()).max(64).optional(),
+  })
+  .passthrough();
+
+const bodySchema = z
+  .object({
+    model: z.string().max(200).optional(),
+    messages: z.array(message).min(1).max(100),
+    temperature: z.number().min(0).max(2).optional(),
+    top_p: z.number().min(0).max(1).optional(),
+    max_tokens: z.number().int().positive().max(32_000).optional(),
+    response_format: z.object({ type: z.string().optional() }).passthrough().optional(),
+    tools: z.array(z.object({}).passthrough()).max(128).optional(),
+    tool_choice: z.union([z.string(), z.object({}).passthrough()]).optional(),
+    parallel_tool_calls: z.boolean().optional(),
+    // Accettato ma ignorato: la riserva è sempre non-streaming.
+    stream: z.boolean().optional(),
+  })
+  .passthrough();
 
 export async function POST(request: Request) {
   const auth = authorizeReserve(request);

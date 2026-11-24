@@ -104,16 +104,25 @@ export function resolveModel(requested: string | undefined, env: Env = process.e
 }
 
 export interface ReserveChatMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  /** Stringa, array di parti (vision/tool_use/tool_result), o null (tool-call pura). */
+  content?: string | unknown[] | null;
+  name?: string;
+  tool_call_id?: string;
+  tool_calls?: unknown[];
 }
 
 export interface ReserveChatBody {
   model?: string;
   messages: ReserveChatMessage[];
   temperature?: number;
+  top_p?: number;
   max_tokens?: number;
   response_format?: { type?: string };
+  /** Definizioni degli strumenti (OpenAI function calling). */
+  tools?: unknown[];
+  tool_choice?: string | Record<string, unknown>;
+  parallel_tool_calls?: boolean;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -459,15 +468,25 @@ async function callProviderChat(
   fetchImpl: FetchLike,
   timeoutMs: number,
 ): Promise<Response> {
+  // Il campo response_format passa com'è SE porta un type: tipicamente `json_object` (JSON mode)
+  // o `json_schema` (structured outputs OpenAI). Gli upstream che non lo supportano rispondono con
+  // un errore → la catena prova il provider successivo. tools/tool_choice sono inoltrati così come
+  // sono: quando ARTEX o un altro agent fa tool-use, qui li vuole vedere l'LLM upstream.
   const payload = {
     model,
     messages: body.messages,
     stream: false as const,
     ...(typeof body.temperature === 'number' ? { temperature: body.temperature } : {}),
+    ...(typeof body.top_p === 'number' ? { top_p: body.top_p } : {}),
     ...(typeof body.max_tokens === 'number' ? { max_tokens: body.max_tokens } : {}),
-    ...(body.response_format?.type === 'json_object'
-      ? { response_format: { type: 'json_object' as const } }
+    ...(typeof body.parallel_tool_calls === 'boolean'
+      ? { parallel_tool_calls: body.parallel_tool_calls }
       : {}),
+    ...(body.response_format && typeof body.response_format.type === 'string'
+      ? { response_format: body.response_format }
+      : {}),
+    ...(Array.isArray(body.tools) && body.tools.length > 0 ? { tools: body.tools } : {}),
+    ...(body.tool_choice !== undefined ? { tool_choice: body.tool_choice } : {}),
   };
   return fetchImpl(`${provider.baseUrl}/chat/completions`, {
     method: 'POST',
