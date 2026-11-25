@@ -4,15 +4,10 @@
 
 export const COMPARE_MODELS: readonly string[] = [
   'auto',
-  // ARTEX (il pentest agent self-hosted; richiede ARTEX_URL + ARTEX_PASSWORD).
-  // Il backend parla via conversation API + polling; la route emette SSE finti
-  // (delta.content) così la card si popola col testo progressivo.
-  'artex',
-  // ARTEX ensemble: 7 agent in parallelo (goals/planner/mainagent/auto/pentest/
-  // reporter/retester, esclude worker) + giudice FreeLLMAPI che sintetizza. Più
-  // lento (singolo agent 3-30s) e dipende dalle quote dell'LLM pool di ARTEX;
-  // utile per risposte robuste anche se un sottoinsieme fallisce.
-  'artex:ensemble',
+  // ARTEX è stato rimosso da /compare: è un pentest agent task-oriented, non un
+  // chat bot; senza un task collegato alla conversation i suoi agenti
+  // short-circuit con "no text summary" prima di chiamare l'LLM. Infra
+  // (/api/artex-llm/v1 adapter + /api/artex-admin/*) resta per uso via task.
   // FreeLLMAPI: la riserva AI pubblica di Solco (www.solcomusic.online
   // /api/ai-reserve/v1). Non streama (risposta single-shot), la route la
   // avvolge in un unico delta SSE. Chiave: FREELLMAPI_API_KEY.
@@ -122,11 +117,10 @@ export const COMPARE_MODELS: readonly string[] = [
   'ovh:qwen3.6-35b-a3b',
 ];
 
-export type CompareProvider = 'auto' | 'artex' | 'freellmapi' | 'aihorde' | 'kilo' | 'ovh';
+export type CompareProvider = 'auto' | 'freellmapi' | 'aihorde' | 'kilo' | 'ovh';
 
 export function providerOf(modelId: string): CompareProvider {
   if (modelId === 'auto') return 'auto';
-  if (modelId === 'artex' || modelId.startsWith('artex:')) return 'artex';
   if (modelId === 'freellmapi' || modelId.startsWith('freellmapi:')) return 'freellmapi';
   const prefix = modelId.split(':', 1)[0];
   if (prefix === 'aihorde' || prefix === 'kilo' || prefix === 'ovh') return prefix;
@@ -136,7 +130,6 @@ export function providerOf(modelId: string): CompareProvider {
 export function groupedModels(): Record<CompareProvider, string[]> {
   const out: Record<CompareProvider, string[]> = {
     auto: [],
-    artex: [],
     freellmapi: [],
     aihorde: [],
     kilo: [],
