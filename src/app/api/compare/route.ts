@@ -206,6 +206,208 @@ export async function POST(req: Request) {
     });
   }
 
+  // --- Branch FreeLLMAPI ENSEMBLE (4 modelli in parallelo + giudice) ------
+  // Deve stare PRIMA del branch generico "freellmapi:*" così non viene
+  // scambiato per un passthrough con model="ensemble".
+  if (model === 'freellmapi:ensemble') {
+    const apiKey = (process.env.FREELLMAPI_API_KEY ?? process.env.FREELLMAPI_TOKEN)?.trim();
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: 'FREELLMAPI_API_KEY non impostata (.env.local).' },
+        { status: 500 },
+      );
+    }
+    const baseUrl = (
+      process.env.FREELLMAPI_BASE_URL?.trim() || 'https://www.solcomusic.online/api/ai-reserve/v1'
+    ).replace(/\/+$/, '');
+
+    // 4 membri del pool: due taglie di gpt-oss (Groq) a temperature diverse
+    // per avere varietà "stabile" + due auto, che Solco ruota in fallback. Se
+    // uno fallisce (404/429/5xx) il giudice lavora con i restanti; se falliscono
+    // tutti, si torna al client con un errore chiaro.
+    const members: Array<{ label: string; model: string; temperature: number }> = [
+      { label: 'A', model: 'openai/gpt-oss-120b', temperature: 0.2 },
+      { label: 'B', model: 'openai/gpt-oss-120b', temperature: 0.7 },
+      { label: 'C', model: 'openai/gpt-oss-20b', temperature: 0.3 },
+      { label: 'D', model: 'auto', temperature: 0.5 },
+    ];
+    const JUDGE_MODEL = 'openai/gpt-oss-120b';
+    const encoder = new TextEncoder();
+
+    const callOne = async (
+      upstreamModel: string,
+      temperatureOverride: number,
+      userPrompt: string,
+    ) => {
+      const res = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: upstreamModel,
+          messages: [{ role: 'user', content: userPrompt }],
+          stream: false,
+          temperature: typeof temperature === 'number' ? temperature : temperatureOverride,
+          ...(typeof maxTokens === 'number' ? { max_tokens: maxTokens } : {}),
+        }),
+        cache: 'no-store',
+        signal: req.signal,
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const body: unknown = await res.json();
+      const bodyObj = isRecord(body) ? body : {};
+      const choices = Array.isArray(bodyObj.choices) ? bodyObj.choices : [];
+      const choice = isRecord(choices[0]) ? choices[0] : null;
+      const message = choice && isRecord(choice.message) ? choice.message : null;
+      const content = typeof message?.content === 'string' ? message.content : '';
+      return content.trim();
+    };
+
+    const stream = new ReadableStream({
+      async start(controller) {
+        let closed = false;
+        const emit = (obj: unknown) => {
+          if (closed) return;
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+        };
+        const abortOnClient = () => {
+          if (closed) return;
+          closed = true;
+          try {
+            controller.close();
+          } catch {
+            /* ignore */
+          }
+        };
+        req.signal.addEventListener('abort', abortOnClient);
+
+        try {
+          emit({
+            id: `freellmapi-ensemble-${Date.now()}`,
+            model: 'freellmapi/ensemble',
+            choices: [{ index: 0, delta: { role: 'assistant' } }],
+          });
+
+          const results = await Promise.allSettled(
+            members.map((m) => callOne(m.model, m.temperature, prompt)),
+          );
+          const voices: Array<{ label: string; model: string; text: string }> = [];
+          const failures: string[] = [];
+          results.forEach((r, i) => {
+            const m = members[i];
+            if (!m) return;
+            if (r.status === 'fulfilled' && r.value) {
+              voices.push({ label: m.label, model: m.model, text: r.value });
+            } else {
+              const reason =
+                r.status === 'rejected'
+                  ? r.reason instanceof Error
+                    ? r.reason.message
+                    : 'unknown'
+                  : 'empty';
+              failures.push(`${m.label} (${m.model}): ${reason}`);
+            }
+          });
+
+          if (voices.length === 0) {
+            emit({
+              choices: [
+                {
+                  index: 0,
+                  delta: {
+                    content: `\n\n❌ Nessun modello del pool ha risposto:\n${failures.join('\n')}`,
+                  },
+                  finish_reason: 'error',
+                },
+              ],
+            });
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+            return;
+          }
+
+          // Giudice: una sola chiamata che riceve tutte le voci etichettate e
+          // deve produrre la MIGLIORE risposta (non parafrasi). Teniamo il
+          // prompt breve e cite-friendly così non sfora.
+          const judgePrompt = [
+            `Un utente ha chiesto:\n"""\n${prompt}\n"""`,
+            '',
+            `${voices.length} modelli hanno risposto. Scrivi la MIGLIORE risposta sintetizzando il meglio di ciascuna: correggi errori, unisci dettagli utili, scarta ridondanze. Rispondi direttamente all'utente nella sua lingua, senza menzionare i modelli o la procedura.`,
+            '',
+            ...voices.map((v) => `## Risposta ${v.label} (${v.model})\n${v.text}`),
+          ].join('\n');
+
+          let judgeText: string;
+          try {
+            judgeText = await callOne(JUDGE_MODEL, 0.2, judgePrompt);
+          } catch (err) {
+            // Se anche il giudice fallisce, consegna la risposta A come fallback
+            // (è la prima voce disponibile, quasi sempre gpt-oss-120b stabile).
+            const fallback = voices[0];
+            const detail = err instanceof Error ? err.message : 'unknown';
+            emit({
+              model: `freellmapi/ensemble (judge failed: ${detail})`,
+              choices: [
+                {
+                  index: 0,
+                  delta: { content: fallback ? fallback.text : '' },
+                  finish_reason: 'stop',
+                },
+              ],
+            });
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+            return;
+          }
+
+          emit({
+            model: `freellmapi/ensemble (${voices.length}/${members.length} + judge)`,
+            choices: [
+              {
+                index: 0,
+                delta: { content: judgeText },
+                finish_reason: 'stop',
+              },
+            ],
+          });
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        } catch (err) {
+          if (closed) return;
+          const message = err instanceof Error ? err.message : 'unknown_error';
+          emit({
+            choices: [
+              {
+                index: 0,
+                delta: { content: `\n\n❌ ensemble error: ${message}` },
+                finish_reason: 'error',
+              },
+            ],
+          });
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        } finally {
+          req.signal.removeEventListener('abort', abortOnClient);
+          if (!closed) {
+            closed = true;
+            try {
+              controller.close();
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+        'x-accel-buffering': 'no',
+      },
+    });
+  }
+
   // --- Branch FreeLLMAPI (riserva AI pubblica di Solco) -------------------
   if (model === 'freellmapi' || model.startsWith('freellmapi:')) {
     const apiKey = (process.env.FREELLMAPI_API_KEY ?? process.env.FREELLMAPI_TOKEN)?.trim();

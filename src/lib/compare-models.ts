@@ -12,6 +12,10 @@ export const COMPARE_MODELS: readonly string[] = [
   // /api/ai-reserve/v1). Non streama (risposta single-shot), la route la
   // avvolge in un unico delta SSE. Chiave: FREELLMAPI_API_KEY.
   'freellmapi',
+  // FreeLLMAPI ensemble: 4 modelli in parallelo + 1 giudice che sintetizza
+  // la risposta migliore. Più lento ma più robusto (resiste ai 4xx di un
+  // singolo provider). Vedi route.ts branch "freellmapi:ensemble".
+  'freellmapi:ensemble',
   // aihorde (sotto-provider Qwen/koboldcpp/aphrodite/lmstudio/meta-llama)
   'aihorde:Qwen/Qwen3.8-Flash-Next',
   'aihorde:aphrodite/SicariusSicariiStuff/Impish_Bloodmoon_12B',
