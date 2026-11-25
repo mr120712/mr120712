@@ -47,6 +47,7 @@ const PUBLIC_LIBRARY_ITEM: NavItem = {
 export const navItems: NavItem[] = [
   { label: 'Cerca', href: '/search', group: 'primary', order: 0, requiresAuth: true },
   { label: 'Bot', href: '/bot', group: 'primary', order: 0 },
+  { label: 'Confronto AI', href: '/compare', group: 'primary', order: 0 },
   { label: 'Generi', href: '/generi', group: 'primary', order: 1, requiresAuth: true },
   { label: 'Radio', href: '/radio', group: 'primary', order: 1, requiresAuth: true },
   { label: 'Podcast', href: '/podcasts', group: 'primary', order: 2, requiresAuth: true },
