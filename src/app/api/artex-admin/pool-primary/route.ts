@@ -1,0 +1,60 @@
+// @polsia:user-owned — Endpoint admin one-shot che, autenticato col bearer di
+// riserva (FREELLMAPI_API_KEY), fa l'upsert di un profilo LLM su ARTEX che
+// punta al nostro adapter smart (/api/artex-llm/v1). Serve a non dover
+// esporre il JWT di ARTEX fuori dall'env Vercel.
+//
+// POST body: {} (nessun input, i valori sono fissi e commentati sotto).
+// Risposta: pass-through del body di ARTEX (status incluso).
+import 'server-only';
+import { NextResponse } from 'next/server';
+import { authorizeReserve } from '@/lib/business/ai-reserve-connector.server';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+export const maxDuration = 30;
+
+function clean(v: string | undefined) {
+  const t = v?.trim();
+  return t && t.length > 0 ? t : undefined;
+}
+
+export async function POST(request: Request) {
+  const auth = authorizeReserve(request);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  const artexUrl = clean(process.env.ARTEX_URL)?.replace(/\/+$/, '');
+  const artexToken = clean(process.env.ARTEX_TOKEN);
+  const reserveKey = clean(process.env.FREELLMAPI_API_KEY) ?? clean(process.env.FREELLMAPI_TOKEN);
+  if (!artexUrl) return NextResponse.json({ error: 'ARTEX_URL_missing' }, { status: 500 });
+  if (!artexToken) return NextResponse.json({ error: 'ARTEX_TOKEN_missing' }, { status: 500 });
+  if (!reserveKey) return NextResponse.json({ error: 'FREELLMAPI_API_KEY_missing' }, { status: 500 });
+
+  const profile = {
+    name: 'Solco-Smart',
+    format: 'openai',
+    base_url: 'https://www.solcomusic.online/api/artex-llm/v1',
+    api_key: reserveKey,
+    model: 'openai/gpt-oss-120b',
+    context_window_k: 131,
+    streaming: false,
+    priority: 0,
+    pool_exclude: false,
+  };
+
+  const r = await fetch(`${artexUrl}/api/llm/profiles`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${artexToken}`,
+    },
+    body: JSON.stringify(profile),
+    cache: 'no-store',
+    redirect: 'error',
+    signal: AbortSignal.timeout(20_000),
+  });
+  const text = await r.text();
+  return new NextResponse(text, {
+    status: r.status,
+    headers: { 'content-type': r.headers.get('content-type') ?? 'application/json' },
+  });
+}
