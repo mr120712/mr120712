@@ -8,6 +8,10 @@ export const COMPARE_MODELS: readonly string[] = [
   // Il backend parla via conversation API + polling; la route emette SSE finti
   // (delta.content) così la card si popola col testo progressivo.
   'artex',
+  // FreeLLMAPI: la riserva AI pubblica di Solco (www.solcomusic.online
+  // /api/ai-reserve/v1). Non streama (risposta single-shot), la route la
+  // avvolge in un unico delta SSE. Chiave: FREELLMAPI_API_KEY.
+  'freellmapi',
   // aihorde (sotto-provider Qwen/koboldcpp/aphrodite/lmstudio/meta-llama)
   'aihorde:Qwen/Qwen3.8-Flash-Next',
   'aihorde:aphrodite/SicariusSicariiStuff/Impish_Bloodmoon_12B',
@@ -103,11 +107,12 @@ export const COMPARE_MODELS: readonly string[] = [
   'ovh:qwen3.6-35b-a3b',
 ];
 
-export type CompareProvider = 'auto' | 'artex' | 'aihorde' | 'kilo' | 'ovh';
+export type CompareProvider = 'auto' | 'artex' | 'freellmapi' | 'aihorde' | 'kilo' | 'ovh';
 
 export function providerOf(modelId: string): CompareProvider {
   if (modelId === 'auto') return 'auto';
   if (modelId === 'artex' || modelId.startsWith('artex:')) return 'artex';
+  if (modelId === 'freellmapi' || modelId.startsWith('freellmapi:')) return 'freellmapi';
   const prefix = modelId.split(':', 1)[0];
   if (prefix === 'aihorde' || prefix === 'kilo' || prefix === 'ovh') return prefix;
   return 'auto';
@@ -117,6 +122,7 @@ export function groupedModels(): Record<CompareProvider, string[]> {
   const out: Record<CompareProvider, string[]> = {
     auto: [],
     artex: [],
+    freellmapi: [],
     aihorde: [],
     kilo: [],
     ovh: [],

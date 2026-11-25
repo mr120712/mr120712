@@ -1,7 +1,10 @@
-// @polsia:user-owned — proxy OpenAI-compatible verso DUE backend:
+// @polsia:user-owned — proxy OpenAI-compatible verso TRE backend:
 //   • modello "artex" (o "artex:<agent_key>") → askArtex() sul VPS,
 //     convertito in stream SSE OpenAI-compatible (delta.content
 //     incrementale a partire dagli onProgress di ARTEX)
+//   • "freellmapi" (o "freellmapi:<model>") → riserva AI pubblica di Solco
+//     (www.solcomusic.online/api/ai-reserve/v1). Non streama: la route
+//     avvolge la risposta JSON in un singolo delta SSE finto
 //   • qualsiasi altro id → gateway LOCAL_LLM_BASE_URL (OpenAI-compatible),
 //     relay diretto della SSE con stream_options.include_usage
 //
@@ -15,6 +18,9 @@
 //   ARTEX_PASSWORD       password login JWT su ARTEX
 //   ARTEX_USERNAME       facoltativo (default: ARTEX)
 //   ARTEX_CHAT_AGENT_KEY facoltativo (default: 'auto')
+//   FREELLMAPI_API_KEY   bearer della riserva Solco (solo per "freellmapi*");
+//                         fallback: FREELLMAPI_TOKEN
+//   FREELLMAPI_BASE_URL  facoltativo; default https://www.solcomusic.online/api/ai-reserve/v1
 
 import 'server-only';
 import { NextResponse } from 'next/server';
@@ -28,6 +34,10 @@ export const runtime = 'nodejs';
 export const maxDuration = 120;
 
 const UPSTREAM_TIMEOUT_MS = 90_000;
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
 
 function readConfig(): { baseUrl: string; apiKey: string } | { error: string } {
   const baseUrl = process.env.LOCAL_LLM_BASE_URL?.trim();
@@ -173,6 +183,156 @@ export async function POST(req: Request) {
           });
           controller.enqueue(encoder.encode('data: [DONE]\n\n'));
         } finally {
+          req.signal.removeEventListener('abort', abortOnClient);
+          if (!closed) {
+            closed = true;
+            try {
+              controller.close();
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+        'x-accel-buffering': 'no',
+      },
+    });
+  }
+
+  // --- Branch FreeLLMAPI (riserva AI pubblica di Solco) -------------------
+  if (model === 'freellmapi' || model.startsWith('freellmapi:')) {
+    const apiKey = (process.env.FREELLMAPI_API_KEY ?? process.env.FREELLMAPI_TOKEN)?.trim();
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: 'FREELLMAPI_API_KEY non impostata (.env.local).' },
+        { status: 500 },
+      );
+    }
+    const baseUrl = (
+      process.env.FREELLMAPI_BASE_URL?.trim() || 'https://www.solcomusic.online/api/ai-reserve/v1'
+    ).replace(/\/+$/, '');
+    const upstreamModel = model.startsWith('freellmapi:')
+      ? model.slice('freellmapi:'.length) || 'auto'
+      : 'auto';
+
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        let closed = false;
+        const emit = (obj: unknown) => {
+          if (closed) return;
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+        };
+        emit({
+          id: `freellmapi-${Date.now()}`,
+          model: `freellmapi/${upstreamModel}`,
+          choices: [{ index: 0, delta: { role: 'assistant' } }],
+        });
+
+        const abortOnClient = () => {
+          if (closed) return;
+          closed = true;
+          try {
+            controller.close();
+          } catch {
+            /* already closed */
+          }
+        };
+        req.signal.addEventListener('abort', abortOnClient);
+        const timer = setTimeout(() => abortOnClient(), UPSTREAM_TIMEOUT_MS);
+
+        try {
+          const res = await fetch(`${baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${apiKey}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: upstreamModel,
+              messages: [{ role: 'user', content: prompt }],
+              stream: false,
+              ...(typeof temperature === 'number' ? { temperature } : {}),
+              ...(typeof maxTokens === 'number' ? { max_tokens: maxTokens } : {}),
+            }),
+            cache: 'no-store',
+            signal: req.signal,
+          });
+
+          const bodyText = await res.text();
+          if (closed) return;
+
+          if (!res.ok) {
+            emit({
+              choices: [
+                {
+                  index: 0,
+                  delta: { content: `\n\n❌ HTTP ${res.status} — ${bodyText.slice(0, 300)}` },
+                  finish_reason: 'error',
+                },
+              ],
+            });
+          } else {
+            let body: unknown = null;
+            try {
+              body = JSON.parse(bodyText);
+            } catch {
+              /* rimarrà null */
+            }
+            const bodyObj = isRecord(body) ? body : {};
+            const choices = Array.isArray(bodyObj.choices) ? bodyObj.choices : [];
+            const choice = isRecord(choices[0]) ? choices[0] : null;
+            const message = choice && isRecord(choice.message) ? choice.message : null;
+            const content = typeof message?.content === 'string' ? message.content : '';
+            const reasoning = typeof message?.reasoning === 'string' ? message.reasoning : null;
+            const finishReason =
+              typeof choice?.finish_reason === 'string' ? choice.finish_reason : 'stop';
+            const resolvedModel = typeof bodyObj.model === 'string' ? bodyObj.model : upstreamModel;
+            const usageRaw = isRecord(bodyObj.usage) ? bodyObj.usage : null;
+
+            // Un unico chunk col testo intero (upstream non streama davvero).
+            emit({
+              model: `freellmapi/${resolvedModel}`,
+              choices: [
+                {
+                  index: 0,
+                  delta: {
+                    ...(content ? { content } : {}),
+                    ...(reasoning ? { reasoning } : {}),
+                  },
+                  finish_reason: finishReason,
+                },
+              ],
+              ...(usageRaw ? { usage: usageRaw } : {}),
+            });
+          }
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        } catch (err) {
+          if (closed) return;
+          const aborted = err instanceof Error && err.name === 'AbortError';
+          emit({
+            choices: [
+              {
+                index: 0,
+                delta: {
+                  content: aborted
+                    ? `\n\n❌ Timeout dopo ${Math.round(UPSTREAM_TIMEOUT_MS / 1000)}s`
+                    : `\n\n❌ ${err instanceof Error ? err.message : 'unknown_error'}`,
+                },
+                finish_reason: 'error',
+              },
+            ],
+          });
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        } finally {
+          clearTimeout(timer);
           req.signal.removeEventListener('abort', abortOnClient);
           if (!closed) {
             closed = true;

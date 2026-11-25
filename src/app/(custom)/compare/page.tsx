@@ -28,7 +28,7 @@ interface Row {
   result?: CompareResult;
 }
 
-const PROVIDER_ORDER: CompareProvider[] = ['auto', 'artex', 'kilo', 'ovh', 'aihorde'];
+const PROVIDER_ORDER: CompareProvider[] = ['auto', 'artex', 'freellmapi', 'kilo', 'ovh', 'aihorde'];
 
 const DEFAULT_SELECTED = new Set<string>([
   'auto',
