@@ -137,7 +137,19 @@ export default function ComparePage() {
           );
         } catch (err) {
           if (controller.signal.aborted) return;
-          const message = err instanceof Error ? err.message : 'errore sconosciuto';
+          // apiFetch mette il body del server in err.cause: preferisci il
+          // suo messaggio/errori a "apiFetch … failed (500)".
+          const cause = err instanceof Error ? err.cause : null;
+          const serverMessage =
+            cause && typeof cause === 'object' && 'error' in cause
+              ? String((cause as { error: unknown }).error)
+              : cause && typeof cause === 'object' && 'errors' in cause
+                ? Object.entries((cause as { errors: Record<string, string> }).errors)
+                    .map(([k, v]) => `${k}: ${v}`)
+                    .join('; ')
+                : null;
+          const message =
+            serverMessage ?? (err instanceof Error ? err.message : 'errore sconosciuto');
           setRows((prev) =>
             prev.map((r) =>
               r.model === model

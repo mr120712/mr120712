@@ -74,6 +74,8 @@ const PUBLIC_EXACT = new Set([
   '/quiz',
   // Guida per chi inizia: va letta anche prima di creare l'account.
   '/guida',
+  // Playground di confronto modelli LLM (gateway locale): la chiave resta server-side.
+  '/compare',
 ]);
 const PUBLIC_PREFIXES = [
   '/login/',
