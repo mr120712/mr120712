@@ -26,6 +26,23 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
+/**
+ * gpt-oss-120b di Groq RESTITUISCE una property `reasoning` (e talvolta
+ * `reasoning_content`) negli assistant message. Quando l'agent (ARTEX)
+ * rimanda la conversazione completa come history al turno successivo, Groq
+ * rifiuta con 400 "property 'reasoning_content' is unsupported". Rimuoviamo
+ * questi campi da OGNI messaggio in arrivo, così la history è valida.
+ */
+function sanitizeMessage(msg: unknown): unknown {
+  if (!isRecord(msg)) return msg;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(msg)) {
+    if (k === 'reasoning' || k === 'reasoning_content') continue;
+    out[k] = v;
+  }
+  return out;
+}
+
 /** Rimuove ricorsivamente ogni property `description` da un JSON schema. */
 function stripDescriptions(obj: unknown): unknown {
   if (Array.isArray(obj)) return obj.map(stripDescriptions);
@@ -130,9 +147,14 @@ export async function POST(request: Request) {
   if (!key) {
     return NextResponse.json({ error: 'GROQ_API_KEY_missing' }, { status: 503 });
   }
+  // Sanitizza la history: rimuove `reasoning`/`reasoning_content` da ogni
+  // messaggio (Groq restituisce `reasoning` ma non lo accetta in entrata).
+  const sanitizedMessages = Array.isArray(body.messages)
+    ? body.messages.map(sanitizeMessage)
+    : body.messages;
   const upstreamPayload = {
     model: body.model ?? 'openai/gpt-oss-120b',
-    messages: body.messages,
+    messages: sanitizedMessages,
     stream: false as const,
     max_tokens: body.max_tokens,
     ...(typeof body.temperature === 'number' ? { temperature: body.temperature } : {}),
