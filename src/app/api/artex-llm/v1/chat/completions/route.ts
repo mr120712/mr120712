@@ -166,7 +166,7 @@ export async function POST(request: Request) {
     const h = headerVal ? Number.parseFloat(headerVal) : NaN;
     if (Number.isFinite(h) && h > 0) return Math.min(h * 1000, 20_000);
     const m = /try again in ([\d.]+)s/i.exec(bodyMsg);
-    if (m) {
+    if (m && m[1]) {
       const s = Number.parseFloat(m[1]);
       if (Number.isFinite(s) && s > 0) return Math.min(s * 1000 + 300, 20_000);
     }
