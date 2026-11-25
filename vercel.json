@@ -56,6 +56,10 @@
     {
       "path": "/api/cron/telegram-webhook",
       "schedule": "37 4 * * *"
+    },
+    {
+      "path": "/api/cron/ytdlp-keepwarm",
+      "schedule": "*/10 * * * *"
     }
   ],
   "rewrites": [
