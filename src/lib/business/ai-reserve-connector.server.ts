@@ -131,6 +131,8 @@ export interface ReserveChatBody {
   tools?: unknown[];
   tool_choice?: string | Record<string, unknown>;
   parallel_tool_calls?: boolean;
+  /** Groq gpt-oss reasoning effort: "low" | "medium" | "high". */
+  reasoning_effort?: string;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -495,6 +497,9 @@ async function callProviderChat(
       : {}),
     ...(Array.isArray(body.tools) && body.tools.length > 0 ? { tools: body.tools } : {}),
     ...(body.tool_choice !== undefined ? { tool_choice: body.tool_choice } : {}),
+    ...(typeof body.reasoning_effort === 'string' && body.reasoning_effort.length > 0
+      ? { reasoning_effort: body.reasoning_effort }
+      : {}),
   };
   return fetchImpl(`${provider.baseUrl}/chat/completions`, {
     method: 'POST',

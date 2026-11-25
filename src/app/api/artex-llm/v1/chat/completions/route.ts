@@ -74,13 +74,23 @@ export async function POST(request: Request) {
   // preservato per non rompere la conversation.
   const compressedTools = Array.isArray(raw.tools) ? raw.tools.map(compressTool) : undefined;
 
+  // gpt-oss-120b di Groq è un reasoning model: senza un min di max_tokens alto,
+  // consuma TUTTI i completion_tokens nel ragionamento interno (reasoning_tokens)
+  // e torna con content="" + finish_reason="length". Clampiamo max_tokens a ≥ 1500
+  // per lasciare spazio sia al ragionamento sia alla risposta. ARTEX spesso manda
+  // 256/512 per economia; su un reasoning model è troppo poco.
+  const MIN_MAX_TOKENS_FOR_REASONING = 1500;
+  const requestedMaxTokens =
+    typeof raw.max_tokens === 'number' && raw.max_tokens > 0 ? raw.max_tokens : 2048;
+  const effectiveMaxTokens = Math.max(requestedMaxTokens, MIN_MAX_TOKENS_FOR_REASONING);
+
   // Costruisci il body per forwardChat. Default al modello più potente free.
   const body: ReserveChatBody = {
     ...(typeof raw.model === 'string' ? { model: raw.model } : { model: 'openai/gpt-oss-120b' }),
     messages: Array.isArray(raw.messages) ? (raw.messages as ReserveChatBody['messages']) : [],
     ...(typeof raw.temperature === 'number' ? { temperature: raw.temperature } : {}),
     ...(typeof raw.top_p === 'number' ? { top_p: raw.top_p } : {}),
-    ...(typeof raw.max_tokens === 'number' ? { max_tokens: raw.max_tokens } : {}),
+    max_tokens: effectiveMaxTokens,
     ...(isRecord(raw.response_format)
       ? { response_format: raw.response_format as { type?: string } }
       : {}),
@@ -91,6 +101,13 @@ export async function POST(request: Request) {
     ...(typeof raw.parallel_tool_calls === 'boolean'
       ? { parallel_tool_calls: raw.parallel_tool_calls }
       : {}),
+    // Forza reasoning_effort="low" su gpt-oss: abbassa l'overhead di reasoning
+    // tokens che altrimenti divora tutta la max_tokens prima che il modello
+    // produca il content. Senza questo, content="" + finish_reason="length".
+    reasoning_effort:
+      typeof raw.reasoning_effort === 'string' && raw.reasoning_effort.length > 0
+        ? raw.reasoning_effort
+        : 'low',
   };
 
   // forwardChat è in-process: no rate-limit pubblico, no bearer re-verify,
