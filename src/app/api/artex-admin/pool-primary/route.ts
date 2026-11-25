@@ -71,7 +71,8 @@ export async function POST(request: Request) {
     pool_exclude: false,
   };
 
-  const r = await fetch(`${artexUrl}/api/llm/profiles`, {
+  // 1) Upsert in pool
+  const r1 = await fetch(`${artexUrl}/api/llm/profiles`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -82,9 +83,24 @@ export async function POST(request: Request) {
     redirect: 'error',
     signal: AbortSignal.timeout(20_000),
   });
-  const text = await r.text();
-  return new NextResponse(text, {
-    status: r.status,
-    headers: { 'content-type': r.headers.get('content-type') ?? 'application/json' },
+  const upsertBody = await r1.text().catch(() => '');
+
+  // 2) Make it the ACTIVE llm config (overwrites /api/llm)
+  const r2 = await fetch(`${artexUrl}/api/llm`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${artexToken}`,
+    },
+    body: JSON.stringify(profile),
+    cache: 'no-store',
+    redirect: 'error',
+    signal: AbortSignal.timeout(20_000),
+  });
+  const activeBody = await r2.text().catch(() => '');
+
+  return NextResponse.json({
+    upsert: { status: r1.status, body: upsertBody.slice(0, 300) },
+    active: { status: r2.status, body: activeBody.slice(0, 300) },
   });
 }
