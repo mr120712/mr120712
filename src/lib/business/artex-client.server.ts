@@ -18,10 +18,21 @@ type Env = Record<string, string | undefined>;
 export function artexConfig(env: Env = process.env) {
   const url = env.ARTEX_URL?.trim().replace(/\/+$/, '');
   const password = env.ARTEX_PASSWORD?.trim();
-  if (!url || !password) return null;
+  const preauthToken = env.ARTEX_TOKEN?.trim();
+  if (!url) return null;
   if (!/^https?:\/\/[a-z0-9.-]+(?::\d+)?$/i.test(url)) return null;
-  if (password.length < 8) return null;
-  return { url, password, username: env.ARTEX_USERNAME?.trim() || 'ARTEX' } as const;
+  // Normalmente serve la password per fare login + re-login su 401. Per test
+  // one-off puoi passare ARTEX_TOKEN (JWT già valido) al posto della password:
+  // il client lo semina come cachedToken e salta login(); su 401 fallirà in
+  // assenza di password.
+  if (!password && !preauthToken) return null;
+  if (password && password.length < 8) return null;
+  return {
+    url,
+    password: password ?? '',
+    username: env.ARTEX_USERNAME?.trim() || 'ARTEX',
+    preauthToken: preauthToken || null,
+  } as const;
 }
 
 const LoginResponse = z.object({ token: z.string().min(16) });
@@ -86,6 +97,25 @@ async function login(
   return inFlightLogin;
 }
 
+/** Se config.preauthToken è presente e la cache è vuota, la semina (con exp dal JWT se leggibile). */
+function seedCache(config: NonNullable<ReturnType<typeof artexConfig>>) {
+  if (cachedToken || !config.preauthToken) return;
+  let expiresAt = Date.now() + JWT_TTL_MS;
+  try {
+    const parts = config.preauthToken.split('.');
+    const payloadPart = parts[1];
+    if (parts.length === 3 && payloadPart) {
+      const payload = JSON.parse(
+        Buffer.from(payloadPart.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'),
+      );
+      if (typeof payload.exp === 'number') expiresAt = payload.exp * 1000 - 60_000;
+    }
+  } catch {
+    /* lascia il default */
+  }
+  cachedToken = { token: config.preauthToken, expiresAt };
+}
+
 async function authed<T>(
   config: NonNullable<ReturnType<typeof artexConfig>>,
   path: string,
@@ -94,6 +124,7 @@ async function authed<T>(
   fetchImpl: typeof fetch,
   timeoutMs = 15_000,
 ): Promise<T> {
+  seedCache(config);
   const call = async (token: string) => {
     const res = await fetchImpl(`${config.url}${path}`, {
       ...init,
