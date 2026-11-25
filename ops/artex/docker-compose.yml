@@ -87,6 +87,31 @@ services:
       - ./config.json:/app/config.json:ro
     restart: unless-stopped
 
+  llm-shim:
+    # OPT-IN reasoning_content stripper. Only needed when the LLM is a reasoning
+    # model (DeepSeek-R1 / V4.1-Flash via vLLM with a reasoning parser) that
+    # returns a separate reasoning_content field: ARTEX echoes prior assistant
+    # turns back and the upstream rejects that field (HTTP 400 on messages.N).
+    # This proxy removes it from each request; responses relay untouched.
+    #
+    # Enable it: `docker compose --profile llm-shim up -d --build` AND set, in
+    # .env, ARTEX_LLM_BASE_URL=http://llm-shim:8080/v1 plus LLM_UPSTREAM_ORIGIN
+    # = the origin of the LLM endpoint you were using. See README + .env.example.
+    profiles: ["llm-shim"]
+    build:
+      context: ./llm-shim
+    image: artex-llm-shim:local
+    security_opt:
+      - "no-new-privileges:true"
+    environment:
+      # Optional at parse time (compose interpolates every service's env even
+      # when the profile is off); proxy.py fails fast if it's empty at runtime.
+      LLM_UPSTREAM_ORIGIN: ${LLM_UPSTREAM_ORIGIN:-}
+      LLM_SHIM_PORT: "8080"
+    restart: unless-stopped
+    # Internal only: reachable by the artex container as http://llm-shim:8080.
+    # No host port published.
+
   caddy:
     # Public-facing TLS reverse proxy. Fetches a free Let's Encrypt cert for
     # the ARTEX_PUBLIC_HOST (A record on Vercel DNS → this VPS) and reverse

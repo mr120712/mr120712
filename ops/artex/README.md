@@ -154,6 +154,47 @@ over SSH is still the smallest attack surface.
   authenticated-flow capture, not from this VPS.
 - No S3 archive. Findings stay on the VPS disk until you export them.
 
+## If the LLM 400s on `reasoning_content`
+
+Symptom — ARTEX tasks die a few turns in with:
+
+```
+openai: status 400: 'messages.N' : for 'role:assistant' ...
+property 'reasoning_content' is unsupported
+```
+
+Cause: your LLM is a reasoning model (DeepSeek-R1 / V4.1-Flash on vLLM with a
+reasoning parser). It returns a separate `reasoning_content` field; ARTEX
+stores the whole assistant turn and re-sends it, and the upstream rejects that
+field on input. It fails from turn ~3 (hence `messages.3`), not the first call.
+
+**Best fix — server-side.** Serve vLLM **without** `--reasoning-parser` /
+`--enable-reasoning`. The chain-of-thought then stays inline in `content`
+(`<think>…</think>`), nothing invalid gets echoed back, and every client is
+fixed at once. No capability loss.
+
+**If you can't change the LLM server — the bundled shim.** `llm-shim/` is a
+tiny reverse proxy that strips `reasoning_content` from each request before it
+reaches the model (responses relay untouched, streaming included). Turn it on:
+
+1. In `.env`, set the upstream origin and repoint ARTEX at the shim:
+   ```bash
+   LLM_UPSTREAM_ORIGIN=https://my-gpu-box.example.com   # origin of your old base URL
+   ARTEX_LLM_BASE_URL=http://llm-shim:8080/v1           # keep the same /v1 suffix
+   ```
+2. Build and start it (it's an opt-in compose profile):
+   ```bash
+   docker compose --profile llm-shim up -d --build
+   ```
+3. Recreate ARTEX so it picks up the new base URL:
+   ```bash
+   docker compose up -d artex
+   ```
+
+The shim is internal-only (no published port); ARTEX reaches it as
+`http://llm-shim:8080`. To stop using it, clear `ARTEX_LLM_BASE_URL` back to
+the direct endpoint and `docker compose --profile llm-shim down`.
+
 ## What to keep an eye on
 
 - **Ensure target lock.** If Vercel changes the preview URL, update
