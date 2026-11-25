@@ -30,7 +30,7 @@ async function loginArtex(url: string, password: string, username = 'ARTEX'): Pr
   return tok;
 }
 
-async function handle(request: Request, method: 'GET' | 'POST') {
+async function handle(request: Request, method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE') {
   const auth = authorizeReserve(request);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -60,7 +60,9 @@ async function handle(request: Request, method: 'GET' | 'POST') {
     }
   }
 
-  const upstreamUrl = `${artexUrl}/api/agents/${encodeURIComponent(key)}`;
+  // Opzionale: suffix sul path upstream (es. `/prompt`, `/template`, `/versions`).
+  const suffix = url.searchParams.get('suffix') ?? '';
+  const upstreamUrl = `${artexUrl}/api/agents/${encodeURIComponent(key)}${suffix}`;
   const init: RequestInit = {
     method,
     headers: {
@@ -71,7 +73,7 @@ async function handle(request: Request, method: 'GET' | 'POST') {
     redirect: 'error',
     signal: AbortSignal.timeout(20_000),
   };
-  if (method === 'POST') {
+  if (method !== 'GET') {
     const body = await request.text();
     init.body = body;
   }
@@ -90,4 +92,12 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   return handle(request, 'POST');
+}
+
+export async function PUT(request: Request) {
+  return handle(request, 'PUT');
+}
+
+export async function PATCH(request: Request) {
+  return handle(request, 'PATCH');
 }
