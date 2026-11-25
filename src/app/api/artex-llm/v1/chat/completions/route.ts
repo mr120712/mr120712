@@ -13,7 +13,8 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import {
   authorizeReserve,
-  forwardChat,
+  GROQ_BASE_URL,
+  groqApiKey,
   type ReserveChatBody,
 } from '@/lib/business/ai-reserve-connector.server';
 
@@ -120,15 +121,53 @@ export async function POST(request: Request) {
       `temp=${body.temperature} top_p=${body.top_p} re=${body.reasoning_effort}`,
   );
 
-  // forwardChat è in-process: no rate-limit pubblico, no bearer re-verify,
-  // va dritto al provider upstream (Groq con gpt-oss-120b di default).
-  const res = await forwardChat(body);
-  // Clona per leggere il body senza consumare lo stream della risposta.
+  // Chiama Groq DIRETTAMENTE (niente provider chain): forwardChat farebbe
+  // failover a Cerebras/Gemini/Mistral quando Groq restituisce 429 o altro
+  // errore, e quei provider non hanno "openai/gpt-oss-120b" → rispondono 404
+  // (upstream_error 404). Qui vogliamo: se Groq fallisce, l'errore torna
+  // intatto ad ARTEX che poi lo gestisce / riprova.
+  const key = groqApiKey();
+  if (!key) {
+    return NextResponse.json({ error: 'GROQ_API_KEY_missing' }, { status: 503 });
+  }
+  const upstreamPayload = {
+    model: body.model ?? 'openai/gpt-oss-120b',
+    messages: body.messages,
+    stream: false as const,
+    max_tokens: body.max_tokens,
+    ...(typeof body.temperature === 'number' ? { temperature: body.temperature } : {}),
+    ...(typeof body.top_p === 'number' ? { top_p: body.top_p } : {}),
+    ...(typeof body.parallel_tool_calls === 'boolean'
+      ? { parallel_tool_calls: body.parallel_tool_calls }
+      : {}),
+    ...(body.response_format && typeof body.response_format.type === 'string'
+      ? { response_format: body.response_format }
+      : {}),
+    ...(Array.isArray(body.tools) && body.tools.length > 0 ? { tools: body.tools } : {}),
+    ...(body.tool_choice !== undefined ? { tool_choice: body.tool_choice } : {}),
+    ...(body.reasoning_effort ? { reasoning_effort: body.reasoning_effort } : {}),
+  };
+
+  const res = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify(upstreamPayload),
+    cache: 'no-store',
+    signal: AbortSignal.timeout(60_000),
+  });
+
+  // Log per diagnosi — passthrough identico a ARTEX.
   const clone = res.clone();
   const bodyText = await clone.text().catch(() => '');
   console.log(
-    `[artex-llm] out: status=${res.status} body_len=${bodyText.length} ` +
+    `[artex-llm] groq-direct out: status=${res.status} body_len=${bodyText.length} ` +
       `preview=${bodyText.slice(0, 500)}`,
   );
-  return res;
+  return new NextResponse(bodyText, {
+    status: res.status,
+    headers: { 'content-type': res.headers.get('content-type') ?? 'application/json' },
+  });
 }
