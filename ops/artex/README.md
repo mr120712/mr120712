@@ -100,6 +100,46 @@ same `SPACE_CHAT_API_KEY` pattern) and tightens the Skynet scanner rules
 accordingly. Say the word and I'll build it. Offense stays on the VPS;
 defense faces the internet.
 
+## Harden the public endpoint
+
+The console is reachable at `https://artex.solcomusic.online` (Caddy TLS on
+`:443`). That's convenient, but it also means an offensive-tooling console is
+on the public internet, gated only by ARTEX's JWT login. The Caddyfile adds a
+second gate in front of that — **HTTP basic auth** — so a scanner or a leaked
+console session has to clear the edge first. `/api/health` stays open for
+monitoring; everything else needs the edge password.
+
+It ships **fail-closed**: until you set a hash, the console is locked (a random
+discarded default), while `/api/health` still answers. To open it:
+
+```bash
+# on the VPS, in ~/artex
+docker compose run --rm caddy caddy hash-password --plaintext 'a-strong-password'
+```
+
+Copy the `$2b$...` output into `.env`, single-quoted (it contains `$`):
+
+```bash
+ARTEX_UI_USER=artex
+ARTEX_UI_PASSWORD_HASH='$2b$12$....'
+```
+
+Then reload Caddy:
+
+```bash
+docker compose up -d caddy
+```
+
+**Tighter still — IP allowlist.** If you always reach the VPS from a known IP,
+uncomment the `@offnet` / `abort` lines in the `Caddyfile` and list your
+IP/CIDR. That refuses everyone else before auth is even evaluated. Find your
+current egress IP with `curl -s https://ifconfig.me`. Restart with
+`docker compose restart caddy`.
+
+Neither layer replaces the loopback-only option in `tunnel.md` — if you don't
+need the console on the public internet, binding to `127.0.0.1` and tunneling
+over SSH is still the smallest attack surface.
+
 ## What is deliberately off
 
 - `ARTEX_BIND_ADDR=127.0.0.1` — the UI is never on the public interface. Reach

@@ -1,15 +1,17 @@
 # ops/artex/Caddyfile — public TLS + reverse proxy for ARTEX on the Hetzner VPS.
 #
 # What this does:
-#   • Terminates TLS on :443 with a free Let's Encrypt cert for the sslip.io
-#     hostname (5-222-15-32.sslip.io → 5.222.15.32). sslip.io is a public
-#     wildcard-DNS service; it returns the IP that the hostname encodes.
-#   • Reverse-proxies to the ARTEX container on its loopback port.
-#   • Does NOT add its own auth. ARTEX enforces JWT Bearer auth on every
-#     /api/* route; Caddy would only add a second gate whose secret would
-#     have to be shared and rotated anyway. Keep it simple.
-#   • Strips the Server header so scanners can't trivially see Caddy's
-#     version.
+#   • Terminates TLS on :443 with a free Let's Encrypt cert for
+#     ARTEX_PUBLIC_HOST (artex.solcomusic.online → this VPS's IPv4).
+#   • Reverse-proxies to the ARTEX container on its docker-network port.
+#   • Adds an EDGE auth layer (HTTP basic auth) in front of ARTEX's own JWT —
+#     the console is internet-facing, so this is defense in depth: a scanner or
+#     a stolen console session has to clear the edge gate first. /api/health
+#     stays open so uptime monitors and the container healthcheck don't need
+#     credentials.
+#   • Optional IP allowlist (commented below) refuses everyone but known source
+#     IPs before auth is even evaluated.
+#   • Strips the Server header so scanners can't trivially see Caddy's version.
 #
 # To change the hostname (e.g. move to a real domain), edit the one site
 # block below and `docker compose restart caddy`.
@@ -26,17 +28,43 @@
 	encode gzip
 	header -Server
 
-	# Health probe accessible without auth (ARTEX has /api/health open).
-	# Everything else goes through ARTEX's own auth.
-	reverse_proxy http://artex:8787 {
-		# Short upstream timeouts — ARTEX is on the same docker network.
-		transport http {
-			dial_timeout 5s
-			response_header_timeout 60s
+	# --- Optional IP allowlist (defense in depth, evaluated first) -----------
+	# Refuse everyone but known source IPs at the edge — before basic auth is
+	# even checked. Uncomment both lines and list your own egress IPs/CIDRs
+	# (space-separated). Leave commented to allow any IP (basic auth below
+	# still applies). Find your current IP with `curl -s https://ifconfig.me`.
+	#   @offnet not remote_ip 203.0.113.4/32 198.51.100.0/24
+	#   abort @offnet
+
+	# --- Health probe: OPEN, no credentials ----------------------------------
+	# ARTEX serves /api/health unauthenticated; keep it reachable so monitors
+	# and the Docker healthcheck work without the edge password.
+	handle /api/health {
+		reverse_proxy http://artex:8787
+	}
+
+	# --- Everything else: HTTP basic auth, THEN ARTEX's own JWT --------------
+	# Credentials come from the environment (see .env / .env.example):
+	#   ARTEX_UI_USER           the edge username (default: artex)
+	#   ARTEX_UI_PASSWORD_HASH  a bcrypt hash from `caddy hash-password`
+	# FAIL-CLOSED: if ARTEX_UI_PASSWORD_HASH is unset/empty, the default below
+	# is a bcrypt hash of a random, discarded password — nobody can log in, but
+	# Caddy still starts and /api/health still answers. Set your own hash to
+	# open the console. NEVER commit the plaintext password.
+	handle {
+		basic_auth {
+			{$ARTEX_UI_USER:artex} {$ARTEX_UI_PASSWORD_HASH:$2b$12$aAU5kGyJCUf5rZR4hxlHOOweMv1PPZdZvhrnrOBDZwHHfSCVxufD.}
 		}
-		# Pass through the real client IP (ARTEX's rate limiter keys on it).
-		header_up X-Real-IP {remote_host}
-		header_up X-Forwarded-For {remote_host}
-		header_up X-Forwarded-Proto {scheme}
+		reverse_proxy http://artex:8787 {
+			# Short upstream timeouts — ARTEX is on the same docker network.
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 60s
+			}
+			# Pass through the real client IP (ARTEX's rate limiter keys on it).
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
 	}
 }

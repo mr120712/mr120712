@@ -98,6 +98,12 @@ services:
       - artex
     environment:
       ARTEX_PUBLIC_HOST: ${ARTEX_PUBLIC_HOST:?set ARTEX_PUBLIC_HOST in .env}
+      # Edge basic-auth credentials (defense in depth in front of ARTEX's JWT).
+      # Empty here = Caddy falls back to its fail-closed default (console locked
+      # but /api/health up). Set both in .env to open the console. The hash has
+      # '$' chars, so single-quote it in .env; compose passes it through as-is.
+      ARTEX_UI_USER: ${ARTEX_UI_USER:-}
+      ARTEX_UI_PASSWORD_HASH: ${ARTEX_UI_PASSWORD_HASH:-}
     ports:
       - "0.0.0.0:80:80"
       - "0.0.0.0:443:443"
