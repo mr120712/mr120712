@@ -148,20 +148,44 @@ export async function POST(request: Request) {
     ...(body.reasoning_effort ? { reasoning_effort: body.reasoning_effort } : {}),
   };
 
-  const res = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${key}`,
-    },
-    body: JSON.stringify(upstreamPayload),
-    cache: 'no-store',
-    signal: AbortSignal.timeout(60_000),
-  });
+  const callGroq = async () =>
+    fetch(`${GROQ_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${key}`,
+      },
+      body: JSON.stringify(upstreamPayload),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(50_000),
+    });
 
-  // Log per diagnosi — passthrough identico a ARTEX.
-  const clone = res.clone();
-  const bodyText = await clone.text().catch(() => '');
+  // Retry su 429 TPM con backoff che rispetta il wait suggerito da Groq. ARTEX
+  // classifica 429 come model_error e abbandona il turno; qui lo evitiamo.
+  const parseRetryAfterMs = (headerVal: string | null, bodyMsg: string): number => {
+    const h = headerVal ? Number.parseFloat(headerVal) : NaN;
+    if (Number.isFinite(h) && h > 0) return Math.min(h * 1000, 20_000);
+    const m = /try again in ([\d.]+)s/i.exec(bodyMsg);
+    if (m && m[1]) {
+      const s = Number.parseFloat(m[1]);
+      if (Number.isFinite(s) && s > 0) return Math.min(s * 1000 + 300, 20_000);
+    }
+    return 2_000;
+  };
+
+  let res = await callGroq();
+  let bodyText = await res.clone().text().catch(() => '');
+  const MAX_RETRIES = 2;
+  for (let attempt = 1; attempt <= MAX_RETRIES && res.status === 429; attempt++) {
+    const waitMs = parseRetryAfterMs(res.headers.get('retry-after'), bodyText);
+    console.log(
+      `[artex-llm] 429 attempt=${attempt} waiting=${waitMs}ms preview=${bodyText.slice(0, 200)}`,
+    );
+    await new Promise((r) => setTimeout(r, waitMs));
+    res = await callGroq();
+    bodyText = await res.clone().text().catch(() => '');
+  }
+
   console.log(
     `[artex-llm] groq-direct out: status=${res.status} body_len=${bodyText.length} ` +
       `preview=${bodyText.slice(0, 500)}`,
