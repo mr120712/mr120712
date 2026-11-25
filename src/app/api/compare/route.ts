@@ -1,19 +1,24 @@
-// @polsia:user-owned — proxy OpenAI-compatible verso il gateway LLM locale.
+// @polsia:user-owned — proxy OpenAI-compatible verso DUE backend:
+//   • modello "artex" (o "artex:<agent_key>") → askArtex() sul VPS,
+//     convertito in stream SSE OpenAI-compatible (delta.content
+//     incrementale a partire dagli onProgress di ARTEX)
+//   • qualsiasi altro id → gateway LOCAL_LLM_BASE_URL (OpenAI-compatible),
+//     relay diretto della SSE con stream_options.include_usage
+//
 // Una chiamata = un modello. Il client fa fan-out di N richieste parallele a
 // questa route, così le risposte compaiono una a una.
 //
-// La route STREAMA sempre (stream: true verso l'upstream, stream_options.
-// include_usage per avere i token alla fine). Se l'upstream restituisce HTTP
-// non-ok PRIMA che inizi lo stream, la route risponde con una busta JSON
-// `{status:'error', error, latencyMs}` (CompareResult) — così il client può
-// gestire i due casi con lo stesso contratto.
-//
 // Variabili d'ambiente richieste (in .env.local):
-//   LOCAL_LLM_BASE_URL   es. http://192.168.0.117:8080
+//   LOCAL_LLM_BASE_URL   es. http://192.168.0.117:8080 (gateway OpenAI)
 //   LOCAL_LLM_KEY        bearer token del gateway
+//   ARTEX_URL            es. https://artex.solcomusic.online (solo per modello "artex*")
+//   ARTEX_PASSWORD       password login JWT su ARTEX
+//   ARTEX_USERNAME       facoltativo (default: ARTEX)
+//   ARTEX_CHAT_AGENT_KEY facoltativo (default: 'auto')
 
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { artexConfig, askArtex } from '@/lib/business/artex-client.server';
 import { CompareRequest, type CompareResult } from '@/lib/contracts/compare';
 import { sameOrigin } from '@/lib/same-origin';
 
@@ -48,13 +53,154 @@ export async function POST(req: Request) {
     return NextResponse.json({ errors }, { status: 400 });
   }
 
+  const { model, prompt, temperature, maxTokens } = parsed.data;
+  const started = Date.now();
+
+  // --- Branch ARTEX -------------------------------------------------------
+  if (model === 'artex' || model.startsWith('artex:')) {
+    const config = artexConfig();
+    if (!config) {
+      return NextResponse.json(
+        { error: 'ARTEX_URL / ARTEX_PASSWORD non impostate (.env.local).' },
+        { status: 500 },
+      );
+    }
+    const agentKey = model.startsWith('artex:')
+      ? model.slice('artex:'.length) || undefined
+      : undefined;
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        let lastEmitted = '';
+        let closed = false;
+        const emit = (obj: unknown) => {
+          if (closed) return;
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+        };
+
+        // Primo chunk con il "resolved model" così la card mostra già una badge
+        // sensata prima che arrivi il primo token.
+        emit({
+          id: `artex-${Date.now()}`,
+          model: `artex/${agentKey ?? 'auto'}`,
+          choices: [{ index: 0, delta: { role: 'assistant' } }],
+        });
+
+        const abortOnClient = () => {
+          if (closed) return;
+          closed = true;
+          try {
+            controller.close();
+          } catch {
+            /* already closed */
+          }
+        };
+        req.signal.addEventListener('abort', abortOnClient);
+
+        try {
+          const outcome = await askArtex(prompt, process.env, fetch, {
+            agentKey,
+            timeoutMs: 110_000,
+            pollIntervalMs: 1_000,
+            onProgress: (partial) => {
+              if (closed || !partial) return;
+              // askArtex consegna il TESTO INTERO visto finora, non un diff.
+              // Se è un prefisso di lastEmitted (prefisso stabile) emettiamo
+              // solo la coda nuova; altrimenti emetti tutto il nuovo testo:
+              // il client lo concatenerà e vedrà un salto, ma restiamo
+              // compatibili col contratto OpenAI delta.
+              let chunk: string;
+              if (partial.startsWith(lastEmitted)) {
+                chunk = partial.slice(lastEmitted.length);
+                if (!chunk) return;
+              } else {
+                chunk = partial;
+              }
+              lastEmitted = partial;
+              emit({ choices: [{ index: 0, delta: { content: chunk } }] });
+            },
+          });
+
+          if (closed) return;
+          if (outcome.status === 'ok') {
+            // Chiudi bene: se askArtex ha consegnato la reply solo nel return
+            // (non via onProgress), aggiungi la coda mancante.
+            if (
+              outcome.reply.length > lastEmitted.length &&
+              outcome.reply.startsWith(lastEmitted)
+            ) {
+              emit({
+                choices: [
+                  { index: 0, delta: { content: outcome.reply.slice(lastEmitted.length) } },
+                ],
+              });
+            }
+            emit({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] });
+          } else if (outcome.status === 'not_configured') {
+            emit({
+              choices: [
+                {
+                  index: 0,
+                  delta: { content: '\n\n❌ ARTEX non configurato.' },
+                  finish_reason: 'error',
+                },
+              ],
+            });
+          } else {
+            const detail = outcome.detail ? ` — ${outcome.detail}` : '';
+            emit({
+              choices: [
+                {
+                  index: 0,
+                  delta: { content: `\n\n❌ ARTEX ${outcome.error}${detail}` },
+                  finish_reason: 'error',
+                },
+              ],
+            });
+          }
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        } catch (err) {
+          if (closed) return;
+          const message = err instanceof Error ? err.message : 'unknown_error';
+          emit({
+            choices: [
+              {
+                index: 0,
+                delta: { content: `\n\n❌ ${message}` },
+                finish_reason: 'error',
+              },
+            ],
+          });
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        } finally {
+          req.signal.removeEventListener('abort', abortOnClient);
+          if (!closed) {
+            closed = true;
+            try {
+              controller.close();
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+        'x-accel-buffering': 'no',
+      },
+    });
+  }
+
+  // --- Branch gateway OpenAI-compatible -----------------------------------
   const cfg = readConfig();
   if ('error' in cfg) {
     return NextResponse.json({ error: cfg.error }, { status: 500 });
   }
-
-  const { model, prompt, temperature, maxTokens } = parsed.data;
-  const started = Date.now();
 
   // Timeout upstream + propagazione del disconnect del client (cancel del fetch
   // nel browser deve davvero fermare la chiamata al gateway).
