@@ -61,6 +61,7 @@ export async function POST(request: Request) {
 
   const profile = {
     name: 'Solco-Smart',
+    provider: 'openai',
     format: 'openai',
     base_url: 'https://www.solcomusic.online/api/artex-llm/v1',
     api_key: reserveKey,
