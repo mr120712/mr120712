@@ -25,6 +25,39 @@ export const ARTEX_TELEGRAM_CHUNK = 3900;
  */
 export const ARTEX_CONV_TAG = /(?:conversazione|conv\.?)\s*#(\d+)/i;
 
+/**
+ * callback_data del pulsante "Continua" sotto una risposta ARTEX. Formato
+ * `artex:cont:<conversationId>` con cap 64 byte (limite Telegram). Il webhook
+ * lo parse ed invia un prompt force_reply col riferimento alla conversazione.
+ */
+export const ARTEX_CALLBACK_CONT = /^artex:cont:(\d+)$/;
+
+/** Prefisso callback_data riservato alle azioni ARTEX. */
+export const ARTEX_CALLBACK_PREFIX = 'artex:';
+
+/**
+ * Inline keyboard sotto una risposta `/artex ask`. Un solo bottone "Continua"
+ * che apre un force_reply citato alla conversazione passata. Se non c'è un
+ * conversationId (es. not_configured) non mostra il bottone.
+ */
+export function artexInlineKeyboard(
+  conversationId: number | undefined | null,
+): { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } | undefined {
+  if (!conversationId || !Number.isFinite(conversationId)) return undefined;
+  return {
+    inline_keyboard: [[{ text: '▶ Continua', callback_data: `artex:cont:${conversationId}` }]],
+  };
+}
+
+/**
+ * Testo del messaggio inviato quando l'utente preme "Continua". Deve contenere
+ * la stringa parseata da ARTEX_CONV_TAG: così la risposta dell'utente (via
+ * reply-to a questo messaggio) rimette in rotta `extractArtexConversationId`.
+ */
+export function artexContinuePrompt(conversationId: number): string {
+  return `🛡️ Rispondi qui per continuare · conversazione #${conversationId}`;
+}
+
 export type ArtexInput =
   | { kind: 'status' }
   | { kind: 'ask'; question: string }

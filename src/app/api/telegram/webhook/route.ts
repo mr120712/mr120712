@@ -12,10 +12,13 @@ import { timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { artexPauseTask, artexStatus, askArtex } from '@/lib/business/artex-client.server';
 import {
+  ARTEX_CALLBACK_CONT,
   ARTEX_COMMAND,
   ARTEX_USAGE,
   artexChatMessages,
   artexChatStreamingFrame,
+  artexContinuePrompt,
+  artexInlineKeyboard,
   artexStopMessages,
   artexTelegramMessages,
   extractArtexConversationId,
@@ -98,7 +101,9 @@ import { askSkynet } from '@/lib/skynet/chat.server';
 
 export const dynamic = 'force-dynamic';
 /** /cerca, /scarica, /video, /skynet fanno lavoro di rete (ricerca, file, worker, AI): margine ampio. */
-export const maxDuration = 60;
+// Alzato a 120s per far spazio al nuovo timeout di askArtex (110s). Gli altri
+// comandi non si avvicinano nemmeno a 60s, non c'è downside.
+export const maxDuration = 120;
 
 const CONNECT_HINT = 'Apri Solco per collegare il tuo account 👇';
 
@@ -605,35 +610,75 @@ async function handleUpdate(
 
       // Rate-limit editMessageText to ~1/sec per chat (Telegram's documented ceiling).
       let lastEditMs = 0;
-      const outcome = await askArtex(command.question, process.env, fetch, {
-        timeoutMs: 50_000,
-        conversationId,
-        onProgress: async (partial, running) => {
-          if (progressId === null) return;
-          const now = Date.now();
-          // Always render on final (running=false) so the user sees the last chunk.
-          if (running && now - lastEditMs < 1_100) return;
-          lastEditMs = now;
-          await editTelegramMessage(chatId, progressId, artexChatStreamingFrame(partial), {
-            parseMode: 'HTML',
-          }).catch(() => undefined);
-          if (running) {
-            await sendTelegramChatAction(chatId, 'typing').catch(() => undefined);
-          }
-        },
-      });
+      // Typing periodico: Telegram "sta scrivendo…" dura ~5s, quindi rinnoviamo
+      // ogni 4s in silenzio così l'indicatore resta vivo anche quando ARTEX
+      // sta ragionando senza emettere testo. Fermato nel finally.
+      const typingKeepAlive = setInterval(() => {
+        sendTelegramChatAction(chatId, 'typing').catch(() => undefined);
+      }, 4_000);
 
-      const parts = artexChatMessages(outcome);
-      const [first, ...rest] = parts;
-      if (progressId !== null && first) {
-        const edited = await editTelegramMessage(chatId, progressId, first, format).catch(
-          () => false,
-        );
-        if (!edited) await sendTelegramMessage(chatId, first, format);
-      } else if (first) {
-        await sendTelegramMessage(chatId, first, format);
+      // askArtex con un unico retry sul transitorio `unreachable` (502/503/504,
+      // network drop): se il primo tentativo fallisce prima di produrre testo,
+      // ritenta una volta dopo 1.5s. `still_running`/`empty_reply` NON si
+      // ritentano (il primo cambierebbe stato dell'agente, il secondo è
+      // un verdetto dell'agente).
+      let outcome: Awaited<ReturnType<typeof askArtex>>;
+      try {
+        const ask = () =>
+          askArtex(command.question, process.env, fetch, {
+            // 110s sta sotto il maxDuration della route (120s) con margine per
+            // il rendering finale e un eventuale retry breve.
+            timeoutMs: 110_000,
+            conversationId,
+            onProgress: async (partial, running) => {
+              if (progressId === null) return;
+              const now = Date.now();
+              if (running && now - lastEditMs < 1_100) return;
+              lastEditMs = now;
+              await editTelegramMessage(chatId, progressId, artexChatStreamingFrame(partial), {
+                parseMode: 'HTML',
+              }).catch(() => undefined);
+              if (running) {
+                await sendTelegramChatAction(chatId, 'typing').catch(() => undefined);
+              }
+            },
+          });
+        outcome = await ask();
+        if (
+          outcome.status === 'failed' &&
+          outcome.error === 'unreachable' &&
+          // Retry solo se nulla è stato ancora renderizzato (lastEditMs==0): se
+          // ARTEX ha già mandato testo, rifarla doppierebbe la conversazione.
+          lastEditMs === 0
+        ) {
+          await new Promise((r) => setTimeout(r, 1_500));
+          outcome = await ask();
+        }
+
+        const parts = artexChatMessages(outcome);
+        const [first, ...rest] = parts;
+        // Solo la risposta finale porta il bottone "Continua" (edits in
+        // streaming no — eviterebbe tap su conv ancora vuote).
+        const convId =
+          outcome.status === 'ok'
+            ? outcome.conversationId
+            : outcome.status === 'failed'
+              ? outcome.conversationId
+              : null;
+        const finalMarkup = artexInlineKeyboard(convId ?? undefined);
+        const finalFormat = finalMarkup ? { ...format, replyMarkup: finalMarkup } : format;
+        if (progressId !== null && first) {
+          const edited = await editTelegramMessage(chatId, progressId, first, finalFormat).catch(
+            () => false,
+          );
+          if (!edited) await sendTelegramMessage(chatId, first, finalFormat);
+        } else if (first) {
+          await sendTelegramMessage(chatId, first, finalFormat);
+        }
+        for (const part of rest) await sendTelegramMessage(chatId, part, format);
+      } finally {
+        clearInterval(typingKeepAlive);
       }
-      for (const part of rest) await sendTelegramMessage(chatId, part, format);
       return;
     }
 
@@ -729,8 +774,26 @@ export async function POST(request: Request) {
       const limited = await enforceRateLimit('telegram.webhook', `tg:${chatId}`);
       if (!limited) {
         await answerTelegramCallback(callbackId);
-        const command = TELEGRAM_MENU_CALLBACKS[data];
-        if (command) await handleUpdate(chatId, command, username, chatType);
+        // Azioni ARTEX dinamiche (prefisso artex:cont:<convId>) — dato che il
+        // conv id è runtime non entra nel map statico TELEGRAM_MENU_CALLBACKS.
+        // Gestite PRIMA del lookup così non vengono intercettate.
+        const contMatch = ARTEX_CALLBACK_CONT.exec(data);
+        if (contMatch?.[1]) {
+          const convId = Number(contMatch[1]);
+          if (Number.isFinite(convId) && convId > 0) {
+            await sendTelegramMessage(chatId, artexContinuePrompt(convId), {
+              parseMode: 'HTML',
+              replyMarkup: {
+                force_reply: true,
+                selective: false,
+                input_field_placeholder: '/artex ask …',
+              },
+            });
+          }
+        } else {
+          const command = TELEGRAM_MENU_CALLBACKS[data];
+          if (command) await handleUpdate(chatId, command, username, chatType);
+        }
       }
     } catch {
       // Mai propagare verso Telegram.
