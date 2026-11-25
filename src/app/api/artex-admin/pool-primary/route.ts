@@ -23,11 +23,41 @@ export async function POST(request: Request) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const artexUrl = clean(process.env.ARTEX_URL)?.replace(/\/+$/, '');
-  const artexToken = clean(process.env.ARTEX_TOKEN);
+  const artexPassword = clean(process.env.ARTEX_PASSWORD);
+  const artexUsername = clean(process.env.ARTEX_USERNAME) ?? 'ARTEX';
+  const preauthToken = clean(process.env.ARTEX_TOKEN);
   const reserveKey = clean(process.env.FREELLMAPI_API_KEY) ?? clean(process.env.FREELLMAPI_TOKEN);
   if (!artexUrl) return NextResponse.json({ error: 'ARTEX_URL_missing' }, { status: 500 });
-  if (!artexToken) return NextResponse.json({ error: 'ARTEX_TOKEN_missing' }, { status: 500 });
   if (!reserveKey) return NextResponse.json({ error: 'FREELLMAPI_API_KEY_missing' }, { status: 500 });
+
+  let artexToken = preauthToken;
+  if (!artexToken) {
+    if (!artexPassword) {
+      return NextResponse.json(
+        { error: 'ARTEX_TOKEN_or_PASSWORD_missing' },
+        { status: 500 },
+      );
+    }
+    const loginRes = await fetch(`${artexUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username: artexUsername, password: artexPassword }),
+      cache: 'no-store',
+      redirect: 'error',
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!loginRes.ok) {
+      const body = await loginRes.text().catch(() => '');
+      return NextResponse.json(
+        { error: 'artex_login_failed', status: loginRes.status, body: body.slice(0, 200) },
+        { status: 502 },
+      );
+    }
+    const loginJson = (await loginRes.json().catch(() => null)) as { token?: unknown } | null;
+    const tok = loginJson && typeof loginJson.token === 'string' ? loginJson.token.trim() : '';
+    if (!tok) return NextResponse.json({ error: 'artex_login_no_token' }, { status: 502 });
+    artexToken = tok;
+  }
 
   const profile = {
     name: 'Solco-Smart',
