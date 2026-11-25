@@ -66,6 +66,220 @@ export async function POST(req: Request) {
   const { model, prompt, temperature, maxTokens } = parsed.data;
   const started = Date.now();
 
+  // --- Branch ARTEX ENSEMBLE (7 agent in parallelo + giudice FreeLLMAPI) --
+  // Deve stare PRIMA del branch generico "artex:*" altrimenti "ensemble"
+  // viene scambiato per un agent_key letterale e passato tale a ARTEX.
+  if (model === 'artex:ensemble') {
+    const config = artexConfig();
+    if (!config) {
+      return NextResponse.json(
+        { error: 'ARTEX_URL / ARTEX_PASSWORD non impostate (.env.local).' },
+        { status: 500 },
+      );
+    }
+    const judgeKey = (process.env.FREELLMAPI_API_KEY ?? process.env.FREELLMAPI_TOKEN)?.trim();
+    if (!judgeKey) {
+      return NextResponse.json(
+        { error: 'FREELLMAPI_API_KEY non impostata: serve per il giudice.' },
+        { status: 500 },
+      );
+    }
+    const judgeBaseUrl = (
+      process.env.FREELLMAPI_BASE_URL?.trim() || 'https://www.solcomusic.online/api/ai-reserve/v1'
+    ).replace(/\/+$/, '');
+
+    // 7 agent ARTEX. Escluso `worker` (executor di intenti, risposte sintetiche
+    // o vuote per domande libere). Tutti gli altri rispondono a prompt arbitrari.
+    const AGENTS = [
+      'goals',
+      'planner',
+      'mainagent',
+      'auto',
+      'pentest',
+      'reporter',
+      'retester',
+    ] as const;
+
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        let closed = false;
+        const emit = (obj: unknown) => {
+          if (closed) return;
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+        };
+        const abortOnClient = () => {
+          if (closed) return;
+          closed = true;
+          try {
+            controller.close();
+          } catch {
+            /* ignore */
+          }
+        };
+        req.signal.addEventListener('abort', abortOnClient);
+
+        try {
+          emit({
+            id: `artex-ensemble-${Date.now()}`,
+            model: 'artex/ensemble',
+            choices: [{ index: 0, delta: { role: 'assistant' } }],
+          });
+
+          // Fan-out: ogni agent crea la propria conversation + polling. Timeout
+          // 80s per agent sta sotto il maxDuration della route (120s) con margine
+          // per il giudice.
+          const results = await Promise.allSettled(
+            AGENTS.map((agentKey) =>
+              askArtex(prompt, process.env, fetch, {
+                agentKey,
+                timeoutMs: 80_000,
+                pollIntervalMs: 1_500,
+              }),
+            ),
+          );
+
+          const voices: Array<{ agent: string; text: string; conv?: number }> = [];
+          const failures: string[] = [];
+          for (let i = 0; i < AGENTS.length; i++) {
+            const agent = AGENTS[i];
+            const r = results[i];
+            if (!agent || !r) continue;
+            if (r.status === 'fulfilled') {
+              if (r.value.status === 'ok' && r.value.reply) {
+                voices.push({ agent, text: r.value.reply, conv: r.value.conversationId });
+              } else if (r.value.status === 'not_configured') {
+                failures.push(`${agent}: not_configured`);
+              } else if (r.value.status === 'failed') {
+                const detail = r.value.detail ? ` — ${r.value.detail}` : '';
+                failures.push(`${agent}: ${r.value.error}${detail}`);
+              }
+            } else {
+              const reason = r.reason instanceof Error ? r.reason.message : 'unknown';
+              failures.push(`${agent}: ${reason}`);
+            }
+          }
+
+          if (voices.length === 0) {
+            emit({
+              choices: [
+                {
+                  index: 0,
+                  delta: {
+                    content: `\n\n❌ Nessun agent ARTEX ha risposto:\n${failures.join('\n')}`,
+                  },
+                  finish_reason: 'error',
+                },
+              ],
+            });
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+            return;
+          }
+
+          // Giudice FreeLLMAPI (gpt-oss-120b): consolida le voci.
+          const judgePrompt = [
+            `Un utente ha chiesto:\n"""\n${prompt}\n"""`,
+            '',
+            `${voices.length} agent di una piattaforma pentest hanno risposto. Scrivi la MIGLIORE risposta sintetizzando il meglio di ciascuna: correggi errori, unisci dettagli utili, scarta ridondanze e riferimenti interni alla piattaforma. Rispondi direttamente all'utente nella sua lingua, senza menzionare agent o procedura.`,
+            '',
+            ...voices.map((v) => `## Risposta ${v.agent}\n${v.text}`),
+          ].join('\n');
+
+          let judgeText: string;
+          try {
+            const judgeRes = await fetch(`${judgeBaseUrl}/chat/completions`, {
+              method: 'POST',
+              headers: {
+                authorization: `Bearer ${judgeKey}`,
+                'content-type': 'application/json',
+              },
+              body: JSON.stringify({
+                model: 'openai/gpt-oss-120b',
+                messages: [{ role: 'user', content: judgePrompt }],
+                stream: false,
+                temperature: 0.2,
+                ...(typeof maxTokens === 'number' ? { max_tokens: maxTokens } : {}),
+              }),
+              cache: 'no-store',
+              signal: req.signal,
+            });
+            if (!judgeRes.ok) throw new Error(`HTTP ${judgeRes.status}`);
+            const judgeBody: unknown = await judgeRes.json();
+            const judgeObj = isRecord(judgeBody) ? judgeBody : {};
+            const judgeChoices = Array.isArray(judgeObj.choices) ? judgeObj.choices : [];
+            const judgeChoice = isRecord(judgeChoices[0]) ? judgeChoices[0] : null;
+            const judgeMessage =
+              judgeChoice && isRecord(judgeChoice.message) ? judgeChoice.message : null;
+            judgeText =
+              typeof judgeMessage?.content === 'string' ? judgeMessage.content.trim() : '';
+            if (!judgeText) throw new Error('giudice ha restituito contenuto vuoto');
+          } catch (err) {
+            // Fallback: consegna la voce più lunga (euristica: più informativa).
+            const fallback = [...voices].sort((a, b) => b.text.length - a.text.length)[0];
+            const detail = err instanceof Error ? err.message : 'unknown';
+            emit({
+              model: `artex/ensemble (judge failed: ${detail})`,
+              choices: [
+                {
+                  index: 0,
+                  delta: { content: fallback ? fallback.text : '' },
+                  finish_reason: 'stop',
+                },
+              ],
+            });
+            controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+            return;
+          }
+
+          emit({
+            model: `artex/ensemble (${voices.length}/${AGENTS.length} + judge)`,
+            choices: [
+              {
+                index: 0,
+                delta: { content: judgeText },
+                finish_reason: 'stop',
+              },
+            ],
+            ...(failures.length > 0 ? { x_artex_failures: failures } : {}),
+          });
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        } catch (err) {
+          if (closed) return;
+          const message = err instanceof Error ? err.message : 'unknown_error';
+          emit({
+            choices: [
+              {
+                index: 0,
+                delta: { content: `\n\n❌ ensemble error: ${message}` },
+                finish_reason: 'error',
+              },
+            ],
+          });
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        } finally {
+          req.signal.removeEventListener('abort', abortOnClient);
+          if (!closed) {
+            closed = true;
+            try {
+              controller.close();
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+        'x-accel-buffering': 'no',
+      },
+    });
+  }
+
   // --- Branch ARTEX -------------------------------------------------------
   if (model === 'artex' || model.startsWith('artex:')) {
     const config = artexConfig();

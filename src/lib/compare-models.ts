@@ -8,6 +8,11 @@ export const COMPARE_MODELS: readonly string[] = [
   // Il backend parla via conversation API + polling; la route emette SSE finti
   // (delta.content) così la card si popola col testo progressivo.
   'artex',
+  // ARTEX ensemble: 7 agent in parallelo (goals/planner/mainagent/auto/pentest/
+  // reporter/retester, esclude worker) + giudice FreeLLMAPI che sintetizza. Più
+  // lento (singolo agent 3-30s) e dipende dalle quote dell'LLM pool di ARTEX;
+  // utile per risposte robuste anche se un sottoinsieme fallisce.
+  'artex:ensemble',
   // FreeLLMAPI: la riserva AI pubblica di Solco (www.solcomusic.online
   // /api/ai-reserve/v1). Non streama (risposta single-shot), la route la
   // avvolge in un unico delta SSE. Chiave: FREELLMAPI_API_KEY.
