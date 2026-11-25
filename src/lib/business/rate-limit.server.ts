@@ -219,6 +219,16 @@ export const ACTION_RATE_LIMITS = {
     { requests: 15, windowMs: 60_000 },
     { requests: 150, windowMs: 86_400_000 },
   ],
+  // Tier "heavy" opt-in per chiavi designate (FREELLMAPI_HEAVY_KEY_HASHES): pensata
+  // per clienti agentici che fanno molte chiamate ravvicinate (ARTEX e simili).
+  // Il tier normale 'ai.reserve' 15/min è troppo stretto per decine di tool calls
+  // consecutive; qui alziamo di 4x al minuto e ~13x al giorno. Resta per IP
+  // (identity = IP del caller), così un IP terzo che riciclasse la chiave non
+  // sfrutta comunque l'intera quota giornaliera di un altro IP.
+  'ai.reserve.heavy': [
+    { requests: 60, windowMs: 60_000 },
+    { requests: 2000, windowMs: 86_400_000 },
+  ],
   'solco.support': [{ requests: 5, windowMs: 600_000 }],
   // Tetto app-wide sulle risposte del supporto: ognuna è una richiesta a Claude a pagamento.
   'solco.support.global': [{ requests: 300, windowMs: 86_400_000 }],
@@ -670,6 +680,7 @@ const actionLabels: Record<RateLimitAction, string> = {
   'music.recommendations.ai.global': 'i consigli con l’AI di oggi',
   'ai.chat': 'le richieste all’assistente',
   'ai.reserve': 'le richieste alla riserva AI',
+  'ai.reserve.heavy': 'le richieste alla riserva AI (quota estesa)',
   'solco.support': 'le richieste al supporto',
   'solco.support.global': 'le richieste al supporto di oggi',
   'admin.assistant': 'le richieste all’assistente amministrativo',

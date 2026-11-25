@@ -4,7 +4,7 @@
     "solco": {
       "root": ".",
       "framework": "nextjs",
-      "buildCommand": "npx prisma@6.19.3 generate && { ( export DATABASE_URL=\"${DATABASE_URL_UNPOOLED:-$DATABASE_URL}\"; npx prisma@6.19.3 db push --skip-generate || npx prisma@6.19.3 db push --skip-generate ) ; NODE_OPTIONS=--max-old-space-size=7168 npm run build ; }"
+      "buildCommand": "npx prisma@6.19.3 generate && { export DATABASE_URL=\"${DATABASE_URL_UNPOOLED:-$DATABASE_URL}\"; npx prisma@6.19.3 db push --skip-generate || npx prisma@6.19.3 db push --skip-generate ; NODE_OPTIONS=--max-old-space-size=7168 npm run build ; }"
     }
   },
   "headers": [

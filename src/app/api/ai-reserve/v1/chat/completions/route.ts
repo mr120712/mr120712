@@ -4,6 +4,7 @@
 // dal token (nessun cookie, nessuna autorità ambientale), chiamato server-to-server dal client
 // riserva di Solco, che non manda un header Origin. Il Bearer È l'autenticazione.
 import 'server-only';
+import { createHash } from 'node:crypto';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { authorizeReserve, forwardChat } from '@/lib/business/ai-reserve-connector.server';
@@ -13,6 +14,37 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 // Una chat di ripiego può aspettare l'upstream: resta sotto il tetto della route.
 export const maxDuration = 60;
+
+// Tetto difensivo prima del parse JSON: body più grandi di così non passano
+// comunque (Vercel Serverless cap 4.5MB; molti free-tier upstream rifiutano
+// >1-2MB), ma dare qui un errore chiaro — con la dimensione e un suggerimento —
+// è molto più utile che il 502 opaco `upstream_error 413` che si otterrebbe
+// forwardando tale e quale. Clienti agentici (ARTEX in testa) sfiorano questo
+// soffitto quando serializzano system+tools di un worker grosso.
+const BODY_MAX_BYTES = 3_500_000;
+
+/**
+ * Chiavi (hash SHA-256 in hex, comma-separated) che ottengono la tier
+ * `ai.reserve.heavy` invece di `ai.reserve` di default. Opt-in: nessuna chiave
+ * = nessuna tier estesa. Pensato per ARTEX ("…796b") e simili clienti agentici.
+ */
+function heavyKeyHashes(): Set<string> {
+  const raw = process.env.FREELLMAPI_HEAVY_KEY_HASHES ?? '';
+  const out = new Set<string>();
+  for (const part of raw.split(',')) {
+    const trimmed = part.trim().toLowerCase();
+    if (/^[a-f0-9]{64}$/.test(trimmed)) out.add(trimmed);
+  }
+  return out;
+}
+
+/** Hash SHA-256 (hex) del token nell'Authorization: Bearer; null se assente/malformato. */
+function bearerHash(headers: Headers): string | null {
+  const auth = headers.get('authorization') ?? '';
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  if (!m?.[1]) return null;
+  return createHash('sha256').update(m[1].trim()).digest('hex');
+}
 
 // Il content di un messaggio può essere una stringa semplice, un array di parti
 // (OpenAI vision / tool_use / tool_result), o null (tipico di un assistant message
@@ -58,9 +90,31 @@ export async function POST(request: Request) {
   const auth = authorizeReserve(request);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-  // Tetto per IP: protegge i tetti giornalieri bassi dei provider gratuiti da una chiave condivisa.
-  // L'uso interno di Solco non passa di qui (forwardChat in-process), quindi non è toccato.
-  const limited = await enforceRateLimit('ai.reserve', getRateLimitIdentity(null, request.headers));
+  // Early-reject dei body oltre il tetto: il forward a Groq/Magnetapi/etc. su
+  // body così grandi finirebbe comunque in 502 upstream_error 413. Qui rispondi
+  // con un 413 "solco-originated" che include la taglia vista e un suggerimento
+  // concreto, così chi chiama (ARTEX agent in testa) sa cosa ridurre.
+  const declared = Number(request.headers.get('content-length') ?? 0);
+  if (declared > BODY_MAX_BYTES) {
+    return NextResponse.json(
+      {
+        error: 'payload_too_large',
+        size_bytes: declared,
+        limit_bytes: BODY_MAX_BYTES,
+        hint: 'Reduce the system prompt or trim the tools array; upstream providers reject payloads this large anyway.',
+      },
+      { status: 413 },
+    );
+  }
+
+  // Tier: default per IP (15/min, 150/giorno). Chiavi designate via
+  // FREELLMAPI_HEAVY_KEY_HASHES ottengono la tier "heavy" (60/min, 2000/giorno).
+  // L'uso interno di Solco non passa di qui (forwardChat in-process), quindi
+  // non è toccato in nessuno dei due casi.
+  const heavy = heavyKeyHashes();
+  const hash = bearerHash(request.headers);
+  const tier = hash && heavy.has(hash) ? 'ai.reserve.heavy' : 'ai.reserve';
+  const limited = await enforceRateLimit(tier, getRateLimitIdentity(null, request.headers));
   if (limited) return limited;
 
   const json = await request.json().catch(() => null);
