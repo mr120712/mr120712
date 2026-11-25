@@ -353,6 +353,15 @@ export async function askArtex(
         if (item.kind !== 'text' && item.kind !== 'result') continue;
         const text = (item.detail || item.summary).trim();
         if (!text) continue;
+        // Un `result` che inizia con "(no text summary" è un placeholder
+        // generato da ARTEX quando l'agente completa un turno senza output
+        // testuale conclusivo. Se abbiamo già raccolto un `text` reale dal
+        // modello (un assistant message), lo teniamo invece del placeholder.
+        const isPlaceholderResult =
+          item.kind === 'result' && text.startsWith('(no text summary');
+        if (isPlaceholderResult && lastKind === 'text' && lastAssistantText) {
+          continue;
+        }
         // A later 'result' always wins; otherwise keep the latest 'text'.
         if (item.kind === 'result' || lastKind !== 'result') {
           if (text !== lastAssistantText) changed = true;
