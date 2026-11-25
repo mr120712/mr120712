@@ -2,11 +2,15 @@
 // Una chiamata = un modello. Il client fa fan-out di N richieste parallele a
 // questa route, così le risposte compaiono una a una.
 //
+// La route STREAMA sempre (stream: true verso l'upstream, stream_options.
+// include_usage per avere i token alla fine). Se l'upstream restituisce HTTP
+// non-ok PRIMA che inizi lo stream, la route risponde con una busta JSON
+// `{status:'error', error, latencyMs}` (CompareResult) — così il client può
+// gestire i due casi con lo stesso contratto.
+//
 // Variabili d'ambiente richieste (in .env.local):
 //   LOCAL_LLM_BASE_URL   es. http://192.168.0.117:8080
 //   LOCAL_LLM_KEY        bearer token del gateway
-//
-// Non va in env.ts (framework-owned): lette da process.env qui dentro.
 
 import 'server-only';
 import { NextResponse } from 'next/server';
@@ -16,13 +20,9 @@ import { sameOrigin } from '@/lib/same-origin';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 // Finestra di tolleranza oltre il nostro timeout (vedi UPSTREAM_TIMEOUT_MS).
-export const maxDuration = 90;
+export const maxDuration = 120;
 
-const UPSTREAM_TIMEOUT_MS = 75_000;
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
+const UPSTREAM_TIMEOUT_MS = 90_000;
 
 function readConfig(): { baseUrl: string; apiKey: string } | { error: string } {
   const baseUrl = process.env.LOCAL_LLM_BASE_URL?.trim();
@@ -55,8 +55,18 @@ export async function POST(req: Request) {
 
   const { model, prompt, temperature, maxTokens } = parsed.data;
   const started = Date.now();
+
+  // Timeout upstream + propagazione del disconnect del client (cancel del fetch
+  // nel browser deve davvero fermare la chiamata al gateway).
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
+  const onClientAbort = () => controller.abort();
+  req.signal.addEventListener('abort', onClientAbort);
+
+  const cleanup = () => {
+    clearTimeout(timer);
+    req.signal.removeEventListener('abort', onClientAbort);
+  };
 
   try {
     const upstream = await fetch(`${cfg.baseUrl}/v1/chat/completions`, {
@@ -68,7 +78,8 @@ export async function POST(req: Request) {
       body: JSON.stringify({
         model,
         messages: [{ role: 'user', content: prompt }],
-        stream: false,
+        stream: true,
+        stream_options: { include_usage: true },
         ...(typeof temperature === 'number' ? { temperature } : {}),
         ...(typeof maxTokens === 'number' ? { max_tokens: maxTokens } : {}),
       }),
@@ -76,66 +87,43 @@ export async function POST(req: Request) {
       signal: controller.signal,
     });
 
-    const latencyMs = Date.now() - started;
-    const bodyText = await upstream.text();
-    let body: unknown = null;
-    try {
-      body = bodyText ? JSON.parse(bodyText) : null;
-    } catch {
-      body = bodyText;
-    }
-
-    if (!upstream.ok) {
-      const detail =
-        body && typeof body === 'object' && 'error' in body
-          ? JSON.stringify((body as { error: unknown }).error)
-          : typeof body === 'string'
-            ? body.slice(0, 400)
-            : '';
+    if (!upstream.ok || !upstream.body) {
+      const bodyText = await upstream.text().catch(() => '');
+      const detail = bodyText ? bodyText.slice(0, 400) : '';
+      const latencyMs = Date.now() - started;
       const result: CompareResult = {
         model,
         status: 'error',
         error: `HTTP ${upstream.status}${detail ? ` — ${detail}` : ''}`,
         latencyMs,
       };
+      cleanup();
       return NextResponse.json(result);
     }
 
-    const bodyObj = isRecord(body) ? body : {};
-    const choices = Array.isArray(bodyObj.choices) ? bodyObj.choices : [];
-    const choice = isRecord(choices[0]) ? choices[0] : null;
-    const message = choice && isRecord(choice.message) ? choice.message : null;
-    const content: string | null = typeof message?.content === 'string' ? message.content : null;
-    const reasoning: string | null =
-      typeof message?.reasoning === 'string' ? message.reasoning : null;
-    const finishReason: string | null =
-      typeof choice?.finish_reason === 'string' ? choice.finish_reason : null;
-    const usageRaw = isRecord(bodyObj.usage) ? bodyObj.usage : null;
-    const usage = usageRaw
-      ? {
-          promptTokens:
-            typeof usageRaw.prompt_tokens === 'number' ? usageRaw.prompt_tokens : undefined,
-          completionTokens:
-            typeof usageRaw.completion_tokens === 'number' ? usageRaw.completion_tokens : undefined,
-          totalTokens:
-            typeof usageRaw.total_tokens === 'number' ? usageRaw.total_tokens : undefined,
-        }
-      : null;
-    const resolvedModel: string | null = typeof bodyObj.model === 'string' ? bodyObj.model : null;
+    // Relay dello stream SSE upstream. Aggancio cleanup alla chiusura della
+    // pipe (il timer scade col setTimeout non cancellato se lo stream è lungo —
+    // lo cancello comunque qui perché l'upstream ha accettato).
+    clearTimeout(timer);
 
-    const result: CompareResult = {
-      model,
-      status: 'ok',
-      content,
-      reasoning,
-      error: null,
-      latencyMs,
-      usage,
-      resolvedModel,
-      finishReason,
-    };
-    return NextResponse.json(result);
+    const relayed = upstream.body.pipeThrough(
+      new TransformStream({
+        flush() {
+          req.signal.removeEventListener('abort', onClientAbort);
+        },
+      }),
+    );
+
+    return new Response(relayed, {
+      headers: {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+        'x-accel-buffering': 'no',
+      },
+    });
   } catch (err) {
+    cleanup();
     const latencyMs = Date.now() - started;
     const aborted = err instanceof Error && err.name === 'AbortError';
     const result: CompareResult = {
@@ -149,7 +137,5 @@ export async function POST(req: Request) {
       latencyMs,
     };
     return NextResponse.json(result);
-  } finally {
-    clearTimeout(timer);
   }
 }

@@ -1,6 +1,6 @@
 // @polsia:user-owned — playground di confronto multi-modello sul gateway LLM
-// locale. Fan-out di N richieste parallele a /api/compare, card per modello
-// che si popolano a mano a mano.
+// locale. Fan-out di N richieste parallele a /api/compare in streaming SSE
+// (OpenAI-compatible): ogni card si riempie token per token.
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
@@ -12,14 +12,13 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { apiFetch } from '@/lib/api-client';
 import {
   COMPARE_MODELS,
   type CompareProvider,
   groupedModels,
   providerOf,
 } from '@/lib/compare-models';
-import { CompareResult } from '@/lib/contracts/compare';
+import type { CompareResult } from '@/lib/contracts/compare';
 
 type RunState = 'pending' | 'running' | 'ok' | 'error';
 
@@ -36,6 +35,140 @@ const DEFAULT_SELECTED = new Set<string>([
   'kilo:nvidia/nemotron-3-ultra-550b-a55b:free',
   'ovh:Qwen3.5-397B-A17B',
 ]);
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/**
+ * Streama /api/compare e aggiorna la Row via `onUpdate`. Risolve quando lo
+ * stream finisce (o il server ha risposto con una busta JSON di errore).
+ * Lanciare => propagarlo al chiamante solo se NON è un abort.
+ */
+async function streamCompare(
+  payload: Record<string, unknown>,
+  signal: AbortSignal,
+  onUpdate: (patch: Partial<CompareResult>, state: RunState) => void,
+): Promise<void> {
+  const started = performance.now();
+  const res = await fetch('/api/compare', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal,
+  });
+
+  const contentType = res.headers.get('content-type') ?? '';
+
+  // Error branch: la route restituisce JSON ({error}|{errors}|CompareResult).
+  if (!contentType.includes('text/event-stream')) {
+    const body = await res.json().catch(() => null);
+    const latencyMs = Math.round(performance.now() - started);
+    let message = `HTTP ${res.status}`;
+    if (isRecord(body)) {
+      if ('error' in body && typeof body.error === 'string') message = body.error;
+      else if ('errors' in body && isRecord(body.errors)) {
+        message = Object.entries(body.errors)
+          .map(([k, v]) => `${k}: ${String(v)}`)
+          .join('; ');
+      }
+    }
+    onUpdate({ status: 'error', error: message, latencyMs }, 'error');
+    return;
+  }
+
+  if (!res.body) {
+    onUpdate({ status: 'error', error: 'risposta senza body', latencyMs: 0 }, 'error');
+    return;
+  }
+
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = '';
+  let content = '';
+  let reasoning = '';
+  let resolvedModel: string | null = null;
+  let finishReason: string | null = null;
+  let usage: CompareResult['usage'] = null;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += value;
+    // SSE: eventi separati da linea vuota. Un evento può avere più righe
+    // `data: …`; le concatena.
+    let sepIndex = buffer.indexOf('\n\n');
+    while (sepIndex !== -1) {
+      const rawEvent = buffer.slice(0, sepIndex);
+      buffer = buffer.slice(sepIndex + 2);
+      sepIndex = buffer.indexOf('\n\n');
+      const dataLines: string[] = [];
+      for (const line of rawEvent.split('\n')) {
+        if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
+      }
+      if (dataLines.length === 0) continue;
+      const data = dataLines.join('\n');
+      if (data === '[DONE]') continue;
+      let payload: unknown;
+      try {
+        payload = JSON.parse(data);
+      } catch {
+        continue;
+      }
+      if (!isRecord(payload)) continue;
+      if (typeof payload.model === 'string' && !resolvedModel) resolvedModel = payload.model;
+      const choices = Array.isArray(payload.choices) ? payload.choices : [];
+      const choice = isRecord(choices[0]) ? choices[0] : null;
+      if (choice) {
+        const delta = isRecord(choice.delta) ? choice.delta : null;
+        if (delta) {
+          if (typeof delta.content === 'string') content += delta.content;
+          if (typeof delta.reasoning === 'string') reasoning += delta.reasoning;
+        }
+        if (typeof choice.finish_reason === 'string') finishReason = choice.finish_reason;
+      }
+      const usageRaw = isRecord(payload.usage) ? payload.usage : null;
+      if (usageRaw) {
+        usage = {
+          promptTokens:
+            typeof usageRaw.prompt_tokens === 'number' ? usageRaw.prompt_tokens : undefined,
+          completionTokens:
+            typeof usageRaw.completion_tokens === 'number' ? usageRaw.completion_tokens : undefined,
+          totalTokens:
+            typeof usageRaw.total_tokens === 'number' ? usageRaw.total_tokens : undefined,
+        };
+      }
+      const latencyMs = Math.round(performance.now() - started);
+      onUpdate(
+        {
+          status: 'ok',
+          content,
+          reasoning: reasoning || null,
+          resolvedModel,
+          finishReason,
+          usage,
+          latencyMs,
+          error: null,
+        },
+        'running',
+      );
+    }
+  }
+
+  const latencyMs = Math.round(performance.now() - started);
+  onUpdate(
+    {
+      status: 'ok',
+      content,
+      reasoning: reasoning || null,
+      resolvedModel,
+      finishReason,
+      usage,
+      latencyMs,
+      error: null,
+    },
+    'ok',
+  );
+}
 
 export default function ComparePage() {
   const [prompt, setPrompt] = useState('Dimmi qualcosa di interessante sulla musica.');
@@ -87,12 +220,30 @@ export default function ComparePage() {
       prev.map((r) =>
         r.state === 'running' || r.state === 'pending'
           ? {
-              model: r.model,
+              ...r,
               state: 'error',
-              result: { model: r.model, status: 'error', error: 'Annullato', latencyMs: 0 },
+              result: {
+                ...(r.result ?? { model: r.model, status: 'error', latencyMs: 0 }),
+                status: 'error',
+                error: 'Annullato',
+              },
             }
           : r,
       ),
+    );
+  }
+
+  function patchRow(model: string, patch: Partial<CompareResult>, nextState: RunState) {
+    setRows((prev) =>
+      prev.map((r) => {
+        if (r.model !== model) return r;
+        const base: CompareResult = r.result ?? {
+          model,
+          status: patch.status ?? 'ok',
+          latencyMs: 0,
+        };
+        return { ...r, state: nextState, result: { ...base, ...patch, model } };
+      }),
     );
   }
 
@@ -117,50 +268,20 @@ export default function ComparePage() {
     await Promise.all(
       models.map(async (model) => {
         try {
-          const result = await apiFetch('/api/compare', {
-            method: 'POST',
-            body: JSON.stringify({
+          await streamCompare(
+            {
               model,
               prompt,
               ...(Number.isFinite(temp) ? { temperature: temp } : {}),
               ...(Number.isFinite(mt) ? { maxTokens: mt } : {}),
-            }),
-            schema: CompareResult,
-            signal: controller.signal,
-          });
-          setRows((prev) =>
-            prev.map((r) =>
-              r.model === model
-                ? { model, state: result.status === 'ok' ? 'ok' : 'error', result }
-                : r,
-            ),
+            },
+            controller.signal,
+            (patch, state) => patchRow(model, patch, state),
           );
         } catch (err) {
           if (controller.signal.aborted) return;
-          // apiFetch mette il body del server in err.cause: preferisci il
-          // suo messaggio/errori a "apiFetch … failed (500)".
-          const cause = err instanceof Error ? err.cause : null;
-          const serverMessage =
-            cause && typeof cause === 'object' && 'error' in cause
-              ? String((cause as { error: unknown }).error)
-              : cause && typeof cause === 'object' && 'errors' in cause
-                ? Object.entries((cause as { errors: Record<string, string> }).errors)
-                    .map(([k, v]) => `${k}: ${v}`)
-                    .join('; ')
-                : null;
-          const message =
-            serverMessage ?? (err instanceof Error ? err.message : 'errore sconosciuto');
-          setRows((prev) =>
-            prev.map((r) =>
-              r.model === model
-                ? {
-                    model,
-                    state: 'error',
-                    result: { model, status: 'error', error: message, latencyMs: 0 },
-                  }
-                : r,
-            ),
-          );
+          const message = err instanceof Error ? err.message : 'errore sconosciuto';
+          patchRow(model, { status: 'error', error: message, latencyMs: 0 }, 'error');
         }
       }),
     );
@@ -175,7 +296,7 @@ export default function ComparePage() {
         <h1 className="text-2xl font-semibold">Confronto modelli</h1>
         <p className="text-sm text-muted-foreground">
           Manda lo stesso prompt a più modelli del gateway locale e vedi le risposte una accanto
-          all&apos;altra.
+          all&apos;altra, in streaming.
         </p>
       </header>
 
@@ -317,6 +438,7 @@ export default function ComparePage() {
 
 function ResultCard({ row }: { row: Row }) {
   const provider = providerOf(row.model);
+  const streaming = row.state === 'running' && !!row.result?.content;
   return (
     <Card>
       <CardHeader className="flex flex-col gap-1">
@@ -327,7 +449,7 @@ function ResultCard({ row }: { row: Row }) {
               row.state === 'ok' ? 'default' : row.state === 'error' ? 'destructive' : 'secondary'
             }
           >
-            {row.state === 'running' ? 'in corso…' : row.state}
+            {row.state === 'running' ? (streaming ? 'streaming…' : 'in attesa…') : row.state}
           </Badge>
         </div>
         <CardDescription className="flex flex-wrap gap-2 text-xs">
@@ -344,7 +466,7 @@ function ResultCard({ row }: { row: Row }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="text-sm">
-        {row.state === 'running' && (
+        {row.state === 'running' && !row.result?.content && !row.result?.reasoning && (
           <p className="text-muted-foreground">In attesa della risposta…</p>
         )}
         {row.state === 'error' && (
@@ -352,10 +474,14 @@ function ResultCard({ row }: { row: Row }) {
             {row.result?.error ?? 'Errore'}
           </p>
         )}
-        {row.state === 'ok' && (
+        {(row.state === 'ok' ||
+          (row.state === 'running' && (row.result?.content || row.result?.reasoning))) && (
           <div className="flex flex-col gap-3">
             {row.result?.reasoning ? (
-              <details className="rounded-md border bg-muted/40 px-3 py-2">
+              <details
+                className="rounded-md border bg-muted/40 px-3 py-2"
+                open={row.state === 'running' && !row.result?.content}
+              >
                 <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
                   Reasoning
                 </summary>
@@ -363,7 +489,18 @@ function ResultCard({ row }: { row: Row }) {
               </details>
             ) : null}
             <p className="whitespace-pre-wrap break-words">
-              {row.result?.content ?? <span className="text-muted-foreground">(vuoto)</span>}
+              {row.result?.content ? (
+                <>
+                  {row.result.content}
+                  {row.state === 'running' && (
+                    <span className="ml-0.5 inline-block w-1.5 animate-pulse bg-foreground align-middle">
+                      &nbsp;
+                    </span>
+                  )}
+                </>
+              ) : row.state === 'ok' ? (
+                <span className="text-muted-foreground">(vuoto)</span>
+              ) : null}
             </p>
           </div>
         )}
