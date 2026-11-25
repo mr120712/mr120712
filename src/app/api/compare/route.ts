@@ -289,13 +289,9 @@ export async function POST(req: Request) {
         { status: 500 },
       );
     }
-    // Default "artex" (senza suffisso) usa l'agente `mainagent` (ruolo "main",
-    // l'interfaccia conversazionale di ARTEX che produce `text` activity items
-    // leggibili), NON `auto` (ruolo "assistant", task-oriented che chiude ogni
-    // turno con un `result` placeholder "no text summary").
     const agentKey = model.startsWith('artex:')
-      ? model.slice('artex:'.length) || 'mainagent'
-      : 'mainagent';
+      ? model.slice('artex:'.length) || undefined
+      : undefined;
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
@@ -310,7 +306,7 @@ export async function POST(req: Request) {
         // sensata prima che arrivi il primo token.
         emit({
           id: `artex-${Date.now()}`,
-          model: `artex/${agentKey}`,
+          model: `artex/${agentKey ?? 'auto'}`,
           choices: [{ index: 0, delta: { role: 'assistant' } }],
         });
 
