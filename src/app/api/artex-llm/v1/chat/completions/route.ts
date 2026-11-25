@@ -110,7 +110,25 @@ export async function POST(request: Request) {
         : 'low',
   };
 
+  // Log diagnostico: ARTEX classifica errori di shape/upstream come model_error
+  // senza verbosità, quindi loggiamo noi il profilo della richiesta per capire
+  // cosa sta mandando e cosa riceve.
+  console.log(
+    `[artex-llm] in: model=${body.model} msgs=${body.messages.length} ` +
+      `tools=${Array.isArray(body.tools) ? body.tools.length : 0} ` +
+      `max_tokens=${body.max_tokens} tool_choice=${JSON.stringify(body.tool_choice)} ` +
+      `temp=${body.temperature} top_p=${body.top_p} re=${body.reasoning_effort}`,
+  );
+
   // forwardChat è in-process: no rate-limit pubblico, no bearer re-verify,
   // va dritto al provider upstream (Groq con gpt-oss-120b di default).
-  return forwardChat(body);
+  const res = await forwardChat(body);
+  // Clona per leggere il body senza consumare lo stream della risposta.
+  const clone = res.clone();
+  const bodyText = await clone.text().catch(() => '');
+  console.log(
+    `[artex-llm] out: status=${res.status} body_len=${bodyText.length} ` +
+      `preview=${bodyText.slice(0, 500)}`,
+  );
+  return res;
 }
