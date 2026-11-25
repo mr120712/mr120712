@@ -21,6 +21,12 @@ export const COMPARE_MODELS: readonly string[] = [
   // la risposta migliore. Più lento ma più robusto (resiste ai 4xx di un
   // singolo provider). Vedi route.ts branch "freellmapi:ensemble".
   'freellmapi:ensemble',
+  // FreeLLMAPI committee: UNA sola call a gpt-oss-120b con system prompt che
+  // gli chiede di consultare internamente 90 "agenti" specialisti compatti e
+  // sintetizzare la risposta. Molto più veloce dell'ensemble (1 call vs 5),
+  // non consuma quota multi-provider, ma la varietà è "simulata" dentro un
+  // modello solo. Vedi route.ts branch "freellmapi:committee".
+  'freellmapi:committee',
   // aihorde (sotto-provider Qwen/koboldcpp/aphrodite/lmstudio/meta-llama)
   'aihorde:Qwen/Qwen3.8-Flash-Next',
   'aihorde:aphrodite/SicariusSicariiStuff/Impish_Bloodmoon_12B',

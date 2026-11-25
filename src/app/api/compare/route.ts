@@ -420,6 +420,147 @@ export async function POST(req: Request) {
     });
   }
 
+  // --- Branch FreeLLMAPI COMMITTEE (1 call, 90 agent simulati nel prompt) --
+  // Deve stare PRIMA del branch generico "freellmapi:*".
+  if (model === 'freellmapi:committee') {
+    const apiKey = (process.env.FREELLMAPI_API_KEY ?? process.env.FREELLMAPI_TOKEN)?.trim();
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: 'FREELLMAPI_API_KEY non impostata (.env.local).' },
+        { status: 500 },
+      );
+    }
+    const baseUrl = (
+      process.env.FREELLMAPI_BASE_URL?.trim() || 'https://www.solcomusic.online/api/ai-reserve/v1'
+    ).replace(/\/+$/, '');
+
+    // System prompt del "comitato": un unico modello (gpt-oss-120b, grosso)
+    // consulta mentalmente 90 micro-specialisti prima di scrivere. Il numero
+    // è didattico — serve ad ancorare la risposta su una moltitudine di
+    // prospettive concrete piuttosto che una generica.
+    const COMMITTEE_SYSTEM = [
+      'Sei un comitato di 90 agenti specialisti compatti. Prima di rispondere, consulta mentalmente gli esperti la cui competenza è più pertinente alla domanda, tra queste famiglie (ne ha ciascuna ~10): statistici e data scientist; ingegneri del software, sistemisti, SRE; ingegneri di sicurezza, pentester, crittografi; UX designer, product manager, ricercatori utenti; economisti, analisti finanziari, contabili; biologi, chimici, fisici; medici, farmacisti, nutrizionisti; avvocati, revisori, compliance officer; insegnanti, copywriter, editor; etici, filosofi, storici.',
+      '',
+      "Metodo: (1) individua 3-7 specialisti pertinenti; (2) chiedi a ciascuno un contributo di una frase o un dato; (3) sintetizza una risposta singola, concisa, direttamente all'utente nella sua lingua. Non elencare gli specialisti, non mostrare il processo, non nominare 'comitato' o 'agenti'. Correggi gli errori di fatto, scarta le ridondanze, mantieni le precisazioni utili. Se la domanda è ambigua, chiedi chiarimenti anziché inventare.",
+    ].join('\n');
+
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        let closed = false;
+        const emit = (obj: unknown) => {
+          if (closed) return;
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+        };
+        const abortOnClient = () => {
+          if (closed) return;
+          closed = true;
+          try {
+            controller.close();
+          } catch {
+            /* ignore */
+          }
+        };
+        req.signal.addEventListener('abort', abortOnClient);
+
+        try {
+          emit({
+            id: `freellmapi-committee-${Date.now()}`,
+            model: 'freellmapi/committee',
+            choices: [{ index: 0, delta: { role: 'assistant' } }],
+          });
+
+          const res = await fetch(`${baseUrl}/chat/completions`, {
+            method: 'POST',
+            headers: {
+              authorization: `Bearer ${apiKey}`,
+              'content-type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'openai/gpt-oss-120b',
+              messages: [
+                { role: 'system', content: COMMITTEE_SYSTEM },
+                { role: 'user', content: prompt },
+              ],
+              stream: false,
+              temperature: typeof temperature === 'number' ? temperature : 0.3,
+              ...(typeof maxTokens === 'number' ? { max_tokens: maxTokens } : {}),
+            }),
+            cache: 'no-store',
+            signal: req.signal,
+          });
+
+          if (!res.ok) {
+            const txt = await res.text().catch(() => '');
+            emit({
+              choices: [
+                {
+                  index: 0,
+                  delta: {
+                    content: `\n\n❌ HTTP ${res.status} — ${txt.slice(0, 300)}`,
+                  },
+                  finish_reason: 'error',
+                },
+              ],
+            });
+          } else {
+            const body: unknown = await res.json();
+            const bodyObj = isRecord(body) ? body : {};
+            const choices = Array.isArray(bodyObj.choices) ? bodyObj.choices : [];
+            const choice = isRecord(choices[0]) ? choices[0] : null;
+            const message = choice && isRecord(choice.message) ? choice.message : null;
+            const content = typeof message?.content === 'string' ? message.content : '';
+            const usageRaw = isRecord(bodyObj.usage) ? bodyObj.usage : null;
+            emit({
+              model: `freellmapi/committee (90 simulated specialists on gpt-oss-120b)`,
+              choices: [
+                {
+                  index: 0,
+                  delta: { content },
+                  finish_reason: 'stop',
+                },
+              ],
+              ...(usageRaw ? { usage: usageRaw } : {}),
+            });
+          }
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        } catch (err) {
+          if (closed) return;
+          const message = err instanceof Error ? err.message : 'unknown_error';
+          emit({
+            choices: [
+              {
+                index: 0,
+                delta: { content: `\n\n❌ committee error: ${message}` },
+                finish_reason: 'error',
+              },
+            ],
+          });
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        } finally {
+          req.signal.removeEventListener('abort', abortOnClient);
+          if (!closed) {
+            closed = true;
+            try {
+              controller.close();
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+        'x-accel-buffering': 'no',
+      },
+    });
+  }
+
   // --- Branch FreeLLMAPI ENSEMBLE (4 modelli in parallelo + giudice) ------
   // Deve stare PRIMA del branch generico "freellmapi:*" così non viene
   // scambiato per un passthrough con model="ensemble".
