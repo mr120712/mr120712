@@ -25,6 +25,7 @@ RUN npx prisma generate
 
 COPY tsconfig.json next.config.ts ./
 COPY src ./src
+COPY public ./public
 
 # Build Next.js in standalone mode. SKIP_ENV_VALIDATION keeps the build
 # off the Zod runtime checks — real env lands at container start, not build.
