@@ -199,6 +199,31 @@ async def test_no_tools_means_no_mcp_server_registered(monkeypatch) -> None:
     assert not fake.last_options.mcp_servers
 
 
+async def test_usage_is_floored_at_prompt_estimate(monkeypatch) -> None:
+    # A live run surfaced: the Claude Code SDK's ResultMessage.usage reports
+    # a per-turn delta, not the cumulative Anthropic-API-style total. ARTEX
+    # reads these counts for ARTEX_TASK_BUDGET_TOKENS enforcement, so an
+    # undercount lets runaway tasks overrun the budget. Guarantee the counts
+    # are AT LEAST what a chars/4 estimate of the actual prompt gives us.
+    big_prompt = "x" * 4000  # ≈ 1000 tokens
+    fake = _fake_query_factory(
+        [
+            _Assistant(content=[_Text(text="short")]),
+            _Result(usage={"input_tokens": 10, "output_tokens": 2}),  # SDK lies small
+        ]
+    )
+    monkeypatch.setattr("bridge.sdk_adapter_impl.query", fake)
+    a = ClaudeSdkAdapter()
+    out = await a.complete(
+        system="",
+        messages=[{"role": "user", "content": big_prompt}],
+        model="m",
+        max_tokens=50,
+    )
+    # Must honor the floor — not the small SDK number.
+    assert out["input_tokens"] >= 900
+
+
 async def test_cli_builtin_tools_are_disabled(monkeypatch) -> None:
     # Regression: if `tools` is not [], the Claude Code CLI built-ins stay
     # visible to the model. A live integration test caught the model picking

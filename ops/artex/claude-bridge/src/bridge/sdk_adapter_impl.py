@@ -193,12 +193,24 @@ class ClaudeSdkAdapter(SdkAdapter):
         emitted_text = "".join(
             b["text"] for b in content_blocks if b.get("type") == "text"
         )
-        if usage is None:
-            input_tokens = _estimate_tokens(prompt + (system or ""))
-            output_tokens = _estimate_tokens(emitted_text)
-        else:
-            input_tokens = int(usage.get("input_tokens") or _estimate_tokens(prompt))
-            output_tokens = int(usage.get("output_tokens") or _estimate_tokens(emitted_text))
+        # Include tool_use serialized JSON in the output-size estimate so a
+        # pure tool_use response (no text) still reports non-trivial tokens.
+        import json as _json
+
+        emitted_payload = emitted_text + "".join(
+            _json.dumps(b.get("input") or {}) for b in content_blocks if b.get("type") == "tool_use"
+        )
+        input_estimate = _estimate_tokens(prompt + (system or ""))
+        output_estimate = _estimate_tokens(emitted_payload)
+        # Live-test finding: the Claude Code SDK's ResultMessage.usage reports a
+        # per-turn delta, not the Anthropic-API-equivalent cumulative count.
+        # ARTEX uses these for ARTEX_TASK_BUDGET_TOKENS enforcement, so we
+        # floor both at our own chars/4 estimate — the budget then stops
+        # runaway tasks even when the SDK undercounts by 20-50x.
+        sdk_input = int((usage or {}).get("input_tokens") or 0)
+        sdk_output = int((usage or {}).get("output_tokens") or 0)
+        input_tokens = max(input_estimate, sdk_input)
+        output_tokens = max(output_estimate, sdk_output)
 
         return {
             "content": content_blocks,

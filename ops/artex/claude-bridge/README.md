@@ -111,10 +111,13 @@ pip install -e '.[dev]'
 pytest
 ```
 
-52 unit tests covering wire shape, tool_use passthrough, SSE streaming
+53 unit tests covering wire shape, tool_use passthrough, SSE streaming
 (text + tool_use chunking, error frame), cache, rate limit, wiring, schema
 normalizers (including the tool_use + tool_result flattening), and the SDK
-adapter (with the SDK mocked).
+adapter (with the SDK mocked). The adapter tests include one regression for
+`tools=[]` (no CLI built-ins leak into the model's catalog) and one for
+the token-accounting floor (SDK reports per-turn deltas; we floor usage at
+our own chars/4 prompt estimate so ARTEX_TASK_BUDGET_TOKENS actually trips).
 
 ### Live integration tests
 
