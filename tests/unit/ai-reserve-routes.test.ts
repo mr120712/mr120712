@@ -96,7 +96,7 @@ describe('POST /chat/completions', () => {
   it('400 su ruolo non ammesso', async () => {
     mocks.authorizeReserve.mockReturnValue({ ok: true });
     const res = await POST(
-      post({ messages: [{ role: 'tool', content: 'x' }] }, { authorization: 'Bearer x' }),
+      post({ messages: [{ role: 'bot', content: 'x' }] }, { authorization: 'Bearer x' }),
     );
     expect(res.status).toBe(400);
   });
@@ -117,5 +117,68 @@ describe('POST /chat/completions', () => {
       messages: [{ role: 'user', content: 'ciao' }],
     });
     expect(forwarded).not.toHaveProperty('stream');
+  });
+
+  it("accetta messaggi tool-use (role 'tool', tool_calls, content null) e tools/tool_choice", async () => {
+    mocks.authorizeReserve.mockReturnValue({ ok: true });
+    const body = {
+      model: 'auto',
+      messages: [
+        { role: 'system', content: 'sei un agent' },
+        { role: 'user', content: 'leggi dir' },
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            { id: 'call_1', type: 'function', function: { name: 'ls', arguments: '{}' } },
+          ],
+        },
+        { role: 'tool', tool_call_id: 'call_1', content: 'a.txt\nb.txt' },
+      ],
+      tools: [
+        {
+          type: 'function',
+          function: {
+            name: 'ls',
+            description: 'List files in cwd',
+            parameters: { type: 'object', properties: {} },
+          },
+        },
+      ],
+      tool_choice: 'auto',
+    };
+    const res = await POST(post(body, { authorization: 'Bearer x' }));
+    expect(res.status).toBe(200);
+    expect(mocks.forwardChat).toHaveBeenCalledTimes(1);
+    const forwarded = mocks.forwardChat.mock.calls[0]?.[0];
+    expect(forwarded).toMatchObject({
+      messages: [
+        { role: 'system' },
+        { role: 'user' },
+        { role: 'assistant', content: null, tool_calls: [{ id: 'call_1' }] },
+        { role: 'tool', tool_call_id: 'call_1', content: 'a.txt\nb.txt' },
+      ],
+      tools: [{ type: 'function', function: { name: 'ls' } }],
+      tool_choice: 'auto',
+    });
+  });
+
+  it('accetta content come array di parti (OpenAI multimodale/structured)', async () => {
+    mocks.authorizeReserve.mockReturnValue({ ok: true });
+    const body = {
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'descrivi' },
+            { type: 'image_url', image_url: { url: 'data:image/png;base64,iVBOR...' } },
+          ],
+        },
+      ],
+    };
+    const res = await POST(post(body, { authorization: 'Bearer x' }));
+    expect(res.status).toBe(200);
+    const forwarded = mocks.forwardChat.mock.calls[0]?.[0];
+    expect(forwarded.messages[0].content).toHaveLength(2);
   });
 });

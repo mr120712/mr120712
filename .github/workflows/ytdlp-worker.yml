@@ -56,10 +56,13 @@ jobs:
 
       - name: Test del worker dentro l'immagine
         run: |
-          docker run --rm --volume "$PWD/workers/ytdlp-worker/test_antibot.py:/app/test_antibot.py:ro" ytdlp-worker sh -c '
+          docker run --rm --volume "$PWD/workers/ytdlp-worker/test_antibot.py:/app/test_antibot.py:ro" \
+            --volume "$PWD/workers/ytdlp-worker/test_chat.py:/app/test_chat.py:ro" ytdlp-worker sh -c '
             pip install --quiet --root-user-action=ignore httpx
+            # Ogni suite nel SUO processo: entrambe impostano l'ambiente prima di importare app.
             python -m unittest test_antibot > /tmp/test.log 2>&1
             code=$?
+            python -m unittest test_chat >> /tmp/test.log 2>&1 || code=1
             tail -n 6 /tmp/test.log
             usque version 2>&1 | tail -n 1
             exit $code

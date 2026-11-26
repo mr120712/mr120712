@@ -17,10 +17,18 @@ import { timingSafeEqual } from 'node:crypto';
 
 /** Base URL OpenAI-compatibile di Groq (stesso host già usato da solco_ai per Whisper). */
 export const GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
-/** Modello di default di Groq quando il chiamante chiede "auto" o non specifica nulla. */
-export const DEFAULT_RESERVE_MODEL = 'llama-3.3-70b-versatile';
-/** Modello di ripiego di Groq se il primario è stato ritirato (HTTP 400/404 lato upstream). */
-export const FALLBACK_RESERVE_MODEL = 'llama-3.1-8b-instant';
+/**
+ * Modello di default di Groq quando il chiamante chiede "auto" o non specifica nulla.
+ * Nov 2026: Groq ha ritirato la famiglia Llama 3.x; l'allegato di default ora è gpt-oss-120b,
+ * un modello OpenAI open-weight a 131k di contesto su LPU. Sovrascrivibile via
+ * GROQ_CHAT_MODEL / AI_RESERVE_MODEL quando la disponibilità cambia.
+ */
+export const DEFAULT_RESERVE_MODEL = 'openai/gpt-oss-120b';
+/**
+ * Modello di ripiego di Groq se il primario sparisce (HTTP 400/404 lato upstream). gpt-oss-20b è
+ * la versione 20B della stessa famiglia: più veloce/più economica, utile quando il 120b è saturo.
+ */
+export const FALLBACK_RESERVE_MODEL = 'openai/gpt-oss-20b';
 /**
  * Budget dell'INTERA catena di failover di una chat (tutti i provider e modelli insieme): sotto il
  * limite della route che chiama (maxDuration = 60), così Vercel non taglia la richiesta a metà.
@@ -104,16 +112,27 @@ export function resolveModel(requested: string | undefined, env: Env = process.e
 }
 
 export interface ReserveChatMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  /** Stringa, array di parti (vision/tool_use/tool_result), o null (tool-call pura). */
+  content?: string | unknown[] | null;
+  name?: string;
+  tool_call_id?: string;
+  tool_calls?: unknown[];
 }
 
 export interface ReserveChatBody {
   model?: string;
   messages: ReserveChatMessage[];
   temperature?: number;
+  top_p?: number;
   max_tokens?: number;
   response_format?: { type?: string };
+  /** Definizioni degli strumenti (OpenAI function calling). */
+  tools?: unknown[];
+  tool_choice?: string | Record<string, unknown>;
+  parallel_tool_calls?: boolean;
+  /** Groq gpt-oss reasoning effort: "low" | "medium" | "high". */
+  reasoning_effort?: string;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -156,6 +175,42 @@ interface ProviderDef {
   signupUrl: string;
   models: (env: Env) => string[];
   extraHeaders?: Record<string, string>;
+  /** Variabile che può sostituire baseUrl (validata da baseUrlFrom: stesso dominio del provider). */
+  baseUrlVar?: string;
+  /** Dominio ammesso per l'override: la chiave del provider viene mandata solo lì (anti-SSRF). */
+  baseUrlDomain?: string;
+}
+
+/**
+ * Il baseUrl di un provider, con l'override opzionale da env (es. OPENROUTER_BASE_URL =
+ * https://eu.openrouter.ai/api/v1). L'override è accettato solo se HTTPS e sul dominio del provider o
+ * un suo sottodominio: la chiave API viaggia verso quell'indirizzo, quindi mai verso un host qualsiasi.
+ * Valore assente o non valido → il baseUrl di registro. Per i provider il cui indirizzo è esso stesso
+ * configurabile via env (local LLM: baseUrl è una funzione), restituisce `undefined` quando la funzione
+ * non trova l'indirizzo — segnale di "provider spento" per i chiamanti.
+ */
+export function baseUrlFrom(
+  def: Pick<ProviderDef, 'baseUrl' | 'baseUrlVar' | 'baseUrlDomain'>,
+  env: Env,
+): string | undefined {
+  // Per i provider hosted baseUrl è una stringa; per il local LLM è una funzione che legge
+  // LOCAL_LLM_BASE_URL. In quest'ultimo caso, assenza dell'env = provider spento.
+  const staticBase = typeof def.baseUrl === 'function' ? def.baseUrl(env) : def.baseUrl;
+  if (!staticBase) return undefined;
+  const raw = def.baseUrlVar ? clean(env[def.baseUrlVar]) : undefined;
+  if (!raw || !def.baseUrlDomain) return staticBase;
+  try {
+    const url = new URL(raw);
+    const host = url.hostname.toLowerCase();
+    const domain = def.baseUrlDomain.toLowerCase();
+    const sameDomain = host === domain || host.endsWith(`.${domain}`);
+    if (url.protocol !== 'https:' || !sameDomain || url.username || url.password || url.port) {
+      return staticBase;
+    }
+    return `${url.origin}${url.pathname}`.replace(/\/+$/, '');
+  } catch {
+    return staticBase;
+  }
 }
 
 /** MWAPI (entrambe le chiavi servono modelli Claude): Sonnet 5, poi Haiku 4.5 come scorta. */
@@ -213,6 +268,9 @@ const PROVIDER_DEFS: ProviderDef[] = [
     id: 'openrouter',
     label: 'OpenRouter',
     baseUrl: 'https://openrouter.ai/api/v1',
+    // OPENROUTER_BASE_URL=https://eu.openrouter.ai/api/v1 → solo provider ospitati nell'UE.
+    baseUrlVar: 'OPENROUTER_BASE_URL',
+    baseUrlDomain: 'openrouter.ai',
     keyVar: 'OPENROUTER_API_KEY',
     signupUrl: 'https://openrouter.ai/keys',
     // Default: NVIDIA Nemotron 3 Ultra (gratis su OpenRouter, 550B MoE, contesto 1M). Attenzione:
@@ -303,9 +361,10 @@ export function activeProviders(env: Env = process.env): ReserveProvider[] {
   const providers: ReserveProvider[] = [];
   for (const def of ordered) {
     if (seen.has(def.id)) continue;
-    // Un provider configurabile via env (local LLM) espone baseUrl come funzione: senza
-    // LOCAL_LLM_BASE_URL la funzione restituisce undefined e il provider resta spento.
-    const baseUrl = typeof def.baseUrl === 'function' ? def.baseUrl(env) : def.baseUrl;
+    // Indirizzo: stringa fissa per gli hosted, o LOCAL_LLM_BASE_URL per il local LLM (funzione).
+    // baseUrlFrom applica anche l'override anti-SSRF (baseUrlVar + baseUrlDomain, es. OpenRouter EU).
+    // undefined = provider spento (nessun indirizzo configurato), come per una chiave assente.
+    const baseUrl = baseUrlFrom(def, env);
     if (!baseUrl) continue;
     // Chiave: prima l'env dichiarata, poi la chiave fittizia quando il provider la ammette
     // (Ollama e amici: il server ignora il Bearer). Senza né l'una né l'altra, il provider è spento.
@@ -423,7 +482,7 @@ export function reserveKnownProviders(env: Env = process.env): ReserveKnownProvi
     label: def.label,
     // Per un provider configurabile via env (local LLM) mostriamo l'URL attuale, se c'è; altrimenti
     // stringa vuota, come segnale che il provider esiste ma manca l'indirizzo.
-    baseUrl: (typeof def.baseUrl === 'function' ? def.baseUrl(env) : def.baseUrl) ?? '',
+    baseUrl: baseUrlFrom(def, env) ?? '',
     keyVar: def.keyVar,
     signupUrl: def.signupUrl,
     models: dedupe(def.models(env)),
@@ -468,14 +527,27 @@ async function callProviderChat(
   fetchImpl: FetchLike,
   timeoutMs: number,
 ): Promise<Response> {
+  // Il campo response_format passa com'è SE porta un type: tipicamente `json_object` (JSON mode)
+  // o `json_schema` (structured outputs OpenAI). Gli upstream che non lo supportano rispondono con
+  // un errore → la catena prova il provider successivo. tools/tool_choice sono inoltrati così come
+  // sono: quando ARTEX o un altro agent fa tool-use, qui li vuole vedere l'LLM upstream.
   const payload = {
     model,
     messages: body.messages,
     stream: false as const,
     ...(typeof body.temperature === 'number' ? { temperature: body.temperature } : {}),
+    ...(typeof body.top_p === 'number' ? { top_p: body.top_p } : {}),
     ...(typeof body.max_tokens === 'number' ? { max_tokens: body.max_tokens } : {}),
-    ...(body.response_format?.type === 'json_object'
-      ? { response_format: { type: 'json_object' as const } }
+    ...(typeof body.parallel_tool_calls === 'boolean'
+      ? { parallel_tool_calls: body.parallel_tool_calls }
+      : {}),
+    ...(body.response_format && typeof body.response_format.type === 'string'
+      ? { response_format: body.response_format }
+      : {}),
+    ...(Array.isArray(body.tools) && body.tools.length > 0 ? { tools: body.tools } : {}),
+    ...(body.tool_choice !== undefined ? { tool_choice: body.tool_choice } : {}),
+    ...(typeof body.reasoning_effort === 'string' && body.reasoning_effort.length > 0
+      ? { reasoning_effort: body.reasoning_effort }
       : {}),
   };
   return fetchImpl(`${provider.baseUrl}/chat/completions`, {
@@ -520,6 +592,9 @@ export async function forwardChat(
 
   let sawHttpError = false;
   let lastStatus = 0;
+  let lastDetail: string | null = null;
+  // Opt-in (solo chi lo chiede, es. la chat DeepSeek): conserva il messaggio d'errore del provider.
+  const wantDetail = clean(env.AI_RESERVE_ERROR_DETAIL) === '1';
   let outOfTime = false;
   let sawTimeout = false;
   chain: for (const provider of providers) {
@@ -555,7 +630,15 @@ export async function forwardChat(
       if (upstream.ok) return passthrough(text ?? '');
       sawHttpError = true;
       lastStatus = upstream.status;
-      await upstream.body?.cancel().catch(() => undefined);
+      if (wantDetail) {
+        lastDetail = providerErrorDetail(
+          provider.label,
+          upstream.status,
+          await upstream.text().catch(() => ''),
+        );
+      } else {
+        await upstream.body?.cancel().catch(() => undefined);
+      }
       if (looksLikeModelError(upstream.status)) continue; // modello ritirato → prova lo scorta
       break; // 401/403/429/5xx → provider successivo
     }
@@ -565,10 +648,41 @@ export async function forwardChat(
   }
   return jsonResponse(
     sawHttpError
-      ? { error: 'upstream_error', status: lastStatus }
+      ? {
+          error: 'upstream_error',
+          status: lastStatus,
+          ...(wantDetail && lastDetail ? { detail: lastDetail } : {}),
+        }
       : { error: 'upstream_unreachable' },
     502,
   );
+}
+
+/**
+ * Il messaggio d'errore di un provider, leggibile e sicuro da mostrare all'admin: una riga, al più
+ * 200 caratteri, con ogni cosa che somigli a una chiave mascherata. Formati OpenAI/OpenRouter
+ * ({error:{message}} o {error:"…"}) o testo semplice.
+ */
+export function providerErrorDetail(label: string, status: number, raw: string): string {
+  let message = raw;
+  try {
+    const parsed = JSON.parse(raw) as { error?: unknown; message?: unknown };
+    const err = parsed?.error;
+    message =
+      (err && typeof err === 'object' && 'message' in err ? String(err.message) : null) ??
+      (typeof err === 'string' ? err : null) ??
+      (typeof parsed?.message === 'string' ? parsed.message : null) ??
+      raw;
+  } catch {
+    // testo semplice
+  }
+  const safe = message
+    .replace(/\b(?:sk|pk|rk)-[A-Za-z0-9_-]{8,}/g, '[chiave]')
+    .replace(/\b[A-Za-z0-9_-]{32,}\b/g, '[…]')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200);
+  return `${label} ${status}${safe ? `: ${safe}` : ''}`;
 }
 
 /**

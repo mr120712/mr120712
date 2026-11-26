@@ -33,7 +33,7 @@ import {
   type LocalTrackSource,
   localTrackAttribution,
   localTrackSource,
-} from '@/lib/local-music';
+} from '@/lib/local-music/types';
 
 export const LOCAL_SOURCE_LABEL = 'La tua musica';
 

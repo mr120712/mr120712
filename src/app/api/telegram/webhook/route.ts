@@ -5,19 +5,60 @@
 //   /start | /codice | /invito → se già collegato, rimanda il codice; altrimenti spiega come collegare
 //   /help → cosa fa il bot
 //   /skynet <domanda> → la chat di Skynet (sicurezza del sito): solo il proprietario, solo in privato
+//   /deepseek | /ds <messaggio> → DeepSeek sul server dell'owner (via worker yt-dlp): owner, in privato
+//   /ig | /instagram <descrizione> → trova creator Instagram (API ufficiale di Meta): owner, in privato
 import 'server-only';
 import { timingSafeEqual } from 'node:crypto';
 import { NextResponse } from 'next/server';
+import { artexPauseTask, artexStatus, askArtex } from '@/lib/business/artex-client.server';
+import {
+  ARTEX_CALLBACK_CONT,
+  ARTEX_COMMAND,
+  ARTEX_USAGE,
+  artexChatMessages,
+  artexChatStreamingFrame,
+  artexContinuePrompt,
+  artexInlineKeyboard,
+  artexStopMessages,
+  artexTelegramMessages,
+  extractArtexConversationId,
+  parseArtexCommand,
+} from '@/lib/business/artex-telegram';
 import {
   botVideoExperimentalEnabled,
   requestBotVideo,
   videoCommandRegex,
 } from '@/lib/business/bot-video.server';
+import { askDeepseek } from '@/lib/business/deepseek-chat.server';
+import {
+  DEEPSEEK_COMMAND,
+  DEEPSEEK_TELEGRAM_MAX_INPUT,
+  DEEPSEEK_TELEGRAM_MAX_TOKENS,
+  DEEPSEEK_TELEGRAM_TIMEOUT_MS,
+  DEEPSEEK_USAGE,
+  deepseekFrame,
+  deepseekTelegramMessages,
+} from '@/lib/business/deepseek-telegram';
+import {
+  findInstagramCreators,
+  suggestInstagramCreatorsWithoutApi,
+} from '@/lib/business/instagram-finder.server';
+import { instagramGraphConfig } from '@/lib/business/instagram-graph.server';
+import {
+  INSTAGRAM_COMMAND,
+  INSTAGRAM_TELEGRAM_AI_TIMEOUT_MS,
+  INSTAGRAM_TELEGRAM_BUDGET_MS,
+  INSTAGRAM_USAGE,
+  instagramFrame,
+  instagramTelegramMessages,
+  parseInstagramCommand,
+} from '@/lib/business/instagram-telegram';
 import { enforceRateLimit } from '@/lib/business/rate-limit.server';
 import { readJsonLimited } from '@/lib/business/request-body.server';
 import { ensureReferralCode } from '@/lib/business/rewards.server';
 import {
   answerTelegramCallback,
+  editTelegramMessage,
   escapeTelegramHtml,
   inviteKeyboard,
   inviteLinkForCode,
@@ -26,7 +67,9 @@ import {
   miniAppKeyboard,
   searchKeyboard,
   sendTelegramAudio,
+  sendTelegramChatAction,
   sendTelegramMessage,
+  sendTelegramMessageId,
   sendTelegramVideo,
   TELEGRAM_EFFECT_PARTY,
   TELEGRAM_EFFECT_THUMBS_UP,
@@ -38,8 +81,10 @@ import {
   doneFrame,
   finishProgress,
   withDownloadProgress,
+  withLiveStatus,
   withSkynetScan,
 } from '@/lib/business/telegram-progress.server';
+import { InstagramFinderRequestSchema } from '@/lib/contracts/instagram-finder';
 import { SKYNET_CHAT_MAX_QUESTION, SKYNET_CHAT_SUGGESTIONS } from '@/lib/contracts/skynet-chat';
 import { prisma } from '@/lib/db';
 import { env } from '@/lib/env';
@@ -56,7 +101,9 @@ import { askSkynet } from '@/lib/skynet/chat.server';
 
 export const dynamic = 'force-dynamic';
 /** /cerca, /scarica, /video, /skynet fanno lavoro di rete (ricerca, file, worker, AI): margine ampio. */
-export const maxDuration = 60;
+// Alzato a 120s per far spazio al nuovo timeout di askArtex (110s). Gli altri
+// comandi non si avvicinano nemmeno a 60s, non c'è downside.
+export const maxDuration = 120;
 
 const CONNECT_HINT = 'Apri Solco per collegare il tuo account 👇';
 
@@ -113,6 +160,7 @@ async function handleUpdate(
   text: string,
   username: string | null,
   chatType: string | null,
+  replyToText: string | null = null,
 ): Promise<void> {
   // /start <token> → collega l'account al deep-link.
   const start = /^\/start(?:@\w+)?\s+(\S+)/.exec(text);
@@ -376,6 +424,98 @@ async function handleUpdate(
     return;
   }
 
+  // /deepseek <messaggio> (alias /ds) → DeepSeek-V4.1-Flash (DEEPSEEK_MODEL_ID sul worker),
+  // via POST /chat del worker yt-dlp (stessa chiave di /video). Stesso gate di /skynet: solo chat
+  // privata dell'owner, altrimenti SILENZIO totale. Ogni messaggio sta da solo: nessuna memoria.
+  const deepseek = DEEPSEEK_COMMAND.exec(text);
+  if (deepseek) {
+    if (chatType !== 'private') return;
+    if (!(await checkTelegramOwner(chatId, username)).owner) return;
+    const message = (deepseek[1] ?? '').trim().slice(0, DEEPSEEK_TELEGRAM_MAX_INPUT);
+    if (!message) {
+      await sendTelegramMessage(chatId, DEEPSEEK_USAGE, { parseMode: 'HTML' });
+      return;
+    }
+    const limited = await enforceRateLimit('admin.deepseek', `tg:${chatId}`);
+    if (limited) {
+      await sendTelegramMessage(chatId, 'Troppi messaggi a DeepSeek di fila: riprova tra poco.');
+      return;
+    }
+    const { value: outcome, messageId } = await withLiveStatus(
+      chatId,
+      () =>
+        askDeepseek(
+          {
+            messages: [{ role: 'user', content: message }],
+            maxTokens: DEEPSEEK_TELEGRAM_MAX_TOKENS,
+          },
+          undefined, // process.env
+          undefined, // fetch
+          DEEPSEEK_TELEGRAM_TIMEOUT_MS,
+        ),
+      {
+        frame: deepseekFrame,
+        waitingText: '🐋 DeepSeek sta pensando…',
+        action: 'typing',
+        parseMode: 'HTML',
+      },
+    );
+    const [first, ...rest] = deepseekTelegramMessages(outcome);
+    const format = { parseMode: 'HTML', disableWebPagePreview: true } as const;
+    await finishProgress(chatId, messageId, first ?? '…', format);
+    for (const part of rest) await sendTelegramMessage(chatId, part, format);
+    return;
+  }
+
+  // /ig <descrizione> (alias /instagram) → «Trova creator Instagram», come /admin/instagram-finder:
+  // stesso gate di /deepseek (solo chat privata dell'owner, altrimenti silenzio), stesso limite.
+  const instagram = INSTAGRAM_COMMAND.exec(text);
+  if (instagram) {
+    if (chatType !== 'private') return;
+    if (!(await checkTelegramOwner(chatId, username)).owner) return;
+    const parsed = InstagramFinderRequestSchema.safeParse(
+      parseInstagramCommand((instagram[1] ?? '').trim()),
+    );
+    if (!instagram[1]?.trim() || !parsed.success) {
+      await sendTelegramMessage(chatId, INSTAGRAM_USAGE, { parseMode: 'HTML' });
+      return;
+    }
+    const config = instagramGraphConfig();
+    const format = { parseMode: 'HTML', disableWebPagePreview: true } as const;
+    const limited = await enforceRateLimit('admin.instagram-finder', `tg:${chatId}`);
+    if (limited) {
+      await sendTelegramMessage(chatId, 'Troppe ricerche Instagram di fila: riprova tra poco.');
+      return;
+    }
+    const { value: outcome, messageId } = await withLiveStatus(
+      chatId,
+      () => {
+        const env = {
+          ...process.env,
+          INSTAGRAM_FINDER_BUDGET_MS: String(INSTAGRAM_TELEGRAM_BUDGET_MS),
+          INSTAGRAM_FINDER_AI_TIMEOUT_MS: String(INSTAGRAM_TELEGRAM_AI_TIMEOUT_MS),
+        };
+        // Senza Instagram collegato: suggerimenti dell'AI non verificati.
+        return config
+          ? findInstagramCreators(parsed.data, config, env)
+          : suggestInstagramCreatorsWithoutApi(parsed.data, {
+              ...env,
+              INSTAGRAM_FINDER_AI_TIMEOUT_MS: '30000',
+            });
+      },
+      {
+        frame: instagramFrame,
+        waitingText: '📸 Cerco creator su Instagram…',
+        action: 'typing',
+        parseMode: 'HTML',
+      },
+    );
+    const [first, ...rest] = instagramTelegramMessages(outcome);
+    await finishProgress(chatId, messageId, first ?? '…', format);
+    for (const part of rest) await sendTelegramMessage(chatId, part, format);
+    return;
+  }
+
   // /skynet <domanda> → la chat di Skynet, la sentinella di sicurezza: cerca in tutte le sue fonti
   // e risponde (src/lib/skynet/chat.server.ts). Riservata all'owner e solo in chat privata, con lo
   // stesso gate di /video: per chiunque altro SILENZIO totale, come se il comando non esistesse (in
@@ -426,6 +566,140 @@ async function handleUpdate(
     return;
   }
 
+  // /artex status | /artex ask <q> → l'agente ARTEX sul VPS dell'owner (ops/artex/).
+  // Stesso gate di /skynet e /ig: solo chat privata dell'owner, altrimenti silenzio totale.
+  // Via JWT autenticato su https://artex.solcomusic.online. ARTEX gira sul tuo VPS.
+  const artex = ARTEX_COMMAND.exec(text);
+  if (artex) {
+    if (chatType !== 'private') return;
+    if (!(await checkTelegramOwner(chatId, username)).owner) return;
+    const command = parseArtexCommand(artex[1] ?? '');
+    const format = { parseMode: 'HTML', disableWebPagePreview: true } as const;
+
+    if (command.kind === 'status') {
+      const limited = await enforceRateLimit('admin.artex', `tg:${chatId}`);
+      if (limited) {
+        await sendTelegramMessage(chatId, 'Troppe richieste ad ARTEX di fila: riprova tra poco.');
+        return;
+      }
+      const outcome = await artexStatus();
+      const [first, ...rest] = artexTelegramMessages(outcome);
+      await sendTelegramMessage(chatId, first ?? '…', format);
+      for (const part of rest) await sendTelegramMessage(chatId, part, format);
+      return;
+    }
+
+    if (command.kind === 'ask') {
+      const limited = await enforceRateLimit('admin.artex', `tg:${chatId}`);
+      if (limited) {
+        await sendTelegramMessage(chatId, 'Troppe richieste ad ARTEX di fila: riprova tra poco.');
+        return;
+      }
+      // Continue the same ARTEX conversation when the user is replying (Telegram reply-to) to a
+      // previous ARTEX answer — the id is in the footer we embedded there. Otherwise open fresh.
+      const conversationId = extractArtexConversationId(replyToText) ?? undefined;
+
+      // Placeholder message we'll edit as the stream arrives. If sending/getting its id fails,
+      // we fall back to the old "one final message" flow.
+      await sendTelegramChatAction(chatId, 'typing').catch(() => undefined);
+      const progressId = await sendTelegramMessageId(
+        chatId,
+        '🛡️ <b>ARTEX</b>\n<i>…sta ragionando</i>',
+        { parseMode: 'HTML' },
+      ).catch(() => null);
+
+      // Rate-limit editMessageText to ~1/sec per chat (Telegram's documented ceiling).
+      let lastEditMs = 0;
+      // Typing periodico: Telegram "sta scrivendo…" dura ~5s, quindi rinnoviamo
+      // ogni 4s in silenzio così l'indicatore resta vivo anche quando ARTEX
+      // sta ragionando senza emettere testo. Fermato nel finally.
+      const typingKeepAlive = setInterval(() => {
+        sendTelegramChatAction(chatId, 'typing').catch(() => undefined);
+      }, 4_000);
+
+      // askArtex con un unico retry sul transitorio `unreachable` (502/503/504,
+      // network drop): se il primo tentativo fallisce prima di produrre testo,
+      // ritenta una volta dopo 1.5s. `still_running`/`empty_reply` NON si
+      // ritentano (il primo cambierebbe stato dell'agente, il secondo è
+      // un verdetto dell'agente).
+      let outcome: Awaited<ReturnType<typeof askArtex>>;
+      try {
+        const ask = () =>
+          askArtex(command.question, process.env, fetch, {
+            // 110s sta sotto il maxDuration della route (120s) con margine per
+            // il rendering finale e un eventuale retry breve.
+            timeoutMs: 110_000,
+            conversationId,
+            onProgress: async (partial, running) => {
+              if (progressId === null) return;
+              const now = Date.now();
+              if (running && now - lastEditMs < 1_100) return;
+              lastEditMs = now;
+              await editTelegramMessage(chatId, progressId, artexChatStreamingFrame(partial), {
+                parseMode: 'HTML',
+              }).catch(() => undefined);
+              if (running) {
+                await sendTelegramChatAction(chatId, 'typing').catch(() => undefined);
+              }
+            },
+          });
+        outcome = await ask();
+        if (
+          outcome.status === 'failed' &&
+          outcome.error === 'unreachable' &&
+          // Retry solo se nulla è stato ancora renderizzato (lastEditMs==0): se
+          // ARTEX ha già mandato testo, rifarla doppierebbe la conversazione.
+          lastEditMs === 0
+        ) {
+          await new Promise((r) => setTimeout(r, 1_500));
+          outcome = await ask();
+        }
+
+        const parts = artexChatMessages(outcome);
+        const [first, ...rest] = parts;
+        // Solo la risposta finale porta il bottone "Continua" (edits in
+        // streaming no — eviterebbe tap su conv ancora vuote).
+        const convId =
+          outcome.status === 'ok'
+            ? outcome.conversationId
+            : outcome.status === 'failed'
+              ? outcome.conversationId
+              : null;
+        const finalMarkup = artexInlineKeyboard(convId ?? undefined);
+        const finalFormat = finalMarkup ? { ...format, replyMarkup: finalMarkup } : format;
+        if (progressId !== null && first) {
+          const edited = await editTelegramMessage(chatId, progressId, first, finalFormat).catch(
+            () => false,
+          );
+          if (!edited) await sendTelegramMessage(chatId, first, finalFormat);
+        } else if (first) {
+          await sendTelegramMessage(chatId, first, finalFormat);
+        }
+        for (const part of rest) await sendTelegramMessage(chatId, part, format);
+      } finally {
+        clearInterval(typingKeepAlive);
+      }
+      return;
+    }
+
+    if (command.kind === 'stop') {
+      const limited = await enforceRateLimit('admin.artex', `tg:${chatId}`);
+      if (limited) {
+        await sendTelegramMessage(chatId, 'Troppe richieste ad ARTEX di fila: riprova tra poco.');
+        return;
+      }
+      const outcome = await artexPauseTask(command.taskId);
+      for (const part of artexStopMessages(outcome, command.taskId)) {
+        await sendTelegramMessage(chatId, part, format);
+      }
+      return;
+    }
+
+    // help / unknown → show usage.
+    await sendTelegramMessage(chatId, ARTEX_USAGE, { parseMode: 'HTML' });
+    return;
+  }
+
   // /start (senza token), /codice, /invito, o testo vuoto → rimanda il codice se già collegato.
   if (text === '' || /^\/(start|codice|invito|invita)(@\w+)?$/.test(text)) {
     const link = await prisma.telegramAccountLink.findUnique({
@@ -471,6 +745,7 @@ export async function POST(request: Request) {
       text?: unknown;
       chat?: { id?: unknown; type?: unknown };
       from?: { username?: unknown };
+      reply_to_message?: { text?: unknown };
     };
     callback_query?: {
       id?: unknown;
@@ -499,8 +774,26 @@ export async function POST(request: Request) {
       const limited = await enforceRateLimit('telegram.webhook', `tg:${chatId}`);
       if (!limited) {
         await answerTelegramCallback(callbackId);
-        const command = TELEGRAM_MENU_CALLBACKS[data];
-        if (command) await handleUpdate(chatId, command, username, chatType);
+        // Azioni ARTEX dinamiche (prefisso artex:cont:<convId>) — dato che il
+        // conv id è runtime non entra nel map statico TELEGRAM_MENU_CALLBACKS.
+        // Gestite PRIMA del lookup così non vengono intercettate.
+        const contMatch = ARTEX_CALLBACK_CONT.exec(data);
+        if (contMatch?.[1]) {
+          const convId = Number(contMatch[1]);
+          if (Number.isFinite(convId) && convId > 0) {
+            await sendTelegramMessage(chatId, artexContinuePrompt(convId), {
+              parseMode: 'HTML',
+              replyMarkup: {
+                force_reply: true,
+                selective: false,
+                input_field_placeholder: '/artex ask …',
+              },
+            });
+          }
+        } else {
+          const command = TELEGRAM_MENU_CALLBACKS[data];
+          if (command) await handleUpdate(chatId, command, username, chatType);
+        }
       }
     } catch {
       // Mai propagare verso Telegram.
@@ -517,12 +810,16 @@ export async function POST(request: Request) {
   const text = typeof message?.text === 'string' ? message.text.trim() : '';
   const username = typeof message?.from?.username === 'string' ? message.from.username : null;
   const chatType = typeof message?.chat?.type === 'string' ? message.chat.type : null;
+  // The text of a message the user quoted with Telegram's reply-to, if any. Used by /artex ask
+  // to continue the same ARTEX conversation when the user is replying to an earlier bot answer.
+  const replyToText =
+    typeof message?.reply_to_message?.text === 'string' ? message.reply_to_message.text : null;
 
   try {
     // Anti-spam per chat: oltre la soglia si scarta in silenzio (200, nessun retry di Telegram,
     // niente scritture DB né invii). Fail-open su errore del limiter.
     const limited = await enforceRateLimit('telegram.webhook', `tg:${chatId}`);
-    if (!limited) await handleUpdate(chatId, text, username, chatType);
+    if (!limited) await handleUpdate(chatId, text, username, chatType, replyToText);
   } catch {
     // Mai propagare verso Telegram.
   }

@@ -303,3 +303,35 @@ runner il cui IP da solo riceve il controllo anti-bot.
 | **Uscita WARP** | Il SOCKS del client WARP ascolta solo su `127.0.0.1`. Il client gira con l'ambiente vuoto e, potendo, come `nobody`: non riceve la chiave del worker né i cookie. La sua registrazione resta in una cartella `0700` dentro il container e sparisce con lui. |
 
 In breve: imposta `WORKER_API_KEY` come secret (lo STESSO valore di `YTDLP_SERVICE_KEY` su Vercel) e il canale è cifrato end-to-end, autenticato e con link usa-e-getta. `GET /health` → `"auth":"required"` conferma che è chiuso correttamente (`"unconfigured"` = manca la chiave = tutto 503).
+
+## `POST /chat` — DeepSeek (server tuo)
+
+Inoltra una conversazione al **tuo** server OpenAI-compatibile (vLLM, SGLang, …) che serve
+`OBLITERATUS/DeepSeek-V4.1-Flash-1017-obliterated`. Stessa auth fail-closed di `/download`
+(`Authorization: Bearer $WORKER_API_KEY`): senza chiave → 401, il modello non è mai pubblico.
+
+| Variabile | | |
+|---|---|---|
+| `DEEPSEEK_ENDPOINT_URL` | obbligatoria (senza: `/chat` → 503) | es. `https://gpu.example.com/v1` |
+| `DEEPSEEK_ENDPOINT_TOKEN` | secret, se il server la richiede | |
+| `DEEPSEEK_MODEL_ID` | nome registrato sul server | default `OBLITERATUS/DeepSeek-V4.1-Flash-1017-obliterated` |
+| `DEEPSEEK_TIMEOUT` | secondi (default 120) | |
+| `MAX_CONCURRENT_CHATS` | richieste in parallelo (default 4; oltre → 503 `busy`) | |
+
+```bash
+curl -s https://<worker>/chat -H "Authorization: Bearer $WORKER_API_KEY" -H 'Content-Type: application/json' \
+  -d '{"messages":[{"role":"user","content":"Ciao!"}],"max_tokens":512}'
+# → {"reply":"...","model":"...","usage":{...}}
+```
+
+Errori: 400 messaggi non validi · 413 troppo lunghi · 502 `upstream_http_<code>` / `upstream_bad_json` ·
+504 `upstream_unreachable`. `temperature` (0–2), `top_p`, `max_tokens` (≤ 8192) sono limitati.
+`GET /health` → `"chat": true` quando l'URL è impostato (mai URL né token).
+Test: `python -m unittest -v test_chat` (in un processo separato da `test_antibot`).
+
+## Rotazione della chiave (`WORKER_API_KEY_2`)
+
+Il worker accetta **due** chiavi Bearer: `WORKER_API_KEY` e `WORKER_API_KEY_2` (alias `YTDLP_SERVICE_KEY2`).
+Solco usa `YTDLP_SERVICE_KEY2` se è impostata, altrimenti `YTDLP_SERVICE_KEY`. Per cambiare chiave senza
+downtime: imposta la nuova come `WORKER_API_KEY_2` sul worker → `YTDLP_SERVICE_KEY2` su Vercel → (più tardi)
+spostala in `WORKER_API_KEY`/`YTDLP_SERVICE_KEY` e svuota le `_2`. I link `/file` sono firmati con la principale.

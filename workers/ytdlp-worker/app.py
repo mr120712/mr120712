@@ -35,6 +35,7 @@
 import asyncio
 import hashlib
 import hmac
+import json
 import logging
 import mimetypes
 import os
@@ -45,6 +46,8 @@ import socket
 import subprocess
 import threading
 import time
+import urllib.error
+import urllib.request
 import uuid
 from collections.abc import Callable
 from contextlib import asynccontextmanager
@@ -64,6 +67,9 @@ log = logging.getLogger("ytdlp-worker")
 # Chiave/segreto condiviso: WORKER_API_KEY (preferito) oppure YTDLP_SERVICE_KEY come alias — così lo
 # STESSO nome usato su Vercel (YTDLP_SERVICE_KEY) vale anche qui, evitando errori di naming fra i due lati.
 API_KEY = (os.environ.get("WORKER_API_KEY") or os.environ.get("YTDLP_SERVICE_KEY") or "").strip()
+# Seconda chiave valida (rotazione senza downtime): WORKER_API_KEY_2 (alias YTDLP_SERVICE_KEY2). Vale solo
+# per l'Authorization: i link /file restano firmati con la chiave principale (li firma e verifica il worker).
+API_KEY_2 = (os.environ.get("WORKER_API_KEY_2") or os.environ.get("YTDLP_SERVICE_KEY2") or "").strip()
 # Fail-closed: senza chiave il worker rifiuta tutto, a meno di questo opt-in esplicito (solo dev locale).
 ALLOW_OPEN = os.environ.get("WORKER_ALLOW_OPEN", "").strip().lower() in {"1", "true", "yes", "on"}
 MODE = os.environ.get("WORKER_MODE", "extract").strip().lower()
@@ -915,8 +921,10 @@ def _check_auth(authorization: str | None) -> None:
         if ALLOW_OPEN:
             return
         raise HTTPException(status_code=503, detail="worker not configured: set WORKER_API_KEY")
-    expected = f"Bearer {API_KEY}"
-    if not authorization or not hmac.compare_digest(authorization, expected):
+    given = authorization or ""
+    # Confronto a tempo costante con ENTRAMBE le chiavi (niente scorciatoie che rivelino quale).
+    ok = [hmac.compare_digest(given, f"Bearer {key}") for key in (API_KEY, API_KEY_2) if key]
+    if not given or not any(ok):
         raise HTTPException(status_code=401, detail="unauthorized")
 
 
@@ -997,6 +1005,8 @@ def health() -> dict:
         # Esito del caricamento dei cookie (origine, quanti, se di YouTube): mai nomi o valori.
         "cookies_info": dict(COOKIES_INFO),
         "player_client": PLAYER_CLIENT or None,
+        # /chat → server DeepSeek: solo se è configurato (mai l'URL né il token).
+        "chat": bool(CHAT_ENDPOINT_URL),
         # Stato anti-bot (nessun segreto): le leve attive e l'esito dell'ULTIMA richiesta a monte.
         "antibot": {
             "fallback_clients": FALLBACK_CLIENTS,
@@ -1205,3 +1215,90 @@ def serve_file(name: str, exp: int | None = None, sig: str | None = None) -> Fil
         raise HTTPException(status_code=404, detail="not found")
     media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     return FileResponse(path, media_type=media_type, filename=path.name)
+
+
+# ── /chat: proxy verso il TUO server DeepSeek (OpenAI-compatibile: vLLM, SGLang, ...) ────────────────
+# Stessa auth fail-closed di /download (Bearer WORKER_API_KEY): il modello non è mai pubblico.
+#   DEEPSEEK_ENDPOINT_URL    base URL del server, es. https://gpu.example.com/v1   (senza: /chat → 503)
+#   DEEPSEEK_ENDPOINT_TOKEN  bearer del server, se lo richiede                     (secret)
+#   DEEPSEEK_MODEL_ID        nome del modello registrato sul server
+#   DEEPSEEK_TIMEOUT         secondi di attesa della risposta (default 120)
+CHAT_ENDPOINT_URL = os.environ.get("DEEPSEEK_ENDPOINT_URL", "").strip().rstrip("/")
+CHAT_ENDPOINT_TOKEN = os.environ.get("DEEPSEEK_ENDPOINT_TOKEN", "").strip()
+CHAT_MODEL_ID = (
+    os.environ.get("DEEPSEEK_MODEL_ID", "").strip() or "OBLITERATUS/DeepSeek-V4.1-Flash-1017-obliterated"
+)
+CHAT_TIMEOUT = max(5.0, float(os.environ.get("DEEPSEEK_TIMEOUT", "120")))
+_CHAT_SLOTS = threading.BoundedSemaphore(max(1, int(os.environ.get("MAX_CONCURRENT_CHATS", "4"))))
+
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ChatRequest(BaseModel):
+    messages: list[ChatMessage]
+    temperature: float | None = None
+    top_p: float | None = None
+    max_tokens: int | None = None
+
+
+def _chat_payload(req: ChatRequest) -> dict:
+    if not req.messages or len(req.messages) > 100:
+        raise HTTPException(status_code=400, detail="messages: 1-100 required")
+    if any(m.role not in ("system", "user", "assistant") for m in req.messages):
+        raise HTTPException(status_code=400, detail="messages: role must be system|user|assistant")
+    if sum(len(m.content) for m in req.messages) > 200_000:
+        raise HTTPException(status_code=413, detail="messages too long")
+    payload: dict[str, Any] = {
+        "model": CHAT_MODEL_ID,
+        "messages": [m.model_dump() for m in req.messages],
+        "stream": False,
+    }
+    if req.temperature is not None:
+        payload["temperature"] = min(2.0, max(0.0, req.temperature))
+    if req.top_p is not None:
+        payload["top_p"] = min(1.0, max(0.01, req.top_p))
+    if req.max_tokens is not None:
+        payload["max_tokens"] = min(8192, max(1, req.max_tokens))
+    return payload
+
+
+@app.post("/chat")
+def chat(req: ChatRequest, authorization: str | None = Header(default=None)) -> dict:
+    """Una risposta completa (non in streaming) dal server DeepSeek: {"reply", "model", "usage"}."""
+    _check_auth(authorization)
+    if not CHAT_ENDPOINT_URL:
+        raise HTTPException(status_code=503, detail="chat not configured: set DEEPSEEK_ENDPOINT_URL")
+    payload = _chat_payload(req)
+    if not _CHAT_SLOTS.acquire(blocking=False):
+        raise HTTPException(status_code=503, detail="busy", headers={"Retry-After": "10"})
+    try:
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        if CHAT_ENDPOINT_TOKEN:
+            headers["Authorization"] = f"Bearer {CHAT_ENDPOINT_TOKEN}"
+        upstream = urllib.request.Request(
+            f"{CHAT_ENDPOINT_URL}/chat/completions",
+            data=json.dumps(payload).encode(),
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(upstream, timeout=CHAT_TIMEOUT) as resp:
+                data = json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            log.warning("chat: il server DeepSeek ha risposto %s", exc.code)
+            raise HTTPException(status_code=502, detail=f"upstream_http_{exc.code}") from None
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            log.warning("chat: server DeepSeek irraggiungibile: %s", type(exc).__name__)
+            raise HTTPException(status_code=504, detail="upstream_unreachable") from None
+        except ValueError:
+            raise HTTPException(status_code=502, detail="upstream_bad_json") from None
+        try:
+            reply = data["choices"][0]["message"]["content"] or ""
+        except (KeyError, IndexError, TypeError):
+            raise HTTPException(status_code=502, detail="upstream_bad_shape") from None
+        return {"reply": reply, "model": data.get("model", CHAT_MODEL_ID), "usage": data.get("usage")}
+    finally:
+        _CHAT_SLOTS.release()

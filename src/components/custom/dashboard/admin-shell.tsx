@@ -33,6 +33,15 @@ export function AdminShell({ children }: AdminShellProps) {
     }
   }, [isPending, router, session?.user]);
 
+  // Amministratore verificato in /admin: Skynet considera fidato questo indirizzo per 7 giorni (così,
+  // per esempio, lo Space su Hugging Face non resta bloccato dalla verifica). Silenzioso, best-effort.
+  useEffect(() => {
+    if (!_isAdmin) return;
+    void fetch('/api/admin/skynet/trust-me', { method: 'POST', credentials: 'same-origin' }).catch(
+      () => undefined,
+    );
+  }, [_isAdmin]);
+
   async function handleSignOut() {
     if (!(await signOutAndStopMusic('/login'))) toast.error(SIGN_OUT_FAILED_MESSAGE);
   }

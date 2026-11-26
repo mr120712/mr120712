@@ -27,6 +27,9 @@ const mocks = vi.hoisted(() => ({
   ),
   answerCallback: vi.fn(async (_id?: string) => undefined),
   askSkynet: vi.fn(),
+  findCreators: vi.fn(),
+  suggestCreators: vi.fn(),
+  igConfig: vi.fn(),
 }));
 
 vi.mock('@/lib/env', () => ({ env: mocks.env }));
@@ -58,6 +61,11 @@ vi.mock('@/lib/business/telegram-bot.server', () => ({
 }));
 vi.mock('@/lib/business/rewards.server', () => ({ ensureReferralCode: mocks.ensureCode }));
 vi.mock('@/lib/skynet/chat.server', () => ({ askSkynet: mocks.askSkynet }));
+vi.mock('@/lib/business/instagram-finder.server', () => ({
+  findInstagramCreators: mocks.findCreators,
+  suggestInstagramCreatorsWithoutApi: mocks.suggestCreators,
+}));
+vi.mock('@/lib/business/instagram-graph.server', () => ({ instagramGraphConfig: mocks.igConfig }));
 vi.mock('@/lib/business/telegram-link', () => ({ consumeTelegramLinkChallenge: mocks.consume }));
 vi.mock('@/lib/business/request-body.server', () => ({ readJsonLimited: mocks.readJson }));
 vi.mock('@/lib/db', () => ({
@@ -643,5 +651,128 @@ describe('POST /api/telegram/webhook — /skynet, la chat della sentinella', () 
     await POST(req(msg('/skynet tutto bene?')));
     expect(mocks.askSkynet).not.toHaveBeenCalled();
     expect(mocks.send).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/telegram/webhook — /ig, trova creator Instagram', () => {
+  afterEach(() => {
+    delete process.env.SKYNET_TELEGRAM_CHAT_IDS;
+  });
+  const texts = () => mocks.send.mock.calls.map((call) => String(call[1]));
+  const config = { token: 't', igUserId: '17841400000000000', version: 'v23.0' };
+
+  beforeEach(() => {
+    mocks.findCreators.mockReset();
+    mocks.igConfig.mockReset().mockReturnValue(config);
+    mocks.findCreators.mockResolvedValue({
+      ok: true,
+      result: {
+        mode: 'verified',
+        summary: 'Producer lofi',
+        hashtags: ['lofibeats'],
+        creators: [
+          {
+            username: 'lofi.anna',
+            verified: true,
+            name: 'Anna',
+            biography: 'Lofi producer',
+            website: null,
+            profilePictureUrl: null,
+            followers: 20_000,
+            mediaCount: 10,
+            avgLikes: 800,
+            avgComments: 10,
+            engagementRate: 0.0405,
+            lastPostAt: null,
+            foundVia: ['#lofibeats'],
+            score: 91,
+            reason: 'Producer lofi molto attiva',
+          },
+        ],
+        posts: [],
+        checked: 3,
+        skipped: 2,
+        aiRanked: true,
+        warnings: [],
+      },
+    });
+  });
+
+  it('silenzio totale per chi non è owner, e per l’owner in un gruppo', async () => {
+    await POST(req(msg('/ig producer lofi')));
+    process.env.SKYNET_TELEGRAM_CHAT_IDS = '123';
+    await POST(req(groupMsg('/ig producer lofi')));
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.findCreators).not.toHaveBeenCalled();
+    expect(mocks.enforceRateLimit).not.toHaveBeenCalledWith(
+      'admin.instagram-finder',
+      expect.anything(),
+    );
+  });
+
+  it('owner in privato: legge #hashtag, @username e follower, poi manda i creator', async () => {
+    process.env.SKYNET_TELEGRAM_CHAT_IDS = '123';
+    await POST(req(msg('/ig producer lofi italiani 5k-100k #lofibeats @mario.beats')));
+    expect(mocks.enforceRateLimit).toHaveBeenCalledWith('admin.instagram-finder', 'tg:123');
+    const [request, usedConfig, env] = mocks.findCreators.mock.calls[0] ?? [];
+    expect(request).toMatchObject({
+      brief: 'producer lofi italiani',
+      hashtags: ['lofibeats'],
+      usernames: ['mario.beats'],
+      minFollowers: 5_000,
+      maxFollowers: 100_000,
+    });
+    expect(usedConfig).toBe(config);
+    expect(env).toMatchObject({ INSTAGRAM_FINDER_BUDGET_MS: '45000' });
+    const last = texts().at(-1) ?? '';
+    expect(last).toContain('1 creator trovati');
+    expect(last).toContain('<a href="https://www.instagram.com/lofi.anna/">@lofi.anna</a>');
+    expect(last).toContain('20K follower');
+  });
+
+  it('senza descrizione mostra l’uso; senza token usa i suggerimenti dell’AI, senza chiamare Meta', async () => {
+    process.env.SKYNET_TELEGRAM_CHAT_IDS = '123';
+    await POST(req(msg('/ig')));
+    expect(texts()[0]).toContain('Uso: <b>/ig descrizione</b>');
+    mocks.igConfig.mockReturnValue(null);
+    mocks.suggestCreators.mockResolvedValue({
+      ok: true,
+      result: {
+        mode: 'ai_only',
+        summary: 'Producer lofi',
+        hashtags: [],
+        creators: [
+          {
+            username: 'lofi.girl',
+            verified: false,
+            name: 'Lofi Girl',
+            biography: null,
+            website: null,
+            profilePictureUrl: null,
+            followers: 0,
+            mediaCount: 0,
+            avgLikes: 0,
+            avgComments: 0,
+            engagementRate: 0,
+            lastPostAt: null,
+            foundVia: ['suggerito AI'],
+            score: 90,
+            reason: 'Il canale lofi più noto',
+          },
+        ],
+        posts: [],
+        checked: 0,
+        skipped: 0,
+        aiRanked: true,
+        warnings: ['Instagram non collegato'],
+      },
+    });
+    await POST(req(msg('/ig producer lofi')));
+    expect(mocks.findCreators).not.toHaveBeenCalled();
+    expect(mocks.suggestCreators).toHaveBeenCalledTimes(1);
+    const last = texts().at(-1) ?? '';
+    expect(last).toContain('creator suggeriti dall’AI</b> (non verificati)');
+    expect(last).toContain('@lofi.girl');
+    expect(last).not.toContain('follower ·');
   });
 });

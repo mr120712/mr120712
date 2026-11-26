@@ -34,6 +34,7 @@ import { sendTelegramMessage } from '@/lib/business/telegram-bot.server';
 import type { MonitorRun } from '@/lib/contracts/monitoring';
 import { prisma } from '@/lib/db';
 import { latestRun, recordHeartbeat, STALE_AFTER_MS } from '@/lib/monitoring/monitor.server';
+import { parseTrusted } from '@/lib/skynet/trusted-ips';
 import {
   type AutodefenseState,
   type AutodefenseSummary,
@@ -82,6 +83,7 @@ import {
   skynetNote,
   skynetRuleInfo,
   startLevel,
+  trustedNets,
 } from './hunter';
 import {
   adaptedThresholds,
@@ -522,12 +524,19 @@ export async function huntOffenders(
   ipRules: IpRule[] | null,
   now: Date,
   advancedOffenses: number = DEFAULT_ADVANCED_OFFENSES,
+  learnedTrusted: string[] = [],
 ): Promise<HuntResult | null> {
   const access = vercelAccess(deps.env);
   if (!access || ipRules === null) return null;
   const blocks = await readFirewallBlocks(deps, access, now);
   if (blocks === null) return null;
-  const plan = planHunt(blocks, ipRules, now, advancedOffenses);
+  const plan = planHunt(
+    blocks,
+    ipRules,
+    now,
+    advancedOffenses,
+    trustedNets([deps.env.SKYNET_TRUSTED_IPS ?? '', ...learnedTrusted].join(',')),
+  );
   const escalated: Escalation[] = [];
   let failed = 0;
   for (const step of plan.escalate) {
@@ -1092,9 +1101,15 @@ export async function runSentinel(options: Partial<SentinelDeps> = {}): Promise<
     const adapted = adaptedThresholds(learnedPrev);
 
     // Il cacciatore lavora dopo la decisione: le sue modifiche al firewall non sono «manomissioni».
-    const hunt = await huntOffenders(deps, ipRules, now, adapted.advancedOffenses).catch(
-      () => null,
-    );
+    // Indirizzi dell'owner registrati aprendo /admin (7 giorni ciascuno), oltre a SKYNET_TRUSTED_IPS.
+    const learnedTrusted = Object.keys(parseTrusted(row?.trustedIps, now));
+    const hunt = await huntOffenders(
+      deps,
+      ipRules,
+      now,
+      adapted.advancedOffenses,
+      learnedTrusted,
+    ).catch(() => null);
     let learnedNext: LearnedDefense | null = learnedPrev;
     if (hunt) {
       signals.vercel.hunted = hunt.active;

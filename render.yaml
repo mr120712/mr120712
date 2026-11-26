@@ -25,6 +25,12 @@ services:
         value: serve
       - key: WORKER_API_KEY
         sync: false                      # secret — set it in the dashboard (= YTDLP_SERVICE_KEY on Vercel)
+      - key: WORKER_API_KEY_2            # optional 2nd valid key, for rotation (= YTDLP_SERVICE_KEY2 on Vercel)
+        sync: false
+      # POST /chat (off by default): proxies to a self-hosted OpenAI-compatible server, only used when
+      # Solco sets DEEPSEEK_BACKEND=worker (the default is Solco's AI reserve / MWAPI on Vercel). To turn
+      # it on, add in the dashboard DEEPSEEK_ENDPOINT_URL, DEEPSEEK_ENDPOINT_TOKEN and DEEPSEEK_MODEL_ID
+      # (see tools/private-llm/README.md). Not declared here so a Blueprint sync never recreates them.
       # Optional, only if YouTube blocks the datacenter IP ("Sign in to confirm you're not a bot").
       # The worker detects it and GET /antibot tells you if it passes; these are the fixes when it
       # doesn't (see workers/ytdlp-worker/README.md), from the least to the most demanding.

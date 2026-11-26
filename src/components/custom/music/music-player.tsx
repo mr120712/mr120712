@@ -7,6 +7,7 @@ import {
   Gauge,
   Infinity as InfinityIcon,
   ListMusic,
+  LoaderCircle,
   MicVocal,
   Music2,
   Pause,
@@ -137,6 +138,7 @@ import {
   YOUTUBE_QUEUE_UNPLAYABLE_MESSAGE,
 } from '@/lib/music/player-messages';
 import { PLAYER_STORAGE_KEY, STOP_PLAYER_EVENT } from '@/lib/music/player-session';
+import { loadYouTubeIframeApi } from '@/lib/music/youtube-iframe-api';
 import {
   continuesInRun,
   type PendingRunMove,
@@ -167,7 +169,6 @@ import { lyricsTargetFor } from './lyrics-target';
 import styles from './music-player.module.css';
 import { RemoveVideoButton } from './remove-video-button';
 import { YouTubePremiumButton } from './youtube-premium-button';
-import { loadYouTubeIframeApi } from './youtube-queue-player';
 
 export type MusicPlaybackMode =
   | 'audius'
@@ -647,12 +648,18 @@ function playbackPath(track: MusicPlayerTrack) {
   return `/api/music/albums/${encodeURIComponent(track.albumId)}/tracks/${encodeURIComponent(match[1])}/playback`;
 }
 
+/** Permesso e verifica dei diritti: su una rete bloccata il player non resta in «caricamento». */
+const PLAYBACK_CHECK_TIMEOUT_MS = 8_000;
+
 async function verifyPlayback(track: MusicPlayerTrack) {
   // Open streams need no check; the listener's own files are never shown to the server.
   if (isOpenStream(track) || isLocalTrack(track)) return;
   const path = playbackPath(track);
   if (!path) throw new Error('Track is not an authorized album item');
-  const verdict = await apiFetch(path, { schema: AudiusPlaybackCheckSchema });
+  const verdict = await apiFetch(path, {
+    schema: AudiusPlaybackCheckSchema,
+    signal: AbortSignal.timeout(PLAYBACK_CHECK_TIMEOUT_MS),
+  });
   if (!verdict.allowed) throw new Error(verdict.reason, { cause: verdict });
 }
 
@@ -661,7 +668,10 @@ async function prefetchRights(track: MusicPlayerTrack): Promise<RightsVerdict> {
   const path = playbackPath(track);
   if (!path) return 'denied';
   try {
-    const verdict = await apiFetch(path, { schema: AudiusPlaybackCheckSchema });
+    const verdict = await apiFetch(path, {
+      schema: AudiusPlaybackCheckSchema,
+      signal: AbortSignal.timeout(PLAYBACK_CHECK_TIMEOUT_MS),
+    });
     return verdict.allowed ? 'allowed' : rightsVerdictFromReason(verdict.reason);
   } catch (error) {
     return rightsVerdictFromReason(denialReason(error));
@@ -794,6 +804,7 @@ export async function requestPlayPermit(requestedId: string): Promise<PlayPermit
       credentials: 'same-origin',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ qualifiedId }),
+      signal: AbortSignal.timeout(PLAYBACK_CHECK_TIMEOUT_MS),
     });
     const body = (await response.json().catch(() => ({}))) as {
       allowed?: unknown;
@@ -934,7 +945,8 @@ function SeekBar({
   disabled: boolean;
   label: string;
 }) {
-  const elapsed = useSyncExternalStore(store.subscribe, store.get, noElapsed);
+  // Risoluzione di 1 s (come step): niente render per i timeupdate dentro lo stesso secondo.
+  const elapsed = useSyncExternalStore(store.subscribe, () => Math.floor(store.get()), noElapsed);
   return (
     <input
       className={styles.seek}
@@ -946,14 +958,23 @@ function SeekBar({
       onChange={(event) => onSeek(Number(event.target.value))}
       disabled={disabled}
       aria-label={label}
+      aria-valuetext={`${formattedTime(elapsed)} di ${formattedTime(duration || 0)}`}
     />
   );
 }
 
 /** Tempo trascorso, accanto alla durata. */
 function ElapsedTime({ store }: { store: ElapsedStore }) {
-  const elapsed = useSyncExternalStore(store.subscribe, store.get, noElapsed);
+  const elapsed = useSyncExternalStore(store.subscribe, () => Math.floor(store.get()), noElapsed);
   return <span>{formattedTime(elapsed)}</span>;
+}
+
+/** Play/Pausa, o la rotella mentre carica o aspetta dati (prima era solo un'icona sbiadita). */
+function PlayStateIcon({ status, buffering }: { status: string; buffering: boolean }) {
+  if (status === 'loading' || (buffering && status === 'playing')) {
+    return <LoaderCircle aria-hidden="true" className={styles.spin} />;
+  }
+  return status === 'playing' ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />;
 }
 
 /** «Precedente»: sul primo elemento serve solo dopo 5 s (torna all'inizio), mai in diretta. */
@@ -1322,9 +1343,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   // Risolve true se l'elemento è partito davvero (o è passato al player ufficiale YouTube), false
   // se è stato bloccato, rifiutato, rimandato o non è riproducibile (vedi "Ascolta in background").
   const playCurrentTrack = useCallback(
-    async (requested: ActiveTrack): Promise<boolean> => {
+    async (requested: ActiveTrack, options?: { reconnect?: boolean }): Promise<boolean> => {
       let track = requested;
       const request = ++playRequestRef.current;
+      // Un avvio nuovo (Play, altro elemento) ricomincia i tentativi di riconnessione della diretta:
+      // solo il timer di reconnectLive li continua.
+      if (!options?.reconnect) reconnectsRef.current = 0;
       // Un nuovo avvio: la ripresa automatica al ritorno della rete/primo piano non serve più.
       offlineResumeRef.current = null;
       dropResumeRef.current = null;
@@ -1405,6 +1429,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       setElapsedSeconds(0);
       setDurationSeconds(isLiveTrack(track) ? 0 : (track.durationSeconds ?? 0));
       mediaRetryRef.current = 0;
+      retryPositionRef.current = 0;
       restartListeningSample(listeningRef.current);
       audio.pause();
       audio.preload = 'none';
@@ -1468,6 +1493,12 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
           permitRecordsPlay(track.qualifiedId) ||
           isFeaturedPlayId(track.qualifiedId)
         ) {
+          // Permesso e verifica dei diritti partono insieme (non dipendono l'uno dall'altra): un
+          // giro di rete in meno prima del primo byte. Il rifiuto della verifica si legge dopo.
+          const rightsCheck = verifyPlayback(track).then(
+            () => null,
+            (error: unknown) => error ?? new Error('Playback check failed'),
+          );
           const early = await permitRequest;
           if (request !== playRequestRef.current) return false;
           applyPermit(early, track.qualifiedId);
@@ -1484,8 +1515,9 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
             return false;
           }
           // Nessuna verifica /playback per gli stream aperti (audio.com compreso): ritorna subito.
-          await verifyPlayback(track);
+          const rightsError = await rightsCheck;
           if (request !== playRequestRef.current) return false;
+          if (rightsError) throw rightsError;
         }
         // iOS: declare a music session right before play() (Apple: activate when playback starts).
         declarePlaybackSession();
@@ -2227,6 +2259,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     if (audio.currentTime > 2) reconnectsRef.current = 0;
     if (mediaRetryRef.current > 0 && audio.currentTime > retryPositionRef.current + 30) {
       mediaRetryRef.current = 0;
+      retryPositionRef.current = 0;
     }
     setElapsedSeconds(audio.currentTime);
     if (!isLiveTrack(currentTrack) && Number.isFinite(audio.duration))
@@ -2311,6 +2344,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
     recordedRef.current = null;
     mediaRetryRef.current = 0;
+    retryPositionRef.current = 0;
     reconnectsRef.current = 0;
     pendingSeekRef.current = null;
     // The stream request itself counts the play on the server: refresh the counter once it plays
@@ -2369,6 +2403,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     }
     recordedRef.current = null;
     mediaRetryRef.current = 0;
+    retryPositionRef.current = 0;
     reconnectsRef.current = 0;
     pendingSeekRef.current = null;
     // The continuation of the stream counts the play on the server: refresh the counter once it plays.
@@ -2687,7 +2722,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       reconnectTimerRef.current = window.setTimeout(
         () => {
           reconnectTimerRef.current = null;
-          if (request === playRequestRef.current) void playCurrentTrack(track);
+          if (request === playRequestRef.current) void playCurrentTrack(track, { reconnect: true });
         },
         1000 * 2 ** (attempt - 1),
       );
@@ -2867,7 +2902,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
    */
   const watchLiveStall = () => {
     const audio = decks.current;
-    if (!currentTrack || !audio || !isLiveTrack(currentTrack) || stallTimerRef.current !== null) {
+    // Anche brani ed episodi: un cambio di rete può appendere la connessione senza un 'error'.
+    if (!currentTrack || !audio || isYouTubeTrack(currentTrack) || stallTimerRef.current !== null) {
       return;
     }
     const request = playRequestRef.current;
@@ -2880,11 +2916,22 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   stallRecoveryRef.current = (request, position) => {
     const audio = decks.current;
     const track = currentTrack;
-    if (request !== playRequestRef.current || !track || !audio || !isLiveTrack(track)) return;
+    if (request !== playRequestRef.current || !track || !audio || isYouTubeTrack(track)) return;
     if (status !== 'playing' && status !== 'loading') return;
     // Avanzato nel frattempo (un 'stalled' mentre suonava il buffer): nessun blocco.
     if (!audio.getAttribute('src') || audio.currentTime > position + 1) return;
-    if (!reconnectLive(track, audio)) failLive(track);
+    if (isLiveTrack(track)) {
+      if (!reconnectLive(track, audio)) failLive(track);
+      return;
+    }
+    // Brano o episodio fermo a metà: riapre lo stream dallo stesso punto (stesso limite di
+    // ritentativi di un errore di rete). Un file del dispositivo non si blocca per la rete.
+    if (isLocalTrack(track) || audio.currentTime <= 0) return;
+    if (mediaRetryRef.current >= MAX_MEDIA_RETRIES) return;
+    mediaRetryRef.current += 1;
+    retryPositionRef.current = audio.currentTime;
+    setStatus('loading');
+    restartStream(track, audio, audio.currentTime);
   };
 
   /** Keeps the system scrubber in step with the element (the OS extrapolates between updates). */
@@ -3054,6 +3101,8 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     // Also follows pauses decided by the system: calls, Siri, headphones unplugged.
     setStatus((current) => (current === 'playing' ? 'paused' : current));
     if (audio.getAttribute('src')) syncPositionState();
+    // Il punto esatto della pausa (il salvataggio periodico va solo ogni 5 s).
+    saveQueueRef.current();
   };
 
   const hidePlayer = pathname === '/admin' || pathname.startsWith('/admin/');
@@ -3515,7 +3564,10 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
         return;
       }
       setElapsedSeconds(elapsed);
-      if (duration > 0) setDurationSeconds(duration);
+      // Una diretta YouTube riporta una durata che cresce a ogni tick: niente render per scarti < 1 s.
+      if (duration > 0) {
+        setDurationSeconds((previous) => (Math.abs(previous - duration) < 1 ? previous : duration));
+      }
       recordProgress(currentTrack, elapsed);
     },
   };
@@ -3692,6 +3744,20 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
     return () => document.body.classList.remove('has-music-player');
   }, [currentTrack, hidePlayer, stopPlayback]);
 
+  // Apertura: il focus va nel player a schermo intero; chiusura: torna al mini player, se il focus
+  // era nel player (che ora è nascosto) e non altrove (es. un cambio di pagina).
+  const wasFullRef = useRef(false);
+  useEffect(() => {
+    const wasFull = wasFullRef.current;
+    wasFullRef.current = showFull;
+    if (showFull && !wasFull) fullCollapseRef.current?.focus({ preventScroll: true });
+    if (!showFull && wasFull) {
+      const active = document.activeElement;
+      if (!active || active === document.body)
+        miniExpandRef.current?.focus({ preventScroll: true });
+    }
+  }, [showFull]);
+
   useEffect(() => {
     document.body.classList.toggle('music-player-expanded', showFull);
     if (!showFull) return () => document.body.classList.remove('music-player-expanded');
@@ -3862,6 +3928,18 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
       saveQueueRef.current();
     });
   }, [elapsedStore]);
+  // Pausa, app in background o chiusa: salva subito il punto (non solo ogni 5 s di ascolto).
+  useEffect(() => {
+    const flush = () => {
+      if (document.visibilityState === 'hidden') saveQueueRef.current();
+    };
+    document.addEventListener('visibilitychange', flush);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      document.removeEventListener('visibilitychange', flush);
+      window.removeEventListener('pagehide', flush);
+    };
+  }, []);
 
   // Navigating to another page collapses the full-screen player.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reacts to route changes only.
@@ -4066,7 +4144,7 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
   // Play/pause of the same player view (disabled while loading: then its never-disabled neighbour).
   const noticeFocusTarget = (placement: 'dock' | 'full') => () => {
     const play = placement === 'dock' ? miniPlayRef.current : fullPlayRef.current;
-    if (play && !play.disabled) return play;
+    if (play && !play.disabled && play.getAttribute('aria-disabled') !== 'true') return play;
     return placement === 'dock' ? miniExpandRef.current : fullCollapseRef.current;
   };
   const returnNoticeFor = (placement: 'dock' | 'full') =>
@@ -4310,11 +4388,14 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                 ref={miniPlayRef}
                 className={styles.miniControl}
                 type="button"
-                onClick={() => void togglePlayback()}
-                disabled={status === 'loading'}
+                onClick={() => {
+                  if (status !== 'loading') void togglePlayback();
+                }}
+                // aria-disabled, non disabled: il pulsante appena premuto non perde il focus.
+                aria-disabled={status === 'loading'}
                 aria-label={playLabel}
               >
-                {status === 'playing' ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
+                <PlayStateIcon status={status} buffering={buffering} />
               </button>
               <button
                 className={styles.miniSkip}
@@ -4596,15 +4677,13 @@ export function MusicPlayerProvider({ children }: { children: ReactNode }) {
                     ref={fullPlayRef}
                     className={styles.control}
                     type="button"
-                    onClick={() => void togglePlayback()}
-                    disabled={status === 'loading'}
+                    onClick={() => {
+                      if (status !== 'loading') void togglePlayback();
+                    }}
+                    aria-disabled={status === 'loading'}
                     aria-label={playLabel}
                   >
-                    {status === 'playing' ? (
-                      <Pause aria-hidden="true" />
-                    ) : (
-                      <Play aria-hidden="true" />
-                    )}
+                    <PlayStateIcon status={status} buffering={buffering} />
                   </button>
                   <button
                     className={styles.skip}

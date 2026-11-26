@@ -20,7 +20,7 @@ const auth = vi.hoisted(() => ({
 vi.mock('@/lib/api-client', () => ({ apiFetch: mocks.apiFetch }));
 vi.mock('next/navigation', () => ({ usePathname: () => '/search' }));
 vi.mock('@/lib/auth-client', () => ({ useSession: () => auth.state }));
-vi.mock('@/components/custom/music/youtube-queue-player', () => ({
+vi.mock('@/lib/music/youtube-iframe-api', () => ({
   loadYouTubeIframeApi: mocks.loadYouTubeIframeApi,
 }));
 // Conta i render delle copertine (la coda del player a schermo intero ne disegna una per brano).

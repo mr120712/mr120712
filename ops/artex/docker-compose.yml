@@ -1,0 +1,115 @@
+# ops/artex/docker-compose.yml — a locked-down ARTEX stack for the VPS.
+#
+# Differences from the upstream compose file:
+#   • ARTEX_BIND_ADDR defaults to 127.0.0.1 (never a public interface).
+#   • Budgets and quiet noise profile are on by default via .env.example.
+#   • Postgres is published only on the Docker network — no host port.
+#   • A read-only mount for scope.json: the bootstrap imports it once; the UI
+#     cannot write it back.
+#
+# Built from the ARTEX source checkout that bootstrap.sh pulls at a pinned tag.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-artex}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-artex}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-artex} -d ${POSTGRES_DB:-artex}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    # Postgres is reachable only on the compose network; nothing on the host.
+
+  artex:
+    build:
+      # bootstrap.sh clones ARTEX into ./artex-src next to this file.
+      context: ./artex-src
+      args:
+        ARTEX_VERSION: ${ARTEX_VERSION:-pinned}
+    image: artex:solco-staging
+    security_opt:
+      - "no-new-privileges:true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # ARTEX v0.7.0 reads only ARTEX_PG_DSN from env (component ARTEX_PG_HOST/
+      # USER/PASSWORD/DBNAME vars landed on main, post-release). Build the DSN
+      # inline from the Postgres credentials. The password must be URL-safe
+      # (no / ? % @ : # or space); bootstrap.sh generates a random URL-safe
+      # password by default, so this is fine. If a human-typed password trips
+      # it, either regenerate with bootstrap.sh --reset-pass or URL-encode here.
+      ARTEX_PG_DSN: postgres://${POSTGRES_USER:-artex}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-artex}?sslmode=disable
+      # Component vars are still passed for forward compatibility with ARTEX
+      # releases that read them. On v0.7.0 they're a no-op.
+      ARTEX_PG_HOST: postgres
+      ARTEX_PG_PORT: "5432"
+      ARTEX_PG_USER: ${POSTGRES_USER:-artex}
+      ARTEX_PG_PASSWORD: ${POSTGRES_PASSWORD}
+      ARTEX_PG_DBNAME: ${POSTGRES_DB:-artex}
+      ARTEX_PG_SSLMODE: disable
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ARTEX_LLM_PROVIDER: ${ARTEX_LLM_PROVIDER:-}
+      ARTEX_LLM_MODEL: ${ARTEX_LLM_MODEL:-}
+      ARTEX_LLM_BASE_URL: ${ARTEX_LLM_BASE_URL:-}
+      ARTEX_LLM_PROXY: ${ARTEX_LLM_PROXY:-}
+      ARTEX_JWT_KEY_DIR: /app/keys
+      ARTEX_SECRET_KEY: ${ARTEX_SECRET_KEY:-}
+      ARTEX_TRUSTED_PROXIES: ${ARTEX_TRUSTED_PROXIES:-}
+      ARTEX_UNTRUSTED_BOUNDARY: ${ARTEX_UNTRUSTED_BOUNDARY:-}
+      ARTEX_UPDATE_CHECK: ${ARTEX_UPDATE_CHECK:-}
+      ARTEX_NOISE_PROFILE: ${ARTEX_NOISE_PROFILE:-quiet}
+      ARTEX_TARGET_USER_AGENT: ${ARTEX_TARGET_USER_AGENT:-}
+      ARTEX_TASK_BUDGET_TOKENS: ${ARTEX_TASK_BUDGET_TOKENS:-200000}
+      ARTEX_TASK_BUDGET_TURNS: ${ARTEX_TASK_BUDGET_TURNS:-120}
+      ARTEX_INTENT_BUDGET_TOKENS: ${ARTEX_INTENT_BUDGET_TOKENS:-60000}
+      ARTEX_INTENT_BUDGET_TURNS: ${ARTEX_INTENT_BUDGET_TURNS:-30}
+      # The one target the operator confirmed at bootstrap. Used by the import
+      # script to render scope.json; ARTEX itself reads scope from the DB.
+      ARTEX_TARGET_HOST: ${ARTEX_TARGET_HOST:?set ARTEX_TARGET_HOST in .env}
+    ports:
+      - "${ARTEX_BIND_ADDR:-127.0.0.1}:8787:8787"
+      # MITM proxy also loopback; needed only if you point a browser at it.
+      - "127.0.0.1:8788:8788"
+    volumes:
+      - ./data:/app/data
+      - ./keys:/app/keys
+      - ./scope.json:/app/scope.json:ro
+      # config.json carries the DB section; bootstrap.sh writes it from .env.
+      # Read-only inside the container so ARTEX can't rewrite it.
+      - ./config.json:/app/config.json:ro
+    restart: unless-stopped
+
+  caddy:
+    # Public-facing TLS reverse proxy. Fetches a free Let's Encrypt cert for
+    # the ARTEX_PUBLIC_HOST (A record on Vercel DNS → this VPS) and reverse
+    # proxies to ARTEX's loopback port. ARTEX's own JWT auth gates every API
+    # call; Caddy adds only TLS and reachability.
+    image: caddy:2-alpine
+    container_name: artex-caddy
+    depends_on:
+      - artex
+    environment:
+      ARTEX_PUBLIC_HOST: ${ARTEX_PUBLIC_HOST:?set ARTEX_PUBLIC_HOST in .env}
+    ports:
+      - "0.0.0.0:80:80"
+      - "0.0.0.0:443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+    security_opt:
+      - "no-new-privileges:true"
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

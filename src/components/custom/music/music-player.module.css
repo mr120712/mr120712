@@ -547,6 +547,22 @@
   color: var(--primary);
 }
 
+/* In caricamento: resta focalizzabile (aria-disabled) e mostra la rotella. */
+.miniControl[aria-disabled="true"],
+.control[aria-disabled="true"] {
+  cursor: progress;
+}
+
+.spin {
+  animation: playerSpin 0.9s linear infinite;
+}
+
+@keyframes playerSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .miniControl:disabled,
 .miniSkip:disabled,
 .control:disabled,
@@ -1171,7 +1187,8 @@
   .full[data-status="playing"] .fullArt,
   .mini[data-status="playing"] .miniProgress > span::after,
   .mini[data-status="playing"] .lightning i,
-  .full[data-status="playing"] .lightning i {
+  .full[data-status="playing"] .lightning i,
+  .spin {
     animation: none;
   }
 

@@ -219,12 +219,54 @@ export const ACTION_RATE_LIMITS = {
     { requests: 15, windowMs: 60_000 },
     { requests: 150, windowMs: 86_400_000 },
   ],
+  // Tier "heavy" opt-in per chiavi designate (FREELLMAPI_HEAVY_KEY_HASHES): pensata
+  // per clienti agentici che fanno molte chiamate ravvicinate (ARTEX e simili).
+  // Il tier normale 'ai.reserve' 15/min è troppo stretto per decine di tool calls
+  // consecutive; qui alziamo di 4x al minuto e ~13x al giorno. Resta per IP
+  // (identity = IP del caller), così un IP terzo che riciclasse la chiave non
+  // sfrutta comunque l'intera quota giornaliera di un altro IP.
+  'ai.reserve.heavy': [
+    { requests: 60, windowMs: 60_000 },
+    { requests: 2000, windowMs: 86_400_000 },
+  ],
   'solco.support': [{ requests: 5, windowMs: 600_000 }],
   // Tetto app-wide sulle risposte del supporto: ognuna è una richiesta a Claude a pagamento.
   'solco.support.global': [{ requests: 300, windowMs: 86_400_000 }],
   'admin.assistant': [
     { requests: 20, windowMs: 60_000 },
     { requests: 100, windowMs: 3_600_000 },
+  ],
+  // Chat «DeepSeek» dell'admin e /deepseek del bot: ogni richiesta consuma quota dei provider IA.
+  'admin.deepseek': [
+    { requests: 10, windowMs: 60_000 },
+    { requests: 200, windowMs: 86_400_000 },
+  ],
+  // «Trova creator Instagram»: ogni ricerca usa hashtag (max 30 diversi ogni 7 giorni su Meta),
+  // fino a 30 Business Discovery e due chiamate AI.
+  // Chat dello Space statico su Hugging Face (chiave unica dell'owner): come la chat DeepSeek.
+  'space.chat': [
+    { requests: 10, windowMs: 60_000 },
+    { requests: 300, windowMs: 86_400_000 },
+  ],
+  // Cancello dello Space: scambio chiave → pass di sessione (per IP). Pochi bastano a una persona.
+  'space.gate': [
+    { requests: 5, windowMs: 60_000 },
+    { requests: 30, windowMs: 86_400_000 },
+  ],
+  // Chiavi o pass sbagliati sugli endpoint dello Space (per IP): oltre la soglia, 429.
+  'space.auth-fail': [
+    { requests: 10, windowMs: 600_000 },
+    { requests: 30, windowMs: 86_400_000 },
+  ],
+  'admin.instagram-finder': [
+    { requests: 4, windowMs: 60_000 },
+    { requests: 60, windowMs: 86_400_000 },
+  ],
+  // /artex da Telegram: colpisce il VPS dell'owner e consuma JWT ARTEX. Pochi/min bastano a una
+  // persona e tengono basso il carico sul VPS.
+  'admin.artex': [
+    { requests: 10, windowMs: 60_000 },
+    { requests: 200, windowMs: 86_400_000 },
   ],
   // La chat di Skynet (pannello admin e /skynet su Telegram, solo proprietario): ogni domanda
   // legge il database, Vercel e chiama un modello AI. Poche al minuto bastano a una persona.
@@ -638,9 +680,16 @@ const actionLabels: Record<RateLimitAction, string> = {
   'music.recommendations.ai.global': 'i consigli con l’AI di oggi',
   'ai.chat': 'le richieste all’assistente',
   'ai.reserve': 'le richieste alla riserva AI',
+  'ai.reserve.heavy': 'le richieste alla riserva AI (quota estesa)',
   'solco.support': 'le richieste al supporto',
   'solco.support.global': 'le richieste al supporto di oggi',
   'admin.assistant': 'le richieste all’assistente amministrativo',
+  'admin.deepseek': 'le richieste a DeepSeek',
+  'admin.instagram-finder': 'le ricerche di creator Instagram',
+  'admin.artex': 'le richieste ad ARTEX',
+  'space.chat': 'i messaggi alla chat dello Space',
+  'space.gate': 'gli accessi alla chat dello Space',
+  'space.auth-fail': 'i tentativi con una chiave sbagliata',
   'skynet.chat': 'le domande a Skynet',
   'product.check.start': 'i controlli prodotto',
   'product.check.link': 'le letture dei link',

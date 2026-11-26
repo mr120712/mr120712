@@ -668,11 +668,24 @@ const SKYNET_COMMAND = {
   description: '🛰️ Chiedi a Skynet: sicurezza del sito',
 } as const;
 
-/** Comandi mostrati agli owner (le chat in SKYNET_TELEGRAM_CHAT_IDS): i pubblici + /video e /skynet. */
+/** Comando owner-only: /deepseek, chat con DeepSeek sul server dell'owner. Stesso scope per-chat. */
+const DEEPSEEK_COMMAND = {
+  command: 'deepseek',
+  description: '🐋 Chatta con DeepSeek',
+} as const;
+
+/** Comandi mostrati agli owner (le chat in SKYNET_TELEGRAM_CHAT_IDS): i pubblici + /video, /skynet, /deepseek. */
+const INSTAGRAM_COMMAND = {
+  command: 'ig',
+  description: '📸 Trova creator Instagram',
+} as const;
+
 export const TELEGRAM_OWNER_COMMANDS = [
   ...TELEGRAM_BOT_COMMANDS,
   VIDEO_COMMAND,
   SKYNET_COMMAND,
+  DEEPSEEK_COMMAND,
+  INSTAGRAM_COMMAND,
 ] as const;
 
 /**

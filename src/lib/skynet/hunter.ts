@@ -130,7 +130,7 @@ function ipv6Groups(ip: string): number[] | null {
   return [...head.map(hex), ...new Array<number>(missing).fill(0), ...rest.map(hex), ...tail];
 }
 
-type Net = { v: 4 | 6; groups: number[]; prefix: number };
+export type Net = { v: 4 | 6; groups: number[]; prefix: number };
 
 /** Indirizzo o rete CIDR in gruppi da 16 bit (IPv4: 2 gruppi; IPv4 dentro IPv6 torna IPv4). */
 function parseNet(text: string): Net | null {
@@ -335,18 +335,43 @@ function tally(blocks: FirewallBlock[]): Tally {
  * Cosa fare in questo giro: chi rimandare alla verifica, chi ha attaccato durante la verifica (e
  * sale di livello), quali regole Skynet scadute togliere. Le regole manuali non si toccano mai.
  */
+/**
+ * Indirizzi fidati (SKYNET_TRUSTED_IPS, CSV di IP o reti CIDR): l'owner, per esempio. Skynet non li
+ * manda mai alla verifica e toglie le sue verifiche che li coprono. Le regole manuali restano.
+ */
+export function trustedNets(value: string | undefined): Net[] {
+  return (value ?? '')
+    .split(',')
+    .map((item) => parseNet(item))
+    .filter((net): net is Net => net !== null);
+}
+
+function overlaps(a: Net, b: Net): boolean {
+  return netContains(a, b) || netContains(b, a);
+}
+
 export function planHunt(
   blocks: FirewallBlock[],
   rules: IpRule[],
   now: Date,
   advancedOffenses: number = ADVANCED_OFFENSES,
+  trusted: Net[] = [],
 ): HuntPlan {
-  const offending = blocks.filter((block) => OFFENDER_RULES[block.ruleName] !== undefined);
-  const skynet = rules.flatMap((rule) => {
+  const isTrusted = (ip: string) => {
+    const net = parseNet(ip);
+    return net !== null && trusted.some((entry) => overlaps(entry, net));
+  };
+  const offending = blocks.filter(
+    (block) => OFFENDER_RULES[block.ruleName] !== undefined && !isTrusted(block.ip),
+  );
+  const all = rules.flatMap((rule) => {
     const note = skynetRuleInfo(rule);
     const net = note ? parseNet(rule.ip) : null;
     return note && net ? [{ rule, net, ...note }] : [];
   });
+  // Verifiche Skynet su indirizzi fidati: si tolgono subito, mai prolungate.
+  const trustedRelease = all.filter((entry) => trusted.some((t) => overlaps(t, entry.net)));
+  const skynet = all.filter((entry) => !trustedRelease.includes(entry));
 
   // 1. Chi ha attaccato di nuovo dopo l'inizio della sua verifica sale di livello (al massimo si
   //    rinnova l'ultimo): vale anche per le regole appena scadute.
@@ -374,9 +399,14 @@ export function planHunt(
   const escalated = new Map(escalate.map((step) => [step.rule.id, step.level]));
 
   // 2. Le regole Skynet scadute senza nuovi attacchi si tolgono.
-  const release = skynet
-    .filter((entry) => entry.expiresAt.getTime() <= now.getTime() && !escalated.has(entry.rule.id))
-    .map((entry) => entry.rule);
+  const release = [
+    ...trustedRelease.map((entry) => entry.rule),
+    ...skynet
+      .filter(
+        (entry) => entry.expiresAt.getTime() <= now.getTime() && !escalated.has(entry.rule.id),
+      )
+      .map((entry) => entry.rule),
+  ];
   const released = new Set(release.map((rule) => rule.id));
 
   // 3. Nuovi hacker: per indirizzo IPv4 o rete IPv6 /64, se non già coperti da una regola in vigore

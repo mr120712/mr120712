@@ -13,7 +13,7 @@ function scripts() {
 
 async function freshLoader() {
   vi.resetModules();
-  return import('@/components/custom/music/youtube-queue-player');
+  return import('@/lib/music/youtube-iframe-api');
 }
 
 beforeEach(() => {
