@@ -6,3 +6,5 @@ artex-src/
 data/
 keys/
 pgdata/
+claude-bridge-data/
+claude-bridge-auth/

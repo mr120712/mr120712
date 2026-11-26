@@ -54,12 +54,20 @@ services:
       ARTEX_PG_PASSWORD: ${POSTGRES_PASSWORD}
       ARTEX_PG_DBNAME: ${POSTGRES_DB:-artex}
       ARTEX_PG_SSLMODE: disable
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # When ARTEX_USE_CLAUDE_BRIDGE=1 we route the planner through the local
+      # subscription-backed bridge sibling (see the `claude-bridge` service
+      # below) instead of pay-per-token Anthropic/OpenAI. The bridge speaks
+      # Anthropic's /v1/messages shape with x-api-key auth; ARTEX treats this
+      # exactly like the real API. Set ARTEX_USE_CLAUDE_BRIDGE=0 (or unset) to
+      # go back to a direct Anthropic/OpenAI call.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-dummy-bridge-key}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      ARTEX_LLM_PROVIDER: ${ARTEX_LLM_PROVIDER:-}
-      ARTEX_LLM_MODEL: ${ARTEX_LLM_MODEL:-}
-      ARTEX_LLM_BASE_URL: ${ARTEX_LLM_BASE_URL:-}
+      ARTEX_LLM_PROVIDER: ${ARTEX_LLM_PROVIDER:-anthropic}
+      ARTEX_LLM_MODEL: ${ARTEX_LLM_MODEL:-claude-opus-4-7}
+      ARTEX_LLM_BASE_URL: ${ARTEX_LLM_BASE_URL:-http://claude-bridge:5000}
       ARTEX_LLM_PROXY: ${ARTEX_LLM_PROXY:-}
+      # Bridge is non-streaming for now; tell ARTEX to use its Complete() path.
+      ARTEX_LLM_STREAM: ${ARTEX_LLM_STREAM:-false}
       ARTEX_JWT_KEY_DIR: /app/keys
       ARTEX_SECRET_KEY: ${ARTEX_SECRET_KEY:-}
       ARTEX_TRUSTED_PROXIES: ${ARTEX_TRUSTED_PROXIES:-}
@@ -85,6 +93,39 @@ services:
       # config.json carries the DB section; bootstrap.sh writes it from .env.
       # Read-only inside the container so ARTEX can't rewrite it.
       - ./config.json:/app/config.json:ro
+    restart: unless-stopped
+
+  claude-bridge:
+    # ARTEX ↔ Claude Agent SDK bridge. Speaks Anthropic's /v1/messages shape;
+    # backend is the Claude Code CLI driven by the user's subscription (not a
+    # pay-per-token API key). Localhost only — never exposed on the public
+    # interface. See ./claude-bridge/README.md for first-boot `claude login`
+    # steps and the rate-limit knobs.
+    build:
+      context: ./claude-bridge
+    image: artex-claude-bridge:solco-staging
+    security_opt:
+      - "no-new-privileges:true"
+    environment:
+      BRIDGE_PORT: "5000"
+      BRIDGE_HOST: "0.0.0.0"
+      BRIDGE_MAX_RPS: ${BRIDGE_MAX_RPS:-1.0}
+      BRIDGE_MAX_CONCURRENCY: ${BRIDGE_MAX_CONCURRENCY:-2}
+      BRIDGE_CACHE_TTL_SECONDS: ${BRIDGE_CACHE_TTL_SECONDS:-3600}
+      BRIDGE_CACHE_PATH: /data/cache.sqlite
+      BRIDGE_LOG_LEVEL: ${BRIDGE_LOG_LEVEL:-INFO}
+    ports:
+      # Localhost only so you can probe /health from the host but nothing on
+      # the public network can hit it.
+      - "127.0.0.1:5057:5000"
+    volumes:
+      # Persistent cache + logs.
+      - ./claude-bridge-data:/data
+      # Claude Code auth. Run `claude login` INSIDE the container once:
+      #   docker compose exec claude-bridge claude login
+      # The credentials land under /root/.claude and survive restarts via
+      # this bind mount.
+      - ./claude-bridge-auth:/root/.claude
     restart: unless-stopped
 
   caddy:
