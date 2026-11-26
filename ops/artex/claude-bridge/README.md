@@ -59,10 +59,29 @@ default we ship is `false` because it's a smaller surface for first debug.
 
 ## Setup
 
-Already wired by `../docker-compose.yml`. On a fresh VPS:
+### One-shot bootstrap (recommended)
+
+On a fresh Ubuntu VPS:
 
 ```bash
-# 1. Bring everything up. The bridge image builds Python + Node + the claude CLI.
+curl -fsSL https://raw.githubusercontent.com/mr120712/mr120712/claude/huggingface-deepseek-space-demo-3r1sz8/ops/artex/claude-bridge/vps-bootstrap.sh -o bridge-bootstrap.sh
+less bridge-bootstrap.sh       # always read before piping to bash
+bash bridge-bootstrap.sh
+```
+
+The script is idempotent and does: install docker (with your confirmation if
+missing) → clone/update the repo → prompt you for the three `.env` values that
+matter → build the bridge image → start just the `claude-bridge` service →
+wait for /health → print the single next command (`claude login`).
+
+Env overrides: `REPO_DIR=/opt/artex`, `BRANCH=...`, `SKIP_DOCKER_INSTALL=1`.
+
+### Manual
+
+Already wired by `../docker-compose.yml`:
+
+```bash
+# 1. Bring up just the bridge. The image builds Python + Node + the claude CLI.
 cd ops/artex
 docker compose up -d claude-bridge
 
@@ -78,7 +97,7 @@ curl -s http://127.0.0.1:5057/v1/messages \
   -H 'anthropic-version: 2023-06-01' \
   -H 'content-type: application/json' \
   -d '{
-    "model": "claude-opus-4-7",
+    "model": "claude-haiku-4-5",
     "max_tokens": 128,
     "messages": [{"role": "user", "content": "Say ok"}]
   }' | jq
@@ -149,6 +168,11 @@ Coverage:
   real SDK for text
 - `test_live_http_bridge_stream_roundtrip` — full SSE path with the
   real SDK (reads message_start, content_block_delta frames, message_stop)
+- `test_subprocess_health_and_tool_use_roundtrip` — spawns the actual
+  production entry point (`python -m bridge.main` → uvicorn on a socket),
+  hits it with httpx over TCP, verifies /health and a tool_use request.
+  This layer is between TestClient (in-process ASGI) and a full Docker
+  compose run on a VPS; if this passes, the containerized path works.
 
 Override the model via `ARTEX_BRIDGE_LIVE_MODEL=claude-sonnet-...` when
 you want to test against a different account tier.
