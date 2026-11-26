@@ -1,19 +1,22 @@
 #!/bin/sh
 # Entrypoint for the ARTEX gateway container.
 #
-# Applies the Prisma schema against the SQLite file before Next.js starts. The
-# file lives on a bind-mount (/data) so it survives container rebuilds; this
-# is idempotent — a no-op if the schema is already up to date.
+# Runs as root on entry so it can take ownership of the bind-mounted /data
+# dir (SQLite file lives there; host-side ownership is unpredictable), then
+# drops to the gateway user (uid 10002) before applying the Prisma schema
+# and starting Next.js. The server never runs as root.
 
 set -eu
 
 : "${DATABASE_URL:?DATABASE_URL must be set (e.g. file:/data/gateway.db)}"
 
-echo "[gateway] applying prisma schema to $DATABASE_URL"
-# The runner image carries node_modules/prisma but not npm — Next.js's
-# standalone output is deliberately npm-free. Call the prisma CLI entry
-# point via node directly; the hashbang on node_modules/prisma/build/index.js
-# is "#!/usr/bin/env node" but the file is executed as a module here.
-node /app/node_modules/prisma/build/index.js db push --skip-generate --accept-data-loss=false
+# Idempotent chown; no-op if already correct.
+chown -R gateway:gateway /data
 
-exec "$@"
+echo "[gateway] applying prisma schema to $DATABASE_URL"
+# Standalone Next.js runner is npm-free, so call the prisma CLI entry point
+# via node directly.
+su-exec gateway:gateway node /app/node_modules/prisma/build/index.js \
+    db push --skip-generate --accept-data-loss=false
+
+exec su-exec gateway:gateway "$@"

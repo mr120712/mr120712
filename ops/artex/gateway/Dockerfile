@@ -36,7 +36,10 @@ RUN npm run build
 # ---------- runner ----------
 FROM node:20-alpine AS runner
 WORKDIR /app
-RUN apk add --no-cache openssl libc6-compat tini \
+# su-exec lets the root-privileged entrypoint drop to the gateway user AFTER
+# fixing ownership on the bind-mounted /data (whose host-side perms we can't
+# control from inside the image).
+RUN apk add --no-cache openssl libc6-compat tini su-exec \
     && addgroup -S gateway -g 10002 \
     && adduser  -S gateway -G gateway -u 10002
 
@@ -62,10 +65,12 @@ COPY --from=builder --chown=gateway:gateway /app/node_modules ./node_modules
 RUN mkdir -p /data && chown -R gateway:gateway /data
 VOLUME /data
 
-COPY --chown=gateway:gateway docker-entrypoint.sh /app/docker-entrypoint.sh
+COPY --chown=root:root docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN chmod +x /app/docker-entrypoint.sh
 
-USER gateway
+# Entrypoint starts as root so it can chown /data (bind mount from the host,
+# whose uid/gid we can't predict). The entrypoint drops to the gateway user
+# via su-exec before running node, so the Next.js server never runs as root.
 EXPOSE 3000
 
 ENTRYPOINT ["/sbin/tini", "--", "/app/docker-entrypoint.sh"]
