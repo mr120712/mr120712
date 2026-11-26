@@ -18,18 +18,36 @@ burning pay-per-token Anthropic/OpenAI credits.
   `system` as either a string or a `[{type:text,text}]` array,
   message `content` as either a string or a block array, and the non-standard
   `thinking` / `output_config` extensions.
-- Caches identical prompts in SQLite so a retry is free.
+- **Tool use passthrough.** When ARTEX sends `tools: [...]`, the bridge
+  registers each one as an in-process Claude SDK MCP tool, captures the
+  model's `tool_use` decision from the agent stream (before the SDK can
+  "execute" the no-op handler), strips the `mcp__artex__` prefix, and returns
+  a canonical Anthropic `tool_use` content block with `stop_reason: tool_use`.
+  ARTEX executes the tool on its side exactly as with the real API, then
+  sends the next turn's conversation (including the prior `tool_use` and
+  its `tool_result`) back here — the bridge flattens the loop into a text
+  prompt the model can continue from.
+- Caches identical prompts (including the tools catalog) in SQLite so a
+  retry is free.
 - Rate-limits locally (RPS + in-flight) to protect the subscription window.
 - Surfaces subscription rate-limit rejections as HTTP 429 `rate_limit_error`,
   which ARTEX treats as a transient fault.
 
 ## What it does NOT do (yet)
 
-- **No tool_use passthrough.** If ARTEX sends a `tools` array, the bridge
-  returns `501 not_implemented` with a clear message. The planner needs
-  tool_use for any non-trivial task; this is the next milestone.
 - **No SSE streaming.** The bridge is non-streaming only. Set
   `ARTEX_LLM_STREAM=false` in `.env` (the compose default does this).
+- **No parallel tool_use in a single turn.** The SDK's stream is read
+  sequentially; if the model emits multiple `tool_use` blocks in one
+  `AssistantMessage`, all are preserved, but we do not serialize/wait on
+  multiple MCP handler invocations because we break out of the stream on
+  the first turn.
+- **Lossy agent-loop replay.** When ARTEX sends the Nth follow-up, the bridge
+  flattens the whole prior conversation (including tool_use/tool_result
+  blocks) into a readable text prompt. The model sees this as context and
+  decides the next step; it is not bit-identical to a native Anthropic API
+  multi-turn session. For long loops you may see planner drift. Mitigation:
+  keep `ARTEX_TASK_BUDGET_TURNS` moderate.
 
 ## Setup
 
@@ -85,9 +103,37 @@ pip install -e '.[dev]'
 pytest
 ```
 
-30 tests covering wire shape, cache, rate limit, wiring, and the SDK adapter
-(with the SDK mocked). The SDK is not exercised end-to-end here because that
-requires a logged-in `claude` CLI; the `curl` smoke test above fills that gap.
+45 tests covering wire shape, tool_use passthrough, cache, rate limit, wiring,
+schema normalizers (including the tool_use + tool_result flattening), and
+the SDK adapter (with the SDK mocked). The SDK is not exercised end-to-end
+here because that requires a logged-in `claude` CLI; the `curl` smoke test
+above fills that gap.
+
+To drill the tool_use path end-to-end, a representative POST looks like:
+
+```bash
+curl -s http://127.0.0.1:5057/v1/messages \
+  -H 'x-api-key: dummy' \
+  -H 'content-type: application/json' \
+  -d '{
+    "model": "claude-opus-4-7",
+    "max_tokens": 1024,
+    "system": "You are a pentesting planner. Call http_get to probe.",
+    "messages": [{"role":"user","content":"Probe example.test/health"}],
+    "tools": [{
+      "name": "http_get",
+      "description": "Fetch a URL and return headers + body",
+      "input_schema": {
+        "type":"object",
+        "properties": {"url":{"type":"string"}},
+        "required": ["url"]
+      }
+    }]
+  }' | jq
+```
+
+Expected: `stop_reason: "tool_use"`, `content` including
+`{"type":"tool_use","id":"...","name":"http_get","input":{"url":"..."}}`.
 
 ## Known subscription-limit behaviour
 

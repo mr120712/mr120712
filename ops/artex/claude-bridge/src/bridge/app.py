@@ -63,23 +63,23 @@ def build_app(
                 "streaming (SSE) is not yet supported by this bridge; set ARTEX_LLM_STREAM=false",
                 501,
             )
-        if req.tools:
-            return _anthropic_error(
-                "not_implemented",
-                "tool_use passthrough is not yet supported by this bridge; this is a known v1 limitation",
-                501,
-            )
 
         system_str = normalize_system(req.system)
         msgs = normalize_messages(req.messages)
+        tools = [t.model_dump() for t in req.tools] if req.tools else None
 
+        # Cache includes tools so a request with the same prompt but different
+        # tool set is treated as a different call.
+        cache_messages = msgs + ([{"role": "__tools__", "content": repr(tools)}] if tools else [])
         if cache is not None:
             cached = await cache.get(
-                system=system_str, messages=msgs, model=req.model, max_tokens=req.max_tokens
+                system=system_str,
+                messages=cache_messages,
+                model=req.model,
+                max_tokens=req.max_tokens,
             )
             if cached is not None:
-                result = cached
-                return _success_response(result)
+                return _success_response(cached)
 
         async def _invoke_adapter() -> dict[str, Any]:
             return await adapter.complete(
@@ -87,6 +87,7 @@ def build_app(
                 messages=msgs,
                 model=req.model,
                 max_tokens=req.max_tokens,
+                tools=tools,
             )
 
         try:
@@ -103,7 +104,7 @@ def build_app(
         if cache is not None:
             await cache.set(
                 system=system_str,
-                messages=msgs,
+                messages=cache_messages,
                 model=req.model,
                 max_tokens=req.max_tokens,
                 value=result,
@@ -121,8 +122,8 @@ def _success_response(result: dict[str, Any]) -> JSONResponse:
             "type": "message",
             "role": "assistant",
             "model": result["model"],
-            "content": [{"type": "text", "text": result["text"]}],
-            "stop_reason": "end_turn",
+            "content": result["content"],
+            "stop_reason": result.get("stop_reason", "end_turn"),
             "stop_sequence": None,
             "usage": {
                 "input_tokens": result["input_tokens"],

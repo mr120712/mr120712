@@ -18,6 +18,13 @@ class _Text:
 
 
 @dataclass
+class _ToolUse:
+    id: str
+    name: str
+    input: dict
+
+
+@dataclass
 class _Assistant:
     content: list[Any]
     model: str = "claude-opus-4-7"
@@ -105,7 +112,8 @@ async def test_collects_assistant_text_and_usage(monkeypatch) -> None:
         max_tokens=512,
     )
     assert out == {
-        "text": "Hello world",
+        "content": [{"type": "text", "text": "Hello world"}],
+        "stop_reason": "end_turn",
         "input_tokens": 20,
         "output_tokens": 5,
         "model": "claude-opus-4-7",
@@ -113,6 +121,82 @@ async def test_collects_assistant_text_and_usage(monkeypatch) -> None:
     assert fake.last_options is not None
     assert fake.last_options.system_prompt == "sys"
     assert fake.last_options.model == "claude-opus-4-7"
+
+
+async def test_captures_tool_use_block_from_assistant_message(monkeypatch) -> None:
+    # The SDK stream emits an AssistantMessage that includes a ToolUseBlock
+    # (model decided to call one of the ARTEX-declared tools). The adapter
+    # must surface it as an Anthropic tool_use content block, stop_reason
+    # must become 'tool_use', and iteration must stop.
+    fake = _fake_query_factory(
+        [
+            _Assistant(
+                content=[
+                    _Text(text="Checking it."),
+                    _ToolUse(
+                        id="toolu_captured",
+                        name="mcp__artex__http_get",
+                        input={"url": "https://example.test"},
+                    ),
+                ]
+            ),
+            _Result(usage={"input_tokens": 12, "output_tokens": 3}),
+        ]
+    )
+    monkeypatch.setattr("bridge.sdk_adapter_impl.query", fake)
+
+    a = ClaudeSdkAdapter()
+    out = await a.complete(
+        system="sys",
+        messages=[{"role": "user", "content": "check it"}],
+        model="claude-opus-4-7",
+        max_tokens=512,
+        tools=[
+            {
+                "name": "http_get",
+                "description": "GET a URL",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"url": {"type": "string"}},
+                    "required": ["url"],
+                },
+            }
+        ],
+    )
+
+    assert out["stop_reason"] == "tool_use"
+    # The MCP prefix is stripped so ARTEX sees its own tool name back.
+    assert out["content"] == [
+        {"type": "text", "text": "Checking it."},
+        {
+            "type": "tool_use",
+            "id": "toolu_captured",
+            "name": "http_get",
+            "input": {"url": "https://example.test"},
+        },
+    ]
+    # Tools were registered on the options.
+    assert fake.last_options.mcp_servers is not None
+    assert "artex" in fake.last_options.mcp_servers
+    assert fake.last_options.allowed_tools == ["mcp__artex__http_get"]
+
+
+async def test_no_tools_means_no_mcp_server_registered(monkeypatch) -> None:
+    fake = _fake_query_factory(
+        [
+            _Assistant(content=[_Text(text="ok")]),
+            _Result(usage={"input_tokens": 1, "output_tokens": 1}),
+        ]
+    )
+    monkeypatch.setattr("bridge.sdk_adapter_impl.query", fake)
+    a = ClaudeSdkAdapter()
+    await a.complete(
+        system="",
+        messages=[{"role": "user", "content": "hi"}],
+        model="m",
+        max_tokens=10,
+    )
+    assert not fake.last_options.mcp_servers
 
 
 async def test_fallbacks_token_estimate_when_sdk_returns_no_usage(monkeypatch) -> None:
@@ -133,6 +217,7 @@ async def test_fallbacks_token_estimate_when_sdk_returns_no_usage(monkeypatch) -
     )
     assert out["input_tokens"] > 0  # estimated
     assert out["output_tokens"] > 0
+    assert out["content"] == [{"type": "text", "text": "short"}]
 
 
 async def test_raises_on_rate_limit_event(monkeypatch) -> None:

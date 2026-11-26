@@ -73,10 +73,27 @@ def normalize_system(system: str | list[dict[str, Any]] | None) -> str:
     return "\n\n".join(parts)
 
 
+def _stringify_tool_result_content(content: Any) -> str:
+    """ARTEX's tool_result content can be a string or an array of content blocks
+    (Anthropic spec). Flatten both shapes to a single string for the model."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                parts.append(str(item.get("text", "")))
+            else:
+                parts.append(repr(item))
+        return "\n".join(parts)
+    return repr(content)
+
+
 def normalize_messages(messages: list[Message]) -> list[dict[str, Any]]:
     """Flatten per-message content blocks into a single text string per message.
-    Accepts a string, a list of text blocks, or a list of mixed blocks.
-    tool_result and tool_use blocks are stringified for the text-only v1."""
+    Accepts a string, a list of text blocks, or a list of mixed blocks. tool_use
+    and tool_result blocks are preserved as readable markers so the model can
+    continue a multi-turn tool conversation after an ARTEX round-trip."""
     out: list[dict[str, Any]] = []
     for m in messages:
         if isinstance(m.content, str):
@@ -88,8 +105,15 @@ def normalize_messages(messages: list[Message]) -> list[dict[str, Any]]:
             if t == "text":
                 parts.append(block.get("text", ""))
             elif t == "tool_use":
-                parts.append(f"[tool_use name={block.get('name')} input={block.get('input')}]")
+                import json as _json
+
+                inp = _json.dumps(block.get("input", {}), ensure_ascii=False, sort_keys=True)
+                parts.append(
+                    f"[tool_use id={block.get('id')} name={block.get('name')} input={inp}]"
+                )
             elif t == "tool_result":
-                parts.append(f"[tool_result id={block.get('tool_use_id')} content={block.get('content')}]")
+                body = _stringify_tool_result_content(block.get("content"))
+                err = " (error)" if block.get("is_error") else ""
+                parts.append(f"[tool_result id={block.get('tool_use_id')}{err}]\n{body}")
         out.append({"role": m.role, "content": "\n".join(parts)})
     return out

@@ -16,9 +16,15 @@ class CountingAdapter(SdkAdapter):
     def __init__(self) -> None:
         self.calls = 0
 
-    async def complete(self, *, system, messages, model, max_tokens):
+    async def complete(self, *, system, messages, model, max_tokens, tools=None):
         self.calls += 1
-        return {"text": f"reply-{self.calls}", "input_tokens": 1, "output_tokens": 1, "model": model}
+        return {
+            "content": [{"type": "text", "text": f"reply-{self.calls}"}],
+            "stop_reason": "end_turn",
+            "input_tokens": 1,
+            "output_tokens": 1,
+            "model": model,
+        }
 
 
 @pytest.fixture
