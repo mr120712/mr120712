@@ -7,6 +7,7 @@
 import { Globe } from 'lucide-react';
 import Link from 'next/link';
 import { type ChangeEvent, useEffect, useState } from 'react';
+import { VectorTunnel } from '@/components/custom/vector-tunnel';
 import { apiFetch } from '@/lib/api-client';
 import { getSolcoProPricing } from '@/lib/business/solco-pro-pricing';
 import { PUBLIC_SIGNUPS_PATH, PublicSignupsSchema } from '@/lib/contracts/public-signups';
@@ -228,6 +229,7 @@ export function LandingPage() {
   return (
     <main className={styles.page}>
       <section className={styles.hero}>
+        <VectorTunnel className={styles.tunnel} />
         <div className={styles.heroContent}>
           <header className={styles.topbar}>
             <span className={styles.brand}>Solco</span>
