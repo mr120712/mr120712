@@ -1,18 +1,19 @@
-# ops/artex/Caddyfile — public TLS + reverse proxy for ARTEX on the Hetzner VPS.
+# ops/artex/Caddyfile — public TLS + reverse proxy for the ARTEX gateway.
 #
 # What this does:
-#   • Terminates TLS on :443 with a free Let's Encrypt cert for the sslip.io
-#     hostname (5-222-15-32.sslip.io → 5.222.15.32). sslip.io is a public
-#     wildcard-DNS service; it returns the IP that the hostname encodes.
-#   • Reverse-proxies to the ARTEX container on its loopback port.
-#   • Does NOT add its own auth. ARTEX enforces JWT Bearer auth on every
-#     /api/* route; Caddy would only add a second gate whose secret would
-#     have to be shared and rotated anyway. Keep it simple.
-#   • Strips the Server header so scanners can't trivially see Caddy's
-#     version.
+#   • Terminates TLS on :443 with a free Let's Encrypt cert for ARTEX_PUBLIC_HOST
+#     (e.g. artex.solcomusic.online).
+#   • Reverse-proxies to the Better Auth gateway (ops/artex/gateway/) on port
+#     3000 of the compose network. The gateway, in turn, enforces Better Auth
+#     magic-link before rewriting authenticated traffic to ARTEX at
+#     artex:8787.
+#   • Does NOT add its own basic-auth. The gateway is the single source of
+#     authentication: having two prompts (Caddy basic-auth + Better Auth)
+#     weakens the model by giving operators a reason to share credentials.
+#   • Strips the Server header so scanners can't trivially see Caddy's version.
 #
-# To change the hostname (e.g. move to a real domain), edit the one site
-# block below and `docker compose restart caddy`.
+# To change the public hostname, edit .env (ARTEX_PUBLIC_HOST=...) and
+# `docker compose up -d --force-recreate caddy`.
 
 {
 	# Dial out for Let's Encrypt from the container; no admin API exposed.
@@ -26,17 +27,19 @@
 	encode gzip
 	header -Server
 
-	# Health probe accessible without auth (ARTEX has /api/health open).
-	# Everything else goes through ARTEX's own auth.
-	reverse_proxy http://artex:8787 {
-		# Short upstream timeouts — ARTEX is on the same docker network.
+	reverse_proxy http://gateway:3000 {
 		transport http {
 			dial_timeout 5s
-			response_header_timeout 60s
+			# Long response timeout covers SSE streams the gateway forwards
+			# from ARTEX (live task updates). ARTEX itself streams, so
+			# buffering here would stall the UI.
+			response_header_timeout 120s
 		}
-		# Pass through the real client IP (ARTEX's rate limiter keys on it).
 		header_up X-Real-IP {remote_host}
 		header_up X-Forwarded-For {remote_host}
 		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {host}
+		# Flush straight through so SSE doesn't buffer upstream of the client.
+		flush_interval -1
 	}
 }

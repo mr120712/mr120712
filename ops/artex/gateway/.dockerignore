@@ -1,0 +1,20 @@
+node_modules
+.next
+out
+build
+dist
+*.tsbuildinfo
+next-env.d.ts
+
+# Never bake SQLite data into the image — it's a bind-mount at runtime.
+data
+
+# Local env files must come from the compose env_file, not a copy.
+.env
+.env.local
+.env.*.local
+
+# Developer-only.
+.git
+.gitignore
+README.md

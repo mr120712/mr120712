@@ -1,0 +1,20 @@
+node_modules/
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+
+# SQLite runtime data — never commit the auth DB.
+data/*
+!data/.gitkeep
+
+# Env — the gateway's .env lives alongside ARTEX's; template via .env.example at repo root.
+.env
+.env.local
+.env.*.local
+
+# Prisma migration lock is kept; the SQLite dev DB is not.
+prisma/*.db
+prisma/*.db-journal

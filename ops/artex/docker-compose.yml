@@ -129,15 +129,46 @@ services:
       - ./claude-bridge-auth:/root/.claude
     restart: unless-stopped
 
+  gateway:
+    # Better Auth magic-link gateway in front of ARTEX. Caddy terminates TLS and
+    # forwards every request here; we authenticate it (one-email allowlist, no
+    # sign-up) and only then rewrite to the ARTEX container. See
+    # ./gateway/README.md for setup and the env vars below.
+    build:
+      context: ./gateway
+    image: artex-gateway:solco-staging
+    security_opt:
+      - "no-new-privileges:true"
+    depends_on:
+      - artex
+    environment:
+      DATABASE_URL: file:/data/gateway.db
+      GATEWAY_URL: https://${ARTEX_PUBLIC_HOST:?set ARTEX_PUBLIC_HOST in .env}
+      BETTER_AUTH_SECRET: ${GATEWAY_BETTER_AUTH_SECRET:?set GATEWAY_BETTER_AUTH_SECRET in .env (openssl rand -hex 32)}
+      GATEWAY_ADMIN_EMAIL: ${GATEWAY_ADMIN_EMAIL:?set GATEWAY_ADMIN_EMAIL in .env}
+      ARTEX_UPSTREAM_URL: http://artex:8787
+      POLSIA_EMAIL_PROXY_URL: ${POLSIA_EMAIL_PROXY_URL:?set POLSIA_EMAIL_PROXY_URL in .env (Solco relay)}
+      POLSIA_EMAIL_API_KEY: ${POLSIA_EMAIL_API_KEY:-}
+      GATEWAY_EMAIL_FROM: ${GATEWAY_EMAIL_FROM:-artex-gateway@solcomusic.online}
+      GATEWAY_EMAIL_FROM_NAME: ${GATEWAY_EMAIL_FROM_NAME:-ARTEX Gateway}
+    ports:
+      # Localhost only — the gateway is not public; Caddy fronts it.
+      - "127.0.0.1:3030:3000"
+    volumes:
+      # SQLite auth DB — survives container rebuilds. Not committed to the
+      # repo (ops/artex/gateway/data/ is gitignored except for .gitkeep).
+      - ./gateway/data:/data
+    restart: unless-stopped
+
   caddy:
     # Public-facing TLS reverse proxy. Fetches a free Let's Encrypt cert for
     # the ARTEX_PUBLIC_HOST (A record on Vercel DNS → this VPS) and reverse
-    # proxies to ARTEX's loopback port. ARTEX's own JWT auth gates every API
-    # call; Caddy adds only TLS and reachability.
+    # proxies to the gateway. The gateway enforces Better Auth magic-link
+    # before forwarding to ARTEX; Caddy adds only TLS and reachability.
     image: caddy:2-alpine
     container_name: artex-caddy
     depends_on:
-      - artex
+      - gateway
     environment:
       ARTEX_PUBLIC_HOST: ${ARTEX_PUBLIC_HOST:?set ARTEX_PUBLIC_HOST in .env}
     ports:
