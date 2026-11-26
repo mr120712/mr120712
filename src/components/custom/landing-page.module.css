@@ -289,9 +289,9 @@
     0 0 48px rgba(255, 46, 136, 0.28);
 }
 
-/* Parola in evidenza: riempita col gradiente brand. */
+/* Parola in evidenza: riempita col gradiente Vector Arcade (cyan → violetto → magenta). */
 .titleAccent {
-  background: linear-gradient(100deg, #a78bfa 0%, #f472b6 48%, #fbbf24 100%);
+  background: linear-gradient(100deg, #00f0ff 0%, #a855f7 48%, #ff2d9f 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -383,15 +383,15 @@
     opacity 0.22s ease;
 }
 
-/* CTA primaria: gradiente brand con bagliore magenta. */
+/* CTA primaria: gradiente Vector Arcade (cyan → violetto → magenta) con alone cyan. */
 .primary {
-  background: linear-gradient(100deg, #8b5cf6 0%, #ec4899 48%, #f59e0b 100%);
+  background: linear-gradient(100deg, #00f0ff 0%, #a855f7 48%, #ff2d9f 100%);
   background-size: 150% 150%;
   background-position: 50% 50%;
-  /* Testo scuro: leggibile su tutto il gradiente (violetto, magenta e ambra). */
-  color: #190314;
+  /* Testo scuro: leggibile su tutto il gradiente (cyan, violetto, magenta). */
+  color: #03070d;
   box-shadow:
-    0 14px 40px -12px rgba(255, 46, 136, 0.6),
+    0 14px 40px -12px rgba(0, 240, 255, 0.55),
     inset 0 0 0 1px rgba(255, 255, 255, 0.2);
   animation: ctaShift 6s ease infinite;
 }
@@ -481,7 +481,7 @@
 }
 
 .signupsNumberValue {
-  background: linear-gradient(100deg, #a78bfa 0%, #f472b6 48%, #fbbf24 100%);
+  background: linear-gradient(100deg, #00f0ff 0%, #a855f7 48%, #ff2d9f 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -669,8 +669,8 @@
   left: 20px;
   padding: 3px 11px;
   border-radius: 999px;
-  background: linear-gradient(100deg, #8b5cf6, #ec4899, #f59e0b);
-  color: #190314;
+  background: linear-gradient(100deg, #00f0ff, #a855f7, #ff2d9f);
+  color: #03070d;
   font-size: 0.72rem;
   font-weight: 800;
   letter-spacing: 0.02em;
@@ -760,9 +760,9 @@
 }
 
 .planCtaPrimary {
-  background: linear-gradient(100deg, #8b5cf6, #ec4899, #f59e0b);
-  color: #190314;
-  box-shadow: 0 10px 30px -12px rgba(255, 46, 136, 0.6);
+  background: linear-gradient(100deg, #00f0ff, #a855f7, #ff2d9f);
+  color: #03070d;
+  box-shadow: 0 10px 30px -12px rgba(0, 240, 255, 0.55);
 }
 
 .planCtaPrimary:hover {

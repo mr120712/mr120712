@@ -1,6 +1,10 @@
-/* @polsia:user-owned — identità visiva Solco: look AGGRESSIVO/VIRALE — nero profondo con accento
- * MAGENTA elettrico e un gradiente brand (violetto → magenta → ambra). Per cambiare accento,
- * sostituisci #ff2e88 (dark) e aggiorna --grad-brand. */
+/* @polsia:user-owned — identità visiva Solco: VECTOR ARCADE (Tron/Rez/Tempest).
+ * Nero profondo + CYAN elettrico primario, MAGENTA vettoriale come accento, gradiente
+ * cyan→viola→magenta. Radius ridotto (2px) per sagoma vettoriale netta. Font Orbitron
+ * (self-hosted via custom-style.css) su fallback Space Grotesk. L'aspetto "4D" è dato
+ * da griglia-pavimento prospettica + glow + tilt 3D definiti in custom-style.css.
+ *
+ * Per riportare il look magenta-only, sostituisci --primary nel .dark con #ff2e88. */
 
 @theme inline {
   /* Text on bg-destructive (destructive Button/Badge): the framework fallback has no such role. */
@@ -12,73 +16,87 @@
 
 :root {
   color-scheme: light;
-  --background: #f5f5f5;
-  --foreground: #0a0a0a;
+  --background: #eef3f8;
+  --foreground: #06111c;
   --card: #ffffff;
-  --card-foreground: #0a0a0a;
+  --card-foreground: #06111c;
   --popover: #ffffff;
-  --popover-foreground: #0a0a0a;
-  --primary: #cc1f66;
+  --popover-foreground: #06111c;
+  --primary: #006e8a; /* cyan scuro per contrasto AA */
   --primary-foreground: #ffffff;
-  --secondary: #f0e9f3;
-  --secondary-foreground: #1b1022;
-  --muted: #efe8f2;
-  --muted-foreground: #5a4f66;
-  --accent: #f7d9ea;
-  --accent-foreground: #3a0f29;
+  --secondary: #e0ebf3;
+  --secondary-foreground: #0d1c2b;
+  --muted: #e6eef5;
+  --muted-foreground: #4a5968;
+  --accent: #c32483; /* magenta vettoriale per accento */
+  --accent-foreground: #ffffff;
   --destructive: #c81e32;
   --destructive-foreground: #ffffff;
-  --border: #e0d5e6;
-  --input: #cdbdd6;
-  --ring: #cc1f66;
+  --border: #c8d6e2;
+  --input: #a9bccf;
+  --ring: #006e8a;
   --status-positive: #15803d;
   --status-warning: #b45309;
-  --rating: #cc1f66;
-  --rating-fill: #cc1f66;
-  --ambient-line: #b79ec9;
-  --font-display: "Space Grotesk", "Space Grotesk Fallback", Arial, sans-serif;
+  --rating: #c32483;
+  --rating-fill: #c32483;
+  --ambient-line: #7fb2c7;
+  --font-display: "Orbitron", "Space Grotesk", "Space Grotesk Fallback", Arial, sans-serif;
   --font-body: "Space Grotesk", "Space Grotesk Fallback", Arial, sans-serif;
-  --radius: 0.5rem;
-  --grad-brand: linear-gradient(100deg, #7c3aed 0%, #db2777 50%, #ea580c 100%);
-  --elevation-1: rgb(40 10 30 / 8%);
-  --elevation-2: rgb(40 10 30 / 12%);
-  --elevation-3: rgb(40 10 30 / 17%);
-  --shadow-brand-color: rgb(204 31 102 / 16%);
+  --radius: 0.125rem; /* 2px — vector sharp */
+  --grad-brand: linear-gradient(100deg, #00c2d1 0%, #7c3aed 50%, #c32483 100%);
+  --elevation-1: rgb(0 20 40 / 8%);
+  --elevation-2: rgb(0 20 40 / 12%);
+  --elevation-3: rgb(0 20 40 / 17%);
+  --shadow-brand-color: rgb(0 110 138 / 20%);
+  --neon-cyan: #00e3ff;
+  --neon-magenta: #ff2d9f;
+  --neon-violet: #a855f7;
+  --arcade-grid: rgb(0 227 255 / 10%);
+  --arcade-glow: rgb(0 227 255 / 30%);
 }
 
 .dark {
   color-scheme: dark;
-  /* Nero profondo + accento MAGENTA elettrico e gradiente brand. Look aggressivo/virale. */
-  --background: #08060e;
-  --foreground: #f4f2f8;
-  --card: #120e1c;
-  --card-foreground: #f4f2f8;
-  --popover: #15101f;
-  --popover-foreground: #f4f2f8;
-  --primary: #ff2e88; /* MAGENTA elettrico */
-  --primary-foreground: #0a0510; /* testo scuro sull'accento */
-  --secondary: #1c1529;
-  --secondary-foreground: #e9e3f2;
-  --muted: #171020;
-  --muted-foreground: #aa9fbb; /* ~8:1 su --background */
-  --accent: #2a1340; /* superficie con un velo viola (hover) */
-  --accent-foreground: #ffa6d4;
-  --destructive: #ff4d5e;
-  --destructive-foreground: #1a0407; /* testo scuro su --destructive */
-  --border: #271d38;
-  --input: #37284c;
-  --ring: #ff2e88;
+  /* Vector Arcade — nero prossimo al puro con sfumatura blu profondo, cyan elettrico
+   * primario, magenta vettoriale come accento. Il look "4D" nasce dai livelli in
+   * custom-style.css (grid floor prospettico + glow), non da texture CRT. */
+  --background: #04070e;
+  --foreground: #e8f7ff;
+  --card: #0a1120;
+  --card-foreground: #e8f7ff;
+  --popover: #0c1526;
+  --popover-foreground: #e8f7ff;
+  --primary: #00f0ff; /* CYAN elettrico */
+  --primary-foreground: #03070d;
+  --secondary: #12203a;
+  --secondary-foreground: #d8ecff;
+  --muted: #0d1628;
+  --muted-foreground: #8fa8c4;
+  --accent: #ff2d9f; /* MAGENTA vettoriale */
+  --accent-foreground: #0a0510;
+  --destructive: #ff4466;
+  --destructive-foreground: #130308;
+  --border: #1a3b5a; /* bordo "trace" cyan scuro */
+  --input: #22456a;
+  --ring: #00f0ff;
   --status-positive: #34d399;
-  --status-warning: #f59e0b;
-  --rating: #ff2e88;
-  --rating-fill: #ff2e88;
-  --ambient-line: #4a3566;
-  --grad-brand: linear-gradient(100deg, #8b5cf6 0%, #ec4899 48%, #f59e0b 100%);
-  --elevation-1: rgb(0 0 0 / 42%);
-  --elevation-2: rgb(0 0 0 / 52%);
-  --elevation-3: rgb(0 0 0 / 62%);
-  --shadow-brand-color: rgb(255 46 136 / 30%); /* bagliore magenta */
+  --status-warning: #fbbf24;
+  --rating: #ff2d9f;
+  --rating-fill: #ff2d9f;
+  --ambient-line: #2a5a82;
+  --grad-brand: linear-gradient(100deg, #00f0ff 0%, #a855f7 50%, #ff2d9f 100%);
+  --elevation-1: rgb(0 240 255 / 6%);
+  --elevation-2: rgb(0 240 255 / 10%);
+  --elevation-3: rgb(0 240 255 / 15%);
+  --shadow-brand-color: rgb(0 240 255 / 32%);
+  --neon-cyan: #00f0ff;
+  --neon-magenta: #ff2d9f;
+  --neon-violet: #c084fc;
+  --arcade-grid: rgb(0 240 255 / 15%);
+  --arcade-glow: rgb(0 240 255 / 45%);
 }
+
+/* ---------- Temi Pro preservati: solo accento cambia, identità vector-arcade intatta ---------- */
 
 :root[data-solco-pro-theme="blue-hour"] {
   color-scheme: light;
@@ -104,24 +122,28 @@
 
 .dark[data-solco-pro-theme="blue-hour"] {
   color-scheme: dark;
-  --background: #101923;
+  --background: #050b14;
   --foreground: #ecf2fa;
-  --card: #182636;
+  --card: #0b1726;
   --card-foreground: #ecf2fa;
-  --popover: #1b2c3d;
+  --popover: #0e1c2e;
   --popover-foreground: #ecf2fa;
-  --primary: #c1d6ef;
-  --primary-foreground: #132030;
-  --secondary: #223346;
+  --primary: #7cc4ff; /* ciano morbido, meno elettrico */
+  --primary-foreground: #061020;
+  --secondary: #16283e;
   --secondary-foreground: #e8f0fb;
-  --muted: #1c2a39;
-  --muted-foreground: #b2c1d1;
+  --muted: #131f31;
+  --muted-foreground: #a4b8cf;
   --accent: #edbb63;
   --accent-foreground: #251d10;
-  --border: #33485d;
-  --input: #435970;
-  --ring: #c1d6ef;
-  --ambient-line: #91abc9;
+  --border: #22405f;
+  --input: #2c4b70;
+  --ring: #7cc4ff;
+  --ambient-line: #4a6a8c;
+  --neon-cyan: #7cc4ff;
+  --neon-magenta: #edbb63;
+  --arcade-grid: rgb(124 196 255 / 10%);
+  --arcade-glow: rgb(124 196 255 / 35%);
 }
 
 :root[data-solco-pro-theme="amber"] {
@@ -148,27 +170,31 @@
 
 .dark[data-solco-pro-theme="amber"] {
   color-scheme: dark;
-  --background: #1a131a;
+  --background: #0f0a10;
   --foreground: #f7eff5;
-  --card: #281e29;
+  --card: #1b131c;
   --card-foreground: #f7eff5;
-  --popover: #302431;
+  --popover: #221929;
   --popover-foreground: #f7eff5;
-  --primary: #e7bad1;
+  --primary: #ffb4d8; /* rosa caldo cyberpunk */
   --primary-foreground: #2d1b28;
-  --secondary: #3a2b3a;
+  --secondary: #2d1f2e;
   --secondary-foreground: #f2e4ee;
-  --muted: #302430;
-  --muted-foreground: #d0bccb;
-  --accent: #e7ad73;
+  --muted: #241827;
+  --muted-foreground: #c4a8bb;
+  --accent: #ffb173; /* ambra */
   --accent-foreground: #2b1e16;
-  --border: #4b374a;
-  --input: #60495e;
-  --ring: #e7bad1;
-  --ambient-line: #d29bb6;
+  --border: #4a2e4a;
+  --input: #5f3e5e;
+  --ring: #ffb4d8;
+  --ambient-line: #a06d8e;
+  --neon-cyan: #ffb4d8;
+  --neon-magenta: #ffb173;
+  --arcade-grid: rgb(255 180 216 / 12%);
+  --arcade-glow: rgb(255 180 216 / 35%);
 }
 
-/* ---------- Tema natalizio (src/lib/seasonal.ts): notte d'inverno, rosso e oro ---------- */
+/* ---------- Tema natalizio preservato ---------- */
 :root.theme-christmas {
   color-scheme: light;
   --background: #f7f4ef;
@@ -213,4 +239,8 @@
   --ring: #f2c14e;
   --ambient-line: #2f5a43;
   --shadow-brand-color: rgb(229 72 77 / 22%);
+  --neon-cyan: #f2c14e;
+  --neon-magenta: #e5484d;
+  --arcade-grid: rgb(242 193 78 / 10%);
+  --arcade-glow: rgb(242 193 78 / 30%);
 }

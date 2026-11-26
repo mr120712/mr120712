@@ -135,7 +135,10 @@ export function AppTopBar() {
     slot.type === 'link' ? isActive(slot.item.href) : slot.items.some((i) => isActive(i.href));
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <header
+      data-arcade-nav
+      className="sticky top-0 z-40 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60"
+    >
       <nav
         aria-label="Navigazione principale"
         className="mx-auto flex h-14 max-w-screen-xl items-center gap-2 px-4"

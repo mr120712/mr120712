@@ -438,27 +438,38 @@ body.has-video-dock .solco-support-launcher {
   display: none;
 }
 
-/* ========== Look AGGRESSIVO/VIRALE: nero + accento magenta + alone viola ========== */
-/* Sfondo: due bagliori (magenta in alto, viola in basso) + una griglia tenue che segue l'accento.
-   Solo immagini sul body: non coprono nulla e non catturano i clic. */
+/* ========== VECTOR ARCADE: nero + cyan elettrico + magenta su pavimento prospettico ========== */
+/* Sfondo in 4 livelli fissi:
+ *  1) alone cyan dall'alto (tipo radar),
+ *  2) velo magenta dal basso-destra,
+ *  3+4) due griglie incrociate che danno un pavimento "Tron/Rez".
+ * Solo immagini sul body: niente clic catturati, niente JS. */
 body {
   background-image:
     radial-gradient(
-      1200px 620px at 50% -10%,
-      color-mix(in srgb, var(--primary) 16%, transparent),
-      transparent 70%
+      1400px 680px at 50% -12%,
+      color-mix(in srgb, var(--neon-cyan, var(--primary)) 14%, transparent),
+      transparent 72%
     ),
     radial-gradient(
-      900px 520px at 100% 108%,
-      color-mix(in srgb, var(--ambient-line) 30%, transparent),
-      transparent 62%
-    ), linear-gradient(color-mix(in srgb, var(--primary) 5%, transparent) 1px, transparent 1px),
-    linear-gradient(90deg, color-mix(in srgb, var(--primary) 5%, transparent) 1px, transparent 1px);
+      1000px 560px at 100% 110%,
+      color-mix(in srgb, var(--neon-magenta, var(--accent)) 12%, transparent),
+      transparent 68%
+    ),
+    linear-gradient(
+      var(--arcade-grid, color-mix(in srgb, var(--primary) 7%, transparent)) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      var(--arcade-grid, color-mix(in srgb, var(--primary) 7%, transparent)) 1px,
+      transparent 1px
+    );
   background-size:
     100% 100%,
     100% 100%,
-    46px 46px,
-    46px 46px;
+    64px 64px,
+    64px 64px;
   background-position:
     center top,
     center bottom,
@@ -468,27 +479,231 @@ body {
   background-attachment: fixed;
 }
 
+/* Pavimento prospettico "4D": una striscia in fondo che somiglia a un grid Tron.
+ * Uso ::before sul body così non copre nulla (pointer-events:none, z-index:-1).
+ * Via scelta estetica: niente su mobile stretto (sotto 540px) per risparmio GPU. */
+body::before {
+  content: "";
+  position: fixed;
+  right: -10vw;
+  bottom: -2vh;
+  left: -10vw;
+  height: 62vh;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(
+      to right,
+      transparent 0,
+      var(--arcade-grid, rgb(0 240 255 / 10%)) 0.5px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      transparent 0,
+      var(--arcade-grid, rgb(0 240 255 / 10%)) 0.5px,
+      transparent 1px
+    );
+  background-size:
+    7.5vw 7.5vw,
+    7.5vw 7.5vw;
+  transform: perspective(620px) rotateX(62deg) translateY(10%);
+  transform-origin: center bottom;
+  mask-image:
+    linear-gradient(to top, #000 0%, #000 42%, transparent 92%),
+    linear-gradient(to right, transparent 0%, #000 12%, #000 88%, transparent 100%);
+  mask-composite: intersect;
+  -webkit-mask-composite: source-in;
+  opacity: 0.9;
+}
+
 ::selection {
-  background: color-mix(in srgb, var(--primary) 38%, transparent);
+  background: color-mix(in srgb, var(--primary) 45%, transparent);
   color: var(--foreground);
 }
 
-/* Bagliore magenta sui pulsanti d'azione primari (solo CSS, CSP-safe). */
+/* Titoli in stile marquee arcade: display font + tracking leggermente aperto.
+ * Mantengo letter-spacing negativo originale solo per i casi con font-display non Orbitron. */
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display), Arial, sans-serif;
+  letter-spacing: 0.01em;
+}
+
+/* Alone cyan sui pulsanti d'azione primari (CSS puro, CSP-safe).
+ * Il doppio inset + glow esterno crea il bordo "neon tube" classico. */
 button.bg-primary,
 a.bg-primary {
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--primary) 40%, transparent),
-    0 8px 26px -10px color-mix(in srgb, var(--primary) 75%, transparent);
+    inset 0 0 0 1px color-mix(in srgb, var(--primary) 70%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--primary) 20%, transparent),
+    0 6px 22px -6px color-mix(in srgb, var(--primary) 70%, transparent),
+    0 0 42px -14px color-mix(in srgb, var(--primary) 85%, transparent);
+  transition:
+    box-shadow 200ms cubic-bezier(0.25, 0.8, 0.3, 1),
+    transform 120ms cubic-bezier(0.25, 0.8, 0.3, 1);
 }
 
-/* Il dock del player: un alone magenta, come superficie "viva" dell'interfaccia. */
+button.bg-primary:hover,
+a.bg-primary:hover {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--primary) 85%, transparent),
+    0 0 0 2px color-mix(in srgb, var(--primary) 35%, transparent),
+    0 10px 30px -4px color-mix(in srgb, var(--primary) 85%, transparent),
+    0 0 72px -10px color-mix(in srgb, var(--primary) 100%, transparent);
+  transform: translateY(-1px);
+}
+
+/* Il dock del player: alone cyan dall'alto + accenno magenta dal basso = tubo neon della UI. */
 section[data-solco-player] {
   background:
     radial-gradient(
       circle at 50% -40%,
-      color-mix(in srgb, var(--primary) 20%, transparent),
+      color-mix(in srgb, var(--primary) 22%, transparent),
+      transparent 60%
+    ),
+    radial-gradient(
+      circle at 100% 140%,
+      color-mix(in srgb, var(--accent) 16%, transparent),
       transparent 60%
     ), var(--background);
+  border-top: 1px solid color-mix(in srgb, var(--primary) 32%, transparent);
+  box-shadow: inset 0 1px 0 0 color-mix(in srgb, var(--primary) 18%, transparent);
+}
+
+/* Top-bar in modalità HUD: bordo cyan sottile + leggero alone sotto il backdrop-blur.
+ * Il componente aggiunge data-arcade-nav sull'<header> così non catturiamo le header di
+ * admin/dashboard, che hanno stile proprio. */
+header[data-arcade-nav] {
+  border-bottom-color: color-mix(in srgb, var(--primary) 32%, transparent);
+  box-shadow:
+    0 1px 0 0 color-mix(in srgb, var(--primary) 20%, transparent),
+    0 14px 42px -22px color-mix(in srgb, var(--primary) 55%, transparent);
+}
+
+/* ---------- Utility "4D": glow, tilt, bordo neon, scansione ---------- */
+
+/* Testo con alone cyan (titoli hero, HUD). */
+.arcade-glow {
+  text-shadow:
+    0 0 1px color-mix(in srgb, var(--primary) 70%, transparent),
+    0 0 14px color-mix(in srgb, var(--primary) 45%, transparent),
+    0 0 32px color-mix(in srgb, var(--primary) 25%, transparent);
+}
+
+.arcade-glow--magenta {
+  text-shadow:
+    0 0 1px color-mix(in srgb, var(--accent) 70%, transparent),
+    0 0 14px color-mix(in srgb, var(--accent) 45%, transparent),
+    0 0 32px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+/* Bordo traccia (da mettere su card, sezioni, bottoni outline). */
+.arcade-trace {
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--primary) 10%, transparent),
+    0 0 28px -16px color-mix(in srgb, var(--primary) 70%, transparent);
+}
+
+/* Hover 3D leggero (profondità 4D): aggiungere a card su cui si può interagire.
+ * Niente JS, CSP-safe: funziona solo con pointer:fine così il touch non flappa. */
+.arcade-tilt {
+  transform-style: preserve-3d;
+  transition:
+    transform 240ms cubic-bezier(0.2, 0.75, 0.3, 1),
+    box-shadow 240ms cubic-bezier(0.2, 0.75, 0.3, 1);
+  will-change: transform;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .arcade-tilt:hover {
+    transform: perspective(900px) rotateX(2.4deg) rotateY(-3deg) translateZ(6px);
+    box-shadow:
+      0 18px 46px -22px color-mix(in srgb, var(--primary) 55%, transparent),
+      0 0 0 1px color-mix(in srgb, var(--primary) 32%, transparent);
+  }
+}
+
+/* Linea di scansione verticale, discreta: passa UNA volta ogni 7s sopra il wrapper.
+ * Rispetta prefers-reduced-motion e NON si attiva su mobile portrait (sotto 540px). */
+@keyframes arcadeSweep {
+  0% {
+    transform: translateX(-120%);
+    opacity: 0;
+  }
+  10%,
+  70% {
+    opacity: 0.55;
+  }
+  100% {
+    transform: translateX(120%);
+    opacity: 0;
+  }
+}
+
+.arcade-sweep {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.arcade-sweep::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(
+    110deg,
+    transparent 40%,
+    color-mix(in srgb, var(--primary) 18%, transparent) 50%,
+    transparent 60%
+  );
+  transform: translateX(-120%);
+  animation: arcadeSweep 7s cubic-bezier(0.3, 0.7, 0.3, 1) 2s infinite;
+}
+
+@media (max-width: 540px), (prefers-reduced-motion: reduce) {
+  .arcade-sweep::after {
+    animation: none;
+    display: none;
+  }
+  body::before {
+    display: none;
+  }
+  .arcade-tilt:hover {
+    transform: none;
+  }
+}
+
+/* Scrollbar in tono vector arcade (WebKit + Firefox). */
+@supports (scrollbar-color: red red) {
+  * {
+    scrollbar-color: color-mix(in srgb, var(--primary) 50%, transparent) transparent;
+    scrollbar-width: thin;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--primary) 32%, transparent);
+  border-radius: 1px;
+  box-shadow: 0 0 8px -2px color-mix(in srgb, var(--primary) 70%, transparent);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--primary) 55%, transparent);
 }
 
 /* Tema natalizio: il player (che ha colori propri) segue rosso, verde e oro. */
@@ -554,3 +769,33 @@ html[data-solco-signed-in] [data-solco-root-landing][data-pending] {
 html[data-solco-signed-in] [data-solco-root-gate] {
   display: block;
 }
+
+/* font:add Orbitron — start */
+@font-face {
+  font-family: "Orbitron";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/fonts/orbitron/orbitron-500-normal-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Orbitron";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/orbitron/orbitron-700-normal-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Orbitron";
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url("/fonts/orbitron/orbitron-900-normal-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* font:add Orbitron — end */
