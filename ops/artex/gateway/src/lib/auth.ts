@@ -29,13 +29,25 @@ import { env } from '@/lib/env';
  *   - passkey: register/authenticate always require an existing User row,
  *     and the only seeded row is the admin's.
  */
-const parsedUrl = new URL(env.GATEWAY_URL);
-const rpId = parsedUrl.hostname;
+// `next build` loads this module with SKIP_ENV_VALIDATION=1, so env.GATEWAY_URL
+// is undefined at build time (the real URL is injected only at container start).
+// A bare `new URL(undefined)` would crash `page-data` collection for every route
+// that imports the auth module. The fallback below keeps the build green; at
+// runtime the real URL is always present (env validation re-runs without SKIP).
+const BUILD_FALLBACK_URL = 'http://localhost:3000';
+const effectiveUrl = env.GATEWAY_URL ?? BUILD_FALLBACK_URL;
+const rpId = (() => {
+  try {
+    return new URL(effectiveUrl).hostname;
+  } catch {
+    return 'localhost';
+  }
+})();
 
 export const auth = betterAuth({
-  baseURL: env.GATEWAY_URL,
-  secret: env.BETTER_AUTH_SECRET,
-  trustedOrigins: [env.GATEWAY_URL],
+  baseURL: effectiveUrl,
+  secret: env.BETTER_AUTH_SECRET ?? 'build-time-placeholder-not-used-at-runtime',
+  trustedOrigins: [effectiveUrl],
 
   database: prismaAdapter(prisma, { provider: 'sqlite' }),
 
@@ -61,7 +73,7 @@ export const auth = betterAuth({
     passkey({
       rpName: 'ARTEX Gateway',
       rpID: rpId,
-      origin: env.GATEWAY_URL,
+      origin: effectiveUrl,
     }),
 
     magicLink({
@@ -69,7 +81,8 @@ export const auth = betterAuth({
       disableSignUp: true,
 
       sendMagicLink: async ({ email, url }) => {
-        if (email.trim().toLowerCase() !== env.GATEWAY_ADMIN_EMAIL.toLowerCase()) {
+        const adminEmail = env.GATEWAY_ADMIN_EMAIL;
+        if (!adminEmail || email.trim().toLowerCase() !== adminEmail.toLowerCase()) {
           return;
         }
         // No email relay. The admin has SSH to the VPS; emit the URL to
