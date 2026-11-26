@@ -1,30 +1,29 @@
 import { randomUUID } from 'node:crypto';
 
-import { auth } from '@/lib/auth';
+import { hashPassword } from 'better-auth/crypto';
+
 import { prisma } from '@/lib/db';
 import { env } from '@/lib/env';
 
 /**
  * Idempotent startup seed.
  *
- * Creates the one admin user row that Better Auth needs to issue a sign-in
- * link or match a passkey. When GATEWAY_ADMIN_PIN is set, also creates a
- * `credential` account row with that PIN as the password (Better Auth hashes
- * it via its internal signUpEmail path so we never store the PIN in plain
- * text or write our own crypto).
+ * - Upserts the single admin user (by email).
+ * - When GATEWAY_ADMIN_PIN is set, inserts or UPDATES the admin's credential
+ *   account with that PIN hashed via Better Auth's own crypto helper. A PIN
+ *   change in the env takes effect on the next container restart — simple
+ *   rotation story, no DB surgery needed.
  *
- * Idempotency rules:
- *   - user row: upsert on email
- *   - credential account: created ONLY on first boot where no credential
- *     account yet exists for the admin. Rotating the PIN later requires
- *     deleting the credential account row and restarting, documented in
- *     the README.
+ * We deliberately do NOT call auth.api.signUpEmail here: with
+ * emailAndPassword.disableSignUp:true (and with the user already upserted),
+ * sign-up fails. Hashing + writing the row directly is the stable path and
+ * uses the same scrypt parameters that Better Auth verifies against on login.
  *
- * All failures are logged and swallowed so the server still boots; the
- * operator can fix env.GATEWAY_ADMIN_PIN and restart.
+ * All failures are logged and swallowed so the server still boots.
  */
 export async function seed(): Promise<void> {
   const email = env.GATEWAY_ADMIN_EMAIL.trim().toLowerCase();
+
   let user;
   try {
     user = await prisma.user.upsert({
@@ -47,31 +46,36 @@ export async function seed(): Promise<void> {
 
   if (!env.GATEWAY_ADMIN_PIN) return;
 
-  // Only set the PIN when there is no credential account yet. Rotating the
-  // PIN after the first boot is a manual DB op (documented) so an operator
-  // can't accidentally lock themselves out by typo'ing GATEWAY_ADMIN_PIN.
-  const existingCredential = await prisma.account.findFirst({
-    where: { userId: user.id, providerId: 'credential' },
-  });
-  if (existingCredential) {
-    // eslint-disable-next-line no-console
-    console.log('[gateway:seed] admin PIN already set (credential account exists)');
-    return;
-  }
-
   try {
-    // auth.api bypasses the public endpoint's disableSignUp guard; it uses
-    // the same internal hashing (scrypt by default) that user-facing sign-in
-    // verifies against.
-    await auth.api.signUpEmail({
-      body: {
-        email,
-        password: env.GATEWAY_ADMIN_PIN,
-        name: 'ARTEX Admin',
-      },
+    const hash = await hashPassword(env.GATEWAY_ADMIN_PIN);
+    const existing = await prisma.account.findFirst({
+      where: { userId: user.id, providerId: 'credential' },
     });
-    // eslint-disable-next-line no-console
-    console.log('[gateway:seed] admin PIN set (first boot)');
+    const now = new Date();
+    if (existing) {
+      // Rotate the PIN on each restart to whatever env says — the cost is one
+      // hash per boot and it means "edit .env + restart" is all it takes.
+      await prisma.account.update({
+        where: { id: existing.id },
+        data: { password: hash, updatedAt: now },
+      });
+      // eslint-disable-next-line no-console
+      console.log('[gateway:seed] admin PIN refreshed to env value');
+    } else {
+      await prisma.account.create({
+        data: {
+          id: randomUUID(),
+          userId: user.id,
+          accountId: email,
+          providerId: 'credential',
+          password: hash,
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+      // eslint-disable-next-line no-console
+      console.log('[gateway:seed] admin PIN set (first boot)');
+    }
   } catch (err) {
     // eslint-disable-next-line no-console
     console.error('[gateway:seed] failed to set admin PIN:', err);
