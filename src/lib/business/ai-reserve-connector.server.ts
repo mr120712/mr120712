@@ -137,8 +137,21 @@ export interface ReserveProvider {
 interface ProviderDef {
   id: string;
   label: string;
-  baseUrl: string;
+  /**
+   * URL OpenAI-compatibile del provider. Stringa fissa per i provider hosted (Groq, Gemini, …) o
+   * funzione per i provider il cui indirizzo è configurabile via env (local LLM: Ollama/vLLM/LM
+   * Studio su una porta a scelta). Se la funzione restituisce undefined il provider è INATTIVO,
+   * esattamente come se mancasse la chiave.
+   */
+  baseUrl: string | ((env: Env) => string | undefined);
   keyVar: string;
+  /**
+   * Chiave usata quando `env[keyVar]` è assente. Vale solo per provider che non richiedono
+   * autenticazione (Ollama di default, vLLM senza `--api-key`, llama.cpp, LM Studio): si invia un
+   * Bearer fittizio che il server ignora. Senza questo campo il provider resta inattivo se la
+   * chiave non è impostata, come per gli hosted.
+   */
+  dummyApiKey?: string;
   /** Dove ottenere una chiave gratuita (mostrato nel pannello admin per i provider non configurati). */
   signupUrl: string;
   models: (env: Env) => string[];
@@ -235,6 +248,27 @@ const PROVIDER_DEFS: ProviderDef[] = [
     signupUrl: 'https://api.mwapi.dev',
     models: mwapiModels,
   },
+  // LOCAL LLM: un server OpenAI-compatibile OSPITATO DALL'UTENTE (Ollama, vLLM, LM Studio,
+  // llama.cpp server). ATTIVO solo quando LOCAL_LLM_BASE_URL è impostata (es.
+  // "http://localhost:11434/v1" per Ollama, "http://localhost:8000/v1" per vLLM). L'autenticazione
+  // è OPZIONALE: se il server non la richiede (Ollama di default) la chiave si lascia vuota e il
+  // connettore manda il Bearer fittizio "local" che il server ignora; se invece hai attivato
+  // l'auth (p.es. vLLM con `--api-key`) imposta LOCAL_LLM_API_KEY. I modelli da provare in «auto»
+  // si scelgono con LOCAL_LLM_MODEL e LOCAL_LLM_FALLBACK_MODEL (default pensati per Ollama con
+  // Llama/Qwen scaricati). Ultimo nella catena: i provider hosted sopra sono preferiti quando
+  // disponibili perché la riserva è pensata per girare in cloud.
+  {
+    id: 'local-llm',
+    label: 'Local LLM',
+    baseUrl: (env) => clean(env.LOCAL_LLM_BASE_URL),
+    keyVar: 'LOCAL_LLM_API_KEY',
+    dummyApiKey: 'local',
+    signupUrl: 'https://ollama.com/download',
+    models: (env) => [
+      clean(env.LOCAL_LLM_MODEL) ?? 'llama3.1',
+      clean(env.LOCAL_LLM_FALLBACK_MODEL) ?? 'qwen2.5',
+    ],
+  },
 ];
 
 function dedupe(values: string[]): string[] {
@@ -269,13 +303,19 @@ export function activeProviders(env: Env = process.env): ReserveProvider[] {
   const providers: ReserveProvider[] = [];
   for (const def of ordered) {
     if (seen.has(def.id)) continue;
-    const apiKey = clean(env[def.keyVar]);
+    // Un provider configurabile via env (local LLM) espone baseUrl come funzione: senza
+    // LOCAL_LLM_BASE_URL la funzione restituisce undefined e il provider resta spento.
+    const baseUrl = typeof def.baseUrl === 'function' ? def.baseUrl(env) : def.baseUrl;
+    if (!baseUrl) continue;
+    // Chiave: prima l'env dichiarata, poi la chiave fittizia quando il provider la ammette
+    // (Ollama e amici: il server ignora il Bearer). Senza né l'una né l'altra, il provider è spento.
+    const apiKey = clean(env[def.keyVar]) ?? def.dummyApiKey;
     if (!apiKey) continue;
     seen.add(def.id);
     providers.push({
       id: def.id,
       label: def.label,
-      baseUrl: def.baseUrl,
+      baseUrl,
       apiKey,
       models: dedupe(def.models(env)),
       ...(def.extraHeaders ? { extraHeaders: def.extraHeaders } : {}),
@@ -381,7 +421,9 @@ export function reserveKnownProviders(env: Env = process.env): ReserveKnownProvi
   return PROVIDER_DEFS.map((def) => ({
     id: def.id,
     label: def.label,
-    baseUrl: def.baseUrl,
+    // Per un provider configurabile via env (local LLM) mostriamo l'URL attuale, se c'è; altrimenti
+    // stringa vuota, come segnale che il provider esiste ma manca l'indirizzo.
+    baseUrl: (typeof def.baseUrl === 'function' ? def.baseUrl(env) : def.baseUrl) ?? '',
     keyVar: def.keyVar,
     signupUrl: def.signupUrl,
     models: dedupe(def.models(env)),
