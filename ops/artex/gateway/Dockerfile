@@ -45,15 +45,18 @@ ENV NODE_ENV=production \
     PORT=3000 \
     HOSTNAME=0.0.0.0
 
-# Next.js standalone output ships a minimal node_modules tree. We still need
-# Prisma's generated client + engines and the schema for `prisma db push`.
+# Next.js standalone output ships a minimal node_modules tree with ONLY the
+# packages the app's own `import` graph reaches. The Prisma CLI is invoked
+# at runtime by docker-entrypoint.sh (prisma db push), and its transitive
+# deps (@prisma/config → effect, and others) are not in the standalone
+# subset. Rather than cherry-pick every dep Prisma reaches, copy the full
+# builder node_modules — the runner image is still modest (~450MB) and the
+# alternative is a fragile list that breaks on every Prisma minor bump.
 COPY --from=builder --chown=gateway:gateway /app/public ./public
 COPY --from=builder --chown=gateway:gateway /app/.next/standalone ./
 COPY --from=builder --chown=gateway:gateway /app/.next/static ./.next/static
 COPY --from=builder --chown=gateway:gateway /app/prisma ./prisma
-COPY --from=builder --chown=gateway:gateway /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder --chown=gateway:gateway /app/node_modules/@prisma ./node_modules/@prisma
-COPY --from=builder --chown=gateway:gateway /app/node_modules/prisma ./node_modules/prisma
+COPY --from=builder --chown=gateway:gateway /app/node_modules ./node_modules
 
 # Data dir is a bind-mount from the host; the SQLite file lives inside it.
 RUN mkdir -p /data && chown -R gateway:gateway /data
