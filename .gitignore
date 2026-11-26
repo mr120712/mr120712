@@ -76,3 +76,6 @@ __pycache__/
 
 # Python bytecode from tools/ (e.g. tools/tiktok-ad/render.py)
 __pycache__/
+
+# Personal Claude Code overrides — keep out of the repo.
+.claude/settings.local.json
