@@ -28,8 +28,14 @@ dev = [
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
-addopts = "-ra -q"
+# `integration` tests spawn the real `claude` CLI and consume subscription
+# quota; excluded by default. Run them with `pytest -m integration` and
+# `ARTEX_BRIDGE_LIVE_TESTS=1`.
+addopts = "-ra -q -m 'not integration'"
 pythonpath = ["src"]
+markers = [
+  "integration: live tests that spawn the real `claude` CLI and hit the user's Claude Code subscription",
+]
 
 [tool.ruff]
 line-length = 100

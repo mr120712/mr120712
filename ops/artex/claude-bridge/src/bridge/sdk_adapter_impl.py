@@ -94,6 +94,13 @@ class ClaudeSdkAdapter(SdkAdapter):
             model=model,
             max_turns=1,
             permission_mode="bypassPermissions",
+            # Disable ALL Claude Code CLI built-in tools (Bash, Read, Edit,
+            # ToolSearch, ...). Without this the model would see them and may
+            # call one instead of ARTEX's declared tools — a live integration
+            # test caught that on the first run (model picked ToolSearch for
+            # a URL probe). The only tools the model should know about are
+            # the ARTEX ones we register as MCP tools.
+            tools=[],
             mcp_servers=mcp_servers,
             allowed_tools=allowed_tools,
         )

@@ -111,12 +111,44 @@ pip install -e '.[dev]'
 pytest
 ```
 
-51 tests covering wire shape, tool_use passthrough, SSE streaming (text +
-tool_use chunking, error frame), cache, rate limit, wiring, schema
+52 unit tests covering wire shape, tool_use passthrough, SSE streaming
+(text + tool_use chunking, error frame), cache, rate limit, wiring, schema
 normalizers (including the tool_use + tool_result flattening), and the SDK
-adapter (with the SDK mocked). The SDK is not exercised end-to-end here
-because that requires a logged-in `claude` CLI; the `curl` smoke test above
-fills that gap.
+adapter (with the SDK mocked).
+
+### Live integration tests
+
+4 additional tests under `tests/integration/` actually spawn the real
+`claude` CLI through the Claude Agent SDK and hit the user's Claude Code
+subscription. They are **excluded by default** (pyproject uses
+`-m 'not integration'`). To run them:
+
+```bash
+# 1. Install and log into the Claude Code CLI on this host:
+claude login
+
+# 2. Run the live suite. Each test uses haiku + tiny max_tokens; cost is a
+#    few dozen tokens total. Full run is ~30s wall time.
+ARTEX_BRIDGE_LIVE_TESTS=1 pytest -m integration
+```
+
+Coverage:
+
+- `test_live_adapter_text_only_completion` — adapter → CLI → text reply
+- `test_live_adapter_tool_use_decision` — adapter with ARTEX tools; model
+  emits `tool_use`, bridge strips the `mcp__artex__` prefix, returns the
+  native Anthropic shape. The live run also lets the test catch the
+  dangerous case where CLI built-in tools (Bash, Read, ToolSearch, ...)
+  leak into the model's tool list; the bridge sets `tools=[]` to keep
+  only MCP-registered tools visible. A matching unit regression test
+  (`test_cli_builtin_tools_are_disabled`) locks that in.
+- `test_live_http_bridge_text_roundtrip` — full FastAPI route +
+  real SDK for text
+- `test_live_http_bridge_stream_roundtrip` — full SSE path with the
+  real SDK (reads message_start, content_block_delta frames, message_stop)
+
+Override the model via `ARTEX_BRIDGE_LIVE_MODEL=claude-sonnet-...` when
+you want to test against a different account tier.
 
 To drill the tool_use path end-to-end, a representative POST looks like:
 

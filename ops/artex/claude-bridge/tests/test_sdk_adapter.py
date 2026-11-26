@@ -199,6 +199,38 @@ async def test_no_tools_means_no_mcp_server_registered(monkeypatch) -> None:
     assert not fake.last_options.mcp_servers
 
 
+async def test_cli_builtin_tools_are_disabled(monkeypatch) -> None:
+    # Regression: if `tools` is not [], the Claude Code CLI built-ins stay
+    # visible to the model. A live integration test caught the model picking
+    # ToolSearch for a URL probe instead of the http_get MCP tool we had
+    # declared. Lock the belt-and-braces in a unit test so a refactor can't
+    # bring it back.
+    fake = _fake_query_factory(
+        [
+            _Assistant(content=[_Text(text="ok")]),
+            _Result(usage={"input_tokens": 1, "output_tokens": 1}),
+        ]
+    )
+    monkeypatch.setattr("bridge.sdk_adapter_impl.query", fake)
+    a = ClaudeSdkAdapter()
+    await a.complete(
+        system="", messages=[{"role": "user", "content": "hi"}], model="m", max_tokens=10
+    )
+    assert fake.last_options.tools == []
+
+    # Also with ARTEX tools in play: built-ins still off; only the MCP
+    # prefixed names are allowed.
+    await a.complete(
+        system="",
+        messages=[{"role": "user", "content": "x"}],
+        model="m",
+        max_tokens=10,
+        tools=[{"name": "http_get", "description": "x", "input_schema": {}}],
+    )
+    assert fake.last_options.tools == []
+    assert fake.last_options.allowed_tools == ["mcp__artex__http_get"]
+
+
 async def test_fallbacks_token_estimate_when_sdk_returns_no_usage(monkeypatch) -> None:
     fake = _fake_query_factory(
         [
