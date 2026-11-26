@@ -6,3 +6,4 @@ artex-src/
 data/
 keys/
 pgdata/
+llm-shim/backends.json

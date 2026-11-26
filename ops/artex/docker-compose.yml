@@ -88,15 +88,20 @@ services:
     restart: unless-stopped
 
   llm-shim:
-    # OPT-IN reasoning_content stripper. Only needed when the LLM is a reasoning
-    # model (DeepSeek-R1 / V4.1-Flash via vLLM with a reasoning parser) that
-    # returns a separate reasoning_content field: ARTEX echoes prior assistant
-    # turns back and the upstream rejects that field (HTTP 400 on messages.N).
-    # This proxy removes it from each request; responses relay untouched.
+    # OPT-IN OpenAI-compatible reliability proxy for ARTEX. Two jobs:
+    #   1. Strips reasoning_content from each request (reasoning models return
+    #      it and ARTEX echoes it back -> strict upstreams 400 on messages.N).
+    #   2. Transient-only failover + retry/backoff across several backends
+    #      (e.g. Anthropic primary, OpenAI/Groq fallback). Failover fires ONLY
+    #      on 429/5xx/timeouts; a safety refusal (200) and config errors (4xx)
+    #      pass straight through to ARTEX, never rerouted. See proxy.py header.
     #
-    # Enable it: `docker compose --profile llm-shim up -d --build` AND set, in
-    # .env, ARTEX_LLM_BASE_URL=http://llm-shim:8080/v1 plus LLM_UPSTREAM_ORIGIN
-    # = the origin of the LLM endpoint you were using. See README + .env.example.
+    # Enable it:
+    #   1. cp llm-shim/backends.example.json llm-shim/backends.json  (fill keys)
+    #   2. In .env: ARTEX_LLM_PROVIDER=openai,
+    #      ARTEX_LLM_BASE_URL=http://llm-shim:8080/v1, OPENAI_API_KEY=dummy
+    #   3. docker compose --profile llm-shim up -d --build
+    #      docker compose up -d --force-recreate artex
     profiles: ["llm-shim"]
     build:
       context: ./llm-shim
@@ -104,10 +109,16 @@ services:
     security_opt:
       - "no-new-privileges:true"
     environment:
-      # Optional at parse time (compose interpolates every service's env even
-      # when the profile is off); proxy.py fails fast if it's empty at runtime.
-      LLM_UPSTREAM_ORIGIN: ${LLM_UPSTREAM_ORIGIN:-}
       LLM_SHIM_PORT: "8080"
+    volumes:
+      # Real keys live here only, mounted read-only; gitignored. Copy the
+      # example first or the container won't start (proxy.py needs a config).
+      - ./llm-shim/backends.json:/app/backends.json:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1',8080),2)"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
     # Internal only: reachable by the artex container as http://llm-shim:8080.
     # No host port published.

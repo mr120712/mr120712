@@ -174,26 +174,60 @@ field on input. It fails from turn ~3 (hence `messages.3`), not the first call.
 fixed at once. No capability loss.
 
 **If you can't change the LLM server — the bundled shim.** `llm-shim/` is a
-tiny reverse proxy that strips `reasoning_content` from each request before it
-reaches the model (responses relay untouched, streaming included). Turn it on:
+small OpenAI-compatible proxy that strips `reasoning_content` from each request
+(responses relay untouched, streaming included) **and** adds reliability
+failover. See "LLM reliability proxy" below for setup — it covers this case too.
 
-1. In `.env`, set the upstream origin and repoint ARTEX at the shim:
+## LLM reliability proxy (`llm-shim`)
+
+`llm-shim/` is an opt-in OpenAI-compatible proxy that sits between ARTEX and the
+LLM providers. It does two things:
+
+1. **Strips `reasoning_content`** from every request (fixes the 400 above).
+2. **Transient-only failover + retry** across an ordered list of backends — so a
+   provider rate-limit (`429`) or outage (`5xx`/timeout) rolls over to the next
+   provider instead of failing the task.
+
+**Failover policy — deliberate and narrow.** Failover fires **only** on
+transient infrastructure failures (connection errors, timeouts, `408/409/425/429/5xx`
+incl. `529` overloaded), with retry+backoff on each backend first. It does
+**not** fire on a safety **refusal**: a refusal comes back as `200` and is
+relayed to ARTEX unchanged. Config errors (`400/401/403/404`) also pass straight
+through so they stay visible. The shim never auto-reroutes a *declined* request
+to a less-restricted model — that would be circumventing a provider's safety
+decision, not reliability.
+
+### Setup
+
+1. Create the backend list (keys live here only; it's gitignored):
    ```bash
-   LLM_UPSTREAM_ORIGIN=https://my-gpu-box.example.com   # origin of your old base URL
-   ARTEX_LLM_BASE_URL=http://llm-shim:8080/v1           # keep the same /v1 suffix
+   cd ~/artex
+   cp llm-shim/backends.example.json llm-shim/backends.json
+   # edit backends.json: order = failover priority. Each backend's `model`
+   # overrides what ARTEX sends; `auth` is the full Authorization header value.
    ```
-2. Build and start it (it's an opt-in compose profile):
+   All backends must speak the OpenAI chat-completions format — OpenAI and Groq
+   natively, and Anthropic via its OpenAI-compatible endpoint
+   (`https://api.anthropic.com/v1/chat/completions`, `auth: "Bearer sk-ant-…"`,
+   model `claude-opus-5-5`). Put your strongest/preferred provider first.
+2. Point ARTEX at the shim with a dummy key (real keys are in `backends.json`):
+   ```bash
+   set_kv() { grep -q "^$1=" .env && sed -i "s#^$1=.*#$1=$2#" .env || echo "$1=$2" >> .env; }
+   set_kv ARTEX_LLM_PROVIDER openai
+   set_kv ARTEX_LLM_BASE_URL http://llm-shim:8080/v1
+   set_kv OPENAI_API_KEY dummy
+   ```
+3. Build/start the shim and recreate ARTEX:
    ```bash
    docker compose --profile llm-shim up -d --build
-   ```
-3. Recreate ARTEX so it picks up the new base URL:
-   ```bash
-   docker compose up -d artex
+   docker compose up -d --force-recreate artex
    ```
 
 The shim is internal-only (no published port); ARTEX reaches it as
-`http://llm-shim:8080`. To stop using it, clear `ARTEX_LLM_BASE_URL` back to
-the direct endpoint and `docker compose --profile llm-shim down`.
+`http://llm-shim:8080`. Tune `max_retries_per_backend`, `backoff_base_seconds`,
+and `retry_statuses` in `backends.json`. To stop using it, point
+`ARTEX_LLM_BASE_URL` back at a direct endpoint and `docker compose --profile
+llm-shim down`.
 
 ## What to keep an eye on
 
