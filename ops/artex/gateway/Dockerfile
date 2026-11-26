@@ -7,10 +7,16 @@ WORKDIR /app
 # System deps for Prisma (openssl) and build-time compile.
 RUN apk add --no-cache openssl libc6-compat
 
-# Install JS deps against a locked manifest. If package-lock.json isn't present
-# (first-time scaffold), npm install falls back to a fresh resolve.
+# Install JS deps against a locked manifest. --legacy-peer-deps is required
+# because better-call@1.4.x peerOptional's zod@^4 while Solco pins zod@3;
+# npm 10's resolver treats peerOptional as blocking, so we fall back to npm 6
+# behaviour where peers are advisory. No runtime effect.
 COPY package.json package-lock.json* ./
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+RUN if [ -f package-lock.json ]; then \
+      npm ci --legacy-peer-deps; \
+    else \
+      npm install --legacy-peer-deps; \
+    fi
 
 # Prisma must generate against the schema; do it before next build so the
 # client is available during type-check.

@@ -147,10 +147,6 @@ services:
       BETTER_AUTH_SECRET: ${GATEWAY_BETTER_AUTH_SECRET:?set GATEWAY_BETTER_AUTH_SECRET in .env (openssl rand -hex 32)}
       GATEWAY_ADMIN_EMAIL: ${GATEWAY_ADMIN_EMAIL:?set GATEWAY_ADMIN_EMAIL in .env}
       ARTEX_UPSTREAM_URL: http://artex:8787
-      POLSIA_EMAIL_PROXY_URL: ${POLSIA_EMAIL_PROXY_URL:?set POLSIA_EMAIL_PROXY_URL in .env (Solco relay)}
-      POLSIA_EMAIL_API_KEY: ${POLSIA_EMAIL_API_KEY:-}
-      GATEWAY_EMAIL_FROM: ${GATEWAY_EMAIL_FROM:-artex-gateway@solcomusic.online}
-      GATEWAY_EMAIL_FROM_NAME: ${GATEWAY_EMAIL_FROM_NAME:-ARTEX Gateway}
     ports:
       # Localhost only — the gateway is not public; Caddy fronts it.
       - "127.0.0.1:3030:3000"

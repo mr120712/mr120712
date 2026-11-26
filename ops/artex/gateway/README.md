@@ -1,6 +1,6 @@
 # ARTEX Gateway
 
-Better Auth magic-link gateway in front of ARTEX. Replaces Caddy basic-auth with a proper first-party auth layer: single admin email, no sign-up, no password, one-click sign-in via a short-lived email link.
+Better Auth passkey gateway in front of ARTEX. Replaces Caddy basic-auth with WebAuthn passkeys — FaceID, TouchID, Windows Hello, YubiKey. Zero email, zero password, zero third-party relay.
 
 ## Why
 
@@ -14,9 +14,11 @@ Caddy's HTTP basic-auth was a stopgap. Issues:
 The gateway is a tiny Next.js 16 app that:
 
 1. Terminates Better Auth sessions (HTTP-only, SameSite=lax, signed cookies).
-2. Issues sign-in links to exactly one admin email (`GATEWAY_ADMIN_EMAIL`).
+2. Accepts sign-in from a passkey registered on the admin's device(s).
 3. Reverse-proxies every other request to ARTEX at `http://artex:8787` on the compose network.
 4. Keeps its auth DB (SQLite) separate from ARTEX's Postgres — losing one does not compromise the other.
+
+No email, no password: passkeys live in secure hardware (Secure Enclave, TPM, YubiKey) and never leave the device. Even if the gateway's SQLite file is exfiltrated, the attacker gets only public keys.
 
 ## How it fits
 
@@ -28,8 +30,8 @@ The gateway is a tiny Next.js 16 app that:
      │
      ▼
   gateway (:3000, Next.js + Better Auth)
-     │   ├─ /login, /verify, /api/auth/*  → served locally
-     │   └─ everything else, when authed  → rewrite to /_proxy/<path>
+     │   ├─ /login, /enroll, /api/auth/*     → served locally
+     │   └─ everything else, when authed     → rewrite to /_proxy/<path>
      │
      ▼ (only once the session cookie validates)
   artex (:8787, Go)
@@ -37,28 +39,16 @@ The gateway is a tiny Next.js 16 app that:
 
 ## Setup — first time on the VPS
 
-The ARTEX bootstrap script (`../bootstrap.sh`) does not yet set up the gateway; for now the extra env vars go in the same `.env` as ARTEX.
-
 ### 1. Env vars
 
-Append these to `ops/artex/.env` on the VPS:
+Append to `ops/artex/.env` on the VPS:
 
 ```sh
-# The one email allowed to sign in.
 GATEWAY_ADMIN_EMAIL=you@yourdomain.example
-
-# Better Auth cookie signing key. Rotate with the same openssl recipe as
-# ARTEX_SECRET_KEY.
 GATEWAY_BETTER_AUTH_SECRET=$(openssl rand -hex 32)
-
-# Where the magic-link emails are relayed. Re-uses Solco's existing proxy.
-POLSIA_EMAIL_PROXY_URL=https://solcomusic.online/api/email/send
-POLSIA_EMAIL_API_KEY=            # optional bearer, blank if the relay is public
-
-# Optional — defaults are sane.
-GATEWAY_EMAIL_FROM=artex-gateway@solcomusic.online
-GATEWAY_EMAIL_FROM_NAME=ARTEX Gateway
 ```
+
+That's it. No email relay, no SMTP, no Resend API key. The gateway signs in the admin via one-time URLs printed to `docker compose logs gateway`.
 
 ### 2. Build and start
 
@@ -68,36 +58,64 @@ docker compose up -d --build gateway caddy
 docker compose logs -f gateway    # watch for "admin user ready for <email>"
 ```
 
-The container runs `prisma db push` on startup, which creates `/data/gateway.db` with the Better Auth schema on first run and is a no-op after.
+The container runs `prisma db push` on startup — creates `/data/gateway.db` on first run and is a no-op after.
 
-### 3. Sign in
+### 3. Register the first passkey (one-time bootstrap)
 
-Open `https://artex.solcomusic.online/` in a browser:
+1. Open `https://artex.solcomusic.online/` in a browser (on the device you want to sign in from — typically your laptop).
+2. Click **First time? Set up a passkey →**.
+3. Enter your admin email and click **Print bootstrap URL to logs**.
+4. On the VPS: `docker compose logs gateway --tail=50`. Look for the boxed banner:
 
-1. The gateway redirects you to `/login`.
-2. Enter your admin email → click **Send sign-in link**.
-3. Check the inbox; the link lands within a few seconds.
-4. Click the link → you're signed in and the gateway forwards every subsequent request to ARTEX.
+   ```
+   ======================================================================
+   ARTEX GATEWAY — one-time bootstrap sign-in link
+   Valid for 10 minutes. Open this URL in a browser on the device
+   where you want to register the passkey:
 
-Sessions last 24 hours; the cookie is renewed on each request inside the final hour.
+   https://artex.solcomusic.online/api/auth/magic-link/verify?token=...
+
+   ======================================================================
+   ```
+
+5. Copy the URL, paste it in the browser from step 1. You land on `/enroll`.
+6. Click **Register passkey**. Your device prompts for FaceID / TouchID / Windows Hello / YubiKey. Confirm.
+7. Done. Future visits to `https://artex.solcomusic.online/` show the passkey sign-in — one click, no email, no server log reading.
+
+### Adding another device
+
+Repeat steps 1–6 on the new device. Each passkey is a separate row; sessions on one device are independent from passkeys on another.
+
+### Losing a device
+
+The passkey lives on the device's secure hardware, so losing the device means losing that passkey. Use another registered device to sign in, then delete the lost passkey row from the DB:
+
+```sh
+docker compose exec gateway sh -c 'sqlite3 /data/gateway.db "SELECT id, name, createdAt FROM passkey ORDER BY createdAt;"'
+docker compose exec gateway sh -c 'sqlite3 /data/gateway.db "DELETE FROM passkey WHERE id = <id>;"'
+```
+
+If you have no other registered device, rotate `GATEWAY_BETTER_AUTH_SECRET`, restart the gateway, and run through the bootstrap again from a trusted device.
 
 ## Security notes
 
-- **One email, enforced twice.** `disableSignUp: true` on the magic-link plugin refuses to generate a link for any email that doesn't already have a `User` row. Only the seeded `GATEWAY_ADMIN_EMAIL` has that row. A second check inside `sendMagicLink` suppresses mail delivery for any address that isn't the admin — so even a stray `User` row cannot cause an unexpected email to go out.
-- **No email enumeration.** The `/api/auth/sign-in/magic-link` endpoint always returns 200 regardless of whether the email is allowed. Only delivery differs.
-- **Edge session check.** The middleware verifies the Better Auth session cookie's HMAC against `BETTER_AUTH_SECRET` without a DB call, so unauthenticated traffic is bounced before Prisma is even touched. Expiry/revocation is still enforced on the next DB-touching handler call.
-- **Rotating the session secret** invalidates every active session in the SQLite DB (none of them verify against the new HMAC). To force sign-out of all devices, rotate `GATEWAY_BETTER_AUTH_SECRET` and `docker compose up -d --force-recreate gateway`.
-- **ARTEX still has its own JWT auth.** If someone bypasses the gateway (e.g. by SSH'ing to the VPS and curl'ing 127.0.0.1:8787), ARTEX still asks for its own JWT. Defence in depth.
+- **No shared secret humans can leak.** The admin never types a password. Passkeys are hardware-bound; the server stores public keys only.
+- **One identity, enforced in two places.** `magicLink` has `disableSignUp: true` — a bootstrap URL is only ever created for an email that already has a `User` row, which (thanks to the seed) is only `GATEWAY_ADMIN_EMAIL`. Any other address produces a 200 response with no log line emitted. Second-line check inside `sendMagicLink` suppresses the stdout print for non-admin addresses as defence in depth.
+- **No email enumeration.** The `/api/auth/sign-in/magic-link` endpoint always returns 200 regardless of whether the email is allowed. Only the stdout banner differs.
+- **Edge session check.** Middleware verifies the Better Auth cookie HMAC against `BETTER_AUTH_SECRET` without a DB call, so unauthenticated traffic is bounced before Prisma is touched. Expiry/revocation is still enforced on the next DB-touching handler call.
+- **Rotating the session secret** invalidates every active session AND every outstanding bootstrap URL in one shot (none of them verify against the new HMAC). `docker compose up -d --force-recreate gateway` after editing `GATEWAY_BETTER_AUTH_SECRET` in `.env`.
+- **ARTEX keeps its own JWT auth.** A gateway bypass (SSH to the VPS, curl'ing 127.0.0.1:8787 directly) still lands on ARTEX's own authentication.
+- **The bootstrap URL is secret like SSH access.** Anyone with shell on the VPS can read the gateway's stdout, so by reading the URL they can sign in. This is intentional — the same people who could read `docker compose logs` could also just curl ARTEX's socket directly. The gateway raises the bar to "whoever has shell is already trusted".
 
 ## Backup
 
-The whole auth DB is one file: `ops/artex/gateway/data/gateway.db`. It contains the admin user row and current sessions — nothing that needs to survive catastrophic loss (worst case, rotate the admin, re-sign-in). A nightly `rsync` of `ops/artex/gateway/data/` to cold storage is enough if you want continuity.
+`ops/artex/gateway/data/gateway.db` is the whole state — admin user row + current sessions + passkey public keys. Worst case loss: rotate the admin, re-register a passkey from a trusted device. A nightly `rsync` of `ops/artex/gateway/data/` to cold storage is enough if you want continuity.
 
 ## Troubleshooting
 
-- **401 from Caddy, not the login page**: Caddy's basic-auth block is still active in `/etc/caddy/Caddyfile` on the VPS (not the committed one). Replace it with `ops/artex/Caddyfile` and `docker compose up -d --force-recreate caddy`.
-- **"email not allowed" in `gateway` logs**: self-test. Someone tried an address other than `GATEWAY_ADMIN_EMAIL`. No action needed.
-- **Magic link email never arrives**: `docker compose logs gateway | grep -i mail`. The POLSIA_EMAIL_PROXY_URL relay may be refusing the sender; check the proxy logs on Solco too.
+- **401 from Caddy, not the gateway login page**: Caddy's basic-auth block is still active on the VPS's live `Caddyfile` (not the committed one). `docker compose cp ./Caddyfile artex-caddy:/etc/caddy/Caddyfile && docker compose exec artex-caddy caddy reload --config /etc/caddy/Caddyfile`.
+- **Passkey prompt never appears**: the browser rejects WebAuthn if `GATEWAY_URL` does not match the current origin, or if the origin is not HTTPS. Confirm `.env` has `ARTEX_PUBLIC_HOST=artex.solcomusic.online` and the browser's address bar says the same.
+- **"No passkey available" on sign-in**: there is no passkey registered on this device yet. Request a bootstrap URL via the login page's "First time?" collapse, grab it from the logs, and register one.
 - **"Invalid environment variables"**: the gateway's Zod schema rejected a value. Typo in `.env` or a missing required var.
 - **502 from the gateway to the user**: `_proxy/[[...path]]` could not reach `http://artex:8787`. Usually means ARTEX is down (`docker compose ps artex`) or the compose network lost DNS (`docker compose restart gateway`).
 
