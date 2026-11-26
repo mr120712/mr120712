@@ -100,6 +100,46 @@ same `SPACE_CHAT_API_KEY` pattern) and tightens the Skynet scanner rules
 accordingly. Say the word and I'll build it. Offense stays on the VPS;
 defense faces the internet.
 
+## Harden the public endpoint
+
+The console is reachable at `https://artex.solcomusic.online` (Caddy TLS on
+`:443`). That's convenient, but it also means an offensive-tooling console is
+on the public internet, gated only by ARTEX's JWT login. The Caddyfile adds a
+second gate in front of that — **HTTP basic auth** — so a scanner or a leaked
+console session has to clear the edge first. `/api/health` stays open for
+monitoring; everything else needs the edge password.
+
+It ships **fail-closed**: until you set a hash, the console is locked (a random
+discarded default), while `/api/health` still answers. To open it:
+
+```bash
+# on the VPS, in ~/artex
+docker compose run --rm caddy caddy hash-password --plaintext 'a-strong-password'
+```
+
+Copy the `$2b$...` output into `.env`, single-quoted (it contains `$`):
+
+```bash
+ARTEX_UI_USER=artex
+ARTEX_UI_PASSWORD_HASH='$2b$12$....'
+```
+
+Then reload Caddy:
+
+```bash
+docker compose up -d caddy
+```
+
+**Tighter still — IP allowlist.** If you always reach the VPS from a known IP,
+uncomment the `@offnet` / `abort` lines in the `Caddyfile` and list your
+IP/CIDR. That refuses everyone else before auth is even evaluated. Find your
+current egress IP with `curl -s https://ifconfig.me`. Restart with
+`docker compose restart caddy`.
+
+Neither layer replaces the loopback-only option in `tunnel.md` — if you don't
+need the console on the public internet, binding to `127.0.0.1` and tunneling
+over SSH is still the smallest attack surface.
+
 ## What is deliberately off
 
 - `ARTEX_BIND_ADDR=127.0.0.1` — the UI is never on the public interface. Reach
@@ -113,6 +153,81 @@ defense faces the internet.
   separate step; load it from the ARTEX checkout on your laptop if you need
   authenticated-flow capture, not from this VPS.
 - No S3 archive. Findings stay on the VPS disk until you export them.
+
+## If the LLM 400s on `reasoning_content`
+
+Symptom — ARTEX tasks die a few turns in with:
+
+```
+openai: status 400: 'messages.N' : for 'role:assistant' ...
+property 'reasoning_content' is unsupported
+```
+
+Cause: your LLM is a reasoning model (DeepSeek-R1 / V4.1-Flash on vLLM with a
+reasoning parser). It returns a separate `reasoning_content` field; ARTEX
+stores the whole assistant turn and re-sends it, and the upstream rejects that
+field on input. It fails from turn ~3 (hence `messages.3`), not the first call.
+
+**Best fix — server-side.** Serve vLLM **without** `--reasoning-parser` /
+`--enable-reasoning`. The chain-of-thought then stays inline in `content`
+(`<think>…</think>`), nothing invalid gets echoed back, and every client is
+fixed at once. No capability loss.
+
+**If you can't change the LLM server — the bundled shim.** `llm-shim/` is a
+small OpenAI-compatible proxy that strips `reasoning_content` from each request
+(responses relay untouched, streaming included) **and** adds reliability
+failover. See "LLM reliability proxy" below for setup — it covers this case too.
+
+## LLM reliability proxy (`llm-shim`)
+
+`llm-shim/` is an opt-in OpenAI-compatible proxy that sits between ARTEX and the
+LLM providers. It does two things:
+
+1. **Strips `reasoning_content`** from every request (fixes the 400 above).
+2. **Transient-only failover + retry** across an ordered list of backends — so a
+   provider rate-limit (`429`) or outage (`5xx`/timeout) rolls over to the next
+   provider instead of failing the task.
+
+**Failover policy — deliberate and narrow.** Failover fires **only** on
+transient infrastructure failures (connection errors, timeouts, `408/409/425/429/5xx`
+incl. `529` overloaded), with retry+backoff on each backend first. It does
+**not** fire on a safety **refusal**: a refusal comes back as `200` and is
+relayed to ARTEX unchanged. Config errors (`400/401/403/404`) also pass straight
+through so they stay visible. The shim never auto-reroutes a *declined* request
+to a less-restricted model — that would be circumventing a provider's safety
+decision, not reliability.
+
+### Setup
+
+1. Create the backend list (keys live here only; it's gitignored):
+   ```bash
+   cd ~/artex
+   cp llm-shim/backends.example.json llm-shim/backends.json
+   # edit backends.json: order = failover priority. Each backend's `model`
+   # overrides what ARTEX sends; `auth` is the full Authorization header value.
+   ```
+   All backends must speak the OpenAI chat-completions format — OpenAI and Groq
+   natively, and Anthropic via its OpenAI-compatible endpoint
+   (`https://api.anthropic.com/v1/chat/completions`, `auth: "Bearer sk-ant-…"`,
+   model `claude-opus-5-5`). Put your strongest/preferred provider first.
+2. Point ARTEX at the shim with a dummy key (real keys are in `backends.json`):
+   ```bash
+   set_kv() { grep -q "^$1=" .env && sed -i "s#^$1=.*#$1=$2#" .env || echo "$1=$2" >> .env; }
+   set_kv ARTEX_LLM_PROVIDER openai
+   set_kv ARTEX_LLM_BASE_URL http://llm-shim:8080/v1
+   set_kv OPENAI_API_KEY dummy
+   ```
+3. Build/start the shim and recreate ARTEX:
+   ```bash
+   docker compose --profile llm-shim up -d --build
+   docker compose up -d --force-recreate artex
+   ```
+
+The shim is internal-only (no published port); ARTEX reaches it as
+`http://llm-shim:8080`. Tune `max_retries_per_backend`, `backoff_base_seconds`,
+and `retry_statuses` in `backends.json`. To stop using it, point
+`ARTEX_LLM_BASE_URL` back at a direct endpoint and `docker compose --profile
+llm-shim down`.
 
 ## What to keep an eye on
 

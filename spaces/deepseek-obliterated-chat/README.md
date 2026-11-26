@@ -37,3 +37,20 @@ vllm serve OBLITERATUS/DeepSeek-V4.1-Flash-1017-obliterated \
   --tensor-parallel-size 8 --pipeline-parallel-size 2 \
   --api-key "$ENDPOINT_TOKEN"
 ```
+
+### Do NOT enable the reasoning parser
+
+Serve **without** `--reasoning-parser` / `--enable-reasoning`. With the parser
+on, vLLM splits each reply into `content` + a separate `reasoning_content`
+field. This Gradio UI copes (it only re-sends `content`), but any client that
+echoes the whole prior assistant message back — notably **ARTEX**
+(`ops/artex/`, pointed here via `ARTEX_LLM_BASE_URL`) — will resend
+`reasoning_content`, and vLLM's OpenAI input schema rejects it:
+
+```
+status 400: 'messages.N' : for 'role:assistant' ... property 'reasoning_content' is unsupported
+```
+
+Leaving the parser off keeps the chain-of-thought inline in `content`
+(`<think>…</think>`), so there's nothing invalid to echo and the round-trip
+stays valid. The model still reasons; only the wire format changes.

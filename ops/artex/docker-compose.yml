@@ -87,6 +87,42 @@ services:
       - ./config.json:/app/config.json:ro
     restart: unless-stopped
 
+  llm-shim:
+    # OPT-IN OpenAI-compatible reliability proxy for ARTEX. Two jobs:
+    #   1. Strips reasoning_content from each request (reasoning models return
+    #      it and ARTEX echoes it back -> strict upstreams 400 on messages.N).
+    #   2. Transient-only failover + retry/backoff across several backends
+    #      (e.g. Anthropic primary, OpenAI/Groq fallback). Failover fires ONLY
+    #      on 429/5xx/timeouts; a safety refusal (200) and config errors (4xx)
+    #      pass straight through to ARTEX, never rerouted. See proxy.py header.
+    #
+    # Enable it:
+    #   1. cp llm-shim/backends.example.json llm-shim/backends.json  (fill keys)
+    #   2. In .env: ARTEX_LLM_PROVIDER=openai,
+    #      ARTEX_LLM_BASE_URL=http://llm-shim:8080/v1, OPENAI_API_KEY=dummy
+    #   3. docker compose --profile llm-shim up -d --build
+    #      docker compose up -d --force-recreate artex
+    profiles: ["llm-shim"]
+    build:
+      context: ./llm-shim
+    image: artex-llm-shim:local
+    security_opt:
+      - "no-new-privileges:true"
+    environment:
+      LLM_SHIM_PORT: "8080"
+    volumes:
+      # Real keys live here only, mounted read-only; gitignored. Copy the
+      # example first or the container won't start (proxy.py needs a config).
+      - ./llm-shim/backends.json:/app/backends.json:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1',8080),2)"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    # Internal only: reachable by the artex container as http://llm-shim:8080.
+    # No host port published.
+
   caddy:
     # Public-facing TLS reverse proxy. Fetches a free Let's Encrypt cert for
     # the ARTEX_PUBLIC_HOST (A record on Vercel DNS → this VPS) and reverse
@@ -98,6 +134,12 @@ services:
       - artex
     environment:
       ARTEX_PUBLIC_HOST: ${ARTEX_PUBLIC_HOST:?set ARTEX_PUBLIC_HOST in .env}
+      # Edge basic-auth credentials (defense in depth in front of ARTEX's JWT).
+      # Empty here = Caddy falls back to its fail-closed default (console locked
+      # but /api/health up). Set both in .env to open the console. The hash has
+      # '$' chars, so single-quote it in .env; compose passes it through as-is.
+      ARTEX_UI_USER: ${ARTEX_UI_USER:-}
+      ARTEX_UI_PASSWORD_HASH: ${ARTEX_UI_PASSWORD_HASH:-}
     ports:
       - "0.0.0.0:80:80"
       - "0.0.0.0:443:443"
