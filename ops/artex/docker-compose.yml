@@ -146,6 +146,10 @@ services:
       GATEWAY_URL: https://${ARTEX_PUBLIC_HOST:?set ARTEX_PUBLIC_HOST in .env}
       BETTER_AUTH_SECRET: ${GATEWAY_BETTER_AUTH_SECRET:?set GATEWAY_BETTER_AUTH_SECRET in .env (openssl rand -hex 32)}
       GATEWAY_ADMIN_EMAIL: ${GATEWAY_ADMIN_EMAIL:?set GATEWAY_ADMIN_EMAIL in .env}
+      # Optional PIN fallback. Set a 4-8 digit value to enable the PIN tab
+      # on /login. Rotating the PIN requires deleting the admin's credential
+      # account row and restarting (see gateway README).
+      GATEWAY_ADMIN_PIN: ${GATEWAY_ADMIN_PIN:-}
       ARTEX_UPSTREAM_URL: http://artex:8787
     ports:
       # Localhost only — the gateway is not public; Caddy fronts it.

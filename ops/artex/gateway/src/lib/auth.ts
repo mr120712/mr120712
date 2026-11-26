@@ -51,7 +51,19 @@ export const auth = betterAuth({
 
   database: prismaAdapter(prisma, { provider: 'sqlite' }),
 
-  emailAndPassword: { enabled: false },
+  // PIN fallback: when GATEWAY_ADMIN_PIN is set in the env, the seed creates a
+  // Better Auth credential account for the admin whose password is that PIN.
+  // The /login page exposes an email+PIN form as a third sign-in option behind
+  // passkey. We lower minPasswordLength because a PIN is on purpose short; PIN
+  // brute-force is mitigated by the single-user allowlist and standard rate
+  // limiting. Disable sign-up outright — only the seed path creates accounts.
+  emailAndPassword: {
+    enabled: true,
+    minPasswordLength: 4,
+    maxPasswordLength: 64,
+    disableSignUp: true,
+    autoSignIn: false,
+  },
 
   session: {
     expiresIn: 60 * 60 * 24,
