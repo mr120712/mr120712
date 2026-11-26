@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 
 from bridge.cache import PromptCache
@@ -16,6 +16,7 @@ from bridge.errors import SubscriptionRateLimited
 from bridge.rate_limit import RateLimited, RateLimiter
 from bridge.schema import MessagesRequest, normalize_messages, normalize_system
 from bridge.sdk_adapter import SdkAdapter
+from bridge.sse import stream_error, stream_result
 
 
 def _anthropic_error(error_type: str, message: str, http_status: int) -> JSONResponse:
@@ -57,13 +58,6 @@ def build_app(
         except ValidationError as e:
             return _anthropic_error("invalid_request_error", e.errors()[0]["msg"], 400)
 
-        if req.stream:
-            return _anthropic_error(
-                "not_implemented",
-                "streaming (SSE) is not yet supported by this bridge; set ARTEX_LLM_STREAM=false",
-                501,
-            )
-
         system_str = normalize_system(req.system)
         msgs = normalize_messages(req.messages)
         tools = [t.model_dump() for t in req.tools] if req.tools else None
@@ -79,7 +73,11 @@ def build_app(
                 max_tokens=req.max_tokens,
             )
             if cached is not None:
-                return _success_response(cached)
+                return (
+                    _stream_response(cached)
+                    if req.stream
+                    else _success_response(cached)
+                )
 
         async def _invoke_adapter() -> dict[str, Any]:
             return await adapter.complete(
@@ -97,9 +95,13 @@ def build_app(
             else:
                 result = await _invoke_adapter()
         except RateLimited as e:
-            return _anthropic_error("rate_limit_error", str(e), 429)
+            return _stream_error_response(e, "rate_limit_error") if req.stream else (
+                _anthropic_error("rate_limit_error", str(e), 429)
+            )
         except SubscriptionRateLimited as e:
-            return _anthropic_error("rate_limit_error", str(e), 429)
+            return _stream_error_response(e, "rate_limit_error") if req.stream else (
+                _anthropic_error("rate_limit_error", str(e), 429)
+            )
 
         if cache is not None:
             await cache.set(
@@ -109,9 +111,25 @@ def build_app(
                 max_tokens=req.max_tokens,
                 value=result,
             )
-        return _success_response(result)
+        return _stream_response(result) if req.stream else _success_response(result)
 
     return app
+
+
+def _stream_response(result: dict[str, Any]) -> StreamingResponse:
+    return StreamingResponse(
+        stream_result(result),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+def _stream_error_response(exc: Exception, error_type: str) -> StreamingResponse:
+    return StreamingResponse(
+        stream_error(error_type, str(exc)),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 def _success_response(result: dict[str, Any]) -> JSONResponse:

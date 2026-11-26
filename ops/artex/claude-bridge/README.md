@@ -35,19 +35,27 @@ burning pay-per-token Anthropic/OpenAI credits.
 
 ## What it does NOT do (yet)
 
-- **No SSE streaming.** The bridge is non-streaming only. Set
-  `ARTEX_LLM_STREAM=false` in `.env` (the compose default does this).
-- **No parallel tool_use in a single turn.** The SDK's stream is read
-  sequentially; if the model emits multiple `tool_use` blocks in one
-  `AssistantMessage`, all are preserved, but we do not serialize/wait on
-  multiple MCP handler invocations because we break out of the stream on
-  the first turn.
 - **Lossy agent-loop replay.** When ARTEX sends the Nth follow-up, the bridge
   flattens the whole prior conversation (including tool_use/tool_result
   blocks) into a readable text prompt. The model sees this as context and
   decides the next step; it is not bit-identical to a native Anthropic API
   multi-turn session. For long loops you may see planner drift. Mitigation:
   keep `ARTEX_TASK_BUDGET_TURNS` moderate.
+
+## Streaming (SSE)
+
+`stream: true` is supported. The bridge collects the whole adapter response
+first and then emits the Anthropic SSE event sequence — `message_start`,
+`content_block_start/delta/stop` per block (text chunked as `text_delta`,
+tool_use serialized as `input_json_delta`), `message_delta`, `message_stop`.
+Rate-limit mid-stream becomes `event: error` on a 200 body, which ARTEX's Go
+client reads as a transient fault.
+
+**This is a fake stream**: there is NO latency win over the non-streaming
+path because we already have the full response when we start sending frames.
+The point is wire-protocol compatibility so ARTEX's SSE-reading code path
+works unchanged. You can leave `ARTEX_LLM_STREAM=true` if you prefer; the
+default we ship is `false` because it's a smaller surface for first debug.
 
 ## Setup
 
@@ -103,11 +111,12 @@ pip install -e '.[dev]'
 pytest
 ```
 
-45 tests covering wire shape, tool_use passthrough, cache, rate limit, wiring,
-schema normalizers (including the tool_use + tool_result flattening), and
-the SDK adapter (with the SDK mocked). The SDK is not exercised end-to-end
-here because that requires a logged-in `claude` CLI; the `curl` smoke test
-above fills that gap.
+51 tests covering wire shape, tool_use passthrough, SSE streaming (text +
+tool_use chunking, error frame), cache, rate limit, wiring, schema
+normalizers (including the tool_use + tool_result flattening), and the SDK
+adapter (with the SDK mocked). The SDK is not exercised end-to-end here
+because that requires a logged-in `claude` CLI; the `curl` smoke test above
+fills that gap.
 
 To drill the tool_use path end-to-end, a representative POST looks like:
 

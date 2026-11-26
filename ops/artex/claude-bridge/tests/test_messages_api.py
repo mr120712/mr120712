@@ -247,13 +247,11 @@ def test_missing_required_field_is_400(client: TestClient) -> None:
     assert err["error"]["type"] == "invalid_request_error"
 
 
-def test_streaming_requested_is_rejected_501(client: TestClient) -> None:
+def test_streaming_request_returns_event_stream(client: TestClient) -> None:
     body = _basic_body(stream=True)
     res = client.post("/v1/messages", json=body, headers={"x-api-key": "dummy"})
-    assert res.status_code == 501
-    err = res.json()
-    assert err["error"]["type"] == "not_implemented"
-    assert "stream" in err["error"]["message"].lower()
+    assert res.status_code == 200
+    assert res.headers["content-type"].startswith("text/event-stream")
 
 
 def test_rate_limited_returns_429(client: TestClient, adapter: FakeAdapter) -> None:
