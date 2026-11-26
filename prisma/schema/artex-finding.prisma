@@ -1,0 +1,36 @@
+// @polsia:user-owned — findings that ARTEX (the authorized offensive assessment running on the
+// owner's VPS against the Solco STAGING host) reports back to Solco. The ingest endpoint
+// (/api/admin/skynet/artex-finding, machine-auth) stores them here; the owner reviews them in
+// Amministrazione → Monitoraggio, and findings that name an attacker PROBE path feed the Skynet
+// scanner-rule corpus (src/lib/skynet/scanner-rules.ts) after the never-block-Solco safety check.
+
+/// One security finding reported by ARTEX. Defensive assessment only — no exploit payloads stored.
+model ArtexFinding {
+  id             String   @id @default(cuid())
+  receivedAt     DateTime @default(now())
+  /// Which ARTEX instance / host reported it (label only, never a secret).
+  source         String?
+  /// The assessed host, endpoint or path (e.g. the staging preview + /api/...).
+  target         String
+  /// critical | high | medium | low | info
+  severity       String
+  /// missing-auth | broken-access-control | csrf | cors | csp | security-headers |
+  /// info-leak | injection | scanner-probe | other
+  category       String
+  title          String
+  /// Short evidence summary (request/response shape). No credentials, no PoC exploit.
+  evidence       String?
+  recommendation String?
+  /// open | fixed | accepted_risk — the owner's remediation state.
+  status         String   @default("open")
+  /// For category=scanner-probe: the attacker path to add to the scanner corpus.
+  probePath      String?
+  /// Whether probePath passed the never-block-Solco safety check and feeds rule generation.
+  probeAccepted  Boolean  @default(false)
+  /// The validated finding payload as received, for audit.
+  raw            Json?
+
+  @@index([receivedAt])
+  @@index([status])
+  @@index([probeAccepted])
+}

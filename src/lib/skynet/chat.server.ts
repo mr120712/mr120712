@@ -30,6 +30,7 @@ import type { AdminVisitors } from '@/lib/contracts/admin-visitors';
 import type { MonitorHeartbeat, MonitorRun } from '@/lib/contracts/monitoring';
 import { prisma } from '@/lib/db';
 import { listHeartbeats, recentRuns } from '@/lib/monitoring/monitor.server';
+import { artexProbeSamples } from './artex-findings.server';
 import type { OwnerSource } from './autodefense';
 import {
   CHAT_SYSTEM,
@@ -498,7 +499,10 @@ async function scannerRules(deps: ChatDeps, secrets: readonly string[]): Promise
     : null;
   const sources = blocks ? ['blocchi delle ultime 24 ore'] : [];
   const missing = blocks ? [] : ['blocchi delle ultime 24 ore'];
-  const prompt = scannerRulesPrompt(brief);
+  // Enrich the corpus with attacker paths ARTEX reported (never-block-Solco checked at ingest).
+  // Degrades to [] if the store is unavailable, so rule generation never breaks.
+  const extraProbes = await artexProbeSamples().catch(() => [] as string[]);
+  const prompt = scannerRulesPrompt(brief, extraProbes);
   const deadline = Date.now() + AI_BUDGET_MS;
   for (const model of SKYNET_GPT6_MODELS) {
     const left = deadline - Date.now();

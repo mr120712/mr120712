@@ -278,8 +278,16 @@ Rispondi SOLO con un oggetto JSON, senza testo intorno, in questa forma:
 {"regole":[{"nome":"breve nome","regex":"^/\\\\.env","perche":"una frase in italiano"}]}`;
 
 /** Il messaggio per GPT-6: i percorsi di Solco da non toccare, esempi di sonde e i blocchi recenti. */
-export function scannerRulesPrompt(blocksBrief: string | null): string {
-  const probes = PROBE_SAMPLES.slice(0, 20).join('\n');
+export function scannerRulesPrompt(
+  blocksBrief: string | null,
+  extraProbes: readonly string[] = [],
+): string {
+  // Base probe corpus, plus any attacker paths ARTEX reported (deduped, capped). When extraProbes
+  // is empty the output is byte-identical to before. checkRule() still validates every proposed
+  // regex against SOLCO_PATHS, so an ARTEX probe can never yield a rule that blocks a real route.
+  const base = PROBE_SAMPLES.slice(0, 20);
+  const extra = extraProbes.filter((p) => p && !base.includes(p)).slice(0, 20);
+  const probes = [...base, ...extra].join('\n');
   return [
     '<percorsi_solco>',
     SOLCO_PATHS.join('\n'),
