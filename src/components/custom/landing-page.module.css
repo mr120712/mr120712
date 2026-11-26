@@ -6,16 +6,33 @@
   color: var(--foreground);
 }
 
-/* HERO compatto (niente video): sfondo brand, testo e pulsanti; i piani seguono subito sotto. */
+/* HERO compatto (niente video): sfondo brand + canvas vector-tunnel 4D sotto il testo. */
 .hero {
   position: relative;
   overflow: hidden;
   isolation: isolate;
+  min-height: 460px; /* garantisce area al tunnel anche con poco contenuto */
   color: #fff;
-  background: radial-gradient(130% 110% at 50% -5%, #1a0b2e 0%, #070310 62%, #040208 100%);
+  background: radial-gradient(130% 110% at 50% 10%, #06111f 0%, #05070e 56%, #02030a 100%);
 }
 
-/* Bagliori brand (viola in alto a sinistra, magenta in basso a destra). */
+/* Canvas del vector-tunnel: sotto gli alone di .hero::before/::after (z:2) e sotto il
+ * testo (.heroContent z:3), sopra lo sfondo. pointer-events:none per lasciare passare
+ * i click; il parallasse ascolta mousemove sulla <section> genitore. */
+.tunnel {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  display: block;
+  /* Fade progressivo verso il basso per non competere con i piani che seguono. */
+  mask-image: linear-gradient(to bottom, #000 0%, #000 72%, transparent 100%);
+}
+
+/* Bagliori brand ammorbiditi: cyan in alto-sinistra, magenta in basso-destra.
+ * Opacità ridotta per non annegare il canvas vector-tunnel che sta sotto. */
 .hero::before {
   content: "";
   position: absolute;
@@ -23,8 +40,8 @@
   z-index: 2;
   pointer-events: none;
   background:
-    radial-gradient(42% 30% at 16% 8%, rgba(139, 92, 246, 0.42), transparent 70%),
-    radial-gradient(46% 34% at 88% 88%, rgba(255, 46, 136, 0.42), transparent 72%);
+    radial-gradient(38% 28% at 12% 6%, rgba(0, 240, 255, 0.22), transparent 72%),
+    radial-gradient(44% 32% at 92% 94%, rgba(255, 45, 159, 0.22), transparent 74%);
   mix-blend-mode: screen;
 }
 
@@ -289,9 +306,9 @@
     0 0 48px rgba(255, 46, 136, 0.28);
 }
 
-/* Parola in evidenza: riempita col gradiente brand. */
+/* Parola in evidenza: riempita col gradiente Vector Arcade (cyan → violetto → magenta). */
 .titleAccent {
-  background: linear-gradient(100deg, #a78bfa 0%, #f472b6 48%, #fbbf24 100%);
+  background: linear-gradient(100deg, #00f0ff 0%, #a855f7 48%, #ff2d9f 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -383,15 +400,15 @@
     opacity 0.22s ease;
 }
 
-/* CTA primaria: gradiente brand con bagliore magenta. */
+/* CTA primaria: gradiente Vector Arcade (cyan → violetto → magenta) con alone cyan. */
 .primary {
-  background: linear-gradient(100deg, #8b5cf6 0%, #ec4899 48%, #f59e0b 100%);
+  background: linear-gradient(100deg, #00f0ff 0%, #a855f7 48%, #ff2d9f 100%);
   background-size: 150% 150%;
   background-position: 50% 50%;
-  /* Testo scuro: leggibile su tutto il gradiente (violetto, magenta e ambra). */
-  color: #190314;
+  /* Testo scuro: leggibile su tutto il gradiente (cyan, violetto, magenta). */
+  color: #03070d;
   box-shadow:
-    0 14px 40px -12px rgba(255, 46, 136, 0.6),
+    0 14px 40px -12px rgba(0, 240, 255, 0.55),
     inset 0 0 0 1px rgba(255, 255, 255, 0.2);
   animation: ctaShift 6s ease infinite;
 }
@@ -481,7 +498,7 @@
 }
 
 .signupsNumberValue {
-  background: linear-gradient(100deg, #a78bfa 0%, #f472b6 48%, #fbbf24 100%);
+  background: linear-gradient(100deg, #00f0ff 0%, #a855f7 48%, #ff2d9f 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -669,8 +686,8 @@
   left: 20px;
   padding: 3px 11px;
   border-radius: 999px;
-  background: linear-gradient(100deg, #8b5cf6, #ec4899, #f59e0b);
-  color: #190314;
+  background: linear-gradient(100deg, #00f0ff, #a855f7, #ff2d9f);
+  color: #03070d;
   font-size: 0.72rem;
   font-weight: 800;
   letter-spacing: 0.02em;
@@ -760,9 +777,9 @@
 }
 
 .planCtaPrimary {
-  background: linear-gradient(100deg, #8b5cf6, #ec4899, #f59e0b);
-  color: #190314;
-  box-shadow: 0 10px 30px -12px rgba(255, 46, 136, 0.6);
+  background: linear-gradient(100deg, #00f0ff, #a855f7, #ff2d9f);
+  color: #03070d;
+  box-shadow: 0 10px 30px -12px rgba(0, 240, 255, 0.55);
 }
 
 .planCtaPrimary:hover {
