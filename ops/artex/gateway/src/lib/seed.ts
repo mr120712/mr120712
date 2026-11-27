@@ -90,10 +90,7 @@ export async function seed(): Promise<void> {
       console.log('[gateway:seed] admin password set (first boot)');
     }
 
-    // Self-test: read the hash back from disk and verify it against the
-    // same env value we just hashed. If this comes back false, something
-    // between us and the DB is mangling the hash (string trimming, Prisma
-    // field coercion, SQLite encoding). Logs loudly either way.
+    // Self-test A: raw hash roundtrip at the DB layer.
     const afterWrite = await prisma.account.findFirst({
       where: { userId: user.id, providerId: 'credential' },
       select: { password: true },
@@ -104,14 +101,31 @@ export async function seed(): Promise<void> {
       : false;
     // eslint-disable-next-line no-console
     console.log(
-      `[gateway:seed] self-test: hash.len=${hash.length} stored.len=${storedHash.length} verify=${roundTrip}`,
+      `[gateway:seed] self-test A: hash.len=${hash.length} stored.len=${storedHash.length} verify=${roundTrip}`,
     );
-    if (!roundTrip) {
+
+    // Self-test B: full sign-in through Better Auth's own API, same path the
+    // HTTP endpoint takes. If this fails while A succeeds, the bug is in the
+    // adapter's findOne lookup by username (schema mismatch) or in a plugin
+    // hook, not in the hash.
+    try {
+      const result = await auth.api.signInUsername({
+        body: { username, password },
+      });
+      // eslint-disable-next-line no-console
+      console.log(
+        `[gateway:seed] self-test B: signInUsername OK, token.length=${(result as { token?: string } | undefined)?.token?.length ?? 0}`,
+      );
+    } catch (err) {
       // eslint-disable-next-line no-console
       console.error(
-        '[gateway:seed] SELF-TEST FAILED: sign-in with the configured credentials will NOT work. ' +
-          'Check GATEWAY_ADMIN_PASSWORD for stray whitespace or invisible characters.',
+        '[gateway:seed] self-test B FAILED (signInUsername threw):',
+        err instanceof Error ? `${err.name}: ${err.message}` : err,
       );
+      if (err instanceof Error && err.stack) {
+        // eslint-disable-next-line no-console
+        console.error(err.stack.split('\n').slice(0, 5).join('\n'));
+      }
     }
   } catch (err) {
     // eslint-disable-next-line no-console
