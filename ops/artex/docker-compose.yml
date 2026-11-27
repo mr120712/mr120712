@@ -75,6 +75,13 @@ services:
       # Bridge supports both streaming and non-streaming. Default is non-stream
       # for first debug; flip to true for SSE.
       ARTEX_LLM_STREAM: ${ARTEX_LLM_STREAM:-false}
+      # ARTEX's /api/llm/models endpoint refuses LLM URLs that resolve to
+      # private / loopback addresses unless the exact host:port is listed
+      # here. The claude-bridge sibling lives on the internal compose network
+      # (an RFC1918 address), so we whitelist it once; without this the UI
+      # replies "endpoint URL host is not allowed" when you try to save a
+      # profile pointing at http://claude-bridge:5000.
+      ARTEX_LLM_PRIVATE_ENDPOINTS: ${ARTEX_LLM_PRIVATE_ENDPOINTS:-claude-bridge:5000}
       ARTEX_JWT_KEY_DIR: /app/keys
       ARTEX_SECRET_KEY: ${ARTEX_SECRET_KEY:-}
       ARTEX_TRUSTED_PROXIES: ${ARTEX_TRUSTED_PROXIES:-}
