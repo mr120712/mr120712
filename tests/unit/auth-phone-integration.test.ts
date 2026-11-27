@@ -403,7 +403,11 @@ describe('token OAuth nel database (better-auth reale)', () => {
       idToken: { token: 'intestazione.contenuto.firma' },
     });
 
-    expect(res.status).toBe(401);
+    // In better-auth 1.6 lo shortcut via idToken rispondeva 401 (non autorizzato);
+    // in 1.7 la branch idToken di `/sign-in/social` è stata rimossa del tutto, quindi
+    // la stessa richiesta cade su 404. Entrambi soddisfano la proprietà di sicurezza
+    // che il test verifica — nessuna sessione, nessun utente, nessuna chiave scaricata.
+    expect([401, 404]).toContain(res.status);
     expect(db.session ?? []).toHaveLength(0);
     expect(db.user ?? []).toHaveLength(0);
     // Rifiutato prima di scaricare le chiavi di Apple: il percorso è proprio chiuso.

@@ -86,8 +86,10 @@ export function GoogleSignInButton({
   async function handleClick() {
     setPending(true);
     setError(undefined);
-    const { error: signInError } = await authClient.signIn.oauth2({
-      providerId: GOOGLE_PROVIDER_ID,
+    // better-auth 1.7: generic OAuth providers go through `signIn.social` (the plugin
+    // now registers them on the core social surface instead of a dedicated oauth2 endpoint).
+    const { error: signInError } = await authClient.signIn.social({
+      provider: GOOGLE_PROVIDER_ID,
       callbackURL,
       errorCallbackURL: errorReturnURL(errorCallbackURL),
     });

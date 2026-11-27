@@ -34,15 +34,17 @@ function errorCode(error: unknown) {
   return 'provider_error';
 }
 
-/** Google is the generic OAuth provider `google` registered by the framework (src/lib/auth.ts). */
+/**
+ * Google is the generic OAuth provider `google` registered by the framework (src/lib/auth.ts).
+ * In better-auth 1.7 generic providers share the same `signIn.social` surface as the built-in
+ * ones; the provider id ('google') is identical to what the generic-oauth config declares.
+ */
 function startProvider(provider: SocialProvider, callbackURL: string) {
   const options = {
     callbackURL: safeAuthDestination(callbackURL),
     errorCallbackURL: socialAuthErrorCallbackURL(provider, callbackURL),
   };
-  return provider === 'google'
-    ? signIn.oauth2({ providerId: 'google', ...options })
-    : signIn.social({ provider: 'apple', ...options });
+  return signIn.social({ provider, ...options });
 }
 
 export function SocialSignInButtons({ callbackURL }: { callbackURL: string }) {
