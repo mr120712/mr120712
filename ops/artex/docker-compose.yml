@@ -143,6 +143,13 @@ services:
       BRIDGE_UPSTREAM_RETRY_ATTEMPTS: ${BRIDGE_UPSTREAM_RETRY_ATTEMPTS:-10}
       BRIDGE_UPSTREAM_RETRY_BASE_SECONDS: ${BRIDGE_UPSTREAM_RETRY_BASE_SECONDS:-5}
       BRIDGE_UPSTREAM_RETRY_CAP_SECONDS: ${BRIDGE_UPSTREAM_RETRY_CAP_SECONDS:-60}
+      # When the SDK gives us a resets_at (the Unix timestamp the subscription
+      # window opens again — e.g. five_hour), the bridge waits until that
+      # instant instead of guessing with exp backoff. This caps a SINGLE such
+      # wait: a reset further than this (e.g. seven_day) falls back to exp
+      # backoff instead of hanging the request for a week. Default 6h =
+      # rides out a five_hour window fully.
+      BRIDGE_RESET_WAIT_CAP_SECONDS: ${BRIDGE_RESET_WAIT_CAP_SECONDS:-21600}
       BRIDGE_CACHE_TTL_SECONDS: ${BRIDGE_CACHE_TTL_SECONDS:-3600}
       BRIDGE_CACHE_PATH: /data/cache.sqlite
       BRIDGE_LOG_LEVEL: ${BRIDGE_LOG_LEVEL:-INFO}

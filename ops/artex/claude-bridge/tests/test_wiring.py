@@ -125,6 +125,106 @@ async def test_upstream_rate_limit_retries_then_succeeds(tmp_path) -> None:
         await cache.close()
 
 
+async def test_upstream_rate_limit_waits_until_resets_at(tmp_path) -> None:
+    # Adapter raises once with a resets_at ~0.3s away, then succeeds. The
+    # route must honor the honest-wait path (not exp backoff) and the second
+    # attempt lands immediately after the window opens.
+    import time
+
+    class ResetsAdapter(SdkAdapter):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def complete(self, *, system, messages, model, max_tokens, tools=None):
+            self.calls += 1
+            if self.calls == 1:
+                raise SubscriptionRateLimited(
+                    "five_hour hit",
+                    resets_at=int(time.time()) + 1,  # ~1s in the future
+                    rate_limit_type="five_hour",
+                )
+            return {
+                "content": [{"type": "text", "text": f"reply-{self.calls}"}],
+                "stop_reason": "end_turn",
+                "input_tokens": 1,
+                "output_tokens": 1,
+                "model": model,
+            }
+
+    adapter = ResetsAdapter()
+    cache = PromptCache(path=str(tmp_path / "c.sqlite"), ttl_seconds=60)
+    await cache.open()
+    try:
+        limiter = RateLimiter(max_rps=0.0, max_concurrency=0)
+        # Huge base_seconds so if exp backoff DID fire, the test would time
+        # out. Reset-wait must prefer resets_at.
+        retry = UpstreamRetry(
+            attempts=3,
+            base_seconds=600.0,
+            cap_seconds=600.0,
+            reset_wait_cap_seconds=30.0,
+            reset_wait_jitter_seconds=0.1,
+        )
+        app = build_app(adapter=adapter, cache=cache, limiter=limiter, upstream_retry=retry)
+        with TestClient(app) as c:
+            t0 = time.monotonic()
+            r = c.post("/v1/messages", json=_body(), headers={"x-api-key": "dummy"})
+            elapsed = time.monotonic() - t0
+        assert r.status_code == 200, r.json()
+        assert adapter.calls == 2
+        # Should have waited ~1s, not 600s.
+        assert 0.5 <= elapsed <= 5.0, f"expected ~1s honest wait, got {elapsed:.3f}s"
+    finally:
+        await cache.close()
+
+
+async def test_resets_at_beyond_cap_falls_back_to_backoff(tmp_path) -> None:
+    # resets_at says 1 hour out, but cap is 0.2s. Route must fall through
+    # to exp backoff instead of hanging for an hour.
+    import time
+
+    class FarResetsAdapter(SdkAdapter):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def complete(self, *, system, messages, model, max_tokens, tools=None):
+            self.calls += 1
+            if self.calls <= 1:
+                raise SubscriptionRateLimited(
+                    "seven_day hit",
+                    resets_at=int(time.time()) + 3600,
+                    rate_limit_type="seven_day",
+                )
+            return {
+                "content": [{"type": "text", "text": "ok"}],
+                "stop_reason": "end_turn",
+                "input_tokens": 1, "output_tokens": 1, "model": model,
+            }
+
+    adapter = FarResetsAdapter()
+    cache = PromptCache(path=str(tmp_path / "c.sqlite"), ttl_seconds=60)
+    await cache.open()
+    try:
+        limiter = RateLimiter(max_rps=0.0, max_concurrency=0)
+        retry = UpstreamRetry(
+            attempts=3,
+            base_seconds=0.05,  # tiny backoff so test is fast
+            cap_seconds=0.1,
+            reset_wait_cap_seconds=1.0,  # resets_at 3600s > 1s cap
+        )
+        app = build_app(adapter=adapter, cache=cache, limiter=limiter, upstream_retry=retry)
+        with TestClient(app) as c:
+            t0 = time.monotonic()
+            r = c.post("/v1/messages", json=_body(), headers={"x-api-key": "dummy"})
+            elapsed = time.monotonic() - t0
+        assert r.status_code == 200, r.json()
+        assert adapter.calls == 2
+        # Backoff path: ~0.05s, not an hour.
+        assert elapsed < 1.0, f"should have taken backoff, got {elapsed:.3f}s"
+    finally:
+        await cache.close()
+
+
 async def test_upstream_rate_limit_exhausts_retries_returns_429(tmp_path) -> None:
     # Adapter always raises. After `attempts` tries the route gives up and
     # returns 429 with Anthropic-shape error body.

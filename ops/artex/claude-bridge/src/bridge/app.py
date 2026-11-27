@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -26,18 +27,35 @@ log = logging.getLogger("artex-claude-bridge")
 
 @dataclass(frozen=True)
 class UpstreamRetry:
-    """Exponential-backoff policy for upstream SubscriptionRateLimited.
+    """Policy for upstream SubscriptionRateLimited.
 
-    attempts counts TOTAL attempts, not retries. attempts=1 == old behavior
-    (first failure returns 429). Sleep between attempt N (1-indexed) and
-    N+1 is min(base * 2**(N-1), cap). After `attempts` tries, we give up
-    and return 429 so ARTEX can decide; with unlimited budgets ARTEX will
-    retry on its own."""
+    Two layers of back-off:
+
+    1. If the SDK gave us a `resets_at` (Unix timestamp) on the exception,
+       sleep until that instant plus a small jitter and retry. This is the
+       honest path for the five_hour / seven_day windows: we know exactly
+       when the quota opens again, so there's no point guessing.
+       `reset_wait_cap_seconds` is the ceiling on a single such wait: if
+       the reported reset is further out than this, we give up on the
+       reset-wait path and FALL THROUGH to exponential backoff (and then
+       if that also exhausts, 429). Default 6h -> long enough to ride out
+       a five_hour window fully, short enough that a seven_day window
+       surfaces to ARTEX instead of hanging the request for a week.
+
+    2. Otherwise exponential backoff: sleep min(base * 2**(N-1), cap)
+       between attempt N and N+1, up to `attempts` total tries.
+
+    `attempts` counts TOTAL attempts, not retries. `attempts=1` == first
+    failure returns 429. After `attempts` tries (whichever path), we
+    give up and 429 so ARTEX can decide; with unlimited budgets ARTEX
+    retries on its own."""
     attempts: int = 1
     base_seconds: float = 5.0
     cap_seconds: float = 60.0
+    reset_wait_cap_seconds: float = 6 * 60 * 60  # 6 hours
+    reset_wait_jitter_seconds: float = 5.0
 
-    def sleep_for(self, attempt_index: int) -> float:
+    def backoff_sleep_for(self, attempt_index: int) -> float:
         # attempt_index is the 1-indexed try that just failed.
         return min(self.base_seconds * (2 ** (attempt_index - 1)), self.cap_seconds)
 
@@ -125,12 +143,30 @@ def build_app(
                     last_exc = exc
                     if attempt >= retry.attempts:
                         break
-                    sleep_s = retry.sleep_for(attempt)
-                    log.warning(
-                        "subscription rate limit on attempt %d/%d (%s); "
-                        "sleeping %.1fs before retry",
-                        attempt, retry.attempts, exc, sleep_s,
-                    )
+                    # Prefer the honest wait if the SDK told us when the
+                    # window resets AND it's within the cap.
+                    sleep_s: float | None = None
+                    resets_at = getattr(exc, "resets_at", None)
+                    rl_type = getattr(exc, "rate_limit_type", None)
+                    if isinstance(resets_at, int):
+                        now_s = time.time()
+                        remaining = resets_at - now_s + retry.reset_wait_jitter_seconds
+                        if 0 < remaining <= retry.reset_wait_cap_seconds:
+                            sleep_s = remaining
+                            log.warning(
+                                "subscription rate limit on attempt %d/%d "
+                                "(type=%s); window resets at %d (~%.0fs); "
+                                "waiting that long",
+                                attempt, retry.attempts, rl_type,
+                                resets_at, remaining,
+                            )
+                    if sleep_s is None:
+                        sleep_s = retry.backoff_sleep_for(attempt)
+                        log.warning(
+                            "subscription rate limit on attempt %d/%d "
+                            "(type=%s, no usable resets_at); exp backoff %.1fs",
+                            attempt, retry.attempts, rl_type, sleep_s,
+                        )
                     await asyncio.sleep(sleep_s)
             assert last_exc is not None
             raise last_exc

@@ -4,7 +4,21 @@ from __future__ import annotations
 
 class SubscriptionRateLimited(Exception):
     """Raised by the SDK adapter when the Claude Code subscription window is
-    exhausted. The route handler maps it to Anthropic's `rate_limit_error`."""
+    exhausted. Carries, when the SDK provided one, the Unix timestamp at
+    which the limiting window resets (`resets_at`) and the rate-limit type
+    (`five_hour`, `seven_day`, ...). The route handler uses those to wait
+    until the real reset instead of guessing with exp backoff."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        resets_at: int | None = None,
+        rate_limit_type: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.resets_at = resets_at
+        self.rate_limit_type = rate_limit_type
 
 
 class SdkAuthRequired(Exception):

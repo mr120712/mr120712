@@ -118,9 +118,17 @@ class ClaudeSdkAdapter(SdkAdapter):
                 info = getattr(msg, "rate_limit_info", None)
                 if info is not None:
                     if getattr(info, "status", None) == "rejected":
+                        rl_type = getattr(info, "rate_limit_type", None)
+                        rl_reset = getattr(info, "resets_at", None)
+                        # Prefer the primary resets_at; fall back to overage
+                        # if the primary window is already closed.
+                        if rl_reset is None:
+                            rl_reset = getattr(info, "overage_resets_at", None)
                         raise SubscriptionRateLimited(
                             f"Claude Code subscription rate limit rejected "
-                            f"(type={getattr(info, 'rate_limit_type', None)})"
+                            f"(type={rl_type})",
+                            resets_at=rl_reset,
+                            rate_limit_type=rl_type,
                         )
                     continue
 
@@ -132,8 +140,16 @@ class ClaudeSdkAdapter(SdkAdapter):
 
                 if is_result:
                     if terminal_reason == "rate_limit" or api_error_status == 429:
+                        # ResultMessage may also carry rate_limit_info.
+                        rl_info = getattr(msg, "rate_limit_info", None)
+                        rl_type = getattr(rl_info, "rate_limit_type", None) if rl_info else None
+                        rl_reset = getattr(rl_info, "resets_at", None) if rl_info else None
+                        if rl_info is not None and rl_reset is None:
+                            rl_reset = getattr(rl_info, "overage_resets_at", None)
                         raise SubscriptionRateLimited(
-                            "Claude Code subscription rate limit on terminal ResultMessage"
+                            "Claude Code subscription rate limit on terminal ResultMessage",
+                            resets_at=rl_reset,
+                            rate_limit_type=rl_type,
                         )
                     if msg_usage:
                         usage = msg_usage

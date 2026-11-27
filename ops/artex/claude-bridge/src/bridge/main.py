@@ -52,6 +52,12 @@ async def _amain() -> None:
     retry_attempts = _int("BRIDGE_UPSTREAM_RETRY_ATTEMPTS", 10)
     retry_base = _float("BRIDGE_UPSTREAM_RETRY_BASE_SECONDS", 5.0)
     retry_cap = _float("BRIDGE_UPSTREAM_RETRY_CAP_SECONDS", 60.0)
+    # Cap on a single wait-until-reset sleep. When the SDK tells us the
+    # window resets in more than this many seconds (e.g. a seven_day
+    # window), fall back to exp backoff instead of hanging the request.
+    # Default 6h rides out a five_hour window; raise if you're willing
+    # to hang on seven_day windows.
+    reset_wait_cap = _float("BRIDGE_RESET_WAIT_CAP_SECONDS", 6 * 60 * 60)
     port = _int("BRIDGE_PORT", 5000)
     host = os.environ.get("BRIDGE_HOST", "0.0.0.0")
 
@@ -61,7 +67,10 @@ async def _amain() -> None:
     await cache.open()
     limiter = RateLimiter(max_rps=max_rps, max_concurrency=max_conc)
     upstream_retry = UpstreamRetry(
-        attempts=retry_attempts, base_seconds=retry_base, cap_seconds=retry_cap
+        attempts=retry_attempts,
+        base_seconds=retry_base,
+        cap_seconds=retry_cap,
+        reset_wait_cap_seconds=reset_wait_cap,
     )
     adapter = ClaudeSdkAdapter()
 
@@ -71,7 +80,8 @@ async def _amain() -> None:
 
     log.info(
         "bridge up: host=%s port=%d max_rps=%s max_concurrency=%d "
-        "retry_attempts=%d retry_base=%.1fs retry_cap=%.1fs cache=%s ttl=%ds",
+        "retry_attempts=%d retry_base=%.1fs retry_cap=%.1fs "
+        "reset_wait_cap=%.0fs cache=%s ttl=%ds",
         host,
         port,
         max_rps,
@@ -79,6 +89,7 @@ async def _amain() -> None:
         retry_attempts,
         retry_base,
         retry_cap,
+        reset_wait_cap,
         cache_path,
         cache_ttl,
     )
