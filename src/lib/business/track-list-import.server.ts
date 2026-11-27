@@ -4,8 +4,9 @@
 import 'server-only';
 import { createHash } from 'node:crypto';
 import { type ImportedTrack, songIdentity } from '@/lib/business/track-list-import';
+import type { YouTubeVideoSearchResult } from '@/lib/contracts/music';
 import { prisma } from '@/lib/db';
-import { isFavoritesName } from '@/lib/music/collections.server';
+import { isFavoritesName, youtubeMetadataExpiry } from '@/lib/music/collections.server';
 
 /** Same artist + title → same id, whatever the spelling, accents or punctuation. */
 export function songSourceId(title: string, artist: string | null) {
@@ -140,6 +141,121 @@ export async function upsertSpotifySongPlaylist(
       data: tracks.map((track, index) => ({
         collectionId: existing.id,
         ...songItemData(track, new Date(now - index)),
+      })),
+    }),
+    prisma.userMusicCollection.update({
+      where: { id: existing.id },
+      data: { updatedAt: new Date() },
+    }),
+  ]);
+
+  return { collectionId: existing.id, name: existing.name, created: false, added, removed };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Playlist di video YouTube importate dall'account collegato (source 'youtube', riferimenti al
+// videoId). A differenza delle "song" Spotify, qui abbiamo già il videoId: si salva il riferimento
+// diretto (riprodotto on-demand) con scadenza metadati come gli altri item YouTube. `youtubeSource`
+// = 'playlist:<id>' così "Aggiorna da YouTube" risincronizza la stessa playlist a specchio.
+
+/** Dati di un item 'youtube' per una collection (per create/mirror). */
+export function youtubeVideoItemData(
+  video: YouTubeVideoSearchResult,
+  createdAt: Date,
+  expiresAt: Date,
+) {
+  return {
+    source: 'youtube',
+    sourceId: video.videoId,
+    title: video.title,
+    creatorName: video.channelTitle,
+    artworkUrl: video.thumbnailUrl,
+    sourceUrl: `https://www.youtube.com/watch?v=${encodeURIComponent(video.videoId)}`,
+    artistUrl: null,
+    durationSeconds: null,
+    // Items are listed newest first: decreasing timestamps keep the source order.
+    createdAt,
+    expiresAt,
+  };
+}
+
+export async function createYouTubeVideoPlaylist(
+  userId: string,
+  wantedName: string,
+  videos: YouTubeVideoSearchResult[],
+  youtubeSource: string | null = null,
+): Promise<{ collectionId: string; name: string }> {
+  for (let attempt = 0; ; attempt += 1) {
+    const name = await availableCollectionName(userId, wantedName);
+    const now = Date.now();
+    const expiresAt = youtubeMetadataExpiry();
+    try {
+      const collection = await prisma.userMusicCollection.create({
+        data: {
+          userId,
+          name,
+          kind: 'playlist',
+          youtubeSource,
+          items: {
+            create: videos.map((video, index) =>
+              youtubeVideoItemData(video, new Date(now - index), expiresAt),
+            ),
+          },
+        },
+      });
+      return { collectionId: collection.id, name };
+    } catch (error) {
+      if (attempt < 2 && isUniqueViolation(error)) continue;
+      throw error;
+    }
+  }
+}
+
+/**
+ * Upsert di una playlist importata dall'account YouTube, identificata da `youtubeSource`. Se non
+ * esiste la crea; se esiste la aggiorna a SPECCHIO ESATTO dei suoi item 'youtube' (aggiunge i nuovi,
+ * rimuove quelli non più presenti), preservando l'id della playlist (condivisione/cartella) ed
+ * eventuali item non-'youtube'. `videos` è già deduplicato per videoId.
+ */
+export async function upsertYouTubeVideoPlaylist(
+  userId: string,
+  youtubeSource: string,
+  wantedName: string,
+  videos: YouTubeVideoSearchResult[],
+): Promise<UpsertResult> {
+  const existing = await prisma.userMusicCollection.findFirst({
+    where: { userId, youtubeSource },
+    select: { id: true, name: true },
+  });
+  if (!existing) {
+    const { collectionId, name } = await createYouTubeVideoPlaylist(
+      userId,
+      wantedName,
+      videos,
+      youtubeSource,
+    );
+    return { collectionId, name, created: true, added: videos.length, removed: 0 };
+  }
+
+  const current = await prisma.userMusicCollectionItem.findMany({
+    where: { collectionId: existing.id, source: 'youtube' },
+    select: { sourceId: true },
+  });
+  const oldIds = new Set(current.map((item) => item.sourceId));
+  const newIds = new Set(videos.map((video) => video.videoId));
+  const added = [...newIds].filter((id) => !oldIds.has(id)).length;
+  const removed = [...oldIds].filter((id) => !newIds.has(id)).length;
+
+  const now = Date.now();
+  const expiresAt = youtubeMetadataExpiry();
+  await prisma.$transaction([
+    prisma.userMusicCollectionItem.deleteMany({
+      where: { collectionId: existing.id, source: 'youtube' },
+    }),
+    prisma.userMusicCollectionItem.createMany({
+      data: videos.map((video, index) => ({
+        collectionId: existing.id,
+        ...youtubeVideoItemData(video, new Date(now - index), expiresAt),
       })),
     }),
     prisma.userMusicCollection.update({

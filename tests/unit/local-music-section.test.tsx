@@ -123,6 +123,9 @@ vi.mock('@/components/custom/music/music-collections', () => ({
   MusicCollections: () => <p>Playlist finte</p>,
 }));
 vi.mock('@/components/custom/music/spotify-import', () => ({ SpotifyImport: () => null }));
+vi.mock('@/components/custom/music/youtube-account-import', () => ({
+  YouTubeAccountImport: () => null,
+}));
 vi.mock('@/components/custom/music/track-list-import', () => ({ TrackListImport: () => null }));
 vi.mock('@/components/custom/music/ai-organize', () => ({ AiOrganize: () => null }));
 

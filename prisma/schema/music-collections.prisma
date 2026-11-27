@@ -20,6 +20,12 @@ model UserMusicCollection {
   /// bloccherebbe `prisma db push` sul deploy; l'unicità per (userId, spotifySource) la garantisce
   /// il codice.
   spotifySource String?
+  /// Sorgente YouTube da cui la playlist è stata importata/sincronizzata dall'account collegato:
+  /// 'playlist:<id>'. null = non importata da YouTube. L'"Aggiorna da YouTube" ritrova per questa
+  /// chiave la stessa playlist e la risincronizza (specchio esatto) invece di crearne una nuova.
+  /// Indice NON unico (come spotifySource): un nuovo vincolo unico bloccherebbe `prisma db push`
+  /// sul deploy; l'unicità per (userId, youtubeSource) la garantisce il codice.
+  youtubeSource String?
   /// Descrizione scritta dal proprietario (solo playlist, mai i Preferiti): testo semplice, già
   /// ripulito dal server (max 300 caratteri, niente caratteri di controllo, al massimo una riga
   /// vuota di seguito). null = nessuna descrizione. Colonna facoltativa: `prisma db push` la
@@ -34,6 +40,7 @@ model UserMusicCollection {
   @@index([folderId])
   @@index([shareId])
   @@index([userId, spotifySource])
+  @@index([userId, youtubeSource])
 }
 
 model UserMusicCollectionItem {
