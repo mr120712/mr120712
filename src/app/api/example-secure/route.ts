@@ -12,6 +12,7 @@ import 'server-only';
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { requireAuth, type SessionUser } from '@/lib/require-auth';
+import { sameOrigin } from '@/lib/same-origin';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,6 +38,10 @@ export async function GET(_req: Request) {
 // POST /api/example-secure — create a row owned by the caller. The owner is the
 // session user, never a userId from the request body.
 export async function POST(req: Request) {
+  // CSRF: cookie-authed mutations MUST reject cross-origin requests first.
+  if (!sameOrigin(req)) {
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  }
   let user: SessionUser;
   try {
     user = await requireAuth(req);
@@ -65,6 +70,9 @@ export async function POST(req: Request) {
 // owner in the WHERE so it updates 0 rows when the id isn't the caller's:
 //   prisma.item.updateMany({ where: { id, userId: user.id }, data })
 export async function PATCH(req: Request) {
+  if (!sameOrigin(req)) {
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+  }
   let user: SessionUser;
   try {
     user = await requireAuth(req);

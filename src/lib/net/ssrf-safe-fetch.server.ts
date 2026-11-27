@@ -25,13 +25,48 @@ import { Readable } from 'node:stream';
  * IPv4-mapped come `::ffff:10.0.0.1`). Un valore che non è un IP valido è trattato
  * come non sicuro (true), così non può mai passare.
  */
+/**
+ * Se un indirizzo IPv6 incorpora un IPv4 negli ultimi 32 bit (IPv4-mapped `::ffff:a.b.c.d`
+ * o IPv4-compatible `::a.b.c.d`, in forma puntata O esadecimale come `::ffff:a9fe:a9fe`, e anche
+ * nella forma estesa `0:0:0:0:0:ffff:a9fe:a9fe`), ne restituisce la forma puntata; altrimenti null.
+ * Serve a non lasciar passare `169.254.169.254` travestito da esadecimale IPv6.
+ */
+function embeddedIpv4(v6: string): string | null {
+  // Forma puntata: ::ffff:1.2.3.4 oppure ::1.2.3.4
+  const dotted = /^(?:::ffff:|::)(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(v6);
+  if (dotted?.[1]) return dotted[1];
+  // Espandi un solo "::" a 8 gruppi da 16 bit.
+  const halves = v6.split('::');
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 ? (halves[1] ? halves[1].split(':') : []) : null;
+  let groups: string[];
+  if (tail === null) {
+    groups = head;
+  } else {
+    const missing = 8 - (head.length + tail.length);
+    if (missing < 0) return null;
+    groups = [...head, ...Array(missing).fill('0'), ...tail];
+  }
+  if (groups.length !== 8) return null;
+  const nums = groups.map((g) => Number.parseInt(g, 16));
+  if (nums.some((n) => Number.isNaN(n) || n < 0 || n > 0xffff)) return null;
+  const [g0, g1, g2, g3, g4, g5, g6 = 0, g7 = 0] = nums;
+  // Ultimi 32 bit = IPv4 solo quando i primi 96 bit sono mapped (::ffff:) o compatible (::).
+  const highZero = g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0;
+  if (highZero && (g5 === 0xffff || g5 === 0)) {
+    return `${g6 >> 8}.${g6 & 255}.${g7 >> 8}.${g7 & 255}`;
+  }
+  return null;
+}
+
 export function isPrivateAddress(address: string): boolean {
   const kind = isIP(address);
   if (kind === 6) {
     const lower = address.toLowerCase();
-    // IPv4-mapped (::ffff:a.b.c.d) o IPv4-compatible (::a.b.c.d): estrai e ricontrolla.
-    const embedded = /^(?:::ffff:|::)(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/.exec(lower);
-    if (embedded?.[1]) return isPrivateAddress(embedded[1]);
+    // IPv4 incorporato (puntato o esadecimale, compresso o esteso): estrai e ricontrolla.
+    const embedded = embeddedIpv4(lower);
+    if (embedded) return isPrivateAddress(embedded);
     return (
       lower === '::1' || // loopback
       lower === '::' || // unspecified

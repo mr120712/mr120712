@@ -23,16 +23,14 @@ const CORS: Record<string, string> = {
 };
 const BASE_HEADERS = { 'cache-control': 'no-store', ...CORS };
 
-/** Il token: prima dall'header Authorization: Bearer, poi da ?key= (per i client solo-URL). */
+/**
+ * Il token SOLO dall'header `Authorization: Bearer`. Niente `?key=` in URL: il segreto condiviso
+ * (riusato anche da /api/ai-reserve e /api/artex-admin) finirebbe nei log del proxy/CDN e nel
+ * Referer. I client MCP solo-URL devono mandare l'header.
+ */
 function mcpToken(request: Request): string | null {
   const header = (request.headers.get('authorization') ?? '').trim();
-  const fromHeader = /^Bearer\s+(.+)$/i.exec(header)?.[1]?.trim();
-  if (fromHeader) return fromHeader;
-  try {
-    return new URL(request.url).searchParams.get('key')?.trim() || null;
-  } catch {
-    return null;
-  }
+  return /^Bearer\s+(.+)$/i.exec(header)?.[1]?.trim() || null;
 }
 
 function rpcError(

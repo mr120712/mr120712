@@ -32,6 +32,10 @@ describe('isPrivateAddress', () => {
     'ff02::1', // multicast
     '::ffff:127.0.0.1', // IPv4-mapped loopback
     '::ffff:10.0.0.1', // IPv4-mapped private
+    '::ffff:a9fe:a9fe', // IPv4-mapped 169.254.169.254 in HEX form (the bypass we closed)
+    '0:0:0:0:0:ffff:a9fe:a9fe', // same, expanded
+    '::ffff:7f00:1', // IPv4-mapped 127.0.0.1 in hex
+    '::a9fe:a9fe', // IPv4-compatible 169.254.169.254 in hex
     'not-an-ip', // non-IP → treated unsafe
   ];
   for (const addr of privateCases) {
@@ -46,6 +50,7 @@ describe('isPrivateAddress', () => {
     '203.0.113.7',
     '2606:4700:4700::1111', // Cloudflare IPv6
     '::ffff:8.8.8.8', // IPv4-mapped public
+    '::ffff:0808:0808', // IPv4-mapped 8.8.8.8 in hex form stays public (extractor not over-blocking)
   ];
   for (const addr of publicCases) {
     it(`allows ${addr}`, () => expect(isPrivateAddress(addr)).toBe(false));

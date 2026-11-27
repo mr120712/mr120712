@@ -17,7 +17,9 @@ const MAX_BODY_BYTES = 64 * 1024;
 
 function secretMatches(request: Request): boolean {
   const expected = googleRtdnSecret();
-  if (!expected) return true; // Nessun segreto configurato: accetta (la rilettura resta autorevole).
+  // Fail-CLOSED: without a configured push secret, reject every request. (Previously fail-open.)
+  // Set GOOGLE_PLAY_RTDN_SECRET and put ?secret=<it> on the Pub/Sub push URL in production.
+  if (!expected) return false;
   const given = new URL(request.url).searchParams.get('secret') ?? '';
   if (given.length !== expected.length) return false;
   return timingSafeEqual(Buffer.from(given), Buffer.from(expected));

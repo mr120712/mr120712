@@ -60,8 +60,12 @@ async function handle(request: Request, method: 'GET' | 'POST' | 'PUT' | 'PATCH'
     }
   }
 
-  // Opzionale: suffix sul path upstream (es. `/prompt`, `/template`, `/versions`).
+  // Opzionale: suffix sul path upstream (es. `/prompt`, `/template`, `/versions`). Solo segmenti
+  // di path separati da `/` e alfanumerici: niente `?`, `#`, `..`, `//` o override dell'host.
   const suffix = url.searchParams.get('suffix') ?? '';
+  if (suffix && !/^(?:\/[A-Za-z0-9_-]+)+$/.test(suffix)) {
+    return NextResponse.json({ error: 'invalid_suffix' }, { status: 400 });
+  }
   const upstreamUrl = `${artexUrl}/api/agents/${encodeURIComponent(key)}${suffix}`;
   const init: RequestInit = {
     method,
