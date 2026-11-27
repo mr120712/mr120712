@@ -163,9 +163,13 @@ services:
       # Omniroute (OpenAI-compatible). AUTH_SCHEME: "Bearer" (default),
       # "x-api-key", or a literal header name. MODEL overrides the model
       # ARTEX passed through (set this to whatever Omniroute calls Opus).
+      # OmniRoute sibling: the API key is minted in its dashboard on first
+      # boot (one-off; see the `omniroute:` service below). BASE_URL points
+      # at the compose-network DNS name; MODEL=auto lets OmniRoute's own
+      # scorer pick the best provider from the ones you connected.
       OMNIROUTE_API_KEY: ${OMNIROUTE_API_KEY:-}
-      OMNIROUTE_BASE_URL: ${OMNIROUTE_BASE_URL:-}
-      OMNIROUTE_MODEL: ${OMNIROUTE_MODEL:-}
+      OMNIROUTE_BASE_URL: ${OMNIROUTE_BASE_URL:-http://omniroute:20128}
+      OMNIROUTE_MODEL: ${OMNIROUTE_MODEL:-auto}
       OMNIROUTE_AUTH_SCHEME: ${OMNIROUTE_AUTH_SCHEME:-Bearer}
       OMNIROUTE_PATH: ${OMNIROUTE_PATH:-/v1/chat/completions}
       OMNIROUTE_TIMEOUT_SECONDS: ${OMNIROUTE_TIMEOUT_SECONDS:-300}
@@ -252,7 +256,87 @@ services:
     security_opt:
       - "no-new-privileges:true"
 
+  omniroute-redis:
+    # Redis for OmniRoute. Separate from any other Redis in the stack so
+    # upgrading OmniRoute never risks our other state. No port on the host.
+    image: redis:8.6.5-alpine
+    container_name: artex-omniroute-redis
+    security_opt:
+      - "no-new-privileges:true"
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - omniroute-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  omniroute:
+    # Self-hosted AI gateway: OpenAI-shaped /v1/chat/completions that fans
+    # out to many provider accounts (free tiers + paid), with auto fallback
+    # between them. We point the claude-bridge fallback chain at this
+    # sibling so when the Claude Code subscription hits a five_hour
+    # window, requests flow through OmniRoute instead of stalling.
+    #
+    # First-boot flow (one-time per VPS):
+    #   1. docker compose up -d omniroute
+    #   2. SSH-tunnel 20128: ssh -L 20128:127.0.0.1:20128 user@vps
+    #   3. Open http://127.0.0.1:20128 in a browser.
+    #   4. Onboarding wizard — set a dashboard password, paste the
+    #      BOOTSTRAP token from `docker logs artex-omniroute | grep BOOTSTRAP`.
+    #   5. Dashboard -> Providers: connect provider accounts / API keys.
+    #   6. Dashboard -> API Manager: create an API key (for OmniRoute itself).
+    #   7. Put that key in ~/artex/.env as OMNIROUTE_API_KEY=....
+    #   8. docker compose up -d --force-recreate claude-bridge
+    #
+    # See https://github.com/cheaper-inference/OmniRoute docs/getting-started
+    # for Providers + API Manager pages.
+    image: cheaperinference/omniroute:latest
+    container_name: artex-omniroute
+    security_opt:
+      - "no-new-privileges:true"
+    depends_on:
+      omniroute-redis:
+        condition: service_healthy
+    environment:
+      DATA_DIR: /app/data
+      REDIS_URL: redis://omniroute-redis:6379
+      # Lock the /v1 endpoint down — it's reachable from other containers
+      # on the compose network, and once an Omniroute API key is minted it
+      # will be the ONLY thing between the bridge and your provider quotas.
+      REQUIRE_API_KEY: "true"
+      # Seed the dashboard admin password (empty = wizard asks on first
+      # visit). We leave it unset; the user types one into the wizard.
+      INITIAL_PASSWORD: ${OMNIROUTE_INITIAL_PASSWORD:-}
+      DASHBOARD_PORT: "20128"
+      API_PORT: "20129"
+      LIVE_WS_PORT: "20132"
+      # Bind all app ports to 0.0.0.0 INSIDE the container; docker's
+      # port mapping below still keeps them loopback-only on the host.
+      APP_BIND_HOST: "0.0.0.0"
+      # If you ever front OmniRoute with its own Caddy site, set this to
+      # the public URL. Left empty, the dashboard uses its own origin.
+      NEXT_PUBLIC_BASE_URL: ${OMNIROUTE_PUBLIC_URL:-}
+      OMNIROUTE_MEMORY_MB: ${OMNIROUTE_MEMORY_MB:-2048}
+    ports:
+      # Host loopback only. SSH-tunnel to reach the dashboard.
+      - "127.0.0.1:20128:20128"
+      - "127.0.0.1:20129:20129"
+      - "127.0.0.1:20132:20132"
+    volumes:
+      - ./omniroute-data:/app/data
+    healthcheck:
+      test: ["CMD", "node", "healthcheck.mjs"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
 volumes:
   pgdata:
   caddy_data:
   caddy_config:
+  omniroute-redis-data:

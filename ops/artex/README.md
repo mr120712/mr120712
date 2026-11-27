@@ -100,6 +100,50 @@ same `SPACE_CHAT_API_KEY` pattern) and tightens the Skynet scanner rules
 accordingly. Say the word and I'll build it. Offense stays on the VPS;
 defense faces the internet.
 
+## OmniRoute fallback (one-time setup)
+
+The stack now ships `omniroute` + `omniroute-redis` siblings
+([cheaper-inference/OmniRoute](https://github.com/cheaper-inference/OmniRoute))
+so when the Claude Code subscription hits a `five_hour` cap, the bridge
+fans out through OmniRoute's connected providers instead of stalling.
+
+First boot (per VPS):
+
+```bash
+cd ~/artex
+docker compose up -d omniroute omniroute-redis
+# wait ~30s for the dashboard to come up:
+docker compose logs -f artex-omniroute | grep -E "BOOTSTRAP|listening"
+# Ctrl-C once you see the BOOTSTRAP line; copy its token.
+```
+
+From your laptop (NOT the VPS), tunnel the dashboard:
+```bash
+ssh -L 20128:127.0.0.1:20128 <vps-user>@<vps-host>
+```
+Open <http://127.0.0.1:20128>:
+
+1. **Onboarding wizard** → set dashboard password + paste the BOOTSTRAP
+   token from the logs.
+2. **Dashboard → Providers** → connect each provider account or API key
+   you want OmniRoute to route to. Mix free tiers and paid as you like.
+3. **Dashboard → API Manager** → create an API key (this is the key the
+   bridge will use). Copy it once; it's not shown again.
+
+Back on the VPS, add it to `.env`:
+```bash
+read -sp "Paste OMNIROUTE_API_KEY: " KEY; echo
+sed -i '/^OMNIROUTE_API_KEY=/d' .env
+printf 'OMNIROUTE_API_KEY=%s\n' "$KEY" >> .env
+unset KEY
+docker compose up -d --force-recreate claude-bridge
+docker compose logs --tail=10 claude-bridge | grep "bridge up"
+```
+
+The bridge boot log should now read `fallback_chain=[omniroute, ...]`.
+On the next ARTEX rate-limit the request flows through OmniRoute and the
+task doesn't block.
+
 ## What is deliberately off
 
 - `ARTEX_BIND_ADDR=127.0.0.1` — the UI is never on the public interface. Reach
