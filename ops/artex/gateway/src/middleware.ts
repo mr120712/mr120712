@@ -25,7 +25,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   // (assetPrefix in next.config.ts).
   if (
     pathname === '/gw-login' ||
-    pathname.startsWith('/api/auth/') ||
+    pathname.startsWith('/api/gw-auth/') ||
     pathname.startsWith('/__gw_assets/')
   ) {
     return NextResponse.next();

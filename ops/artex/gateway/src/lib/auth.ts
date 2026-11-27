@@ -22,6 +22,9 @@ const effectiveUrl = env.GATEWAY_URL ?? BUILD_FALLBACK_URL;
 
 export const auth = betterAuth({
   baseURL: effectiveUrl,
+  // Mount Better Auth under /api/gw-auth so /api/auth/* stays free for
+  // the ARTEX upstream (which has its own /api/auth/status endpoint).
+  basePath: '/api/gw-auth',
   secret: env.BETTER_AUTH_SECRET ?? 'build-time-placeholder-not-used-at-runtime',
   trustedOrigins: [effectiveUrl],
 

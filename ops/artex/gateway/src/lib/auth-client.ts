@@ -8,6 +8,8 @@ import { createAuthClient } from 'better-auth/react';
  * Only method exposed: username + password.
  */
 export const authClient = createAuthClient({
+  // Keep in sync with auth.ts basePath.
+  basePath: '/api/gw-auth',
   plugins: [usernameClient()],
 });
 
