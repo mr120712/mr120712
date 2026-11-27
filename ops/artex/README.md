@@ -107,8 +107,13 @@ defense faces the internet.
 - `ARTEX_UPDATE_CHECK=` (unset) — no update banner, no GitHub ping.
 - `ARTEX_NOISE_PROFILE=quiet` — 2 req/s per host, 1 in flight. Even on your
   own preview, pounding it is wasteful and masks real timing bugs.
-- `ARTEX_TASK_BUDGET_TOKENS=200000` — one task can't run away with your LLM
-  spend.
+- `ARTEX_TASK_BUDGET_TOKENS=0` (and `_TURNS`, and the `INTENT_` pair) —
+  **unlimited by default**. ARTEX treats `<= 0` as `Unlimited`
+  (`agent/budget.go#budgetCap`); when every value is 0 the whole budget
+  ledger is nil, so there's no per-task LLM accounting. Safe here because
+  we route through the subscription-backed `claude-bridge`, not a
+  pay-per-token API key — there's no $ ceiling to protect. Set a positive
+  integer only if you point ARTEX at a direct Anthropic/OpenAI key.
 - No `extension/` in this bundle. The browser capture extension is a
   separate step; load it from the ARTEX checkout on your laptop if you need
   authenticated-flow capture, not from this VPS.

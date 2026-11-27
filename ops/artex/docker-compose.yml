@@ -89,10 +89,18 @@ services:
       ARTEX_UPDATE_CHECK: ${ARTEX_UPDATE_CHECK:-}
       ARTEX_NOISE_PROFILE: ${ARTEX_NOISE_PROFILE:-quiet}
       ARTEX_TARGET_USER_AGENT: ${ARTEX_TARGET_USER_AGENT:-}
-      ARTEX_TASK_BUDGET_TOKENS: ${ARTEX_TASK_BUDGET_TOKENS:-200000}
-      ARTEX_TASK_BUDGET_TURNS: ${ARTEX_TASK_BUDGET_TURNS:-120}
-      ARTEX_INTENT_BUDGET_TOKENS: ${ARTEX_INTENT_BUDGET_TOKENS:-60000}
-      ARTEX_INTENT_BUDGET_TURNS: ${ARTEX_INTENT_BUDGET_TURNS:-30}
+      # Budgets: ARTEX treats any <= 0 value as Unlimited (agent/budget.go
+      # budgetCap -> math.MaxInt64). When both task and intent are (0,0) the
+      # whole BudgetLedger is nil -- no in-flight accounting at all. We route
+      # through the Claude Code subscription bridge (not pay-per-token), so
+      # the real ceiling is the subscription rate window, not a per-task cap;
+      # ARTEX just sees 429s and backs off. Set to 0 to disable. Raise only
+      # if you have a concrete reason (e.g. hard spend cap on a direct
+      # Anthropic/OpenAI key).
+      ARTEX_TASK_BUDGET_TOKENS: ${ARTEX_TASK_BUDGET_TOKENS:-0}
+      ARTEX_TASK_BUDGET_TURNS: ${ARTEX_TASK_BUDGET_TURNS:-0}
+      ARTEX_INTENT_BUDGET_TOKENS: ${ARTEX_INTENT_BUDGET_TOKENS:-0}
+      ARTEX_INTENT_BUDGET_TURNS: ${ARTEX_INTENT_BUDGET_TURNS:-0}
       # The one target the operator confirmed at bootstrap. Used by the import
       # script to render scope.json; ARTEX itself reads scope from the DB.
       ARTEX_TARGET_HOST: ${ARTEX_TARGET_HOST:?set ARTEX_TARGET_HOST in .env}
