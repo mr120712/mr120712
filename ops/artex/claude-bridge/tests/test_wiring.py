@@ -225,6 +225,65 @@ async def test_resets_at_beyond_cap_falls_back_to_backoff(tmp_path) -> None:
         await cache.close()
 
 
+async def test_fallback_chain_walks_to_second_on_first_rate_limit(tmp_path) -> None:
+    # First fallback (Omniroute-ish) is rate-limited. Second (FreeLLMAPI-ish)
+    # answers. The route must stop at the second and return its content.
+    import time
+
+    class FailingFB(SdkAdapter):
+        name = "fb1"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def complete(self, *, system, messages, model, max_tokens, tools=None):
+            self.calls += 1
+            raise SubscriptionRateLimited("fb1 429")
+
+    class WinningFB(SdkAdapter):
+        name = "fb2"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def complete(self, *, system, messages, model, max_tokens, tools=None):
+            self.calls += 1
+            return {
+                "content": [{"type": "text", "text": "fb2-answer"}],
+                "stop_reason": "end_turn",
+                "input_tokens": 1,
+                "output_tokens": 1,
+                "model": "fb2-model",
+            }
+
+    primary = CountingAdapter()
+    primary.rate_limit_before = 9999
+    fb1, fb2 = FailingFB(), WinningFB()
+    cache = PromptCache(path=str(tmp_path / "c.sqlite"), ttl_seconds=60)
+    await cache.open()
+    try:
+        # Massive backoff so a wait would fail the test.
+        retry = UpstreamRetry(attempts=3, base_seconds=600.0, cap_seconds=600.0)
+        app = build_app(
+            adapter=primary, cache=cache,
+            limiter=RateLimiter(max_rps=0.0, max_concurrency=0),
+            upstream_retry=retry,
+            fallback_adapters=[fb1, fb2],
+        )
+        with TestClient(app) as c:
+            t0 = time.monotonic()
+            r = c.post("/v1/messages", json=_body(), headers={"x-api-key": "dummy"})
+            elapsed = time.monotonic() - t0
+        assert r.status_code == 200
+        assert r.json()["content"][0]["text"] == "fb2-answer"
+        assert primary.calls == 1
+        assert fb1.calls == 1
+        assert fb2.calls == 1
+        assert elapsed < 2.0  # no waiting
+    finally:
+        await cache.close()
+
+
 async def test_fallback_adapter_takes_over_on_rate_limit(tmp_path) -> None:
     # Primary adapter rate-limits; a fallback adapter is wired. The route
     # must hop to the fallback immediately (no sleep), return its result,

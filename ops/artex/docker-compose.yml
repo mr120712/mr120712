@@ -150,11 +150,33 @@ services:
       # backoff instead of hanging the request for a week. Default 6h =
       # rides out a five_hour window fully.
       BRIDGE_RESET_WAIT_CAP_SECONDS: ${BRIDGE_RESET_WAIT_CAP_SECONDS:-21600}
-      # Optional paid-API bypass. When set, at the first SubscriptionRateLimited
-      # the bridge hops to api.anthropic.com DIRECTLY with this key instead of
-      # waiting for the sub window to reset. Pay-per-token on this key; the
-      # task never blocks. Unset (default) = behavior is wait-until-reset.
-      # The key only lives in process env; it never appears in logs.
+      # ------ Fallback chain ----------------------------------------------
+      # On the first SubscriptionRateLimited from the primary (Claude Code
+      # subscription), the route handler walks this chain in order. First
+      # link that answers wins. If every link also rate-limits, it falls
+      # back to wait-until-reset / exp backoff. All keys live in process
+      # env; nothing ever appears in logs.
+      #
+      # Order: Omniroute first, FreeLLMAPI second, direct Anthropic last.
+      # Each link is OPT-IN: skip a link by leaving its API key unset.
+      #
+      # Omniroute (OpenAI-compatible). AUTH_SCHEME: "Bearer" (default),
+      # "x-api-key", or a literal header name. MODEL overrides the model
+      # ARTEX passed through (set this to whatever Omniroute calls Opus).
+      OMNIROUTE_API_KEY: ${OMNIROUTE_API_KEY:-}
+      OMNIROUTE_BASE_URL: ${OMNIROUTE_BASE_URL:-}
+      OMNIROUTE_MODEL: ${OMNIROUTE_MODEL:-}
+      OMNIROUTE_AUTH_SCHEME: ${OMNIROUTE_AUTH_SCHEME:-Bearer}
+      OMNIROUTE_PATH: ${OMNIROUTE_PATH:-/v1/chat/completions}
+      OMNIROUTE_TIMEOUT_SECONDS: ${OMNIROUTE_TIMEOUT_SECONDS:-300}
+      # FreeLLMAPI (OpenAI-compatible).
+      FREELLMAPI_API_KEY: ${FREELLMAPI_API_KEY:-}
+      FREELLMAPI_BASE_URL: ${FREELLMAPI_BASE_URL:-}
+      FREELLMAPI_MODEL: ${FREELLMAPI_MODEL:-}
+      FREELLMAPI_AUTH_SCHEME: ${FREELLMAPI_AUTH_SCHEME:-Bearer}
+      FREELLMAPI_PATH: ${FREELLMAPI_PATH:-/v1/chat/completions}
+      FREELLMAPI_TIMEOUT_SECONDS: ${FREELLMAPI_TIMEOUT_SECONDS:-300}
+      # Direct Anthropic API (last link; optional pay-per-token backstop).
       ANTHROPIC_FALLBACK_API_KEY: ${ANTHROPIC_FALLBACK_API_KEY:-}
       ANTHROPIC_FALLBACK_BASE_URL: ${ANTHROPIC_FALLBACK_BASE_URL:-https://api.anthropic.com}
       ANTHROPIC_FALLBACK_TIMEOUT_SECONDS: ${ANTHROPIC_FALLBACK_TIMEOUT_SECONDS:-300}

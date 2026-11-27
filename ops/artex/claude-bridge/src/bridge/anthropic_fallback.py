@@ -41,6 +41,8 @@ def _estimate_tokens(text: str) -> int:
 
 
 class AnthropicFallbackAdapter(SdkAdapter):
+    name = "anthropic-api"
+
     def __init__(
         self,
         *,

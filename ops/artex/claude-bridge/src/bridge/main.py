@@ -12,7 +12,9 @@ import uvicorn
 from bridge.anthropic_fallback import AnthropicFallbackAdapter
 from bridge.app import UpstreamRetry, build_app
 from bridge.cache import PromptCache
+from bridge.openai_fallback import OpenAIFallbackAdapter
 from bridge.rate_limit import RateLimiter
+from bridge.sdk_adapter import SdkAdapter
 from bridge.sdk_adapter_impl import ClaudeSdkAdapter
 
 log = logging.getLogger("artex-claude-bridge")
@@ -75,21 +77,56 @@ async def _amain() -> None:
     )
     adapter = ClaudeSdkAdapter()
 
-    # Optional pay-per-token fallback. When set, the route handler hops to
-    # api.anthropic.com on the first SubscriptionRateLimited instead of
-    # sleeping until the window resets. The key ONLY lives in process env;
-    # it never appears in logs.
-    fallback_key = os.environ.get("ANTHROPIC_FALLBACK_API_KEY", "").strip()
-    fallback_adapter = None
-    if fallback_key:
-        fallback_base = os.environ.get(
-            "ANTHROPIC_FALLBACK_BASE_URL", "https://api.anthropic.com"
+    # Build the fallback chain. Order matters: the route handler tries each
+    # in turn on the first SubscriptionRateLimited from the primary, uses
+    # the first one that answers, and only falls back to wait-until-reset
+    # if ALL links in the chain are also rate-limited or misconfigured.
+    #
+    # Each adapter's key lives only in process env; nothing is logged.
+    fallbacks: list[SdkAdapter] = []
+
+    omniroute_key = os.environ.get("OMNIROUTE_API_KEY", "").strip()
+    if omniroute_key:
+        fallbacks.append(
+            OpenAIFallbackAdapter(
+                name="omniroute",
+                api_key=omniroute_key,
+                base_url=os.environ.get("OMNIROUTE_BASE_URL", ""),
+                model_override=os.environ.get("OMNIROUTE_MODEL", "").strip() or None,
+                timeout_seconds=_float("OMNIROUTE_TIMEOUT_SECONDS", 300.0),
+                auth_scheme=os.environ.get("OMNIROUTE_AUTH_SCHEME", "Bearer"),
+                chat_completions_path=os.environ.get(
+                    "OMNIROUTE_PATH", "/v1/chat/completions"
+                ),
+            )
         )
-        fallback_timeout = _float("ANTHROPIC_FALLBACK_TIMEOUT_SECONDS", 300.0)
-        fallback_adapter = AnthropicFallbackAdapter(
-            api_key=fallback_key,
-            base_url=fallback_base,
-            timeout_seconds=fallback_timeout,
+
+    freellm_key = os.environ.get("FREELLMAPI_API_KEY", "").strip()
+    if freellm_key:
+        fallbacks.append(
+            OpenAIFallbackAdapter(
+                name="freellmapi",
+                api_key=freellm_key,
+                base_url=os.environ.get("FREELLMAPI_BASE_URL", ""),
+                model_override=os.environ.get("FREELLMAPI_MODEL", "").strip() or None,
+                timeout_seconds=_float("FREELLMAPI_TIMEOUT_SECONDS", 300.0),
+                auth_scheme=os.environ.get("FREELLMAPI_AUTH_SCHEME", "Bearer"),
+                chat_completions_path=os.environ.get(
+                    "FREELLMAPI_PATH", "/v1/chat/completions"
+                ),
+            )
+        )
+
+    anthropic_fallback_key = os.environ.get("ANTHROPIC_FALLBACK_API_KEY", "").strip()
+    if anthropic_fallback_key:
+        fallbacks.append(
+            AnthropicFallbackAdapter(
+                api_key=anthropic_fallback_key,
+                base_url=os.environ.get(
+                    "ANTHROPIC_FALLBACK_BASE_URL", "https://api.anthropic.com"
+                ),
+                timeout_seconds=_float("ANTHROPIC_FALLBACK_TIMEOUT_SECONDS", 300.0),
+            )
         )
 
     app = build_app(
@@ -97,13 +134,14 @@ async def _amain() -> None:
         cache=cache,
         limiter=limiter,
         upstream_retry=upstream_retry,
-        fallback_adapter=fallback_adapter,
+        fallback_adapters=fallbacks,
     )
 
+    fb_names = ",".join(getattr(f, "name", type(f).__name__) for f in fallbacks) or "off"
     log.info(
         "bridge up: host=%s port=%d max_rps=%s max_concurrency=%d "
         "retry_attempts=%d retry_base=%.1fs retry_cap=%.1fs "
-        "reset_wait_cap=%.0fs fallback=%s cache=%s ttl=%ds",
+        "reset_wait_cap=%.0fs fallback_chain=[%s] cache=%s ttl=%ds",
         host,
         port,
         max_rps,
@@ -112,7 +150,7 @@ async def _amain() -> None:
         retry_base,
         retry_cap,
         reset_wait_cap,
-        "anthropic-api" if fallback_adapter is not None else "off",
+        fb_names,
         cache_path,
         cache_ttl,
     )

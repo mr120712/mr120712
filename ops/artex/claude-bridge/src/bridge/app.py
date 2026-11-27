@@ -78,9 +78,17 @@ def build_app(
     limiter: RateLimiter | None = None,
     upstream_retry: UpstreamRetry | None = None,
     fallback_adapter: SdkAdapter | None = None,
+    fallback_adapters: list[SdkAdapter] | None = None,
 ) -> FastAPI:
     app = FastAPI(title="ARTEX ↔ Claude Agent SDK bridge", version="0.1.0")
     retry = upstream_retry or UpstreamRetry()
+    # Normalize: accept either a single fallback_adapter (legacy) or a
+    # chain. Chain order == try-order.
+    fallbacks: list[SdkAdapter] = []
+    if fallback_adapters:
+        fallbacks.extend(fallback_adapters)
+    if fallback_adapter is not None:
+        fallbacks.append(fallback_adapter)
 
     @app.exception_handler(RequestValidationError)
     async def _validation_error(_request: Request, exc: RequestValidationError) -> JSONResponse:
@@ -132,14 +140,35 @@ def build_app(
                 tools=tools,
             )
 
-        async def _invoke_fallback() -> dict[str, Any]:
-            return await fallback_adapter.complete(  # type: ignore[union-attr]
+        async def _invoke_one(a: SdkAdapter) -> dict[str, Any]:
+            return await a.complete(
                 system=system_str,
                 messages=msgs,
                 model=req.model,
                 max_tokens=req.max_tokens,
                 tools=tools,
             )
+
+        async def _try_fallback_chain() -> dict[str, Any] | None:
+            """Walk the fallback chain in order. Return the first success,
+            None if every link also rate-limited. Any non-rate-limit error
+            (auth, transport, ...) is logged and treated as a skip to the
+            next link: a misconfigured upstream must not take the whole
+            chain down."""
+            for fb in fallbacks:
+                fb_name = getattr(fb, "name", type(fb).__name__)
+                try:
+                    log.warning("fallback: trying %s", fb_name)
+                    return await _invoke_one(fb)
+                except SubscriptionRateLimited as fe:
+                    log.warning("fallback %s also rate-limited (%s)", fb_name, fe)
+                    continue
+                except Exception as fe:
+                    log.warning(
+                        "fallback %s errored (%s); skipping to next", fb_name, fe
+                    )
+                    continue
+            return None
 
         async def _invoke_with_retry() -> dict[str, Any]:
             last_exc: SubscriptionRateLimited | None = None
@@ -153,28 +182,21 @@ def build_app(
                     last_exc = exc
                     rl_type = getattr(exc, "rate_limit_type", None)
                     resets_at = getattr(exc, "resets_at", None)
-                    # Bypass path: if a paid API key is configured, hop to
-                    # api.anthropic.com RIGHT NOW. No wait, no backoff.
-                    # Pay-per-token on that key; task keeps moving.
-                    if fallback_adapter is not None:
+                    # Bypass path: walk the fallback chain. First success wins.
+                    if fallbacks:
                         log.warning(
                             "subscription rate limit on attempt %d/%d "
-                            "(type=%s); routing to Anthropic fallback",
-                            attempt, retry.attempts, rl_type,
+                            "(type=%s); walking fallback chain of %d",
+                            attempt, retry.attempts, rl_type, len(fallbacks),
                         )
-                        try:
-                            return await _invoke_fallback()
-                        except SubscriptionRateLimited as fe:
-                            # Fallback also rate-limited: continue with the
-                            # normal wait path on the ORIGINAL exc (its
-                            # resets_at is the authoritative one).
-                            log.warning(
-                                "fallback also rate-limited (%s); falling "
-                                "through to wait/backoff on the primary",
-                                fe,
-                            )
-                        # Any SdkUnavailable from fallback propagates up
-                        # as 500 — that's a config problem, not a quota one.
+                        result = await _try_fallback_chain()
+                        if result is not None:
+                            return result
+                        log.warning(
+                            "all %d fallbacks exhausted; falling through to "
+                            "wait/backoff on the primary",
+                            len(fallbacks),
+                        )
                     if attempt >= retry.attempts:
                         break
                     # Prefer the honest wait if the SDK told us when the
