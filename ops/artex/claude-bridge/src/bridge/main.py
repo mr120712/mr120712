@@ -9,6 +9,7 @@ import os
 
 import uvicorn
 
+from bridge.anthropic_fallback import AnthropicFallbackAdapter
 from bridge.app import UpstreamRetry, build_app
 from bridge.cache import PromptCache
 from bridge.rate_limit import RateLimiter
@@ -74,14 +75,35 @@ async def _amain() -> None:
     )
     adapter = ClaudeSdkAdapter()
 
+    # Optional pay-per-token fallback. When set, the route handler hops to
+    # api.anthropic.com on the first SubscriptionRateLimited instead of
+    # sleeping until the window resets. The key ONLY lives in process env;
+    # it never appears in logs.
+    fallback_key = os.environ.get("ANTHROPIC_FALLBACK_API_KEY", "").strip()
+    fallback_adapter = None
+    if fallback_key:
+        fallback_base = os.environ.get(
+            "ANTHROPIC_FALLBACK_BASE_URL", "https://api.anthropic.com"
+        )
+        fallback_timeout = _float("ANTHROPIC_FALLBACK_TIMEOUT_SECONDS", 300.0)
+        fallback_adapter = AnthropicFallbackAdapter(
+            api_key=fallback_key,
+            base_url=fallback_base,
+            timeout_seconds=fallback_timeout,
+        )
+
     app = build_app(
-        adapter=adapter, cache=cache, limiter=limiter, upstream_retry=upstream_retry
+        adapter=adapter,
+        cache=cache,
+        limiter=limiter,
+        upstream_retry=upstream_retry,
+        fallback_adapter=fallback_adapter,
     )
 
     log.info(
         "bridge up: host=%s port=%d max_rps=%s max_concurrency=%d "
         "retry_attempts=%d retry_base=%.1fs retry_cap=%.1fs "
-        "reset_wait_cap=%.0fs cache=%s ttl=%ds",
+        "reset_wait_cap=%.0fs fallback=%s cache=%s ttl=%ds",
         host,
         port,
         max_rps,
@@ -90,6 +112,7 @@ async def _amain() -> None:
         retry_base,
         retry_cap,
         reset_wait_cap,
+        "anthropic-api" if fallback_adapter is not None else "off",
         cache_path,
         cache_ttl,
     )

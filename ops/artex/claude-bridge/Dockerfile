@@ -33,7 +33,8 @@ RUN pip install --no-cache-dir \
       'uvicorn[standard]>=0.32' \
       pydantic>=2.9 \
       claude-agent-sdk>=0.2 \
-      aiosqlite>=0.20
+      aiosqlite>=0.20 \
+      'httpx>=0.27,<0.29'
 
 # App source.
 COPY src ./src

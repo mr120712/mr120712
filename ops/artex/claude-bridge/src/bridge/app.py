@@ -77,6 +77,7 @@ def build_app(
     cache: PromptCache | None = None,
     limiter: RateLimiter | None = None,
     upstream_retry: UpstreamRetry | None = None,
+    fallback_adapter: SdkAdapter | None = None,
 ) -> FastAPI:
     app = FastAPI(title="ARTEX ↔ Claude Agent SDK bridge", version="0.1.0")
     retry = upstream_retry or UpstreamRetry()
@@ -131,6 +132,15 @@ def build_app(
                 tools=tools,
             )
 
+        async def _invoke_fallback() -> dict[str, Any]:
+            return await fallback_adapter.complete(  # type: ignore[union-attr]
+                system=system_str,
+                messages=msgs,
+                model=req.model,
+                max_tokens=req.max_tokens,
+                tools=tools,
+            )
+
         async def _invoke_with_retry() -> dict[str, Any]:
             last_exc: SubscriptionRateLimited | None = None
             for attempt in range(1, retry.attempts + 1):
@@ -141,13 +151,35 @@ def build_app(
                     return await _invoke_adapter()
                 except SubscriptionRateLimited as exc:
                     last_exc = exc
+                    rl_type = getattr(exc, "rate_limit_type", None)
+                    resets_at = getattr(exc, "resets_at", None)
+                    # Bypass path: if a paid API key is configured, hop to
+                    # api.anthropic.com RIGHT NOW. No wait, no backoff.
+                    # Pay-per-token on that key; task keeps moving.
+                    if fallback_adapter is not None:
+                        log.warning(
+                            "subscription rate limit on attempt %d/%d "
+                            "(type=%s); routing to Anthropic fallback",
+                            attempt, retry.attempts, rl_type,
+                        )
+                        try:
+                            return await _invoke_fallback()
+                        except SubscriptionRateLimited as fe:
+                            # Fallback also rate-limited: continue with the
+                            # normal wait path on the ORIGINAL exc (its
+                            # resets_at is the authoritative one).
+                            log.warning(
+                                "fallback also rate-limited (%s); falling "
+                                "through to wait/backoff on the primary",
+                                fe,
+                            )
+                        # Any SdkUnavailable from fallback propagates up
+                        # as 500 — that's a config problem, not a quota one.
                     if attempt >= retry.attempts:
                         break
                     # Prefer the honest wait if the SDK told us when the
                     # window resets AND it's within the cap.
                     sleep_s: float | None = None
-                    resets_at = getattr(exc, "resets_at", None)
-                    rl_type = getattr(exc, "rate_limit_type", None)
                     if isinstance(resets_at, int):
                         now_s = time.time()
                         remaining = resets_at - now_s + retry.reset_wait_jitter_seconds

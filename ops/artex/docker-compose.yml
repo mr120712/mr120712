@@ -150,6 +150,14 @@ services:
       # backoff instead of hanging the request for a week. Default 6h =
       # rides out a five_hour window fully.
       BRIDGE_RESET_WAIT_CAP_SECONDS: ${BRIDGE_RESET_WAIT_CAP_SECONDS:-21600}
+      # Optional paid-API bypass. When set, at the first SubscriptionRateLimited
+      # the bridge hops to api.anthropic.com DIRECTLY with this key instead of
+      # waiting for the sub window to reset. Pay-per-token on this key; the
+      # task never blocks. Unset (default) = behavior is wait-until-reset.
+      # The key only lives in process env; it never appears in logs.
+      ANTHROPIC_FALLBACK_API_KEY: ${ANTHROPIC_FALLBACK_API_KEY:-}
+      ANTHROPIC_FALLBACK_BASE_URL: ${ANTHROPIC_FALLBACK_BASE_URL:-https://api.anthropic.com}
+      ANTHROPIC_FALLBACK_TIMEOUT_SECONDS: ${ANTHROPIC_FALLBACK_TIMEOUT_SECONDS:-300}
       BRIDGE_CACHE_TTL_SECONDS: ${BRIDGE_CACHE_TTL_SECONDS:-3600}
       BRIDGE_CACHE_PATH: /data/cache.sqlite
       BRIDGE_LOG_LEVEL: ${BRIDGE_LOG_LEVEL:-INFO}

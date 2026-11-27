@@ -225,6 +225,52 @@ async def test_resets_at_beyond_cap_falls_back_to_backoff(tmp_path) -> None:
         await cache.close()
 
 
+async def test_fallback_adapter_takes_over_on_rate_limit(tmp_path) -> None:
+    # Primary adapter rate-limits; a fallback adapter is wired. The route
+    # must hop to the fallback immediately (no sleep), return its result,
+    # and never raise.
+    class FallbackCapture(SdkAdapter):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def complete(self, *, system, messages, model, max_tokens, tools=None):
+            self.calls += 1
+            return {
+                "content": [{"type": "text", "text": "from-fallback"}],
+                "stop_reason": "end_turn",
+                "input_tokens": 5,
+                "output_tokens": 3,
+                "model": "claude-fallback",
+            }
+
+    primary = CountingAdapter()
+    primary.rate_limit_before = 9999  # always rate-limited
+    fallback = FallbackCapture()
+    cache = PromptCache(path=str(tmp_path / "c.sqlite"), ttl_seconds=60)
+    await cache.open()
+    try:
+        limiter = RateLimiter(max_rps=0.0, max_concurrency=0)
+        # Massive backoff so if we WAITED at all, the test would time out.
+        retry = UpstreamRetry(attempts=3, base_seconds=600.0, cap_seconds=600.0)
+        app = build_app(
+            adapter=primary,
+            cache=cache,
+            limiter=limiter,
+            upstream_retry=retry,
+            fallback_adapter=fallback,
+        )
+        with TestClient(app) as c:
+            r = c.post("/v1/messages", json=_body(), headers={"x-api-key": "dummy"})
+        assert r.status_code == 200, r.json()
+        body = r.json()
+        assert body["content"][0]["text"] == "from-fallback"
+        assert body["model"] == "claude-fallback"
+        assert primary.calls == 1  # tried primary once, immediately fell through
+        assert fallback.calls == 1
+    finally:
+        await cache.close()
+
+
 async def test_upstream_rate_limit_exhausts_retries_returns_429(tmp_path) -> None:
     # Adapter always raises. After `attempts` tries the route gives up and
     # returns 429 with Anthropic-shape error body.
