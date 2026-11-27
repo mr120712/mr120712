@@ -116,10 +116,34 @@ work.
 | `BRIDGE_MAX_RPS` | `1.0` | max LLM requests per second. 0 disables. |
 | `BRIDGE_MAX_CONCURRENCY` | `2` | max LLM requests in flight. 0 disables. |
 | `BRIDGE_CACHE_TTL_SECONDS` | `3600` | prompt cache TTL. 0 = always miss. |
+| `BRIDGE_MODEL_OVERRIDE` | _(unset)_ | force EVERY request onto this model, whatever ARTEX asked for. Empty = honor ARTEX's request. |
+| `BRIDGE_MODEL_MAP` | _(unset)_ | JSON `{requested: cheaper}` for selective downgrades. `BRIDGE_MODEL_OVERRIDE` wins when both set. |
 | `BRIDGE_LOG_LEVEL` | `INFO` | `DEBUG` to see each prompt+response. |
 
-Turn these UP only if you know your subscription window can absorb more;
-ARTEX can fire the planner a few hundred times per task.
+Turn the rate limits UP only if you know your subscription window can absorb
+more; ARTEX can fire the planner a few hundred times per task.
+
+## Spending fewer credits / less money
+
+The planner's model is the dominant cost: ARTEX fans out many calls per task,
+and Opus drains the subscription window (and pay-per-token budget in direct
+mode) several times faster than Haiku for the same loop. The bridge can rewrite
+the requested model centrally, so you don't have to touch ARTEX's config:
+
+```
+# Floor every call to the cheapest tier (strongest cost guard):
+BRIDGE_MODEL_OVERRIDE=claude-haiku-4-5
+
+# Or downgrade only the expensive requests, leave the rest alone:
+BRIDGE_MODEL_MAP={"claude-opus-4-7":"claude-haiku-4-5"}
+```
+
+The `ops/artex/` compose stack ships with `BRIDGE_MODEL_OVERRIDE=claude-haiku-4-5`
+and `ARTEX_LLM_MODEL=claude-haiku-4-5` by default. The cache key stays keyed on
+the *requested* model, so the override is transparent to ARTEX and to retries.
+Other levers: a longer `BRIDGE_CACHE_TTL_SECONDS` (identical probes become free)
+and ARTEX's own `ARTEX_TASK_BUDGET_TURNS` / `..._TOKENS` caps (stop a stuck
+planner from firing hundreds of calls).
 
 ## Testing
 

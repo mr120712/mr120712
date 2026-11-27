@@ -71,6 +71,41 @@ def _strip_mcp_prefix(name: str) -> str:
 
 
 class ClaudeSdkAdapter(SdkAdapter):
+    """Claude Agent SDK adapter with an optional cost-control model layer.
+
+    ARTEX hard-codes one planner model via ARTEX_LLM_MODEL (default is the
+    expensive `claude-opus-4-7`). Opus drains the Claude Code subscription
+    window — and, in direct mode, pay-per-token budget — several times faster
+    than Haiku/Sonnet for the same planning loop. Rather than force the operator
+    to edit ARTEX's Go config, the bridge can rewrite the requested model
+    centrally:
+
+      * `model_override` — floor EVERY request to this model, whatever ARTEX
+        asked for. The simplest "spend less" kill-switch.
+      * `model_map` — selective remap, e.g. downgrade only opus
+        ({"claude-opus-4-7": "claude-haiku-4-5"}) while leaving cheaper
+        requests untouched. `model_override` wins when both are set.
+
+    The cache key (in app.py) stays keyed on the *requested* model, so this is
+    transparent to ARTEX and to retries.
+    """
+
+    def __init__(
+        self,
+        *,
+        model_override: str | None = None,
+        model_map: dict[str, str] | None = None,
+    ) -> None:
+        self._model_override = model_override or None
+        self._model_map = model_map or {}
+
+    def _resolve_model(self, requested: str | None) -> str | None:
+        if self._model_override:
+            return self._model_override
+        if requested is not None and requested in self._model_map:
+            return self._model_map[requested]
+        return requested
+
     async def complete(
         self,
         *,
@@ -81,6 +116,7 @@ class ClaudeSdkAdapter(SdkAdapter):
         tools: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         prompt = _flatten_prompt(messages)
+        effective_model = self._resolve_model(model)
 
         mcp_servers: dict[str, Any] = {}
         allowed_tools: list[str] = []
@@ -91,7 +127,7 @@ class ClaudeSdkAdapter(SdkAdapter):
 
         options = ClaudeAgentOptions(
             system_prompt=system or None,
-            model=model,
+            model=effective_model,
             max_turns=1,
             permission_mode="bypassPermissions",
             # Disable ALL Claude Code CLI built-in tools (Bash, Read, Edit,
@@ -107,7 +143,7 @@ class ClaudeSdkAdapter(SdkAdapter):
 
         content_blocks: list[dict[str, Any]] = []
         usage: dict[str, Any] | None = None
-        used_model = model or "claude-opus-4-7"
+        used_model = effective_model or "claude-haiku-4-5"
         saw_tool_use = False
 
         agen = query(prompt=prompt, options=options)

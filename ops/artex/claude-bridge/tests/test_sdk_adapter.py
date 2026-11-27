@@ -331,3 +331,72 @@ async def test_builds_flat_prompt_with_role_markers(monkeypatch) -> None:
     assert "second" in prompt
     # last user message appears last in the prompt (positional semantics for the SDK)
     assert prompt.rfind("second") > prompt.rfind("first")
+
+
+async def test_model_override_floors_every_request(monkeypatch) -> None:
+    # Cost control: ARTEX asks for expensive opus; the bridge override forces
+    # the cheap haiku tier onto the SDK call regardless.
+    fake = _fake_query_factory(
+        [
+            _Assistant(content=[_Text(text="ok")], model="claude-haiku-4-5"),
+            _Result(usage={"input_tokens": 3, "output_tokens": 1}),
+        ]
+    )
+    monkeypatch.setattr("bridge.sdk_adapter_impl.query", fake)
+
+    a = ClaudeSdkAdapter(model_override="claude-haiku-4-5")
+    out = await a.complete(
+        system="sys",
+        messages=[{"role": "user", "content": "hi"}],
+        model="claude-opus-4-7",
+        max_tokens=512,
+    )
+    # What we SENT the SDK is the cheap model, not what ARTEX requested.
+    assert fake.last_options.model == "claude-haiku-4-5"
+    # And the reported model reflects what actually ran.
+    assert out["model"] == "claude-haiku-4-5"
+
+
+async def test_model_map_remaps_only_listed_models(monkeypatch) -> None:
+    fake = _fake_query_factory(
+        [
+            _Assistant(content=[_Text(text="ok")], model="claude-sonnet-4-5"),
+            _Result(usage={"input_tokens": 3, "output_tokens": 1}),
+        ]
+    )
+    monkeypatch.setattr("bridge.sdk_adapter_impl.query", fake)
+
+    a = ClaudeSdkAdapter(model_map={"claude-opus-4-7": "claude-sonnet-4-5"})
+    # A mapped model is downgraded...
+    await a.complete(
+        system="sys", messages=[{"role": "user", "content": "hi"}],
+        model="claude-opus-4-7", max_tokens=16,
+    )
+    assert fake.last_options.model == "claude-sonnet-4-5"
+
+    # ...an unmapped model passes through untouched.
+    await a.complete(
+        system="sys", messages=[{"role": "user", "content": "hi"}],
+        model="claude-haiku-4-5", max_tokens=16,
+    )
+    assert fake.last_options.model == "claude-haiku-4-5"
+
+
+async def test_override_wins_over_map(monkeypatch) -> None:
+    fake = _fake_query_factory(
+        [
+            _Assistant(content=[_Text(text="ok")], model="claude-haiku-4-5"),
+            _Result(usage={"input_tokens": 3, "output_tokens": 1}),
+        ]
+    )
+    monkeypatch.setattr("bridge.sdk_adapter_impl.query", fake)
+
+    a = ClaudeSdkAdapter(
+        model_override="claude-haiku-4-5",
+        model_map={"claude-opus-4-7": "claude-sonnet-4-5"},
+    )
+    await a.complete(
+        system="sys", messages=[{"role": "user", "content": "hi"}],
+        model="claude-opus-4-7", max_tokens=16,
+    )
+    assert fake.last_options.model == "claude-haiku-4-5"

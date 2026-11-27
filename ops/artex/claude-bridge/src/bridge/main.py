@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 
@@ -31,6 +32,25 @@ def _float(name: str, default: float) -> float:
         return default
 
 
+def _model_map(name: str) -> dict[str, str]:
+    """Parse a JSON object of {requested_model: cheaper_model}. Bad JSON or a
+    non-string mapping is ignored (logged) rather than crashing the bridge."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        log.warning("%s is not valid JSON; ignoring model map", name)
+        return {}
+    if not isinstance(parsed, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in parsed.items()
+    ):
+        log.warning("%s must be a {string: string} object; ignoring", name)
+        return {}
+    return parsed
+
+
 async def _amain() -> None:
     logging.basicConfig(
         level=os.environ.get("BRIDGE_LOG_LEVEL", "INFO"),
@@ -46,21 +66,27 @@ async def _amain() -> None:
 
     os.makedirs(os.path.dirname(cache_path), exist_ok=True)
 
+    model_override = os.environ.get("BRIDGE_MODEL_OVERRIDE", "").strip() or None
+    model_map = _model_map("BRIDGE_MODEL_MAP")
+
     cache = PromptCache(path=cache_path, ttl_seconds=cache_ttl)
     await cache.open()
     limiter = RateLimiter(max_rps=max_rps, max_concurrency=max_conc)
-    adapter = ClaudeSdkAdapter()
+    adapter = ClaudeSdkAdapter(model_override=model_override, model_map=model_map)
 
     app = build_app(adapter=adapter, cache=cache, limiter=limiter)
 
     log.info(
-        "bridge up: host=%s port=%d max_rps=%s max_concurrency=%d cache=%s ttl=%ds",
+        "bridge up: host=%s port=%d max_rps=%s max_concurrency=%d cache=%s ttl=%ds "
+        "model_override=%s model_map=%s",
         host,
         port,
         max_rps,
         max_conc,
         cache_path,
         cache_ttl,
+        model_override or "(none)",
+        model_map or "(none)",
     )
 
     config = uvicorn.Config(app=app, host=host, port=port, log_level="info", access_log=True)
