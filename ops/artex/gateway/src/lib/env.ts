@@ -31,6 +31,12 @@ export const env = createEnv({
 
     // Where ARTEX listens on the compose network.
     ARTEX_UPSTREAM_URL: z.string().url().default('http://artex:8787'),
+
+    // The ARTEX admin password (the one you set on /setup). The gateway uses
+    // it to auto-login into ARTEX on behalf of the single authenticated user,
+    // so the ARTEX /login screen is never shown. Keep in sync with whatever
+    // you typed on /setup, or rotate both at the same time.
+    ARTEX_SESSION_PASSWORD: z.string().min(1),
   },
 
   client: {},
@@ -43,6 +49,7 @@ export const env = createEnv({
     GATEWAY_ADMIN_USERNAME: process.env.GATEWAY_ADMIN_USERNAME,
     GATEWAY_ADMIN_PASSWORD: process.env.GATEWAY_ADMIN_PASSWORD,
     ARTEX_UPSTREAM_URL: process.env.ARTEX_UPSTREAM_URL,
+    ARTEX_SESSION_PASSWORD: process.env.ARTEX_SESSION_PASSWORD,
   },
 
   emptyStringAsUndefined: true,

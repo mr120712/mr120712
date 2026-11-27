@@ -46,6 +46,16 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     return NextResponse.next();
   }
 
+  // ARTEX frontend has its own /login page, but the gateway already front-
+  // doored the user and the proxy auto-injects an ARTEX session on every
+  // forwarded request. Showing ARTEX's /login would be at best a one-frame
+  // flash and at worst a 401 loop. Bounce it to / so the user lands on the
+  // ARTEX dashboard (which will then proxy /function/tasks or /setup as
+  // ARTEX's own client-side logic decides).
+  if (pathname === '/login' || pathname.startsWith('/login/')) {
+    return NextResponse.redirect(new URL('/', request.url));
+  }
+
   // Authenticated. Rewrite to /pass/<original path> so the catch-all handler
   // forwards to ARTEX while the user's address bar keeps the real URL.
   const proxyUrl = new URL(`/pass${pathname === '/' ? '' : pathname}`, request.url);

@@ -154,6 +154,10 @@ services:
       GATEWAY_ADMIN_USERNAME: ${GATEWAY_ADMIN_USERNAME:?set GATEWAY_ADMIN_USERNAME in .env}
       GATEWAY_ADMIN_PASSWORD: ${GATEWAY_ADMIN_PASSWORD:?set GATEWAY_ADMIN_PASSWORD in .env}
       ARTEX_UPSTREAM_URL: http://artex:8787
+      # The ARTEX admin password (the one chosen on /setup). The gateway uses
+      # it to auto-login into ARTEX for the single authenticated user so the
+      # ARTEX /login screen is never shown. Rotate both at the same time.
+      ARTEX_SESSION_PASSWORD: ${ARTEX_SESSION_PASSWORD:?set ARTEX_SESSION_PASSWORD in .env (matches the password you set on /setup)}
     ports:
       # Localhost only — the gateway is not public; Caddy fronts it.
       - "127.0.0.1:3030:3000"
