@@ -137,9 +137,10 @@ services:
       - ./claude-bridge-data:/data
       # Claude Code auth. Run `claude login` INSIDE the container once:
       #   docker compose exec claude-bridge claude login
-      # The credentials land under /root/.claude and survive restarts via
-      # this bind mount.
-      - ./claude-bridge-auth:/root/.claude
+      # The bridge now runs as uid 10100 (Claude Code CLI refuses
+      # --dangerously-skip-permissions when running as root), so credentials
+      # live under /home/bridge/.claude, not /root/.claude.
+      - ./claude-bridge-auth:/home/bridge/.claude
     restart: unless-stopped
 
   gateway:
