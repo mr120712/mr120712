@@ -104,6 +104,11 @@ export const ACTION_RATE_LIMITS = {
     { requests: 30, windowMs: 60_000 },
     { requests: 400, windowMs: 86_400_000 },
   ],
+  // YouTube account import: reading the person's playlists (each call reaches the Data API).
+  'youtube.account.read': [
+    { requests: 30, windowMs: 60_000 },
+    { requests: 400, windowMs: 86_400_000 },
+  ],
   // Background checks: runs started by the public status endpoint (whole app) and by admins.
   'monitor.run': [
     { requests: 4, windowMs: 3_600_000 },
@@ -653,6 +658,7 @@ const actionLabels: Record<RateLimitAction, string> = {
   'music.search.youtube': 'le tue ricerche YouTube di oggi',
   'music.youtube.details': 'le verifiche dei video YouTube di oggi',
   'spotify.read': 'le letture da Spotify',
+  'youtube.account.read': 'le letture da YouTube',
   'monitor.run': 'i controlli automatici',
   'monitor.run.admin': 'i controlli manuali',
   'telegram.announce.admin': 'gli annunci su Telegram',

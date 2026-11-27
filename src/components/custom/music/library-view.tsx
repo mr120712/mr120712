@@ -19,6 +19,7 @@ import { PodcastTile } from '@/components/custom/music/podcast-tile';
 import { StationTile } from '@/components/custom/music/radio-station-tile';
 import { useHistoryPlayback } from '@/components/custom/music/recently-played-row';
 import { SpotifyImport } from '@/components/custom/music/spotify-import';
+import { YouTubeAccountImport } from '@/components/custom/music/youtube-account-import';
 import { TrackListImport } from '@/components/custom/music/track-list-import';
 import { SolcoSelect, type SolcoSelectOption } from '@/components/custom/ui-premium/solco-select';
 import { Button } from '@/components/ui/button';
@@ -239,6 +240,7 @@ function PlaylistsTab({ focusCollectionId }: { focusCollectionId: string | null 
       </form>
 
       <SpotifyImport onImported={() => setReloadKey((key) => key + 1)} />
+      <YouTubeAccountImport onImported={() => setReloadKey((key) => key + 1)} />
 
       <TrackListImport onImported={() => setReloadKey((key) => key + 1)} />
 

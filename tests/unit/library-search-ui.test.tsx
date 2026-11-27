@@ -78,6 +78,9 @@ vi.mock('@/components/custom/music/offline-download-button', () => ({
 // Solo per montare la Libreria: le altre parti della pagina non sono sotto test qui.
 vi.mock('@/components/custom/music/local-music-section', () => ({ LocalMusicSection: () => null }));
 vi.mock('@/components/custom/music/spotify-import', () => ({ SpotifyImport: () => null }));
+vi.mock('@/components/custom/music/youtube-account-import', () => ({
+  YouTubeAccountImport: () => null,
+}));
 vi.mock('@/components/custom/music/track-list-import', () => ({ TrackListImport: () => null }));
 vi.mock('@/components/custom/music/ai-organize', () => ({ AiOrganize: () => null }));
 vi.mock('@/components/custom/music/recently-played-row', () => ({
