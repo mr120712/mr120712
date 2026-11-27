@@ -104,28 +104,57 @@ export async function seed(): Promise<void> {
       `[gateway:seed] self-test A: hash.len=${hash.length} stored.len=${storedHash.length} verify=${roundTrip}`,
     );
 
-    // Self-test B: full sign-in through Better Auth's own API, same path the
-    // HTTP endpoint takes. If this fails while A succeeds, the bug is in the
-    // adapter's findOne lookup by username (schema mismatch) or in a plugin
-    // hook, not in the hash.
+    // Self-test B: drill into each step of Better Auth's signInUsername to
+    // find where it diverges from our Prisma-direct view of the DB.
     try {
+      // Step 1: adapter.findOne by username — what the username plugin does.
+      const adapter = ctx.adapter;
+      const byUsername = await adapter.findOne({
+        model: 'user',
+        where: [{ field: 'username', value: username }],
+      });
+      // eslint-disable-next-line no-console
+      console.log(
+        `[gateway:seed] self-test B/1 adapter.findOne(user, username=${username}): ${
+          byUsername ? 'FOUND id=' + (byUsername as { id?: string }).id : 'NOT FOUND'
+        }`,
+      );
+
+      // Step 2: adapter.findOne by id — rule out the model/schema layer.
+      const byId = await adapter.findOne({
+        model: 'user',
+        where: [{ field: 'id', value: user.id }],
+      });
+      // eslint-disable-next-line no-console
+      console.log(
+        `[gateway:seed] self-test B/2 adapter.findOne(user, id=${user.id}): ${
+          byId ? 'FOUND username=' + ((byId as { username?: string }).username ?? 'null') : 'NOT FOUND'
+        }`,
+      );
+
+      // Step 3: internalAdapter.findCredentialAccount.
+      const credAcc = await ctx.internalAdapter.findCredentialAccount(user.id);
+      // eslint-disable-next-line no-console
+      console.log(
+        `[gateway:seed] self-test B/3 findCredentialAccount(${user.id}): ${
+          credAcc ? 'FOUND hash.len=' + ((credAcc as { password?: string }).password?.length ?? 0) : 'NOT FOUND'
+        }`,
+      );
+
+      // Step 4: full api call to signInUsername (end-to-end).
       const result = await auth.api.signInUsername({
         body: { username, password },
       });
       // eslint-disable-next-line no-console
       console.log(
-        `[gateway:seed] self-test B: signInUsername OK, token.length=${(result as { token?: string } | undefined)?.token?.length ?? 0}`,
+        `[gateway:seed] self-test B/4 signInUsername OK, token.length=${(result as { token?: string } | undefined)?.token?.length ?? 0}`,
       );
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error(
-        '[gateway:seed] self-test B FAILED (signInUsername threw):',
+        '[gateway:seed] self-test B stopped with:',
         err instanceof Error ? `${err.name}: ${err.message}` : err,
       );
-      if (err instanceof Error && err.stack) {
-        // eslint-disable-next-line no-console
-        console.error(err.stack.split('\n').slice(0, 5).join('\n'));
-      }
     }
   } catch (err) {
     // eslint-disable-next-line no-console
