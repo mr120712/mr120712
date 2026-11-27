@@ -9,7 +9,7 @@ import { useEffect } from 'react';
 
 export default function Home() {
   useEffect(() => {
-    window.location.replace('/login');
+    window.location.replace('/gw-login');
   }, []);
   return (
     <main>

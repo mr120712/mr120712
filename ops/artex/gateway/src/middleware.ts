@@ -19,15 +19,14 @@ import { type NextRequest, NextResponse } from 'next/server';
 export async function middleware(request: NextRequest): Promise<NextResponse> {
   const { pathname, search } = request.nextUrl;
 
-  // Public paths — never gated. /__gw_assets/* serves the gateway's own
-  // chunks (assetPrefix in next.config.ts); it must be reachable without a
-  // session so the /login page can hydrate.
+  // Gateway's own paths — always served locally. /gw-login is the gateway's
+  // login page (renamed from /login because ARTEX has its own /login that
+  // must reach the proxy). /__gw_assets/* serves the gateway's chunks
+  // (assetPrefix in next.config.ts).
   if (
-    pathname === '/login' ||
+    pathname === '/gw-login' ||
     pathname.startsWith('/api/auth/') ||
-    pathname.startsWith('/__gw_assets/') ||
-    pathname === '/favicon.ico' ||
-    pathname === '/robots.txt'
+    pathname.startsWith('/__gw_assets/')
   ) {
     return NextResponse.next();
   }
@@ -35,15 +34,14 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   const sessionCookie = getSessionCookie(request, { cookiePrefix: 'artex-gateway' });
 
   if (!sessionCookie) {
-    const loginUrl = new URL('/login', request.url);
+    const loginUrl = new URL('/gw-login', request.url);
     if (pathname !== '/' || search) {
       loginUrl.searchParams.set('next', `${pathname}${search}`);
     }
     return NextResponse.redirect(loginUrl);
   }
 
-  // Already on the proxy path (either a direct hit or an internal rewrite
-  // from below). Session is valid, let the route handler forward upstream.
+  // Already on the proxy path (direct hit or internal rewrite). Let through.
   if (pathname === '/pass' || pathname.startsWith('/pass/')) {
     return NextResponse.next();
   }
