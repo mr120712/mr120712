@@ -1,14 +1,14 @@
 'use client';
 
-import { passkeyClient } from '@better-auth/passkey/client';
-import { magicLinkClient } from 'better-auth/client/plugins';
+import { usernameClient } from 'better-auth/client/plugins';
 import { createAuthClient } from 'better-auth/react';
 
 /**
- * Client for the login + enroll pages. Same-origin by default.
+ * Client for the /login page. Same-origin by default.
+ * Only method exposed: username + password.
  */
 export const authClient = createAuthClient({
-  plugins: [passkeyClient(), magicLinkClient()],
+  plugins: [usernameClient()],
 });
 
-export const { signIn, signOut, useSession, passkey } = authClient;
+export const { signIn, signOut, useSession } = authClient;

@@ -18,16 +18,17 @@ datasource db {
 }
 
 model User {
-  id            String    @id
-  email         String    @unique
-  emailVerified Boolean   @default(false)
-  name          String?
-  image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  sessions      Session[]
-  accounts      Account[]
-  passkeys      Passkey[]
+  id              String    @id
+  email           String    @unique
+  emailVerified   Boolean   @default(false)
+  name            String?
+  image           String?
+  username        String?   @unique
+  displayUsername String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  sessions        Session[]
+  accounts        Account[]
 
   @@map("user")
 }
@@ -77,22 +78,3 @@ model Verification {
   @@map("verification")
 }
 
-/// WebAuthn credentials. One admin may enroll multiple passkeys (laptop +
-/// phone + YubiKey). Each row stores a public-key credential; the private
-/// key never leaves the user's authenticator.
-model Passkey {
-  id           String    @id
-  name         String?
-  publicKey    String
-  userId       String
-  credentialID String
-  counter      Int
-  deviceType   String
-  backedUp     Boolean
-  transports   String?
-  createdAt    DateTime?
-  aaguid       String?
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("passkey")
-}

@@ -4,9 +4,8 @@ import { z } from 'zod';
 /**
  * Typed env for the ARTEX gateway.
  *
- * All server-only. Zero email — the gateway signs the admin in via WebAuthn
- * passkey on steady state, and uses a one-time magic link PRINTED TO SERVER
- * LOGS (not emailed) for the first-time bootstrap of that passkey.
+ * Username + password auth, seeded from env. No email relay, no passkey,
+ * no magic-link. Simplest possible single-admin console.
  */
 export const env = createEnv({
   server: {
@@ -15,26 +14,20 @@ export const env = createEnv({
     // SQLite file path. In compose this is `file:/data/gateway.db`.
     DATABASE_URL: z.string().min(1),
 
-    // Public base URL of the gateway. Better Auth uses it to build magic-link
-    // URLs, validate request origin, and scope the WebAuthn Relying Party ID.
-    // Must match what Caddy proxies to it, protocol included.
+    // Public base URL of the gateway (what Caddy proxies to it).
     GATEWAY_URL: z.string().url(),
 
-    // Random secret that signs Better Auth session cookies and verification
-    // tokens. 32 bytes minimum (hex: 64 chars). Rotate with:
-    //   openssl rand -hex 32
+    // Random secret that signs Better Auth session cookies. 32 bytes minimum.
+    // Rotate with: openssl rand -hex 32. Rotation invalidates every session.
     BETTER_AUTH_SECRET: z.string().min(32),
 
-    // The one admin email. Seeded on first boot; used as the identity key
-    // for passkeys, the bootstrap magic-link, and the PIN fallback.
-    GATEWAY_ADMIN_EMAIL: z.string().email(),
+    // The one admin's username — what you type on /login. Alphanumeric +
+    // underscore, 2-64 chars (matches Better Auth username plugin defaults).
+    GATEWAY_ADMIN_USERNAME: z.string().min(2).max(64),
 
-    // Optional PIN fallback sign-in (digits or short string, min 4 chars).
-    // When set, the seed stores a credential account for the admin with
-    // this as the password; /login shows a third tab "Sign in with PIN".
-    // Useful when the device lacks a passkey (e.g. a borrowed phone) and
-    // you don't want to peek the bootstrap URL from the server logs.
-    GATEWAY_ADMIN_PIN: z.string().min(4).optional(),
+    // The one admin's password. 4-128 chars. Rotating this is edit + restart:
+    // the seed re-hashes to whatever env says on every boot.
+    GATEWAY_ADMIN_PASSWORD: z.string().min(4).max(128),
 
     // Where ARTEX listens on the compose network.
     ARTEX_UPSTREAM_URL: z.string().url().default('http://artex:8787'),
@@ -47,8 +40,8 @@ export const env = createEnv({
     DATABASE_URL: process.env.DATABASE_URL,
     GATEWAY_URL: process.env.GATEWAY_URL,
     BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
-    GATEWAY_ADMIN_EMAIL: process.env.GATEWAY_ADMIN_EMAIL,
-    GATEWAY_ADMIN_PIN: process.env.GATEWAY_ADMIN_PIN,
+    GATEWAY_ADMIN_USERNAME: process.env.GATEWAY_ADMIN_USERNAME,
+    GATEWAY_ADMIN_PASSWORD: process.env.GATEWAY_ADMIN_PASSWORD,
     ARTEX_UPSTREAM_URL: process.env.ARTEX_UPSTREAM_URL,
   },
 
