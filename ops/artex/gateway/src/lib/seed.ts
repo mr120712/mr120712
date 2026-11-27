@@ -132,11 +132,50 @@ export async function seed(): Promise<void> {
         }`,
       );
 
-      // Step 3: internalAdapter.findCredentialAccount.
+      // Step 3a: Prisma-direct account by userId.
+      const prismaAccByUserId = await prisma.account.findFirst({
+        where: { userId: user.id },
+        select: { id: true, providerId: true, accountId: true },
+      });
+      // eslint-disable-next-line no-console
+      console.log(
+        `[gateway:seed] self-test B/3a prisma account where userId=${user.id}: ${
+          prismaAccByUserId ? JSON.stringify(prismaAccByUserId) : 'NOT FOUND'
+        }`,
+      );
+
+      // Step 3b: Prisma-direct account by userId + providerId.
+      const prismaAccByBoth = await prisma.account.findFirst({
+        where: { userId: user.id, providerId: 'credential' },
+        select: { id: true, providerId: true },
+      });
+      // eslint-disable-next-line no-console
+      console.log(
+        `[gateway:seed] self-test B/3b prisma account where userId+providerId=credential: ${
+          prismaAccByBoth ? JSON.stringify(prismaAccByBoth) : 'NOT FOUND'
+        }`,
+      );
+
+      // Step 3c: via Better Auth adapter.findOne (same signature as findCredentialAccount).
+      const adapterAcc = await ctx.adapter.findOne({
+        model: 'account',
+        where: [
+          { field: 'userId', value: user.id },
+          { field: 'providerId', value: 'credential' },
+        ],
+      });
+      // eslint-disable-next-line no-console
+      console.log(
+        `[gateway:seed] self-test B/3c adapter.findOne(account, userId+providerId): ${
+          adapterAcc ? 'FOUND' : 'NOT FOUND'
+        }`,
+      );
+
+      // Step 3d: via Better Auth's internalAdapter wrapper.
       const credAcc = await ctx.internalAdapter.findCredentialAccount(user.id);
       // eslint-disable-next-line no-console
       console.log(
-        `[gateway:seed] self-test B/3 findCredentialAccount(${user.id}): ${
+        `[gateway:seed] self-test B/3d findCredentialAccount(${user.id}): ${
           credAcc ? 'FOUND hash.len=' + ((credAcc as { password?: string }).password?.length ?? 0) : 'NOT FOUND'
         }`,
       );
