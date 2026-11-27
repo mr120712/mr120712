@@ -13,14 +13,17 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   output: 'standalone',
   poweredByHeader: false,
-  // Next 16's experimental.serverActions is NOT enabled; the gateway has one
-  // server form (magic-link request) and it posts to a route handler.
+  // ARTEX is a Next.js app upstream and also serves its own chunks at
+  // /_next/*. Without a distinct assetPrefix the gateway's chunks and
+  // ARTEX's chunks both live at /_next/static/* on the same hostname and
+  // overwrite each other, which shows up as a blank page after login
+  // (ARTEX's HTML points at /_next/* but the gateway serves its own
+  // chunks there). Isolate the gateway's chunks under a prefix so
+  // /_next/* stays available for the proxy to forward to ARTEX.
+  assetPrefix: '/__gw_assets',
   experimental: {
-    // Stream request body through the proxy without buffering.
     proxyTimeout: 120_000,
   },
-  // No image optimization — the gateway serves no images of its own, and the
-  // ARTEX UI serves its own assets which the proxy passes through verbatim.
   images: { unoptimized: true },
 };
 

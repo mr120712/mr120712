@@ -19,10 +19,13 @@ import { type NextRequest, NextResponse } from 'next/server';
 export async function middleware(request: NextRequest): Promise<NextResponse> {
   const { pathname, search } = request.nextUrl;
 
-  // Public paths — never gated.
+  // Public paths — never gated. /__gw_assets/* serves the gateway's own
+  // chunks (assetPrefix in next.config.ts); it must be reachable without a
+  // session so the /login page can hydrate.
   if (
     pathname === '/login' ||
     pathname.startsWith('/api/auth/') ||
+    pathname.startsWith('/__gw_assets/') ||
     pathname === '/favicon.ico' ||
     pathname === '/robots.txt'
   ) {
@@ -53,14 +56,9 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 }
 
 export const config = {
-  // Match everything except Next's own asset routes. The /pass route is
-  // included so both direct hits and rewrites go through the session check.
-  matcher: [
-    /*
-     * Match all request paths except for:
-     * - _next/static (static files)
-     * - _next/image (image optimization)
-     */
-    '/((?!_next/static|_next/image).*)',
-  ],
+  // Match everything. The gateway's own Next.js chunks live under
+  // /__gw_assets/* (see assetPrefix in next.config.ts) and are allowed
+  // through by the public-paths check in middleware(); every /_next/* path
+  // left on the host belongs to ARTEX and must be proxied.
+  matcher: ['/((?!__gw_assets).*)'],
 };
