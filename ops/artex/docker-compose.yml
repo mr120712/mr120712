@@ -33,6 +33,12 @@ services:
       args:
         ARTEX_VERSION: ${ARTEX_VERSION:-pinned}
     image: artex:solco-staging
+    # Override the Dockerfile's default CMD. The baseline bound to :8787
+    # which should be all-interfaces, but on this host the binary was
+    # resolving to loopback-only, blocking the gateway container from
+    # reaching artex:8787. Force bind-all explicitly here; the host-side
+    # port mapping below still keeps localhost-only external exposure.
+    command: ["-addr", "0.0.0.0:8787", "-proxy", "0.0.0.0:8788"]
     security_opt:
       - "no-new-privileges:true"
     depends_on:
