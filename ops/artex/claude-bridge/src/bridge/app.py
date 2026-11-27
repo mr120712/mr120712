@@ -3,7 +3,10 @@
 # tests can run the HTTP surface against fakes.
 from __future__ import annotations
 
+import asyncio
+import logging
 import secrets
+from dataclasses import dataclass
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -13,10 +16,30 @@ from pydantic import ValidationError
 
 from bridge.cache import PromptCache
 from bridge.errors import SubscriptionRateLimited
-from bridge.rate_limit import RateLimited, RateLimiter
+from bridge.rate_limit import RateLimiter
 from bridge.schema import MessagesRequest, normalize_messages, normalize_system
 from bridge.sdk_adapter import SdkAdapter
 from bridge.sse import stream_error, stream_result
+
+log = logging.getLogger("artex-claude-bridge")
+
+
+@dataclass(frozen=True)
+class UpstreamRetry:
+    """Exponential-backoff policy for upstream SubscriptionRateLimited.
+
+    attempts counts TOTAL attempts, not retries. attempts=1 == old behavior
+    (first failure returns 429). Sleep between attempt N (1-indexed) and
+    N+1 is min(base * 2**(N-1), cap). After `attempts` tries, we give up
+    and return 429 so ARTEX can decide; with unlimited budgets ARTEX will
+    retry on its own."""
+    attempts: int = 1
+    base_seconds: float = 5.0
+    cap_seconds: float = 60.0
+
+    def sleep_for(self, attempt_index: int) -> float:
+        # attempt_index is the 1-indexed try that just failed.
+        return min(self.base_seconds * (2 ** (attempt_index - 1)), self.cap_seconds)
 
 
 def _anthropic_error(error_type: str, message: str, http_status: int) -> JSONResponse:
@@ -35,8 +58,10 @@ def build_app(
     adapter: SdkAdapter,
     cache: PromptCache | None = None,
     limiter: RateLimiter | None = None,
+    upstream_retry: UpstreamRetry | None = None,
 ) -> FastAPI:
     app = FastAPI(title="ARTEX ↔ Claude Agent SDK bridge", version="0.1.0")
+    retry = upstream_retry or UpstreamRetry()
 
     @app.exception_handler(RequestValidationError)
     async def _validation_error(_request: Request, exc: RequestValidationError) -> JSONResponse:
@@ -88,16 +113,30 @@ def build_app(
                 tools=tools,
             )
 
+        async def _invoke_with_retry() -> dict[str, Any]:
+            last_exc: SubscriptionRateLimited | None = None
+            for attempt in range(1, retry.attempts + 1):
+                try:
+                    if limiter is not None:
+                        async with limiter.slot():
+                            return await _invoke_adapter()
+                    return await _invoke_adapter()
+                except SubscriptionRateLimited as exc:
+                    last_exc = exc
+                    if attempt >= retry.attempts:
+                        break
+                    sleep_s = retry.sleep_for(attempt)
+                    log.warning(
+                        "subscription rate limit on attempt %d/%d (%s); "
+                        "sleeping %.1fs before retry",
+                        attempt, retry.attempts, exc, sleep_s,
+                    )
+                    await asyncio.sleep(sleep_s)
+            assert last_exc is not None
+            raise last_exc
+
         try:
-            if limiter is not None:
-                async with limiter.slot():
-                    result = await _invoke_adapter()
-            else:
-                result = await _invoke_adapter()
-        except RateLimited as e:
-            return _stream_error_response(e, "rate_limit_error") if req.stream else (
-                _anthropic_error("rate_limit_error", str(e), 429)
-            )
+            result = await _invoke_with_retry()
         except SubscriptionRateLimited as e:
             return _stream_error_response(e, "rate_limit_error") if req.stream else (
                 _anthropic_error("rate_limit_error", str(e), 429)

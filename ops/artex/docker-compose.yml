@@ -131,8 +131,18 @@ services:
     environment:
       BRIDGE_PORT: "5000"
       BRIDGE_HOST: "0.0.0.0"
-      BRIDGE_MAX_RPS: ${BRIDGE_MAX_RPS:-1.0}
-      BRIDGE_MAX_CONCURRENCY: ${BRIDGE_MAX_CONCURRENCY:-2}
+      # Serialized + slow by default: the limiter now BLOCKS (waits) instead
+      # of refusing a 429 to ARTEX, so the sub window never gets hammered.
+      # 0.5 rps = ~one call every 2s; 1 in-flight = strictly serial.
+      BRIDGE_MAX_RPS: ${BRIDGE_MAX_RPS:-0.5}
+      BRIDGE_MAX_CONCURRENCY: ${BRIDGE_MAX_CONCURRENCY:-1}
+      # Upstream (subscription) rate-limit retry policy. On a real 429 from
+      # Claude Code, the bridge retries with exponential backoff instead of
+      # surfacing the 429 to ARTEX. attempts=10, base=5s, cap=60s ->
+      # up to ~5 min of retries riding out a typical cooldown.
+      BRIDGE_UPSTREAM_RETRY_ATTEMPTS: ${BRIDGE_UPSTREAM_RETRY_ATTEMPTS:-10}
+      BRIDGE_UPSTREAM_RETRY_BASE_SECONDS: ${BRIDGE_UPSTREAM_RETRY_BASE_SECONDS:-5}
+      BRIDGE_UPSTREAM_RETRY_CAP_SECONDS: ${BRIDGE_UPSTREAM_RETRY_CAP_SECONDS:-60}
       BRIDGE_CACHE_TTL_SECONDS: ${BRIDGE_CACHE_TTL_SECONDS:-3600}
       BRIDGE_CACHE_PATH: /data/cache.sqlite
       BRIDGE_LOG_LEVEL: ${BRIDGE_LOG_LEVEL:-INFO}

@@ -9,7 +9,7 @@ import os
 
 import uvicorn
 
-from bridge.app import build_app
+from bridge.app import UpstreamRetry, build_app
 from bridge.cache import PromptCache
 from bridge.rate_limit import RateLimiter
 from bridge.sdk_adapter_impl import ClaudeSdkAdapter
@@ -39,8 +39,19 @@ async def _amain() -> None:
 
     cache_path = os.environ.get("BRIDGE_CACHE_PATH", "/data/cache.sqlite")
     cache_ttl = _int("BRIDGE_CACHE_TTL_SECONDS", 3600)
-    max_rps = _float("BRIDGE_MAX_RPS", 1.0)
-    max_conc = _int("BRIDGE_MAX_CONCURRENCY", 2)
+    # Default: 0.5 rps serial. Tighter than the old (1 rps, 2 in-flight) so
+    # the subscription window never gets near rejection. Back-pressure is a
+    # BLOCKING wait inside the slot, not a 429 to ARTEX.
+    max_rps = _float("BRIDGE_MAX_RPS", 0.5)
+    max_conc = _int("BRIDGE_MAX_CONCURRENCY", 1)
+    # On an upstream rate_limit (the Claude Code subscription actually
+    # rejecting), retry with exp backoff instead of surfacing 429 to ARTEX.
+    # attempts=10, base=5s, cap=60s → up to ~5 min of retries riding out a
+    # typical subscription cooldown. After that we DO return 429 so ARTEX
+    # can decide; with unlimited budgets it just retries.
+    retry_attempts = _int("BRIDGE_UPSTREAM_RETRY_ATTEMPTS", 10)
+    retry_base = _float("BRIDGE_UPSTREAM_RETRY_BASE_SECONDS", 5.0)
+    retry_cap = _float("BRIDGE_UPSTREAM_RETRY_CAP_SECONDS", 60.0)
     port = _int("BRIDGE_PORT", 5000)
     host = os.environ.get("BRIDGE_HOST", "0.0.0.0")
 
@@ -49,16 +60,25 @@ async def _amain() -> None:
     cache = PromptCache(path=cache_path, ttl_seconds=cache_ttl)
     await cache.open()
     limiter = RateLimiter(max_rps=max_rps, max_concurrency=max_conc)
+    upstream_retry = UpstreamRetry(
+        attempts=retry_attempts, base_seconds=retry_base, cap_seconds=retry_cap
+    )
     adapter = ClaudeSdkAdapter()
 
-    app = build_app(adapter=adapter, cache=cache, limiter=limiter)
+    app = build_app(
+        adapter=adapter, cache=cache, limiter=limiter, upstream_retry=upstream_retry
+    )
 
     log.info(
-        "bridge up: host=%s port=%d max_rps=%s max_concurrency=%d cache=%s ttl=%ds",
+        "bridge up: host=%s port=%d max_rps=%s max_concurrency=%d "
+        "retry_attempts=%d retry_base=%.1fs retry_cap=%.1fs cache=%s ttl=%ds",
         host,
         port,
         max_rps,
         max_conc,
+        retry_attempts,
+        retry_base,
+        retry_cap,
         cache_path,
         cache_ttl,
     )
