@@ -79,7 +79,9 @@ export async function seed(): Promise<void> {
         data: {
           id: randomUUID(),
           userId: user.id,
-          accountId: email,
+          // Better Auth 1.7 requires accountId === userId for credential
+          // accounts (findCredentialAccount filters on all three fields).
+          accountId: user.id,
           providerId: 'credential',
           password: hash,
           createdAt: now,
