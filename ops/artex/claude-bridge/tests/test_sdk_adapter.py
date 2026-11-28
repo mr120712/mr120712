@@ -400,3 +400,47 @@ async def test_override_wins_over_map(monkeypatch) -> None:
         model="claude-opus-4-7", max_tokens=16,
     )
     assert fake.last_options.model == "claude-haiku-4-5"
+
+
+# --- error classification: SDK faults -> clean bridge errors ------------------
+
+def test_classify_auth_error_from_stderr() -> None:
+    from claude_agent_sdk import ProcessError
+
+    from bridge.errors import SdkAuthRequired
+    from bridge.sdk_adapter_impl import _classify_sdk_error
+
+    exc = ProcessError("claude exited", exit_code=1,
+                       stderr="Invalid API key · Please run /login")
+    mapped = _classify_sdk_error(exc)
+    assert isinstance(mapped, SdkAuthRequired)
+    assert "claude login" in str(mapped)
+
+
+def test_classify_non_auth_error_is_unavailable() -> None:
+    from claude_agent_sdk import ProcessError
+
+    from bridge.errors import SdkUnavailable
+    from bridge.sdk_adapter_impl import _classify_sdk_error
+
+    exc = ProcessError("claude exited", exit_code=1, stderr="model not found: xyz")
+    mapped = _classify_sdk_error(exc)
+    assert isinstance(mapped, SdkUnavailable)
+
+
+@pytest.mark.asyncio
+async def test_complete_maps_cli_not_found_to_unavailable(monkeypatch) -> None:
+    from claude_agent_sdk import CLINotFoundError
+
+    from bridge.errors import SdkUnavailable
+    import bridge.sdk_adapter_impl as impl
+
+    def _boom(*_a, **_k):
+        raise CLINotFoundError("claude not found")
+
+    monkeypatch.setattr(impl, "query", _boom)
+    with pytest.raises(SdkUnavailable):
+        await ClaudeSdkAdapter().complete(
+            system="", messages=[{"role": "user", "content": "hi"}],
+            model="claude-haiku-4-5", max_tokens=100,
+        )

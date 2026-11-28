@@ -3,6 +3,7 @@
 # tests can run the HTTP surface against fakes.
 from __future__ import annotations
 
+import logging
 import secrets
 from typing import Any
 
@@ -12,11 +13,13 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 
 from bridge.cache import PromptCache
-from bridge.errors import SubscriptionRateLimited
+from bridge.errors import SdkAuthRequired, SdkUnavailable, SubscriptionRateLimited
 from bridge.rate_limit import RateLimited, RateLimiter
 from bridge.schema import MessagesRequest, normalize_messages, normalize_system
 from bridge.sdk_adapter import SdkAdapter
 from bridge.sse import stream_error, stream_result
+
+log = logging.getLogger("artex-claude-bridge")
 
 
 def _anthropic_error(error_type: str, message: str, http_status: int) -> JSONResponse:
@@ -101,6 +104,23 @@ def build_app(
         except SubscriptionRateLimited as e:
             return _stream_error_response(e, "rate_limit_error") if req.stream else (
                 _anthropic_error("rate_limit_error", str(e), 429)
+            )
+        except SdkAuthRequired as e:
+            # The bridge CLI is not logged in. Tell ARTEX (and the operator)
+            # exactly how to fix it instead of a blank failed POST.
+            log.error("bridge not authenticated: %s", e)
+            return _stream_error_response(e, "authentication_error") if req.stream else (
+                _anthropic_error("authentication_error", str(e), 401)
+            )
+        except SdkUnavailable as e:
+            log.error("bridge SDK unavailable: %s", e)
+            return _stream_error_response(e, "api_error") if req.stream else (
+                _anthropic_error("api_error", str(e), 502)
+            )
+        except Exception as e:  # noqa: BLE001 - never surface a raw 500 to ARTEX
+            log.exception("bridge adapter failed on /v1/messages")
+            return _stream_error_response(e, "api_error") if req.stream else (
+                _anthropic_error("api_error", f"bridge adapter failure: {e}", 500)
             )
 
         if cache is not None:
