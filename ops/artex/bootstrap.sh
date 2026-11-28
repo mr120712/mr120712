@@ -170,7 +170,10 @@ if [ "$RESCOPE_ONLY" = 0 ]; then
       ;;
     openai-responses)
       NEW_KEY=$(prompt "OPENAI_API_KEY (sk-...)" "${OPENAI_API_KEY:-}")
-      NEW_MODEL=$(prompt "ARTEX_LLM_MODEL" "${ARTEX_LLM_MODEL:-gpt-5}")
+      # gpt-5-mini by default: the planner fires many calls per task, so the
+      # cheaper reasoning tier keeps direct-mode spend sane. gpt-5 / gpt-5-pro
+      # are stronger but several times the price.
+      NEW_MODEL=$(prompt "ARTEX_LLM_MODEL" "${ARTEX_LLM_MODEL:-gpt-5-mini}")
       KEY_LINE="OPENAI_API_KEY=$NEW_KEY"
       OTHER_KEY_LINE="ANTHROPIC_API_KEY="
       say "OpenAI direct (Responses API, for GPT-5/o-series). No bridge floor — mind budgets."

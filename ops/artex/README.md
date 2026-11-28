@@ -122,8 +122,8 @@ without re-running bootstrap, edit `.env`:
 ```
 ARTEX_LLM_BASE_URL=            # empty = direct to api.openai.com
 OPENAI_API_KEY=sk-...          # real key, this file only
-ARTEX_LLM_PROVIDER=openai-responses   # or 'openai' for gpt-4o
-ARTEX_LLM_MODEL=gpt-5                  # or gpt-4o
+ARTEX_LLM_PROVIDER=openai-responses   # GPT-5/o-series; 'openai' for gpt-4o
+ARTEX_LLM_MODEL=gpt-5-mini             # cheap reasoning tier; gpt-5 for more power
 ```
 
 then `docker compose up -d`. **Direct mode has no bridge cost floor or cache** —
