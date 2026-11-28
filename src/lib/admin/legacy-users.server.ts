@@ -114,6 +114,10 @@ function logFailure(stage: string, error: unknown) {
 
 /** Apre un client per un vecchio database, applica la scadenza e lo chiude SEMPRE. */
 async function withLegacyClient<T>(url: string, run: (client: PrismaClient) => Promise<T>) {
+  // Never open legacy database connections from Vercel previews or development.
+  if (process.env.VERCEL === '1' && process.env.VERCEL_ENV !== 'production') {
+    throw new Error('Legacy database access is disabled outside production.');
+  }
   const client = new PrismaClient({ datasourceUrl: url, log: [] });
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_, reject) => {
