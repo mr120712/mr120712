@@ -156,8 +156,21 @@ export interface ReserveProvider {
 interface ProviderDef {
   id: string;
   label: string;
-  baseUrl: string;
+  /**
+   * URL OpenAI-compatibile del provider. Stringa fissa per i provider hosted (Groq, Gemini, …) o
+   * funzione per i provider il cui indirizzo è configurabile via env (local LLM: Ollama/vLLM/LM
+   * Studio su una porta a scelta). Se la funzione restituisce undefined il provider è INATTIVO,
+   * esattamente come se mancasse la chiave.
+   */
+  baseUrl: string | ((env: Env) => string | undefined);
   keyVar: string;
+  /**
+   * Chiave usata quando `env[keyVar]` è assente. Vale solo per provider che non richiedono
+   * autenticazione (Ollama di default, vLLM senza `--api-key`, llama.cpp, LM Studio): si invia un
+   * Bearer fittizio che il server ignora. Senza questo campo il provider resta inattivo se la
+   * chiave non è impostata, come per gli hosted.
+   */
+  dummyApiKey?: string;
   /** Dove ottenere una chiave gratuita (mostrato nel pannello admin per i provider non configurati). */
   signupUrl: string;
   models: (env: Env) => string[];
@@ -172,25 +185,31 @@ interface ProviderDef {
  * Il baseUrl di un provider, con l'override opzionale da env (es. OPENROUTER_BASE_URL =
  * https://eu.openrouter.ai/api/v1). L'override è accettato solo se HTTPS e sul dominio del provider o
  * un suo sottodominio: la chiave API viaggia verso quell'indirizzo, quindi mai verso un host qualsiasi.
- * Valore assente o non valido → il baseUrl di registro.
+ * Valore assente o non valido → il baseUrl di registro. Per i provider il cui indirizzo è esso stesso
+ * configurabile via env (local LLM: baseUrl è una funzione), restituisce `undefined` quando la funzione
+ * non trova l'indirizzo — segnale di "provider spento" per i chiamanti.
  */
 export function baseUrlFrom(
   def: Pick<ProviderDef, 'baseUrl' | 'baseUrlVar' | 'baseUrlDomain'>,
   env: Env,
-): string {
+): string | undefined {
+  // Per i provider hosted baseUrl è una stringa; per il local LLM è una funzione che legge
+  // LOCAL_LLM_BASE_URL. In quest'ultimo caso, assenza dell'env = provider spento.
+  const staticBase = typeof def.baseUrl === 'function' ? def.baseUrl(env) : def.baseUrl;
+  if (!staticBase) return undefined;
   const raw = def.baseUrlVar ? clean(env[def.baseUrlVar]) : undefined;
-  if (!raw || !def.baseUrlDomain) return def.baseUrl;
+  if (!raw || !def.baseUrlDomain) return staticBase;
   try {
     const url = new URL(raw);
     const host = url.hostname.toLowerCase();
     const domain = def.baseUrlDomain.toLowerCase();
     const sameDomain = host === domain || host.endsWith(`.${domain}`);
     if (url.protocol !== 'https:' || !sameDomain || url.username || url.password || url.port) {
-      return def.baseUrl;
+      return staticBase;
     }
     return `${url.origin}${url.pathname}`.replace(/\/+$/, '');
   } catch {
-    return def.baseUrl;
+    return staticBase;
   }
 }
 
@@ -287,6 +306,45 @@ const PROVIDER_DEFS: ProviderDef[] = [
     signupUrl: 'https://api.mwapi.dev',
     models: mwapiModels,
   },
+  // LOCAL LLM: un server OpenAI-compatibile OSPITATO DALL'UTENTE (Ollama, vLLM, LM Studio,
+  // llama.cpp server). ATTIVO solo quando LOCAL_LLM_BASE_URL è impostata (es.
+  // "http://localhost:11434/v1" per Ollama, "http://localhost:8000/v1" per vLLM). L'autenticazione
+  // è OPZIONALE: se il server non la richiede (Ollama di default) la chiave si lascia vuota e il
+  // connettore manda il Bearer fittizio "local" che il server ignora; se invece hai attivato
+  // l'auth (p.es. vLLM con `--api-key`) imposta LOCAL_LLM_API_KEY. I modelli da provare in «auto»
+  // si scelgono con LOCAL_LLM_MODEL e LOCAL_LLM_FALLBACK_MODEL (default pensati per Ollama con
+  // Llama/Qwen scaricati). Ultimo nella catena: i provider hosted sopra sono preferiti quando
+  // disponibili perché la riserva è pensata per girare in cloud.
+  {
+    id: 'local-llm',
+    label: 'Local LLM',
+    baseUrl: (env) => {
+      const raw = clean(env.LOCAL_LLM_BASE_URL);
+      if (!raw) return undefined;
+      try {
+        const url = new URL(raw);
+        if (
+          !['http:', 'https:'].includes(url.protocol) ||
+          url.username ||
+          url.password ||
+          url.search ||
+          url.hash
+        ) {
+          return undefined;
+        }
+        return `${url.origin}${url.pathname}`.replace(/\/+$/, '');
+      } catch {
+        return undefined;
+      }
+    },
+    keyVar: 'LOCAL_LLM_API_KEY',
+    dummyApiKey: 'local',
+    signupUrl: 'https://ollama.com/download',
+    models: (env) => [
+      clean(env.LOCAL_LLM_MODEL) ?? 'llama3.1',
+      clean(env.LOCAL_LLM_FALLBACK_MODEL) ?? 'qwen2.5',
+    ],
+  },
 ];
 
 function dedupe(values: string[]): string[] {
@@ -321,13 +379,20 @@ export function activeProviders(env: Env = process.env): ReserveProvider[] {
   const providers: ReserveProvider[] = [];
   for (const def of ordered) {
     if (seen.has(def.id)) continue;
-    const apiKey = clean(env[def.keyVar]);
+    // Indirizzo: stringa fissa per gli hosted, o LOCAL_LLM_BASE_URL per il local LLM (funzione).
+    // baseUrlFrom applica anche l'override anti-SSRF (baseUrlVar + baseUrlDomain, es. OpenRouter EU).
+    // undefined = provider spento (nessun indirizzo configurato), come per una chiave assente.
+    const baseUrl = baseUrlFrom(def, env);
+    if (!baseUrl) continue;
+    // Chiave: prima l'env dichiarata, poi la chiave fittizia quando il provider la ammette
+    // (Ollama e amici: il server ignora il Bearer). Senza né l'una né l'altra, il provider è spento.
+    const apiKey = clean(env[def.keyVar]) ?? def.dummyApiKey;
     if (!apiKey) continue;
     seen.add(def.id);
     providers.push({
       id: def.id,
       label: def.label,
-      baseUrl: baseUrlFrom(def, env),
+      baseUrl,
       apiKey,
       models: dedupe(def.models(env)),
       ...(def.extraHeaders ? { extraHeaders: def.extraHeaders } : {}),
@@ -433,7 +498,9 @@ export function reserveKnownProviders(env: Env = process.env): ReserveKnownProvi
   return PROVIDER_DEFS.map((def) => ({
     id: def.id,
     label: def.label,
-    baseUrl: baseUrlFrom(def, env),
+    // Per un provider configurabile via env (local LLM) mostriamo l'URL attuale, se c'è; altrimenti
+    // stringa vuota, come segnale che il provider esiste ma manca l'indirizzo.
+    baseUrl: baseUrlFrom(def, env) ?? '',
     keyVar: def.keyVar,
     signupUrl: def.signupUrl,
     models: dedupe(def.models(env)),

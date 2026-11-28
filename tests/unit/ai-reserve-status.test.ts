@@ -33,7 +33,7 @@ beforeEach(() => {
 });
 
 describe('reserveKnownProviders', () => {
-  it('elenca i 7 provider con variabile-chiave, URL di registrazione e modelli', () => {
+  it('elenca gli 8 provider con variabile-chiave, URL di registrazione e modelli', () => {
     const known = reserveKnownProviders({});
     expect(known.map((p) => p.id)).toEqual([
       'groq',
@@ -43,6 +43,7 @@ describe('reserveKnownProviders', () => {
       'openrouter',
       'mwapi',
       'mwapi-2',
+      'local-llm',
     ]);
     for (const provider of known) {
       expect(provider.keyVar).toMatch(/_API_KEY(_\d)?$/);
@@ -83,7 +84,7 @@ describe('reserveProvidersOverview', () => {
 
     expect(overview.liveCount).toBe(1);
     expect(overview.configuredCount).toBe(2);
-    expect(overview.total).toBe(7);
+    expect(overview.total).toBe(8);
     expect(overview.discoveredTotal).toBe(2);
     expect(overview.checkedAt).toBe(now.toISOString());
   });
@@ -107,7 +108,7 @@ describe('reserveProvidersOverview', () => {
     expect(overview.providers.every((p) => p.status === 'not_configured')).toBe(true);
     expect(overview.liveCount).toBe(0);
     expect(overview.configuredCount).toBe(0);
-    expect(overview.total).toBe(7);
+    expect(overview.total).toBe(8);
     expect(overview.discoveredTotal).toBe(0);
   });
 });
