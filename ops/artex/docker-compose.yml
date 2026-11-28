@@ -180,6 +180,15 @@ services:
       FREELLMAPI_AUTH_SCHEME: ${FREELLMAPI_AUTH_SCHEME:-Bearer}
       FREELLMAPI_PATH: ${FREELLMAPI_PATH:-/v1/chat/completions}
       FREELLMAPI_TIMEOUT_SECONDS: ${FREELLMAPI_TIMEOUT_SECONDS:-300}
+      # OpenAI direct (default model gpt-5-codex -- coding/tool-use
+      # specialized, better fit for ARTEX than plain GPT-5). Pay-per-token
+      # on your OpenAI account. API has no training on API data (policy).
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5-codex}
+      OPENAI_AUTH_SCHEME: ${OPENAI_AUTH_SCHEME:-Bearer}
+      OPENAI_PATH: ${OPENAI_PATH:-/v1/chat/completions}
+      OPENAI_TIMEOUT_SECONDS: ${OPENAI_TIMEOUT_SECONDS:-300}
       # Direct Anthropic API (last link; optional pay-per-token backstop).
       ANTHROPIC_FALLBACK_API_KEY: ${ANTHROPIC_FALLBACK_API_KEY:-}
       ANTHROPIC_FALLBACK_BASE_URL: ${ANTHROPIC_FALLBACK_BASE_URL:-https://api.anthropic.com}

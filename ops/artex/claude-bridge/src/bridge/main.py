@@ -117,6 +117,26 @@ async def _amain() -> None:
             )
         )
 
+    # Direct OpenAI API. Default model is gpt-5-codex -- a coding/tool-use
+    # specialized model better suited to ARTEX's workload than plain GPT-5.
+    # Override via OPENAI_MODEL in .env if you want something else (e.g.
+    # gpt-5, gpt-5-mini, gpt-4.1, o-series).
+    openai_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if openai_key:
+        fallbacks.append(
+            OpenAIFallbackAdapter(
+                name="openai",
+                api_key=openai_key,
+                base_url=os.environ.get("OPENAI_BASE_URL", "https://api.openai.com"),
+                model_override=os.environ.get("OPENAI_MODEL", "").strip() or "gpt-5-codex",
+                timeout_seconds=_float("OPENAI_TIMEOUT_SECONDS", 300.0),
+                auth_scheme=os.environ.get("OPENAI_AUTH_SCHEME", "Bearer"),
+                chat_completions_path=os.environ.get(
+                    "OPENAI_PATH", "/v1/chat/completions"
+                ),
+            )
+        )
+
     anthropic_fallback_key = os.environ.get("ANTHROPIC_FALLBACK_API_KEY", "").strip()
     if anthropic_fallback_key:
         fallbacks.append(
