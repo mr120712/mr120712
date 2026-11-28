@@ -290,9 +290,11 @@ export function GuideMoreHelp() {
           <Ui>Assistenza</Ui>: è il pulsante in basso a destra (sul telefono è un tondo con il
           fumetto). Scrivi la tua domanda nel campo «Scrivi una domanda su Solco…» e inviala.
           Risponde un assistente automatico, basato sull’intelligenza artificiale, solo su come si
-          usa Solco: la tua domanda viene inviata a un servizio esterno di intelligenza artificiale,
-          quindi non scriverci dati personali. Non c’è nelle pagine di accesso, di registrazione e
-          in Cerca.
+          usa Solco, e ricorda le domande della stessa conversazione. Se hai effettuato l’accesso
+          può anche dirti il tuo piano e quanti ascolti hai usato nel mese; non può modificare
+          l’account. La conversazione viene inviata a un servizio esterno di intelligenza
+          artificiale, quindi non scriverci dati personali. Non c’è nelle pagine di accesso, di
+          registrazione e in Cerca.
         </li>
         <li>
           <Link href="/stato">Stato</Link>: ti dice se in questo momento Solco ha un problema.

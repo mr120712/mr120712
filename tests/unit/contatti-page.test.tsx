@@ -82,7 +82,8 @@ describe('pagine legali senza frasi da bozza', () => {
         /Bozza per revisione|proprietario deve|prima della pubblicazione|da confermare|devono essere confermat/i,
       );
       expect(text, name).toContain(legalContact.email);
-      expect(text, name).toContain('16 novembre 2026');
+      // La privacy è stata aggiornata per la chat di assistenza con Claude.
+      expect(text, name).toContain(name === 'privacy' ? '28 novembre 2026' : '16 novembre 2026');
       expect(text, name).toMatch(/servizio indipendente|Solco è gestito da/);
     }
     const privacy = render(<PrivacyPage />);

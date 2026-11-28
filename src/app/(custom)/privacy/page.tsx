@@ -19,7 +19,7 @@ export default function PrivacyPage() {
       <article className={styles.content}>
         <p className={styles.eyebrow}>Solco · Privacy</p>
         <h1 className={styles.title}>Informativa privacy</h1>
-        <p className={styles.updated}>Aggiornata il 16 novembre 2026</p>
+        <p className={styles.updated}>Aggiornata il 28 novembre 2026</p>
 
         <p className={styles.notice}>
           Questa informativa descrive i trattamenti che Solco fa davvero, funzione per funzione,
@@ -148,9 +148,15 @@ export default function PrivacyPage() {
                 YouTube solo quando li ascolti.
               </li>
               <li>
-                <strong>Assistenza automatizzata:</strong> la domanda inviata alla chat di supporto
-                viene trasmessa al proxy AI di Polsia per preparare la risposta; la chat non viene
-                salvata nel database applicativo dal percorso attuale.
+                <strong>Assistenza automatizzata:</strong> i messaggi della chat di supporto (le
+                domande e le risposte della conversazione aperta) vengono inviati ad Anthropic
+                (modello Claude) tramite la sua API per preparare la risposta. Se hai effettuato
+                l’accesso e chiedi del tuo account, l’assistente legge e invia ad Anthropic anche il
+                piano (Free o Premium), se l’email è confermata e i conteggi del mese (ascolti e
+                registrazioni nel diario); mai il tuo nome, la tua email o altri dati dell’account.
+                L’assistente può solo leggere: non modifica l’account. Se Claude non è disponibile,
+                l’ultima domanda viene trasmessa al proxy AI di Polsia. La chat non viene salvata
+                nel database di Solco.
               </li>
               <li>
                 <strong>Misurazione delle visite:</strong> Solco conta le pagine aperte con un
@@ -187,10 +193,11 @@ export default function PrivacyPage() {
               Il codice usa Better Auth e il database dell’app per account, diario e raccolte, l’API
               REST Audius quando è configurata la credenziale server-side, YouTube Data API v3 dopo
               consenso esplicito per la ricerca e il player ufficiale YouTube incorporato per la
-              riproduzione selezionata e il proxy AI di Polsia per la chat di assistenza. La query e
-              i metadati richiesti sono ricevuti da YouTube al momento della ricerca; al caricamento
-              del player YouTube può ricevere dal browser dati tecnici e di utilizzo. Solco non
-              estrae o archivia media YouTube. Puoi consultare la{' '}
+              riproduzione selezionata, Anthropic (Claude) per la chat di assistenza e, come
+              riserva, il proxy AI di Polsia. La query e i metadati richiesti sono ricevuti da
+              YouTube al momento della ricerca; al caricamento del player YouTube può ricevere dal
+              browser dati tecnici e di utilizzo. Solco non estrae o archivia media YouTube. Puoi
+              consultare la{' '}
               <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer">
                 Privacy Policy Google
               </a>{' '}

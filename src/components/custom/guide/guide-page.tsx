@@ -9,7 +9,7 @@ import { GuideExtras, GuidePlans } from './guide-plans';
 import { GuideBrief, GuideFirstSteps, GuideHeader, GuideToc } from './guide-start';
 
 /** Data dell'ultima revisione dei contenuti (aggiornala quando cambi la guida). */
-export const GUIDE_UPDATED_LABEL = '15 novembre 2026';
+export const GUIDE_UPDATED_LABEL = '28 novembre 2026';
 
 export function GuidePage() {
   return (
