@@ -217,6 +217,21 @@ describe('activeProviders', () => {
     expect(activeProviders({ LOCAL_LLM_API_KEY: 'whatever' }).map((p) => p.id)).toEqual([]);
   });
 
+  it('local-llm: normalizza lo slash finale del base URL', () => {
+    const [provider] = activeProviders({ LOCAL_LLM_BASE_URL: 'http://localhost:11434/v1/' });
+    expect(provider?.baseUrl).toBe('http://localhost:11434/v1');
+  });
+
+  it.each([
+    'not-a-url',
+    'ftp://localhost/v1',
+    'http://user:password@localhost/v1',
+    'http://localhost/v1?query=value',
+    'http://localhost/v1#fragment',
+  ])('local-llm: resta spento con un base URL non valido (%s)', (baseUrl) => {
+    expect(activeProviders({ LOCAL_LLM_BASE_URL: baseUrl })).toEqual([]);
+  });
+
   it('local-llm: attivo quando LOCAL_LLM_BASE_URL è impostata; la chiave è opzionale', () => {
     const noKey = activeProviders({ LOCAL_LLM_BASE_URL: 'http://localhost:11434/v1' });
     expect(noKey.map((p) => p.id)).toEqual(['local-llm']);

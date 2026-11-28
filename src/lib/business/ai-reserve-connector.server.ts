@@ -318,7 +318,25 @@ const PROVIDER_DEFS: ProviderDef[] = [
   {
     id: 'local-llm',
     label: 'Local LLM',
-    baseUrl: (env) => clean(env.LOCAL_LLM_BASE_URL),
+    baseUrl: (env) => {
+      const raw = clean(env.LOCAL_LLM_BASE_URL);
+      if (!raw) return undefined;
+      try {
+        const url = new URL(raw);
+        if (
+          !['http:', 'https:'].includes(url.protocol) ||
+          url.username ||
+          url.password ||
+          url.search ||
+          url.hash
+        ) {
+          return undefined;
+        }
+        return `${url.origin}${url.pathname}`.replace(/\/+$/, '');
+      } catch {
+        return undefined;
+      }
+    },
     keyVar: 'LOCAL_LLM_API_KEY',
     dummyApiKey: 'local',
     signupUrl: 'https://ollama.com/download',
