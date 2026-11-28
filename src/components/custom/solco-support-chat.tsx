@@ -154,7 +154,7 @@ export function SolcoSupportChat() {
                 Assistenza Solco
               </DialogPrimitive.Title>
               <DialogPrimitive.Description className={styles.description}>
-                Chiedimi come cercare, segnare e ritrovare i tuoi ascolti.
+                Chiedimi di account, piani, ascolti e problemi con l’app.
               </DialogPrimitive.Description>
             </div>
             <DialogPrimitive.Close className={styles.close} aria-label="Chiudi assistenza">

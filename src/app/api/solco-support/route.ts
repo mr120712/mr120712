@@ -3,21 +3,32 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { AiConfigurationError, chat } from '@/lib/ai/client';
 import { auth } from '@/lib/auth';
 import { enforceRateLimit, getRateLimitIdentity } from '@/lib/business/rate-limit.server';
 import { limitedJsonError, readJsonLimited } from '@/lib/business/request-body.server';
+import { runSupportAgent } from '@/lib/business/solco-support-agent.server';
 import {
   assessSupportQuestion,
-  buildSupportMessages,
-  SUPPORT_NOT_CONFIGURED,
   SUPPORT_OUT_OF_SCOPE,
-  SUPPORT_TEMPORARY_ERROR,
-  SUPPORT_UNKNOWN_ANSWER,
+  sanitizeSupportTurns,
 } from '@/lib/business/solco-support-policy';
 import { sameOrigin } from '@/lib/same-origin';
 
 export const dynamic = 'force-dynamic';
+// L'agente può fare fino a tre giri con Claude (domanda → stato_account → risposta).
+export const maxDuration = 60;
+const AGENT_DEADLINE_MS = 50_000;
+
+const SSE_HEADERS = {
+  'content-type': 'text/event-stream; charset=utf-8',
+  'cache-control': 'no-cache, no-transform',
+  connection: 'keep-alive',
+};
+
+/** Un evento nel formato che il widget già legge (`choices[0].delta.content`). */
+function sseChunk(text: string) {
+  return `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`;
+}
 
 const requestSchema = z
   .object({
@@ -36,14 +47,7 @@ const requestSchema = z
   .strict();
 
 function streamAnswer(answer: string) {
-  const chunk = `data: ${JSON.stringify({ choices: [{ delta: { content: answer } }] })}\n\ndata: [DONE]\n\n`;
-  return new Response(chunk, {
-    headers: {
-      'content-type': 'text/event-stream; charset=utf-8',
-      'cache-control': 'no-cache, no-transform',
-      connection: 'keep-alive',
-    },
-  });
+  return new Response(`${sseChunk(answer)}data: [DONE]\n\n`, { headers: SSE_HEADERS });
 }
 
 export async function POST(request: Request) {
@@ -67,7 +71,6 @@ export async function POST(request: Request) {
 
   const decision = assessSupportQuestion(question);
   if (decision === 'out_of_scope') return streamAnswer(SUPPORT_OUT_OF_SCOPE);
-  if (decision === 'unknown') return streamAnswer(SUPPORT_UNKNOWN_ANSWER);
 
   const session = await auth.api.getSession({ headers: request.headers }).catch(() => null);
   const limited =
@@ -79,17 +82,29 @@ export async function POST(request: Request) {
     (await enforceRateLimit('solco.support.global', 'global'));
   if (limited) return limited;
 
-  try {
-    const answer = await chat({
-      messages: buildSupportMessages(question),
-      task: 'general',
-      temperature: 0.1,
-      signal: AbortSignal.timeout(20_000),
-    });
-    return streamAnswer(answer.trim() || SUPPORT_UNKNOWN_ANSWER);
-  } catch (error) {
-    return streamAnswer(
-      error instanceof AiConfigurationError ? SUPPORT_NOT_CONFIGURED : SUPPORT_TEMPORARY_ERROR,
-    );
-  }
+  const user = session ? { id: session.user.id, emailVerified: session.user.emailVerified } : null;
+  const turns = sanitizeSupportTurns(parsed.data.messages);
+  const encoder = new TextEncoder();
+  // Chi chiude il widget (o la scadenza) interrompe anche la chiamata a Claude.
+  const cancelled = new AbortController();
+  const signal = AbortSignal.any([
+    request.signal,
+    cancelled.signal,
+    AbortSignal.timeout(AGENT_DEADLINE_MS),
+  ]);
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (chunk: string) => {
+        if (cancelled.signal.aborted) return;
+        controller.enqueue(encoder.encode(chunk));
+      };
+      await runSupportAgent({ turns, user, signal, emit: (text) => send(sseChunk(text)) });
+      send('data: [DONE]\n\n');
+      if (!cancelled.signal.aborted) controller.close();
+    },
+    cancel() {
+      cancelled.abort();
+    },
+  });
+  return new Response(stream, { headers: SSE_HEADERS });
 }
