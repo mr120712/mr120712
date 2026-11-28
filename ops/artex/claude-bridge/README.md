@@ -116,10 +116,34 @@ work.
 | `BRIDGE_MAX_RPS` | `1.0` | max LLM requests per second. 0 disables. |
 | `BRIDGE_MAX_CONCURRENCY` | `2` | max LLM requests in flight. 0 disables. |
 | `BRIDGE_CACHE_TTL_SECONDS` | `3600` | prompt cache TTL. 0 = always miss. |
+| `BRIDGE_MODEL_OVERRIDE` | _(unset)_ | force EVERY request onto this model, whatever ARTEX asked for. Empty = honor ARTEX's request. |
+| `BRIDGE_MODEL_MAP` | _(unset)_ | JSON `{requested: cheaper}` for selective downgrades. `BRIDGE_MODEL_OVERRIDE` wins when both set. |
 | `BRIDGE_LOG_LEVEL` | `INFO` | `DEBUG` to see each prompt+response. |
 
-Turn these UP only if you know your subscription window can absorb more;
-ARTEX can fire the planner a few hundred times per task.
+Turn the rate limits UP only if you know your subscription window can absorb
+more; ARTEX can fire the planner a few hundred times per task.
+
+## Spending fewer credits / less money
+
+The planner's model is the dominant cost: ARTEX fans out many calls per task,
+and Opus drains the subscription window (and pay-per-token budget in direct
+mode) several times faster than Haiku for the same loop. The bridge can rewrite
+the requested model centrally, so you don't have to touch ARTEX's config:
+
+```
+# Floor every call to the cheapest tier (strongest cost guard):
+BRIDGE_MODEL_OVERRIDE=claude-haiku-4-5
+
+# Or downgrade only the expensive requests, leave the rest alone:
+BRIDGE_MODEL_MAP={"claude-opus-4-7":"claude-haiku-4-5"}
+```
+
+The `ops/artex/` compose stack ships with `BRIDGE_MODEL_OVERRIDE=claude-haiku-4-5`
+and `ARTEX_LLM_MODEL=claude-haiku-4-5` by default. The cache key stays keyed on
+the *requested* model, so the override is transparent to ARTEX and to retries.
+Other levers: a longer `BRIDGE_CACHE_TTL_SECONDS` (identical probes become free)
+and ARTEX's own `ARTEX_TASK_BUDGET_TURNS` / `..._TOKENS` caps (stop a stuck
+planner from firing hundreds of calls).
 
 ## Testing
 
@@ -202,6 +226,34 @@ curl -s http://127.0.0.1:5057/v1/messages \
 
 Expected: `stop_reason: "tool_use"`, `content` including
 `{"type":"tool_use","id":"...","name":"http_get","input":{"url":"..."}}`.
+
+## Troubleshooting: ARTEX reports a failed POST / "send failed"
+
+ARTEX hand-rolls the HTTP call to `/v1/messages`. When it says the **send
+failed** or the **POST request failed**, the planner could not get a usable
+answer from the bridge. The bridge now always answers with a parseable
+Anthropic error envelope (never a bare 500), so read the `error.type` /
+`error.message` ARTEX logs:
+
+| What you see | Cause | Fix |
+|---|---|---|
+| `401 authentication_error` — "…not authenticated — run `claude login`…" | The bridge container was never logged in (the `/root/.claude` volume is empty), or the session expired. | `docker compose exec claude-bridge claude login` once, then re-run the task. |
+| `502 api_error` — "`CLINotFoundError`…" | The `claude` CLI is missing from the image. | Rebuild: `docker compose build claude-bridge`. |
+| `502 api_error` — "`ProcessError`: model not found…" | `ARTEX_LLM_MODEL` / `BRIDGE_MODEL_OVERRIDE` names a model the CLI doesn't know. | Set a known tier, e.g. `BRIDGE_MODEL_OVERRIDE=claude-haiku-4-5`. |
+| `429 rate_limit_error` | Subscription window exhausted. | Wait for the window reset (see below) or lower the turn budgets. |
+| Connection refused / no HTTP response at all | The bridge isn't running or ARTEX's `ARTEX_LLM_BASE_URL` is wrong. | `docker compose ps`; `curl -fsS http://127.0.0.1:5057/health`; confirm `ARTEX_LLM_BASE_URL=http://claude-bridge:5000`. |
+
+Quick checks from the VPS host:
+
+```
+docker compose ps                                   # bridge + postgres up?
+curl -fsS http://127.0.0.1:5057/health              # bridge answering?
+docker compose logs --tail=50 claude-bridge         # the real error is logged here
+```
+
+A connection-refused is an operational problem (container down / wrong URL),
+not something the bridge can answer — every reachable failure now comes back as
+one of the typed errors above.
 
 ## Known subscription-limit behaviour
 

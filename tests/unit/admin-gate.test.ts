@@ -135,7 +135,11 @@ describe('regola ferrea /admin: chi passa', () => {
   ])('%s: 404 come una pagina che non esiste', async (_label, user) => {
     const read = reader(user as AdminSessionUser);
     const html = await expectHidden(await adminGate(request('/admin/monitoraggio', SESSION), read));
-    expect(html).toContain('Pagina non trovata');
+    // Ricalca la vera 404 del sito (src/app/not-found.tsx): un visitatore non distingue /admin da
+    // una qualunque pagina inesistente.
+    expect(html).toContain('Questa pagina non esiste');
+    expect(html).toContain('Torna alla home');
+    expect(html).toContain('<title>Solco</title>');
     expect(read).toHaveBeenCalledOnce();
   });
 

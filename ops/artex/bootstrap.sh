@@ -137,8 +137,24 @@ if [ "$RESCOPE_ONLY" = 0 ]; then
     NEW_PG="$POSTGRES_PASSWORD"
   fi
 
-  NEW_LLM_PROVIDER=$(prompt "LLM provider (anthropic/openai)" "${ARTEX_LLM_PROVIDER:-anthropic}")
+  # bridge   = subscription-backed Claude sibling (cheapest, recommended).
+  # openai   = OpenAI direct, Chat Completions (gpt-4o / gpt-4.1 / non-reasoning).
+  # openai-responses = OpenAI direct, Responses API (GPT-5 / o-series reasoning).
+  # anthropic = Anthropic direct with a real sk-ant- key (no bridge).
+  # Direct modes leave ARTEX_LLM_BASE_URL EMPTY so ARTEX hits the provider's
+  # public endpoint; only 'bridge' keeps the sibling container URL.
+  NEW_LLM_PROVIDER=$(prompt "LLM mode (bridge/openai/openai-responses/anthropic)" "bridge")
+  NEW_BASE_URL=""
   case "$NEW_LLM_PROVIDER" in
+    bridge)
+      NEW_LLM_PROVIDER=anthropic
+      NEW_KEY="dummy-bridge-key"
+      NEW_MODEL=$(prompt "ARTEX_LLM_MODEL (bridge tier)" "${ARTEX_LLM_MODEL:-claude-haiku-4-5}")
+      KEY_LINE="ANTHROPIC_API_KEY=$NEW_KEY"
+      OTHER_KEY_LINE="OPENAI_API_KEY="
+      NEW_BASE_URL="http://claude-bridge:5000"
+      say "Bridge mode: run 'docker compose exec claude-bridge claude login' once after boot."
+      ;;
     anthropic)
       NEW_KEY=$(prompt "ANTHROPIC_API_KEY (sk-ant-...)" "${ANTHROPIC_API_KEY:-}")
       NEW_MODEL=$(prompt "ARTEX_LLM_MODEL" "${ARTEX_LLM_MODEL:-claude-opus-4-7}")
@@ -147,11 +163,22 @@ if [ "$RESCOPE_ONLY" = 0 ]; then
       ;;
     openai)
       NEW_KEY=$(prompt "OPENAI_API_KEY (sk-...)" "${OPENAI_API_KEY:-}")
-      NEW_MODEL=$(prompt "ARTEX_LLM_MODEL" "${ARTEX_LLM_MODEL:-gpt-5}")
+      NEW_MODEL=$(prompt "ARTEX_LLM_MODEL" "${ARTEX_LLM_MODEL:-gpt-4o}")
       KEY_LINE="OPENAI_API_KEY=$NEW_KEY"
       OTHER_KEY_LINE="ANTHROPIC_API_KEY="
+      say "OpenAI direct (Chat Completions). No bridge floor — mind ARTEX_TASK_BUDGET_*."
       ;;
-    *) die "Unknown provider '$NEW_LLM_PROVIDER'. Use 'anthropic' or 'openai'." ;;
+    openai-responses)
+      NEW_KEY=$(prompt "OPENAI_API_KEY (sk-...)" "${OPENAI_API_KEY:-}")
+      # gpt-5-mini by default: the planner fires many calls per task, so the
+      # cheaper reasoning tier keeps direct-mode spend sane. gpt-5 / gpt-5-pro
+      # are stronger but several times the price.
+      NEW_MODEL=$(prompt "ARTEX_LLM_MODEL" "${ARTEX_LLM_MODEL:-gpt-5-mini}")
+      KEY_LINE="OPENAI_API_KEY=$NEW_KEY"
+      OTHER_KEY_LINE="ANTHROPIC_API_KEY="
+      say "OpenAI direct (Responses API, for GPT-5/o-series). No bridge floor — mind budgets."
+      ;;
+    *) die "Unknown mode '$NEW_LLM_PROVIDER'. Use bridge, openai, openai-responses or anthropic." ;;
   esac
   [ -n "$NEW_KEY" ] || die "LLM key is required."
 
@@ -163,10 +190,11 @@ if [ "$RESCOPE_ONLY" = 0 ]; then
       POSTGRES_PASSWORD=*)      echo "POSTGRES_PASSWORD=$NEW_PG" ;;
       ARTEX_LLM_PROVIDER=*)     echo "ARTEX_LLM_PROVIDER=$NEW_LLM_PROVIDER" ;;
       ARTEX_LLM_MODEL=*)        echo "ARTEX_LLM_MODEL=$NEW_MODEL" ;;
+      ARTEX_LLM_BASE_URL=*)     echo "ARTEX_LLM_BASE_URL=$NEW_BASE_URL" ;;
       ANTHROPIC_API_KEY=*|"# ANTHROPIC_API_KEY="*)
-        [ "$NEW_LLM_PROVIDER" = anthropic ] && echo "$KEY_LINE" || echo "$OTHER_KEY_LINE" ;;
+        case "$NEW_LLM_PROVIDER" in anthropic) echo "$KEY_LINE" ;; *) echo "$OTHER_KEY_LINE" ;; esac ;;
       OPENAI_API_KEY=*|"# OPENAI_API_KEY="*)
-        [ "$NEW_LLM_PROVIDER" = openai ] && echo "$KEY_LINE" || echo "$OTHER_KEY_LINE" ;;
+        case "$NEW_LLM_PROVIDER" in openai|openai-responses) echo "$KEY_LINE" ;; *) echo "$OTHER_KEY_LINE" ;; esac ;;
       *) echo "$line" ;;
     esac
   done < .env > "$tmp" && mv "$tmp" .env

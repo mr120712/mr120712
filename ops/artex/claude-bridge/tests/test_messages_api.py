@@ -297,3 +297,56 @@ def test_ignores_thinking_and_output_config_extensions(
 def test_max_tokens_is_forwarded(client: TestClient, adapter: FakeAdapter) -> None:
     client.post("/v1/messages", json=_basic_body(max_tokens=4096), headers={"x-api-key": "dummy"})
     assert adapter.calls[0]["max_tokens"] == 4096
+
+
+class _RaisingAdapter(SdkAdapter):
+    """Adapter that always raises a supplied exception — models the real SDK
+    failing (CLI not logged in, process crash, etc.)."""
+
+    def __init__(self, exc: Exception) -> None:
+        self._exc = exc
+
+    async def complete(self, **_kwargs: Any) -> dict[str, Any]:
+        raise self._exc
+
+
+def _client_raising(exc: Exception) -> TestClient:
+    # raise_server_exceptions=False so TestClient returns the handler's response
+    # instead of re-raising — mirrors a real HTTP client like ARTEX's.
+    return TestClient(build_app(adapter=_RaisingAdapter(exc), cache=None, limiter=None),
+                      raise_server_exceptions=False)
+
+
+def test_sdk_auth_required_returns_clean_401() -> None:
+    from bridge.errors import SdkAuthRequired
+
+    client = _client_raising(SdkAuthRequired("run `claude login` in the bridge"))
+    res = client.post("/v1/messages", json=_basic_body(), headers={"x-api-key": "dummy"})
+    assert res.status_code == 401
+    err = res.json()
+    assert err["type"] == "error"
+    assert err["error"]["type"] == "authentication_error"
+    assert "claude login" in err["error"]["message"]
+
+
+def test_sdk_unavailable_returns_clean_502() -> None:
+    from bridge.errors import SdkUnavailable
+
+    client = _client_raising(SdkUnavailable("ProcessError: exit 1"))
+    res = client.post("/v1/messages", json=_basic_body(), headers={"x-api-key": "dummy"})
+    assert res.status_code == 502
+    err = res.json()
+    assert err["error"]["type"] == "api_error"
+
+
+def test_unexpected_adapter_exception_returns_clean_500_not_raw() -> None:
+    # The whole point: an arbitrary failure must come back as a parseable
+    # Anthropic error envelope, never a raw FastAPI 500 that ARTEX reads as a
+    # dead POST.
+    client = _client_raising(RuntimeError("boom"))
+    res = client.post("/v1/messages", json=_basic_body(), headers={"x-api-key": "dummy"})
+    assert res.status_code == 500
+    err = res.json()
+    assert err["type"] == "error"
+    assert err["error"]["type"] == "api_error"
+    assert "boom" in err["error"]["message"]

@@ -63,12 +63,37 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-dummy-bridge-key}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ARTEX_LLM_PROVIDER: ${ARTEX_LLM_PROVIDER:-anthropic}
-      ARTEX_LLM_MODEL: ${ARTEX_LLM_MODEL:-claude-opus-4-7}
-      ARTEX_LLM_BASE_URL: ${ARTEX_LLM_BASE_URL:-http://claude-bridge:5000}
+      # Cost default: the planner runs on the cheapest tier (Haiku). Opus drains
+      # the subscription window — and pay-per-token budget in direct mode —
+      # several times faster for the same loop. The bridge ALSO floors the model
+      # (BRIDGE_MODEL_OVERRIDE below), so even an ARTEX build that ignores this
+      # var can't silently escalate spend. Raise to sonnet/opus only if Haiku's
+      # planning quality proves too weak for a given target.
+      ARTEX_LLM_MODEL: ${ARTEX_LLM_MODEL:-claude-haiku-4-5}
+      # Where ARTEX sends LLM calls. The `-` (no colon) is load-bearing:
+      #   • UNSET in .env     -> the bridge (subscription-backed, default).
+      #   • EMPTY in .env     -> passed through empty -> ARTEX hits the provider's
+      #     PUBLIC endpoint directly (api.openai.com for provider openai/
+      #     openai-responses, api.anthropic.com for anthropic). This is "direct
+      #     mode". A `:-` here would wrongly rewrite an empty value back to the
+      #     bridge, so an operator could never actually go direct.
+      # NOTE: the bridge only speaks Anthropic's /v1/messages. OpenAI-format
+      # traffic MUST go direct (empty base URL), never to the bridge.
+      ARTEX_LLM_BASE_URL: ${ARTEX_LLM_BASE_URL-http://claude-bridge:5000}
       ARTEX_LLM_PROXY: ${ARTEX_LLM_PROXY:-}
       # Bridge supports both streaming and non-streaming. Default is non-stream
       # for first debug; flip to true for SSE.
       ARTEX_LLM_STREAM: ${ARTEX_LLM_STREAM:-false}
+      # Prompt-cache optimization (ARTEX P3.5 phase C). Splits the worker system
+      # prompt at its first per-run volatile segment so the large static prefix
+      # (instructions + traffic rules) stays byte-identical across worker calls —
+      # the exact condition Anthropic/OpenAI prompt caching needs to hit. ON by
+      # default here because this bundle is cost-first: in a pay-per-token direct
+      # mode (OpenAI gpt-5-mini / Anthropic) it turns the repeated system prefix
+      # into cheap cache reads instead of full-price input on every planner call;
+      # it also raises hit rates through the bridge. Upstream default is off;
+      # set 0 to fall back to the legacy byte-identical layout.
+      ARTEX_CACHE_PREFIX: ${ARTEX_CACHE_PREFIX:-1}
       ARTEX_JWT_KEY_DIR: /app/keys
       ARTEX_SECRET_KEY: ${ARTEX_SECRET_KEY:-}
       ARTEX_TRUSTED_PROXIES: ${ARTEX_TRUSTED_PROXIES:-}
@@ -76,10 +101,13 @@ services:
       ARTEX_UPDATE_CHECK: ${ARTEX_UPDATE_CHECK:-}
       ARTEX_NOISE_PROFILE: ${ARTEX_NOISE_PROFILE:-quiet}
       ARTEX_TARGET_USER_AGENT: ${ARTEX_TARGET_USER_AGENT:-}
-      ARTEX_TASK_BUDGET_TOKENS: ${ARTEX_TASK_BUDGET_TOKENS:-200000}
-      ARTEX_TASK_BUDGET_TURNS: ${ARTEX_TASK_BUDGET_TURNS:-120}
-      ARTEX_INTENT_BUDGET_TOKENS: ${ARTEX_INTENT_BUDGET_TOKENS:-60000}
-      ARTEX_INTENT_BUDGET_TURNS: ${ARTEX_INTENT_BUDGET_TURNS:-30}
+      # Anti-runaway budgets, tightened for the low-cost profile. A single task
+      # still gets plenty of room; these just stop a stuck planner from firing
+      # hundreds of calls. Raise if Haiku legitimately needs more steps.
+      ARTEX_TASK_BUDGET_TOKENS: ${ARTEX_TASK_BUDGET_TOKENS:-150000}
+      ARTEX_TASK_BUDGET_TURNS: ${ARTEX_TASK_BUDGET_TURNS:-80}
+      ARTEX_INTENT_BUDGET_TOKENS: ${ARTEX_INTENT_BUDGET_TOKENS:-45000}
+      ARTEX_INTENT_BUDGET_TURNS: ${ARTEX_INTENT_BUDGET_TURNS:-20}
       # The one target the operator confirmed at bootstrap. Used by the import
       # script to render scope.json; ARTEX itself reads scope from the DB.
       ARTEX_TARGET_HOST: ${ARTEX_TARGET_HOST:?set ARTEX_TARGET_HOST in .env}
@@ -112,8 +140,16 @@ services:
       BRIDGE_HOST: "0.0.0.0"
       BRIDGE_MAX_RPS: ${BRIDGE_MAX_RPS:-1.0}
       BRIDGE_MAX_CONCURRENCY: ${BRIDGE_MAX_CONCURRENCY:-2}
-      BRIDGE_CACHE_TTL_SECONDS: ${BRIDGE_CACHE_TTL_SECONDS:-3600}
+      # 24h cache: an identical probe/retry within a day costs nothing instead
+      # of burning a fresh subscription call.
+      BRIDGE_CACHE_TTL_SECONDS: ${BRIDGE_CACHE_TTL_SECONDS:-86400}
       BRIDGE_CACHE_PATH: /data/cache.sqlite
+      # Central cost floor: rewrite whatever model ARTEX requests to this cheap
+      # tier before calling the subscription. Empty = honor ARTEX's request.
+      # BRIDGE_MODEL_MAP is a JSON object for selective downgrades, e.g.
+      # '{"claude-opus-4-7":"claude-haiku-4-5"}'; override wins when both set.
+      BRIDGE_MODEL_OVERRIDE: ${BRIDGE_MODEL_OVERRIDE:-claude-haiku-4-5}
+      BRIDGE_MODEL_MAP: ${BRIDGE_MODEL_MAP:-}
       BRIDGE_LOG_LEVEL: ${BRIDGE_LOG_LEVEL:-INFO}
     ports:
       # Localhost only so you can probe /health from the host but nothing on
