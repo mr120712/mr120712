@@ -80,19 +80,25 @@ const readSessionUser: AdminSessionReader = async (headers) => {
 const HIDDEN_CSP =
   "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
+// Il testo e l'aspetto ricalcano la vera pagina 404 del sito (src/app/not-found.tsx): stesso
+// titolo di scheda («Solco»), stesso fondo scuro del tema (colorTheme 'dark': #04070e / #e8f7ff,
+// link ciano #00f0ff), stesse parole. Così, per un visitatore, /admin è indistinguibile da una
+// qualunque pagina inesistente: nulla lascia intuire che lì dietro ci sia un'amministrazione.
 const HIDDEN_PAGES = {
-  404: { heading: '404', title: 'Pagina non trovata', text: 'La pagina che cerchi non esiste.' },
+  404: { heading: '404', text: 'Questa pagina non esiste.' },
   503: {
     heading: '503',
-    title: 'Servizio non disponibile',
     text: 'Il servizio non è disponibile in questo momento. Riprova tra poco.',
   },
 } as const;
 
-/** Pagina autonoma e senza script: nulla rivela che dietro c'è l'amministrazione. */
+/**
+ * Pagina autonoma e senza script, identica a vedersi a una normale pagina inesistente del sito:
+ * nulla rivela che dietro c'è l'amministrazione. Resta fuori dagli indici e dalle cache.
+ */
 export function hiddenAdminResponse(status: 404 | 503): Response {
   const page = HIDDEN_PAGES[status];
-  const html = `<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><title>${page.title} · Solco</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#fff;color:#111}main{max-width:32rem;padding:2rem;text-align:center}a{color:inherit}@media (prefers-color-scheme:dark){body{background:#0b0b0c;color:#f2f2f2}}</style></head><body><main><h1>${page.heading}</h1><p>${page.text}</p><p><a href="/">Torna a Solco</a></p></main></body></html>`;
+  const html = `<!doctype html><html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><title>Solco</title><style>:root{color-scheme:dark}body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#04070e;color:#e8f7ff}main{max-width:36rem;padding:3rem 1.5rem;text-align:center}h1{margin:0 0 .5rem;font-size:2.25rem;font-weight:600;letter-spacing:-.02em}p{margin:0 0 1.25rem;color:#8fa8c4}a{color:#00f0ff;font-size:.9rem;font-weight:500;text-decoration:underline;text-underline-offset:4px}</style></head><body><main><h1>${page.heading}</h1><p>${page.text}</p><a href="/">Torna alla home</a></main></body></html>`;
   return new Response(html, {
     status,
     headers: {
@@ -103,6 +109,8 @@ export function hiddenAdminResponse(status: 404 | 503): Response {
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'DENY',
       'Referrer-Policy': 'no-referrer',
+      // Stesso header diagnostico delle risposte normali del proxy: un tell in meno su /admin.
+      'x-solco-edge': '1',
       Vary: 'Cookie',
       ...(status === 503 ? { 'Retry-After': '30' } : {}),
     },
