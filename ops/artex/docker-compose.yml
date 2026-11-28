@@ -84,6 +84,16 @@ services:
       # Bridge supports both streaming and non-streaming. Default is non-stream
       # for first debug; flip to true for SSE.
       ARTEX_LLM_STREAM: ${ARTEX_LLM_STREAM:-false}
+      # Prompt-cache optimization (ARTEX P3.5 phase C). Splits the worker system
+      # prompt at its first per-run volatile segment so the large static prefix
+      # (instructions + traffic rules) stays byte-identical across worker calls —
+      # the exact condition Anthropic/OpenAI prompt caching needs to hit. ON by
+      # default here because this bundle is cost-first: in a pay-per-token direct
+      # mode (OpenAI gpt-5-mini / Anthropic) it turns the repeated system prefix
+      # into cheap cache reads instead of full-price input on every planner call;
+      # it also raises hit rates through the bridge. Upstream default is off;
+      # set 0 to fall back to the legacy byte-identical layout.
+      ARTEX_CACHE_PREFIX: ${ARTEX_CACHE_PREFIX:-1}
       ARTEX_JWT_KEY_DIR: /app/keys
       ARTEX_SECRET_KEY: ${ARTEX_SECRET_KEY:-}
       ARTEX_TRUSTED_PROXIES: ${ARTEX_TRUSTED_PROXIES:-}

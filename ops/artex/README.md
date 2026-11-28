@@ -129,6 +129,31 @@ ARTEX_LLM_MODEL=gpt-5-mini             # cheap reasoning tier; gpt-5 for more po
 then `docker compose up -d`. **Direct mode has no bridge cost floor or cache** —
 every planner call is billed per-token, so keep `ARTEX_TASK_BUDGET_*` tight.
 
+## Prompt caching (cutting input cost)
+
+The planner re-sends a large, mostly-identical system prompt on every call.
+Provider **prompt caching** charges a repeated prefix at a fraction of the input
+price (Anthropic: ~0.1x read vs 1.25x/2x to write; OpenAI caches automatically),
+but only when the prefix is **byte-identical** across requests. ARTEX ships a
+flag for exactly this — `ARTEX_CACHE_PREFIX=1` (on by default in this bundle) —
+which splits the worker system prompt at its first per-run volatile segment so
+the static part stays stable and cache-eligible. Set it to `0` for the legacy
+layout.
+
+Where it pays off:
+
+- **OpenAI direct (`gpt-5-mini`)** — OpenAI caches long repeated prefixes
+  automatically; the stable prefix turns most per-call input into cache reads.
+  This is the biggest real-money saver in direct mode.
+- **Anthropic direct** — ARTEX's client marks the cacheable prefix; reads bill at
+  ~0.1x. Combine with tight budgets.
+- **Bridge (subscription)** — the subscription is flat-rate, so there is no
+  per-token bill to cut, but a stable prefix still raises hit rates on the
+  bridge's own 24h cache and on the SDK's internal caching.
+
+No extra key or config beyond `ARTEX_CACHE_PREFIX=1` — it's already wired into
+`docker-compose.yml` and `.env.example`.
+
 ## What is deliberately off
 
 - `ARTEX_BIND_ADDR=127.0.0.1` — the UI is never on the public interface. Reach
