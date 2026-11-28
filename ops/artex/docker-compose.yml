@@ -70,7 +70,16 @@ services:
       # var can't silently escalate spend. Raise to sonnet/opus only if Haiku's
       # planning quality proves too weak for a given target.
       ARTEX_LLM_MODEL: ${ARTEX_LLM_MODEL:-claude-haiku-4-5}
-      ARTEX_LLM_BASE_URL: ${ARTEX_LLM_BASE_URL:-http://claude-bridge:5000}
+      # Where ARTEX sends LLM calls. The `-` (no colon) is load-bearing:
+      #   • UNSET in .env     -> the bridge (subscription-backed, default).
+      #   • EMPTY in .env     -> passed through empty -> ARTEX hits the provider's
+      #     PUBLIC endpoint directly (api.openai.com for provider openai/
+      #     openai-responses, api.anthropic.com for anthropic). This is "direct
+      #     mode". A `:-` here would wrongly rewrite an empty value back to the
+      #     bridge, so an operator could never actually go direct.
+      # NOTE: the bridge only speaks Anthropic's /v1/messages. OpenAI-format
+      # traffic MUST go direct (empty base URL), never to the bridge.
+      ARTEX_LLM_BASE_URL: ${ARTEX_LLM_BASE_URL-http://claude-bridge:5000}
       ARTEX_LLM_PROXY: ${ARTEX_LLM_PROXY:-}
       # Bridge supports both streaming and non-streaming. Default is non-stream
       # for first debug; flip to true for SSE.

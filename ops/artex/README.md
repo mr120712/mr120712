@@ -100,6 +100,35 @@ same `SPACE_CHAT_API_KEY` pattern) and tightens the Skynet scanner rules
 accordingly. Say the word and I'll build it. Offense stays on the VPS;
 defense faces the internet.
 
+## LLM mode: bridge (default) vs OpenAI/Anthropic direct
+
+`bootstrap.sh` asks for an **LLM mode**:
+
+- **`bridge`** (default, recommended) — routes the planner through the
+  subscription-backed `claude-bridge` sibling (cheapest; one
+  `docker compose exec claude-bridge claude login` after boot).
+- **`openai`** — OpenAI **direct**, Chat Completions. Use for `gpt-4o`,
+  `gpt-4.1`, other non-reasoning models.
+- **`openai-responses`** — OpenAI **direct**, Responses API. Use for **GPT-5 /
+  o-series** reasoning models — they reject Chat Completions' `max_tokens`, so
+  plain `openai` fails on them.
+- **`anthropic`** — Anthropic direct with a real `sk-ant-` key (no bridge).
+
+Direct modes set `ARTEX_LLM_BASE_URL=` **empty** so ARTEX calls the provider's
+public endpoint; only `bridge` keeps the container URL. The key lives **only**
+in the VPS `.env`, never in git. To flip an existing install to OpenAI direct
+without re-running bootstrap, edit `.env`:
+
+```
+ARTEX_LLM_BASE_URL=            # empty = direct to api.openai.com
+OPENAI_API_KEY=sk-...          # real key, this file only
+ARTEX_LLM_PROVIDER=openai-responses   # or 'openai' for gpt-4o
+ARTEX_LLM_MODEL=gpt-5                  # or gpt-4o
+```
+
+then `docker compose up -d`. **Direct mode has no bridge cost floor or cache** —
+every planner call is billed per-token, so keep `ARTEX_TASK_BUDGET_*` tight.
+
 ## What is deliberately off
 
 - `ARTEX_BIND_ADDR=127.0.0.1` — the UI is never on the public interface. Reach
