@@ -1,7 +1,10 @@
-// @polsia:framework-owned - DO NOT EDIT. Code installed by polsia/modules/better-auth@0.12.0. Drift = commit rejected.
+// @polsia:framework-owned - edited in place for better-auth 1.7 upgrade (CVE fix).
+// Code originally installed by polsia/modules/better-auth@0.12.0 — reinstalling
+// the module will regenerate this file; keep the 1.7 migration in mind when it
+// does (see commit message).
 //
-// better-auth React client (v1.6.x). Client-safe: NO server secrets, NO
-// server-only imports — safe to import from 'use client' components.
+// better-auth React client (v1.7.x). Client-safe: NO server secrets, NO
+// server-only runtime imports — safe to import from 'use client' components.
 //
 // SAME-ORIGIN: no baseURL is set, so the client calls /api/auth on whatever host
 // the app is served from (<slug>.polsia.app, the .io backup, or a custom brand
@@ -11,14 +14,21 @@
 // catch-all route handler on that same origin.
 // Includes adminClient so the user's role is inferred and admin permission
 // helpers are available to client UI. Server-side enforcement still belongs in
-// route handlers and server helpers. genericOAuthClient adds signIn.oauth2, used by
-// the Polsia Google sign-in button.
+// route handlers and server helpers.
+//
+// Generic OAuth (Polsia Google, owner-Google): in better-auth 1.7 the generic
+// OAuth plugin registers its providers on the core `signIn.social` surface and
+// no longer exposes a dedicated `signIn.oauth2` endpoint. The server plugin in
+// `src/lib/auth.ts` still calls `genericOAuth({ config: [...] })`; on the client
+// we just drop `genericOAuthClient` and call `signIn.social({ provider: '<id>' })`
+// with the same provider id. No `InferServerPlugin` is needed — core actions
+// cover both built-in and generic providers.
 
-import { adminClient, genericOAuthClient } from 'better-auth/client/plugins';
+import { adminClient } from 'better-auth/client/plugins';
 import { createAuthClient } from 'better-auth/react';
 
 export const authClient = createAuthClient({
-  plugins: [adminClient(), genericOAuthClient()],
+  plugins: [adminClient()],
   fetchOptions: {
     onRequest(context) {
       // Marks Polsia preview requests; api/auth/[...all]/route.ts partitions their cookies.

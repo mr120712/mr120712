@@ -589,7 +589,9 @@ describe('getSignupStats: query aggregate parametrizzate', () => {
         if (broken === 'paypal') {
           fake.payPalSubscription.findMany.mockRejectedValue(secret);
         } else {
-          const original = fake.$queryRaw.getMockImplementation();
+          const original = fake.$queryRaw.getMockImplementation() as
+            | ((strings: TemplateStringsArray, ...values: unknown[]) => unknown)
+            | undefined;
           fake.$queryRaw.mockImplementation(
             async (strings: TemplateStringsArray, ...values: unknown[]) => {
               if (strings.join('').includes('"source"')) throw secret;

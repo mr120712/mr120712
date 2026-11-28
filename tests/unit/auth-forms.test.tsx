@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   signInEmail: vi.fn(),
   signInSocial: vi.fn(),
-  signInOauth2: vi.fn(),
   signUpEmail: vi.fn(),
   replace: vi.fn(),
   refresh: vi.fn(),
@@ -16,7 +15,9 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: mocks.replace, refresh: mocks.refresh }),
 }));
 vi.mock('@/lib/auth-client', () => ({
-  signIn: { email: mocks.signInEmail, social: mocks.signInSocial, oauth2: mocks.signInOauth2 },
+  // better-auth 1.7: generic OAuth providers (Google) share the `signIn.social`
+  // surface with built-in ones; there is no separate `signIn.oauth2` anymore.
+  signIn: { email: mocks.signInEmail, social: mocks.signInSocial },
   signUp: { email: mocks.signUpEmail },
 }));
 
@@ -69,7 +70,6 @@ beforeEach(() => {
   vi.stubEnv('NEXT_PUBLIC_GOOGLE_SIGNIN_CLIENT_ID', 'test-client.apps.googleusercontent.com');
   mocks.signInEmail.mockReset();
   mocks.signInSocial.mockReset().mockResolvedValue({ error: null });
-  mocks.signInOauth2.mockReset().mockResolvedValue({ error: null });
   mocks.signUpEmail.mockReset();
   mocks.replace.mockReset();
   mocks.refresh.mockReset();
@@ -94,8 +94,10 @@ describe('form di accesso Solco', () => {
       button('Continua con Google')?.click();
       await Promise.resolve();
     });
-    expect(mocks.signInOauth2).toHaveBeenCalledWith(
-      expect.objectContaining({ providerId: 'google', callbackURL: '/dashboard' }),
+    // Google is the generic OAuth provider `google` registered by the framework; in
+    // better-auth 1.7 it goes through `signIn.social` just like built-in providers.
+    expect(mocks.signInSocial).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'google', callbackURL: '/dashboard' }),
     );
 
     expect(button('Continua con Apple')).toBeTruthy();
